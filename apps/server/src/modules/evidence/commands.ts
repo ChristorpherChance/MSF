@@ -24,6 +24,15 @@ export const COMMANDS = [
   'material.file.finalize_content',
   'material.parsed.save_draft',
   'material.parsed.delete_row',
+  // M1 资料域：批量解析/加工/定稿作业（DSG-A03-9/12/15/16，F02-4）
+  'material.file.batch_parse',
+  'material.file.batch_finalize_content',
+  'material.job.create',
+  'material.job.confirm',
+  'material.job.stop',
+  'material.job.row_process',
+  'material.job.row_update',
+  'material.job.item_retry',
 ] as const;
 export type CommandName = (typeof COMMANDS)[number];
 

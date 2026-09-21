@@ -108,6 +108,41 @@ export class FilesService {
     };
   }
 
+  /** A03-17 需求参考输入清单：仅 content_final 为合法参考输入（REQ-114/115） */
+  async references(projectId: string): Promise<{ items: Array<{ fileId: string; name: string; status: string; contentFingerprint: string }> }> {
+    const r = await query<{ file_id: string; name: string; content_fingerprint: string }>(
+      `SELECT f.id AS file_id, f.name, p.content_fingerprint FROM mat_files f
+       JOIN mat_parsed p ON p.file_id=f.id AND p.kind='content_parse' AND p.status='final'
+       WHERE f.project_id=$1 AND f.parse_status='content_final' ORDER BY f.code`,
+      [projectId],
+    );
+    return {
+      items: r.rows.map((row) => ({
+        fileId: row.file_id,
+        name: row.name,
+        status: 'content_final',
+        contentFingerprint: `sha256:${row.content_fingerprint}`,
+      })),
+    };
+  }
+
+  /** REQ-115 基线校验：生成请求登记的参考指纹与现状比对，变化即拒绝提交（供 M2+ 生成命令内调用） */
+  async verifyReferences(
+    projectId: string,
+    refs: Array<{ fileId: string; contentFingerprint: string }>,
+  ): Promise<void> {
+    const current = await this.references(projectId);
+    const byId = new Map(current.items.map((i) => [i.fileId, i.contentFingerprint]));
+    for (const ref of refs) {
+      if (byId.get(ref.fileId) !== ref.contentFingerprint) {
+        throw new DomainError('REFERENCE_STALE', '参考输入在执行期发生变化，拒绝提交', ref.fileId, {
+          registered: ref.contentFingerprint,
+          current: byId.get(ref.fileId) ?? null,
+        });
+      }
+    }
+  }
+
   /** A03-7 文件详情：parsed=文件解析稿 / content=内容整理稿 / source=MinIO 短时签名直链 */
   async detail(
     projectId: string,

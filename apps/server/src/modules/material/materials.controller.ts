@@ -2,6 +2,7 @@ import { Body, Controller, Delete, Get, HttpCode, Inject, Param, Post, Put, Quer
 import type { Request } from 'express';
 import { getActor } from '../api/identity.middleware.js';
 import { UploadsService, type CreateUploadInput } from './uploads.service.js';
+import { BatchService } from './batch.service.js';
 import { FilesService } from './files.service.js';
 import { ParseService } from './parse.service.js';
 import { ZipExtractService } from './zip-extract.service.js';
@@ -15,6 +16,7 @@ export class MaterialsController {
     @Inject(ZipExtractService) private readonly zipExtract: ZipExtractService,
     @Inject(FilesService) private readonly files: FilesService,
     @Inject(ParseService) private readonly parse: ParseService,
+    @Inject(BatchService) private readonly batch: BatchService,
   ) {}
 
   /** A03-1 创建上传会话（分片/ZIP 通用入口） */
@@ -182,6 +184,95 @@ export class MaterialsController {
       actorKind: actor.kind,
       actorId: actor.id,
     });
+  }
+
+  /** A03-9 批量解析（默认仅待解析；逐条成功/失败） */
+  @Post('files\:batch-parse')
+  @HttpCode(202)
+  batchParse(
+    @Param('projectId') projectId: string,
+    @Body() body: { fileIds: string[]; onlyPending?: boolean },
+    @Req() req: Request,
+  ) {
+    const actor = getActor(req);
+    return this.batch.batchParse(projectId, body.fileIds ?? [], body.onlyPending ?? true, {
+      projectId,
+      actorKind: actor.kind,
+      actorId: actor.id,
+    });
+  }
+
+  /** A03-12 批量内容定稿（INV-BULK-1：confirm:true 强制） */
+  @Post('files\:batch-finalize-content')
+  @HttpCode(200)
+  batchFinalizeContent(
+    @Param('projectId') projectId: string,
+    @Body() body: { fileIds: string[]; confirm?: boolean },
+    @Req() req: Request,
+  ) {
+    const actor = getActor(req);
+    return this.batch.batchFinalizeContent(projectId, body.fileIds ?? [], body.confirm ?? false, {
+      projectId,
+      actorKind: actor.kind,
+      actorId: actor.id,
+    });
+  }
+
+  /** A03-17 需求参考输入清单（仅 content_final） */
+  @Get('references')
+  references(@Param('projectId') projectId: string) {
+    return this.files.references(projectId);
+  }
+
+  /** A03-15 创建批量加工作业（弹窗登记 idle） */
+  @Post('jobs')
+  @HttpCode(202)
+  createJob(
+    @Param('projectId') projectId: string,
+    @Body() body: { kind: 'translate' | 'mask' | 'index'; fileIds: string[]; params?: Record<string, unknown> },
+    @Req() req: Request,
+  ) {
+    const actor = getActor(req);
+    return this.batch.createJob(projectId, body.kind, body.fileIds ?? [], body.params, {
+      projectId,
+      actorKind: actor.kind,
+      actorId: actor.id,
+    });
+  }
+
+  /** A03-15 确认提交（整批复核 → running；不一致 STALE_EVIDENCE 整批拒绝） */
+  @Post('jobs/:jobId\:confirm')
+  @HttpCode(202)
+  confirmJob(@Param('projectId') projectId: string, @Param('jobId') jobId: string, @Req() req: Request) {
+    const actor = getActor(req);
+    return this.batch.confirmJob(projectId, jobId, { projectId, actorKind: actor.kind, actorId: actor.id });
+  }
+
+  /** A03-16 作业查询 */
+  @Get('jobs/:jobId')
+  getJob(@Param('projectId') projectId: string, @Param('jobId') jobId: string) {
+    return this.batch.getJob(projectId, jobId);
+  }
+
+  /** A03-16 停止（running → stopped，后续行 skipped） */
+  @Post('jobs/:jobId\:stop')
+  @HttpCode(200)
+  stopJob(@Param('projectId') projectId: string, @Param('jobId') jobId: string, @Req() req: Request) {
+    const actor = getActor(req);
+    return this.batch.stopJob(projectId, jobId, { projectId, actorKind: actor.kind, actorId: actor.id });
+  }
+
+  /** A03-16 单条重试（行仍 file_final 前置） */
+  @Post('jobs/:jobId/items/:fileId\:retry')
+  @HttpCode(202)
+  retryItem(
+    @Param('projectId') projectId: string,
+    @Param('jobId') jobId: string,
+    @Param('fileId') fileId: string,
+    @Req() req: Request,
+  ) {
+    const actor = getActor(req);
+    return this.batch.retryItem(projectId, jobId, fileId, { projectId, actorKind: actor.kind, actorId: actor.id });
   }
 
   /** A03-18 中止上传会话（uploading→aborted + 回收暂存分片） */
