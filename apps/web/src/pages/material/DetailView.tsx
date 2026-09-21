@@ -85,13 +85,43 @@ export function DetailView() {
             ▶ 开始解析
           </button>
         )}
-        {(status === 'failed' || status === 'parsed' || status === 'file_final') && (
+        {(status === 'failed' || (subTab === 'file' && (status === 'parsed' || status === 'file_final'))) && (
           <button
             className="act"
             disabled={busy}
             onClick={() => void run((pid) => materialApi.retryParse(pid, fileId))}
           >
             ↻ {status === 'failed' ? '重试解析' : '重新解析'}
+          </button>
+        )}
+        {subTab === 'file' && status === 'parsed' && (
+          <button
+            className="act primary"
+            disabled={busy}
+            title="定稿后进入内容解析面（F02-3）"
+            onClick={() => void run((pid) => materialApi.finalizeFile(pid, fileId))}
+          >
+            ✓ 文件解析定稿
+          </button>
+        )}
+        {subTab === 'file' && status === 'file_final' && (
+          <button
+            className="act"
+            disabled={busy}
+            title="退回已解析状态，可重新解析"
+            onClick={() => void run((pid) => materialApi.unfinalizeFile(pid, fileId))}
+          >
+            取消定稿
+          </button>
+        )}
+        {subTab === 'content' && status === 'file_final' && (
+          <button
+            className="act primary"
+            disabled={busy}
+            title="内容稿须已保存；定稿后成为需求参考输入（REQ-114）"
+            onClick={() => void run((pid) => materialApi.finalizeContent(pid, fileId))}
+          >
+            ✓ 内容解析定稿
           </button>
         )}
         {viewMode === 'edit' && dirty && (

@@ -21,7 +21,8 @@ export function StatusTag({ status }: { status?: MatParseStatus | undefined }) {
 }
 
 function FileRow({ node }: { node: TreeNode }) {
-  const { selectedFileId, guardedSelect, refresh, projectId } = useMaterialView();
+  const { selectedFileId, guardedSelect, refresh, projectId, checked, toggleCheck } =
+    useMaterialView();
   const [busy, setBusy] = useState(false);
   const isZip = node.name.toLowerCase().endsWith('.zip');
 
@@ -50,6 +51,13 @@ function FileRow({ node }: { node: TreeNode }) {
       className={`tree-row${selectedFileId === node.id ? ' sel' : ''}`}
       onClick={() => guardedSelect(node.id)}
     >
+      <input
+        type="checkbox"
+        checked={!!checked[node.id]}
+        onClick={(e) => e.stopPropagation()}
+        onChange={() => toggleCheck(node.id)}
+        aria-label={`勾选 ${node.name}`}
+      />
       <span>📄</span>
       <span className="nm" title={node.name}>
         {node.name}

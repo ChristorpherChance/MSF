@@ -21,6 +21,8 @@ interface MaterialState {
   collapsed: Record<string, boolean>;
   /** 编辑草稿（v11Guard 未保存守卫：text≠base 时切换文件需确认） */
   draft: { fileId: string; base: string; text: string } | null;
+  /** 批量勾选（会话态；批量解析/批量定稿/批量加工的选集） */
+  checked: Record<string, boolean>;
   // 服务端读面
   projectId: string | null;
   originalTree: TreeNode[];
@@ -34,6 +36,8 @@ interface MaterialState {
   selectFile: (id: string | null) => void;
   toggleFolder: (id: string) => void;
   setDraft: (d: { fileId: string; base: string; text: string } | null) => void;
+  toggleCheck: (id: string) => void;
+  clearChecked: () => void;
   guardedSelect: (id: string | null) => boolean;
   init: () => Promise<void>;
   refresh: () => Promise<void>;
@@ -45,6 +49,7 @@ export const useMaterialView = create<MaterialState>((set, get) => ({
   selectedFileId: null,
   collapsed: {},
   draft: null,
+  checked: {},
   projectId: null,
   originalTree: [],
   parsedTree: [],
@@ -58,6 +63,8 @@ export const useMaterialView = create<MaterialState>((set, get) => ({
   toggleFolder: (id) =>
     set((s) => ({ collapsed: { ...s.collapsed, [id]: !s.collapsed[id] } })),
   setDraft: (draft) => set({ draft }),
+  toggleCheck: (id) => set((s) => ({ checked: { ...s.checked, [id]: !s.checked[id] } })),
+  clearChecked: () => set({ checked: {} }),
 
   /** 带未保存守卫的文件选择（v11Guard：编辑脏内容切文件需确认，确认则弃稿） */
   guardedSelect: (id: string | null): boolean => {

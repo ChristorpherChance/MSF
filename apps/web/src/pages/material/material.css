@@ -299,3 +299,111 @@ pre.md-src {
   background: color-mix(in srgb, var(--msf-accent) 8%, transparent);
   color: var(--msf-accent);
 }
+
+/* ===== T1-19 批量弹窗与定稿交互 ===== */
+
+/* 批量操作条（树下方：批量解析/批量加工/批量内容定稿） */
+.batch-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--msf-line);
+}
+.batch-bar .act {
+  border: 1px solid var(--msf-line);
+  background: var(--msf-card);
+  border-radius: 8px;
+  padding: 3px 10px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+}
+.batch-bar .act.primary {
+  background: var(--msf-accent);
+  border-color: var(--msf-accent);
+  color: #fff;
+}
+.batch-bar .act:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* 弹窗 */
+.msk {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 18, 25, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 60;
+}
+.modal {
+  width: min(640px, 92vw);
+  max-height: 84vh;
+  overflow-y: auto;
+  background: var(--msf-card);
+  border-radius: var(--msf-radius);
+  border: 1px solid var(--msf-line);
+  padding: 20px 22px;
+  box-shadow: 0 12px 40px rgba(15, 18, 25, 0.25);
+}
+.modal h3 { margin: 0 0 4px; }
+.modal .sub { color: var(--msf-mut); font-size: 13px; margin: 0 0 12px; }
+.modal .foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+.modal .foot .act {
+  border: 1px solid var(--msf-line);
+  background: var(--msf-card);
+  border-radius: 8px;
+  padding: 5px 14px;
+  cursor: pointer;
+  font: inherit;
+}
+.modal .foot .act.primary {
+  background: var(--msf-accent);
+  border-color: var(--msf-accent);
+  color: #fff;
+}
+.modal .foot .act.danger { color: var(--msf-danger); border-color: var(--msf-danger); }
+.modal .foot .act:disabled { opacity: 0.5; cursor: not-allowed; }
+.mrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--msf-bg);
+  font-size: 13px;
+}
+.mrow .nm { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mrow .rsn { color: var(--msf-mut); font-size: 12px; }
+
+/* 行级五态着色（F02-4） */
+.mat-tag.it-pending { color: var(--msf-mut); }
+.mat-tag.it-processing { color: var(--msf-accent); border-color: var(--msf-accent); }
+.mat-tag.it-succeeded { color: var(--msf-ok); border-color: var(--msf-ok); }
+.mat-tag.it-failed { color: var(--msf-danger); border-color: var(--msf-danger); }
+.mat-tag.it-skipped { color: var(--msf-warn); border-color: var(--msf-warn); }
+
+/* 基线快照/复核区 */
+.basis-box {
+  background: var(--msf-bg);
+  border: 1px solid var(--msf-line);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--msf-mut);
+  margin: 10px 0;
+  word-break: break-all;
+}
+.stale-box {
+  background: color-mix(in srgb, var(--msf-danger) 6%, transparent);
+  border: 1px solid var(--msf-danger);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+  color: var(--msf-danger);
+  margin: 10px 0;
+}
