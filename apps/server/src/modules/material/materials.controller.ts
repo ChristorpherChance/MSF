@@ -1,8 +1,9 @@
-import { Body, Controller, Get, HttpCode, Inject, Param, Post, Put, Query, Req } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Inject, Param, Post, Put, Query, Req } from '@nestjs/common';
 import type { Request } from 'express';
 import { getActor } from '../api/identity.middleware.js';
 import { UploadsService, type CreateUploadInput } from './uploads.service.js';
 import { FilesService } from './files.service.js';
+import { ParseService } from './parse.service.js';
 import { ZipExtractService } from './zip-extract.service.js';
 
 /** 资料域端点（LLD-5 §3 DSG-A03；本控制器随 T1-03~T1-16 逐任务扩面） */
@@ -13,6 +14,7 @@ export class MaterialsController {
     @Inject(UploadsService) private readonly uploads: UploadsService,
     @Inject(ZipExtractService) private readonly zipExtract: ZipExtractService,
     @Inject(FilesService) private readonly files: FilesService,
+    @Inject(ParseService) private readonly parse: ParseService,
   ) {}
 
   /** A03-1 创建上传会话（分片/ZIP 通用入口） */
@@ -104,6 +106,78 @@ export class MaterialsController {
   ) {
     const actor = getActor(req);
     return this.zipExtract.extract(projectId, fileId, body?.onConflict ?? 'reject', {
+      projectId,
+      actorKind: actor.kind,
+      actorId: actor.id,
+    });
+  }
+
+  /** A03-8 单个解析（202 + operationId，异步完成） */
+  @Post('files/:fileId\:parse')
+  @HttpCode(202)
+  parseFile(@Param('projectId') projectId: string, @Param('fileId') fileId: string, @Req() req: Request) {
+    const actor = getActor(req);
+    return this.parse.parse(projectId, fileId, { projectId, actorKind: actor.kind, actorId: actor.id });
+  }
+
+  /** A03-10 解析重试（仅 failed；流转全量留痕） */
+  @Post('files/:fileId\:retry-parse')
+  @HttpCode(202)
+  retryParse(@Param('projectId') projectId: string, @Param('fileId') fileId: string, @Req() req: Request) {
+    const actor = getActor(req);
+    return this.parse.parse(projectId, fileId, { projectId, actorKind: actor.kind, actorId: actor.id }, true);
+  }
+
+  /** A03-11 文件定稿 / 解锁定稿 */
+  @Post('files/:fileId\:finalize-file')
+  @HttpCode(200)
+  finalizeFile(@Param('projectId') projectId: string, @Param('fileId') fileId: string, @Req() req: Request) {
+    const actor = getActor(req);
+    return this.parse.finalizeFile(projectId, fileId, { projectId, actorKind: actor.kind, actorId: actor.id });
+  }
+
+  @Post('files/:fileId\:unfinalize-file')
+  @HttpCode(200)
+  unfinalizeFile(@Param('projectId') projectId: string, @Param('fileId') fileId: string, @Req() req: Request) {
+    const actor = getActor(req);
+    return this.parse.unfinalizeFile(projectId, fileId, { projectId, actorKind: actor.kind, actorId: actor.id });
+  }
+
+  /** A03-12 内容定稿（单件；批量随 T1-15） */
+  @Post('files/:fileId\:finalize-content')
+  @HttpCode(200)
+  finalizeContent(@Param('projectId') projectId: string, @Param('fileId') fileId: string, @Req() req: Request) {
+    const actor = getActor(req);
+    return this.parse.finalizeContent(projectId, fileId, { projectId, actorKind: actor.kind, actorId: actor.id });
+  }
+
+  /** A03-13 内容稿编辑保存（baseFingerprint 乐观锁，VERSION_CONFLICT 兜底） */
+  @Put('files/:fileId/content-draft')
+  saveDraft(
+    @Param('projectId') projectId: string,
+    @Param('fileId') fileId: string,
+    @Body() body: { contentMd: string; baseFingerprint: string | null },
+    @Req() req: Request,
+  ) {
+    const actor = getActor(req);
+    return this.parse.saveDraft(projectId, fileId, body.contentMd, body.baseFingerprint ?? null, {
+      projectId,
+      actorKind: actor.kind,
+      actorId: actor.id,
+    });
+  }
+
+  /** A03-14 解析行删除（守卫 DEPENDENCY_EXISTS；理由必填；原件不动） */
+  @Delete('content-rows/:rowId')
+  @HttpCode(200)
+  deleteRow(
+    @Param('projectId') projectId: string,
+    @Param('rowId') rowId: string,
+    @Body() body: { reason?: string },
+    @Req() req: Request,
+  ) {
+    const actor = getActor(req);
+    return this.parse.deleteRow(projectId, rowId, body?.reason ?? '', {
       projectId,
       actorKind: actor.kind,
       actorId: actor.id,

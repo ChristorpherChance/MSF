@@ -16,6 +16,14 @@ export const COMMANDS = [
   'material.upload.abort',
   // M1 资料域：ZIP 行内解压（DSG-A03-4）
   'material.zip.extract',
+  // M1 资料域：解析状态机与定稿（DSG-A03-8/10/11/12/13/14，F02-3）
+  'material.file.parse_start',
+  'material.file.parse_finish',
+  'material.file.finalize_file',
+  'material.file.unfinalize_file',
+  'material.file.finalize_content',
+  'material.parsed.save_draft',
+  'material.parsed.delete_row',
 ] as const;
 export type CommandName = (typeof COMMANDS)[number];
 
