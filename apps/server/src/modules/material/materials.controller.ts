@@ -1,7 +1,8 @@
-import { Body, Controller, HttpCode, Inject, Param, Post, Put, Req } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Inject, Param, Post, Put, Query, Req } from '@nestjs/common';
 import type { Request } from 'express';
 import { getActor } from '../api/identity.middleware.js';
 import { UploadsService, type CreateUploadInput } from './uploads.service.js';
+import { FilesService } from './files.service.js';
 import { ZipExtractService } from './zip-extract.service.js';
 
 /** 资料域端点（LLD-5 §3 DSG-A03；本控制器随 T1-03~T1-16 逐任务扩面） */
@@ -11,6 +12,7 @@ export class MaterialsController {
   constructor(
     @Inject(UploadsService) private readonly uploads: UploadsService,
     @Inject(ZipExtractService) private readonly zipExtract: ZipExtractService,
+    @Inject(FilesService) private readonly files: FilesService,
   ) {}
 
   /** A03-1 创建上传会话（分片/ZIP 通用入口） */
@@ -56,6 +58,39 @@ export class MaterialsController {
       actorKind: actor.kind,
       actorId: actor.id,
     });
+  }
+
+  /** A03-5 双目录树查询（REQ-105/106） */
+  @Get('tree')
+  tree(@Param('projectId') projectId: string) {
+    return this.files.tree(projectId);
+  }
+
+  /** A03-6 文件列表（状态多值过滤 + 分页默认 20） */
+  @Get('files')
+  list(
+    @Param('projectId') projectId: string,
+    @Query('status') status?: string,
+    @Query('folderId') folderId?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    return this.files.list(projectId, {
+      status,
+      folderId,
+      page: page ? Number(page) : undefined,
+      pageSize: pageSize ? Number(pageSize) : undefined,
+    });
+  }
+
+  /** A03-7 文件详情（parsed/content/source 三视图） */
+  @Get('files/:fileId')
+  detail(
+    @Param('projectId') projectId: string,
+    @Param('fileId') fileId: string,
+    @Query('view') view?: 'parsed' | 'content' | 'source',
+  ) {
+    return this.files.detail(projectId, fileId, view ?? 'parsed');
   }
 
   /** A03-4 ZIP 行内解压（同名冲突默认拒绝，rename 自动追加序号；REQ-104） */
