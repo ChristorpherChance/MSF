@@ -1,0 +1,170 @@
+/* 资料页布局（LLD-6 §3.2 DSG-U03-2 + §2 DSG-U02-3 三栏工作模式） */
+
+/* 子页签：📥 文件解析 / 🛠 内容解析 */
+.subtabs {
+  display: flex;
+  gap: 4px;
+  padding: 8px 20px 0;
+  background: var(--msf-card);
+  border-bottom: 1px solid var(--msf-line);
+}
+.subtabs button {
+  border: none;
+  background: none;
+  padding: 8px 14px;
+  cursor: pointer;
+  color: var(--msf-mut);
+  border-bottom: 2px solid transparent;
+  font: inherit;
+}
+.subtabs button.on {
+  color: var(--msf-accent);
+  border-bottom-color: var(--msf-accent);
+  font-weight: 600;
+}
+
+/* 三栏：左栏 288px + 中央 doc-area + 右助手 dock */
+.mat-layout {
+  display: flex;
+  align-items: stretch;
+  height: calc(100vh - 96px);
+  min-height: 0;
+}
+.panel-left {
+  width: 288px;
+  flex: none;
+  overflow-y: auto;
+  background: var(--msf-card);
+  border-right: 1px solid var(--msf-line);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.doc-area {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.doc-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: var(--msf-card);
+  border-bottom: 1px solid var(--msf-line);
+  flex-wrap: wrap;
+}
+.doc-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px 16px 48px;
+}
+.doc-paper {
+  max-width: 820px;
+  margin: 0 auto;
+  background: var(--msf-card);
+  border: 1px solid var(--msf-line);
+  border-radius: var(--msf-radius);
+  padding: 32px 40px;
+  min-height: 60vh;
+}
+.doc-empty {
+  max-width: 820px;
+  margin: 80px auto;
+  text-align: center;
+  color: var(--msf-mut);
+}
+.mat-dock {
+  width: 56px;
+  flex: none;
+  background: var(--msf-card);
+  border-left: 1px solid var(--msf-line);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 12px;
+  color: var(--msf-mut);
+}
+
+/* 三态切换 .viewmode（预览/编辑/源码），置于工具栏末尾 */
+.viewmode {
+  margin-left: auto;
+  display: inline-flex;
+  border: 1px solid var(--msf-line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.viewmode button {
+  border: none;
+  background: var(--msf-card);
+  padding: 4px 12px;
+  cursor: pointer;
+  color: var(--msf-mut);
+  font: inherit;
+}
+.viewmode button.on {
+  background: var(--msf-accent);
+  color: #fff;
+}
+
+/* 内容解析面右操作列（52~64px 图标列），操作面板 T1-19 接入 */
+.ops-col {
+  width: 56px;
+  flex: none;
+  background: var(--msf-card);
+  border-left: 1px solid var(--msf-line);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding-top: 12px;
+}
+.ops-col .opbtn {
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--msf-line);
+  border-radius: 8px;
+  background: var(--msf-card);
+  cursor: pointer;
+  font-size: 16px;
+}
+.ops-col .opbtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* 状态 tag（解析六态着色 T1-18 填充数据） */
+.mat-tag {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  background: var(--msf-bg);
+  color: var(--msf-mut);
+  border: 1px solid var(--msf-line);
+}
+
+/* 降级形态：≤760px 三栏转纵向堆叠（LLD-6 §3.2 响应式；移动端查看级） */
+@media (max-width: 760px) {
+  .mat-layout {
+    flex-direction: column;
+    height: auto;
+  }
+  .panel-left {
+    width: auto;
+    max-height: 45vh;
+    border-right: none;
+    border-bottom: 1px solid var(--msf-line);
+  }
+  .ops-col,
+  .mat-dock {
+    flex-direction: row;
+    width: auto;
+    border-left: none;
+    border-top: 1px solid var(--msf-line);
+    padding: 8px 12px;
+    justify-content: center;
+  }
+}

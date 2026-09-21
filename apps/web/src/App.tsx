@@ -1,4 +1,5 @@
 import { NavLink, Route, Routes } from 'react-router-dom';
+import { MaterialPage } from './pages/material/MaterialPage';
 
 const STAGES = [
   { path: '/material', name: '资料', reqs: 'REQ-101~115' },
@@ -40,10 +41,11 @@ export function App() {
         ))}
       </nav>
       <Routes>
-        {STAGES.map((s) => (
+        <Route path="/material" element={<MaterialPage />} />
+        {STAGES.filter((s) => s.path !== '/material').map((s) => (
           <Route key={s.path} path={s.path} element={<StagePlaceholder {...s} />} />
         ))}
-        <Route path="*" element={<StagePlaceholder name="资料" reqs="REQ-101~115" />} />
+        <Route path="*" element={<MaterialPage />} />
       </Routes>
     </div>
   );
