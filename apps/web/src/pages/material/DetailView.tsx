@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { marked } from 'marked';
 import { ApiError } from '../../api';
 import { materialApi } from './api';
@@ -48,6 +48,14 @@ export function DetailView() {
     () => (viewMode === 'preview' && md ? marked.parse(md, { async: false }) : ''),
     [viewMode, md],
   );
+
+  // 解析中轮询刷新（SSE parse.* 事件随集成里程碑接入前的收口口径，见 doc/dev-plan/M1-验收.md）
+  const parsing = detail?.status === 'parsing';
+  useEffect(() => {
+    if (!parsing) return;
+    const t = setInterval(() => void refresh(), 1500);
+    return () => clearInterval(t);
+  }, [parsing, refresh]);
 
   if (!selectedFileId || !detail) return null;
   const fileId = selectedFileId;
