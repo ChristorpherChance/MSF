@@ -16,6 +16,9 @@ export interface AuditEntry {
  * 审计失败=整体回滚（调用方在同一事务内）：审计失败零写（LLD-1 DSG-M00-1）。
  */
 export async function appendAudit(client: PoolClient, entry: AuditEntry): Promise<void> {
+  // 事务级咨询锁先串行化所有审计追加：23505 一旦发生整事务即中止，同事务重试无意义，
+  // 故并发纪律改「先锁后读尾」，UNIQUE(prev_hash) 仅作残余兜底（M1 并行测试暴露 M0 缺陷后修订）
+  await client.query("SELECT pg_advisory_xact_lock(hashtext('msf_audit_chain'))");
   for (let attempt = 0; attempt < 3; attempt++) {
     const tail = await client.query<{ hash: string }>(
       'SELECT hash FROM audit_log ORDER BY seq DESC LIMIT 1 FOR UPDATE',

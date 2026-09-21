@@ -2,12 +2,16 @@ import { Body, Controller, HttpCode, Inject, Param, Post, Put, Req } from '@nest
 import type { Request } from 'express';
 import { getActor } from '../api/identity.middleware.js';
 import { UploadsService, type CreateUploadInput } from './uploads.service.js';
+import { ZipExtractService } from './zip-extract.service.js';
 
 /** 资料域端点（LLD-5 §3 DSG-A03；本控制器随 T1-03~T1-16 逐任务扩面） */
 @Controller('api/v1/projects/:projectId/materials')
 export class MaterialsController {
   // 显式 @Inject：vitest(esbuild) 不产 design:paramtypes 元数据，隐式 DI 在测试环境失效
-  constructor(@Inject(UploadsService) private readonly uploads: UploadsService) {}
+  constructor(
+    @Inject(UploadsService) private readonly uploads: UploadsService,
+    @Inject(ZipExtractService) private readonly zipExtract: ZipExtractService,
+  ) {}
 
   /** A03-1 创建上传会话（分片/ZIP 通用入口） */
   @Post('uploads')
@@ -48,6 +52,23 @@ export class MaterialsController {
   ) {
     const actor = getActor(req);
     return this.uploads.complete(projectId, uploadId, {
+      projectId,
+      actorKind: actor.kind,
+      actorId: actor.id,
+    });
+  }
+
+  /** A03-4 ZIP 行内解压（同名冲突默认拒绝，rename 自动追加序号；REQ-104） */
+  @Post('files/:fileId\:extract')
+  @HttpCode(200)
+  extractZip(
+    @Param('projectId') projectId: string,
+    @Param('fileId') fileId: string,
+    @Body() body: { onConflict?: 'reject' | 'rename' },
+    @Req() req: Request,
+  ) {
+    const actor = getActor(req);
+    return this.zipExtract.extract(projectId, fileId, body?.onConflict ?? 'reject', {
       projectId,
       actorKind: actor.kind,
       actorId: actor.id,

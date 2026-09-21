@@ -14,6 +14,8 @@ export const COMMANDS = [
   'material.upload.part',
   'material.upload.complete',
   'material.upload.abort',
+  // M1 资料域：ZIP 行内解压（DSG-A03-4）
+  'material.zip.extract',
 ] as const;
 export type CommandName = (typeof COMMANDS)[number];
 
