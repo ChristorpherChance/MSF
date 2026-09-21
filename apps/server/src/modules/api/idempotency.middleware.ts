@@ -7,7 +7,10 @@ import type { NextFunction, Request, Response } from 'express';
  */
 export function idempotencyMiddleware(req: Request, res: Response, next: NextFunction): void {
   if (['POST', 'PATCH', 'PUT', 'DELETE'].includes(req.method) && !req.path.startsWith('/health')) {
-    if (!req.header('Idempotency-Key') && !req.path.includes('/uploads/')) {
+    // 天然键幂等豁免仅限分片 PUT（A03-2：(uploadId, partNumber) 天然键，R-03-10）；
+    // 会话创建/:complete/:abort 均为命令型写端点，必须携带 Idempotency-Key
+    const isPartPut = /\/uploads\/[^/]+\/parts\/\d+$/.test(req.path);
+    if (!req.header('Idempotency-Key') && !isPartPut) {
       res.status(400).json({
         error: { code: 'VALIDATION_FAILED', message: '缺少 Idempotency-Key 头', target: 'Idempotency-Key' },
       });

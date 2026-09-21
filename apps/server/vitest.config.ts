@@ -6,7 +6,7 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       thresholds: { lines: 90, branches: 80 },
-      include: ['src/modules/evidence/**', 'src/modules/policy/**'],
+      include: ['src/modules/evidence/**', 'src/modules/policy/**', 'src/modules/material/**'],
       exclude: ['**/*.module.ts'], // NestJS 装饰器装配文件，无逻辑
     },
   },

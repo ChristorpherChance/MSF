@@ -4,7 +4,6 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { pool, query } from '../../db/pool.js';
-import { appendAudit } from './audit.service.js';
 import { executeCommand, registerCommand, resetCommands } from './command-bus.js';
 
 async function dbUp(): Promise<boolean> {

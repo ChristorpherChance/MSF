@@ -9,6 +9,11 @@ export const COMMANDS = [
   'platform.project.archive',
   'policy.gate.set_mode',
   'health.ping', // M0 冒烟用，无副作用
+  // M1 资料域：上传会话（LLD-5 DSG-A03-1/2/3/18）
+  'material.upload.create',
+  'material.upload.part',
+  'material.upload.complete',
+  'material.upload.abort',
 ] as const;
 export type CommandName = (typeof COMMANDS)[number];
 

@@ -97,6 +97,29 @@ export const SELFTEST_GATE_NAMES: Record<SelftestGateKey, string> = {
   review: '开发审核',
 };
 
+/** 资料解析状态机六态（LLD-2 DSG-F02-3 / REQ-107 权威；LLD-4 mat_files.parse_status CHECK） */
+export const MAT_PARSE_STATUSES = [
+  'pending',
+  'parsing',
+  'parsed',
+  'failed',
+  'file_final',
+  'content_final',
+] as const;
+export type MatParseStatus = (typeof MAT_PARSE_STATUSES)[number];
+
+/** 解析稿类型两值（LLD-4 DSG-D03-3 mat_parsed.kind CHECK） */
+export const MAT_PARSED_KINDS = ['file_parse', 'content_parse'] as const;
+export type MatParsedKind = (typeof MAT_PARSED_KINDS)[number];
+
+/** 解析稿状态三值（LLD-4 DSG-D03-3；discarded=解析行删除业务标记，非软删 D19） */
+export const MAT_PARSED_STATUSES = ['draft', 'final', 'discarded'] as const;
+export type MatParsedStatus = (typeof MAT_PARSED_STATUSES)[number];
+
+/** 双目录树标识（LLD-4 DSG-D03-4 mat_folder_tree.tree CHECK） */
+export const MAT_TREE_KINDS = ['original', 'parsed'] as const;
+export type MatTreeKind = (typeof MAT_TREE_KINDS)[number];
+
 /** 上传文件封闭六格式（PRD REQ-102 唯一来源；LLD-7 N02-6 白名单） */
 export const UPLOAD_FORMATS = ['doc', 'pdf', 'xlsx', 'md', 'txt', 'zip'] as const;
 export type UploadFormat = (typeof UPLOAD_FORMATS)[number];

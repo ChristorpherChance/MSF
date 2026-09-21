@@ -76,6 +76,7 @@ export class DomainError extends Error {
     public readonly code: DomainErrorCode,
     message: string,
     public readonly target?: string,
+    public readonly details?: unknown,
   ) {
     super(message);
     this.name = 'DomainError';

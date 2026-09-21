@@ -11,16 +11,25 @@ const HTTP_BY_CODE: Partial<Record<string, number>> = {
   NORMALIZE_FAILED: HttpStatus.UNPROCESSABLE_ENTITY,
   VALIDATION_FAILED: HttpStatus.BAD_REQUEST,
   NOT_FOUND: HttpStatus.NOT_FOUND,
+  INVALID_STATE: HttpStatus.CONFLICT,
+  UPLOAD_REJECTED: HttpStatus.UNPROCESSABLE_ENTITY,
+  GATE_BLOCKED: 423,
+  STALE_EVIDENCE: 423,
 };
 
-/** 统一错误壳：{ error: { code, message, target? } }（LLD-5 §1.4 ApiError） */
+/** 统一错误壳：{ error: { code, message, target?, details? } }（LLD-5 §1.4 ApiError） */
 @Catch()
 export class DomainErrorFilter implements ExceptionFilter {
   catch(exception: unknown, host: ArgumentsHost): void {
     const res = host.switchToHttp().getResponse<Response>();
     if (exception instanceof DomainError) {
       res.status(HTTP_BY_CODE[exception.code] ?? HttpStatus.INTERNAL_SERVER_ERROR).json({
-        error: { code: exception.code, message: exception.message, target: exception.target },
+        error: {
+          code: exception.code,
+          message: exception.message,
+          target: exception.target,
+          ...(exception.details !== undefined ? { details: exception.details } : {}),
+        },
       });
       return;
     }
@@ -28,6 +37,7 @@ export class DomainErrorFilter implements ExceptionFilter {
       res.status(exception.getStatus()).json(exception.getResponse());
       return;
     }
+    console.warn('[filter] non-domain exception:', exception);
     res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
       error: { code: 'INTERNAL', message: '内部错误' },
     });
