@@ -45,6 +45,17 @@ export const api = {
   get: <T>(path: string) => request<T>(path),
   post: <T>(path: string, body: unknown) =>
     request<T>(path, { method: 'POST', body: JSON.stringify(body) }),
+  put: <T>(path: string, body: unknown) =>
+    request<T>(path, { method: 'PUT', body: JSON.stringify(body) }),
+  del: <T>(path: string, body?: unknown) =>
+    request<T>(path, { method: 'DELETE', ...(body === undefined ? {} : { body: JSON.stringify(body) }) }),
+  /** 分片上传等二进制体（A03-2；分片 PUT 服务端按天然键豁免幂等键） */
+  putRaw: <T>(path: string, body: ArrayBuffer | Blob) =>
+    request<T>(path, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body,
+    }),
 };
 
 /** POST-SSE 流式消费：onDelta 逐段回调，返回最终消息结果 */

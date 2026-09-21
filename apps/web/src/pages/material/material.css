@@ -168,3 +168,134 @@
     justify-content: center;
   }
 }
+
+/* ===== T1-18 目录树与文件面 ===== */
+
+/* 上传区（点击/拖拽 + 隐藏 input[multiple]，§3.2 文件解析面组件树） */
+.upload-zone {
+  border: 1.5px dashed var(--msf-line);
+  border-radius: var(--msf-radius);
+  padding: 16px 12px;
+  text-align: center;
+  color: var(--msf-mut);
+  cursor: pointer;
+  background: var(--msf-bg);
+}
+.upload-zone.drag {
+  border-color: var(--msf-accent);
+  color: var(--msf-accent);
+}
+.upload-zone .up-prog {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--msf-accent);
+}
+.up-err {
+  color: var(--msf-danger);
+  font-size: 12px;
+  margin-top: 6px;
+}
+
+/* 双树 */
+.mat-tree h4 {
+  margin: 4px 0 6px;
+  font-size: 13px;
+  color: var(--msf-mut);
+}
+.tree-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tree-row:hover {
+  background: var(--msf-bg);
+}
+.tree-row.sel {
+  background: color-mix(in srgb, var(--msf-accent) 12%, transparent);
+}
+.tree-row .nm {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tree-row .mini {
+  border: 1px solid var(--msf-line);
+  background: var(--msf-card);
+  border-radius: 6px;
+  font-size: 11px;
+  padding: 0 6px;
+  cursor: pointer;
+  color: var(--msf-mut);
+}
+.tree-children {
+  margin-left: 14px;
+}
+
+/* 解析六态着色（F02-3） */
+.mat-tag.st-pending { color: var(--msf-mut); }
+.mat-tag.st-parsing { color: var(--msf-accent); border-color: var(--msf-accent); }
+.mat-tag.st-parsed { color: var(--msf-ok); border-color: var(--msf-ok); }
+.mat-tag.st-failed { color: var(--msf-danger); border-color: var(--msf-danger); }
+.mat-tag.st-file_final { color: var(--msf-ok); background: color-mix(in srgb, var(--msf-ok) 10%, transparent); }
+.mat-tag.st-content_final { color: #fff; background: var(--msf-ok); border-color: var(--msf-ok); }
+
+/* 中央纸面三态 */
+.md-editor {
+  width: 100%;
+  min-height: 55vh;
+  border: 1px solid var(--msf-line);
+  border-radius: 8px;
+  padding: 12px;
+  font: 13px/1.7 var(--msf-mono);
+  resize: vertical;
+  box-sizing: border-box;
+}
+pre.md-src {
+  font: 13px/1.7 var(--msf-mono);
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+}
+.md-view img { max-width: 100%; }
+.md-view pre {
+  background: var(--msf-bg);
+  border: 1px solid var(--msf-line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  overflow-x: auto;
+}
+.md-view code { font-family: var(--msf-mono); }
+
+/* 工具栏动作按钮与失败横幅 */
+.doc-toolbar .act {
+  border: 1px solid var(--msf-line);
+  background: var(--msf-card);
+  border-radius: 8px;
+  padding: 3px 10px;
+  cursor: pointer;
+  font: inherit;
+}
+.doc-toolbar .act.primary {
+  background: var(--msf-accent);
+  border-color: var(--msf-accent);
+  color: #fff;
+}
+.doc-toolbar .act:disabled { opacity: 0.5; cursor: not-allowed; }
+.mat-banner {
+  padding: 8px 16px;
+  font-size: 13px;
+  background: color-mix(in srgb, var(--msf-danger) 8%, transparent);
+  color: var(--msf-danger);
+  border-bottom: 1px solid var(--msf-line);
+}
+.mat-banner.info {
+  background: color-mix(in srgb, var(--msf-accent) 8%, transparent);
+  color: var(--msf-accent);
+}
