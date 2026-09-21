@@ -1,0 +1,90 @@
+{
+  "ok": false,
+  "checks": [
+    {
+      "name": "API示例澄清新增版本并保留旧版原文",
+      "ok": false,
+      "error": "page.goto: net::ERR_FILE_NOT_FOUND at file:///D:/AI/workspaces/SF-MINI/V1.8/msf-prototype.html\nCall log:\n\u001b[2m  - navigating to \"file:///D:/AI/workspaces/SF-MINI/V1.8/msf-prototype.html\", waiting until \"load\"\u001b[22m\n"
+    },
+    {
+      "name": "生成和编辑沿用治理依据不使自己的规划过期",
+      "ok": true
+    },
+    {
+      "name": "浏览页面和状态不改变设计内容身份",
+      "ok": true
+    },
+    {
+      "name": "新增未承接REQ不能被固定目录静默忽略",
+      "ok": true
+    },
+    {
+      "name": "工作流接口来源删除不能借旧目录继续生成",
+      "ok": true
+    },
+    {
+      "name": "语义来源被替换保留章节ID也须阻断 hld",
+      "ok": true
+    },
+    {
+      "name": "语义来源被替换保留章节ID也须阻断 mod",
+      "ok": true
+    },
+    {
+      "name": "语义来源被替换保留章节ID也须阻断 alg",
+      "ok": true
+    },
+    {
+      "name": "语义来源被替换保留章节ID也须阻断 cls",
+      "ok": true
+    },
+    {
+      "name": "语义来源被替换保留章节ID也须阻断 db",
+      "ok": true
+    },
+    {
+      "name": "语义来源被替换保留章节ID也须阻断 api",
+      "ok": true
+    },
+    {
+      "name": "语义来源被替换保留章节ID也须阻断 ui",
+      "ok": true
+    },
+    {
+      "name": "语义来源被替换保留章节ID也须阻断 nfr",
+      "ok": true
+    },
+    {
+      "name": "既有REQ保留编号但内容变更不能静默通过",
+      "ok": true
+    },
+    {
+      "name": "新增未识别设计章节保留为待核对而非自动覆盖",
+      "ok": true
+    },
+    {
+      "name": "生成期间上游变化晚回调不能写入原型",
+      "ok": true
+    },
+    {
+      "name": "生成期间人工改动原型晚回调不能覆盖新内容",
+      "ok": true
+    },
+    {
+      "name": "检查A期间编辑为B旧回调严格不追加报告或审计",
+      "ok": true
+    },
+    {
+      "name": "设计启动审计失败无operation或计数器部分写入",
+      "ok": true
+    },
+    {
+      "name": "旧定稿入口不能绕过实际内容检查",
+      "ok": true
+    },
+    {
+      "name": "共同基线导出为真实文件且包含当前身份",
+      "ok": true
+    }
+  ]
+}

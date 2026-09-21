@@ -1,0 +1,187 @@
+{
+  "ok": true,
+  "input": "build-artifact",
+  "templateSha256": "fb1f7c2b9c9408e2e9dbcfb6c28bca9827dd2c0ad750766bc3c2c2b02ee01a61",
+  "checks": [
+    {
+      "name": "anonymous → dashboard / hash",
+      "ok": true
+    },
+    {
+      "name": "anonymous → dashboard / click",
+      "ok": true
+    },
+    {
+      "name": "anonymous → editor / hash",
+      "ok": true
+    },
+    {
+      "name": "anonymous → editor / click",
+      "ok": true
+    },
+    {
+      "name": "anonymous → review / hash",
+      "ok": true
+    },
+    {
+      "name": "anonymous → review / click",
+      "ok": true
+    },
+    {
+      "name": "anonymous → publish / hash",
+      "ok": true
+    },
+    {
+      "name": "anonymous → publish / click",
+      "ok": true
+    },
+    {
+      "name": "citizen → dashboard / hash",
+      "ok": true
+    },
+    {
+      "name": "citizen → dashboard / click",
+      "ok": true
+    },
+    {
+      "name": "citizen → editor / hash",
+      "ok": true
+    },
+    {
+      "name": "citizen → editor / click",
+      "ok": true
+    },
+    {
+      "name": "citizen → review / hash",
+      "ok": true
+    },
+    {
+      "name": "citizen → review / click",
+      "ok": true
+    },
+    {
+      "name": "citizen → publish / hash",
+      "ok": true
+    },
+    {
+      "name": "citizen → publish / click",
+      "ok": true
+    },
+    {
+      "name": "editor → dashboard / hash",
+      "ok": true
+    },
+    {
+      "name": "editor → dashboard / click",
+      "ok": true
+    },
+    {
+      "name": "editor → editor / hash",
+      "ok": true
+    },
+    {
+      "name": "editor → editor / click",
+      "ok": true
+    },
+    {
+      "name": "editor → review / hash",
+      "ok": true
+    },
+    {
+      "name": "editor → review / click",
+      "ok": true
+    },
+    {
+      "name": "editor → publish / hash",
+      "ok": true
+    },
+    {
+      "name": "editor → publish / click",
+      "ok": true
+    },
+    {
+      "name": "reviewer → dashboard / hash",
+      "ok": true
+    },
+    {
+      "name": "reviewer → dashboard / click",
+      "ok": true
+    },
+    {
+      "name": "reviewer → editor / hash",
+      "ok": true
+    },
+    {
+      "name": "reviewer → editor / click",
+      "ok": true
+    },
+    {
+      "name": "reviewer → review / hash",
+      "ok": true
+    },
+    {
+      "name": "reviewer → review / click",
+      "ok": true
+    },
+    {
+      "name": "reviewer → publish / hash",
+      "ok": true
+    },
+    {
+      "name": "reviewer → publish / click",
+      "ok": true
+    },
+    {
+      "name": "publisher → dashboard / hash",
+      "ok": true
+    },
+    {
+      "name": "publisher → dashboard / click",
+      "ok": true
+    },
+    {
+      "name": "publisher → editor / hash",
+      "ok": true
+    },
+    {
+      "name": "publisher → editor / click",
+      "ok": true
+    },
+    {
+      "name": "publisher → review / hash",
+      "ok": true
+    },
+    {
+      "name": "publisher → review / click",
+      "ok": true
+    },
+    {
+      "name": "publisher → publish / hash",
+      "ok": true
+    },
+    {
+      "name": "publisher → publish / click",
+      "ok": true
+    },
+    {
+      "name": "预览切换不改内容事实，普通路由不继承预览角色",
+      "ok": true
+    },
+    {
+      "name": "重新载入会清除会话，URL不能恢复CMS身份",
+      "ok": true
+    },
+    {
+      "name": "预览入口拒绝未知page和state且不切换内容",
+      "ok": true
+    },
+    {
+      "name": "伪造非父窗口message不能触发受保护预览",
+      "ok": true
+    },
+    {
+      "name": "预览往返保留附件，已提交申请不能因预览重新提交",
+      "ok": true
+    }
+  ]
+}

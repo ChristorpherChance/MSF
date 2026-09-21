@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MSF 产品文档体系二轮评审报告 · 2026-09-21</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --card:#ffffff; --ink:#1f2430; --mut:#6b7280; --line:#e5e7eb;
+    --p0:#dc2626; --p1:#ea580c; --p2:#ca8a04; --ok:#16a34a; --info:#2563eb;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.75 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif}
+  .wrap{max-width:1080px;margin:0 auto;padding:32px 24px 80px}
+  header.hero{background:linear-gradient(135deg,#14532d,#166534);color:#fff;border-radius:14px;padding:28px 32px;margin-bottom:24px}
+  header.hero h1{margin:0 0 6px;font-size:24px}
+  header.hero .meta{color:#d1fae5;font-size:13px}
+  h2{font-size:19px;margin:36px 0 12px;padding-left:10px;border-left:4px solid var(--info)}
+  h3{font-size:15px;margin:22px 0 8px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px 22px;margin:14px 0}
+  table{border-collapse:collapse;width:100%;margin:10px 0;font-size:13.5px}
+  th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
+  th{background:#f1f5f9;font-weight:600;white-space:nowrap}
+  code{font-family:var(--mono);font-size:12.5px;background:#f1f5f9;padding:1px 5px;border-radius:4px}
+  .badge{display:inline-block;padding:1px 9px;border-radius:999px;font-size:12px;font-weight:600;color:#fff;white-space:nowrap}
+  .b-p0{background:var(--p0)} .b-p1{background:var(--p1)} .b-p2{background:var(--p2)} .b-ok{background:var(--ok)}
+  .verdict{font-weight:600}
+  .v-pass{color:var(--ok)} .v-warn{color:var(--p2)} .v-fail{color:var(--p0)}
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:14px 0}
+  .stat{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;text-align:center}
+  .stat .num{font-size:30px;font-weight:700}
+  .stat .lbl{color:var(--mut);font-size:12.5px}
+  .conclusion{background:#f0fdf4;border:1px solid #86efac;border-radius:12px;padding:14px 20px;font-weight:600;margin:14px 0}
+  .nav{position:sticky;top:0;background:var(--bg);padding:10px 0;z-index:5;border-bottom:1px solid var(--line);margin-bottom:8px;font-size:13px}
+  .nav a{color:var(--info);text-decoration:none;margin-right:16px}
+  .nav a:hover{text-decoration:underline}
+  footer{color:var(--mut);font-size:12px;margin-top:40px;text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <h1>MSF 产品文档体系二轮评审报告</h1>
+  <div class="meta">2026-09-21 ｜ 对象：一轮修订后的 <code style="background:#15803d;color:#fff">doc/product-design/</code> 全部 13 份文档 + msf-prototype.html（V1.11，14605 行）</div>
+  <div class="meta">方式：4 个独立评审代理并行复审（R1' 需求追溯 / R2' 原型比对 / R3' 技术可行性 / R4' 工程质量），主会话汇总去重</div>
+</header>
+
+<div class="nav">
+  <a href="#s1">总体结论</a><a href="#s2">统计</a><a href="#s3">P1 发现</a><a href="#s4">P2 发现</a><a href="#s5">验证</a><a href="#s6">裁决与基线</a><a href="#s7">遗留</a>
+</div>
+
+<h2 id="s1">一、总体结论</h2>
+<div class="card">
+<table>
+<tr><th>维度</th><th>结论</th><th>要点</th></tr>
+<tr><td>R1' 需求与追溯</td><td class="verdict v-pass">小修后通过</td><td>追溯链保持闭合；2 个 P1（REQ-206 行内矛盾、L0a 分母口径）；波次 2 新增条目未回挂 RTM</td></tr>
+<tr><td>R2' 原型比对</td><td class="verdict v-pass">小修后通过</td><td>机制忠实度保持；行号引用大面积漂移；X6（原生 confirm）修复不完整</td></tr>
+<tr><td>R3' 技术可行性</td><td class="verdict v-pass">小修后通过</td><td>无 P0；2 个 P1 集成缝隙（批次阻断无 API、webhook 密钥无管理面）</td></tr>
+<tr><td>R4' 工程质量</td><td class="verdict v-pass">小修后通过</td><td>错误码闭集校验 0 违规无回潮；2 个 P1 一致性回潮（RtmLink 枚举、四门命名）</td></tr>
+</table>
+</div>
+<div class="conclusion">综合结论：<b>通过（修订后）</b>。二轮新发现 0 P0 / 8 P1 / 20 P2，全部处置完毕（修订波次 W5A~W5D + 原型代理），验证全绿，基线已重登。</div>
+
+<h2 id="s2">二、统计</h2>
+<div class="stats">
+  <div class="stat"><div class="num" style="color:var(--p0)">0</div><div class="lbl">P0（一轮 P0 根除无回潮）</div></div>
+  <div class="stat"><div class="num" style="color:var(--p1)">8</div><div class="lbl">P1（全部已修）</div></div>
+  <div class="stat"><div class="num" style="color:var(--p2)">20</div><div class="lbl">P2（全部已修）</div></div>
+  <div class="stat"><div class="num" style="color:var(--ok)">23</div><div class="lbl">R-03 裁决条数</div></div>
+</div>
+<div class="card">
+<table>
+<tr><th>严重度</th><th>R1'</th><th>R2'</th><th>R3'</th><th>R4'</th><th>合计（去重后）</th></tr>
+<tr><td><span class="badge b-p0">P0</span></td><td>0</td><td>0</td><td>0</td><td>0</td><td><b>0</b></td></tr>
+<tr><td><span class="badge b-p1">P1</span></td><td>2</td><td>2</td><td>2</td><td>2</td><td><b>8</b></td></tr>
+<tr><td><span class="badge b-p2">P2</span></td><td>6</td><td>3</td><td>7</td><td>4</td><td><b>20</b></td></tr>
+</table>
+</div>
+
+<h2 id="s3">三、P1 发现与处置（8 条，全部 ✅）</h2>
+<div class="card">
+<table>
+<tr><th>#</th><th>维度</th><th>发现</th><th>处置</th></tr>
+<tr><td>2-P1-1</td><td>R1'</td><td><b>REQ-206 行内矛盾</b>：RTM 行注「无点名承接」与 §4 回销记录矛盾</td><td>✅ U01-5 点名承接前置，注与 §6.2/§2 图例同步清理（W5D）</td></tr>
+<tr><td>2-P1-2</td><td>R1'</td><td><b>L0a 分母口径不一</b>：PRD「全部 R」 vs L0b/L0c active 口径</td><td>✅ R-03-1 裁决 active R，五册落改，RTM §6.2 重算仍 100%</td></tr>
+<tr><td>2-P1-3</td><td>R2'</td><td><b>原型行号大面积漂移</b>（波次 3/4 修改所致）</td><td>✅ 逐符号实查重刷：LLD-2/3 全部 + LLD-6 穷举 96 处；抽查 14 处全命中</td></tr>
+<tr><td>2-P1-4</td><td>R2'</td><td><b>X6 修复不完整</b>：switchDesignVer/switchProtoVer 仍原生 confirm()</td><td>✅ 全站统一 modal，全文件零原生 confirm()，回归全绿</td></tr>
+<tr><td>2-P1-5</td><td>R3'</td><td><b>批次阻断/恢复无 API 出口</b>（F02-8 有命令无端点）</td><td>✅ 新增 DSG-A07-13/A07-14，RTM REQ-510/511/502 三向挂接</td></tr>
+<tr><td>2-P1-6</td><td>R3'</td><td><b>CI webhook 密钥无管理面</b></td><td>✅ 新增 DSG-A06-22 端点 + DSG-D10-8 <code>sys_webhook_secrets</code> 表</td></tr>
+<tr><td>2-P1-7</td><td>R4'</td><td><b>RtmLink.relation 两册不一致</b>（布尔字段 vs 五值枚举）</td><td>✅ R-03-2：以 LLD-4 数据库枚举为权威，LLD-3 对齐</td></tr>
+<tr><td>2-P1-8</td><td>R4'</td><td><b>四门命名回潮</b>（LLD-1/HLD/LLD-4/LLD-5 残留旧名旧键）</td><td>✅ 全面对齐 REQ-413 权威名与 functional/integration/ui/review 键</td></tr>
+</table>
+</div>
+
+<h2 id="s4">四、P2 发现与处置（20 条，全部 ✅）</h2>
+<div class="card">
+<h3>状态机与命令（LLD-2/LLD-3）</h3>
+<table>
+<tr><th>#</th><th>发现</th><th>处置</th></tr>
+<tr><td>2-P2-1</td><td>F02-5 评审驳回无回路迁移行</td><td>✅ task.rework 迁移行+状态图补边（W5A）</td></tr>
+<tr><td>2-P2-2</td><td>F02-4 缺作业收尾迁移行；列名误写 status（实为 result）</td><td>✅ 迁移行与列名更正（W5A）</td></tr>
+<tr><td>2-P2-3</td><td>C06-3 OperationStatus 缺 <code>stale</code></td><td>✅ 补六值并注落库合并（W5A）</td></tr>
+<tr><td>2-P2-4</td><td>C08-7 委派状态与 LLD-4 六值不符</td><td>✅ 以 LLD-4 为权威（R-03-3）</td></tr>
+<tr><td>2-P2-5</td><td>C10-2 缺上传会话/CI 回调命令注册</td><td>✅ 补 5 条（W5A）</td></tr>
+<tr><td>2-P2-6</td><td>C03-1 source 枚举未定案</td><td>✅ upload/zip_extract/inline_extract（W5A）</td></tr>
+<tr><td>2-P2-7</td><td>C06-1 dev_tasks evidence 误注</td><td>✅ 更正（W5A）</td></tr>
+<tr><td>2-P2-8</td><td>C08-2 stream paused 与落库枚举混淆</td><td>✅ 缓冲层注（W5A）</td></tr>
+<tr><td>2-P2-9</td><td>C03-4 过期注；C01-2 引用不存在的 K()/H()</td><td>✅ 删注、出处重刷（W5A）</td></tr>
+</table>
+<h3>接口与数据（LLD-4/LLD-5）</h3>
+<table>
+<tr><th>#</th><th>发现</th><th>处置</th></tr>
+<tr><td>2-P2-10</td><td>mat_uploads.parts 并发分片更新竞态</td><td>✅ 行锁串行化（W5B）</td></tr>
+<tr><td>2-P2-11</td><td>分片 PUT 幂等豁免未声明</td><td>✅ A11-1/A01-3 补豁免（W5B）</td></tr>
+<tr><td>2-P2-12</td><td>SSE 断线续传边界未界定</td><td>✅ A01-6 滚动窗界定（W5B）</td></tr>
+<tr><td>2-P2-13</td><td>mat_batch_jobs 落库时机不明</td><td>✅ D03-5 idle/confirming 落库路径（W5B）</td></tr>
+<tr><td>2-P2-14</td><td>D11-2 链尾 seq-1 假设（bigserial 空洞）</td><td>✅ ORDER BY seq DESC LIMIT 1 FOR UPDATE（W5B）</td></tr>
+</table>
+<h3>追溯与文档质量（PRD/CRD/RTM/LLD-6）</h3>
+<table>
+<tr><th>#</th><th>发现</th><th>处置</th></tr>
+<tr><td>2-P2-15</td><td>波次 2 新增条目未回挂 RTM 正向矩阵</td><td>✅ 全挂，反向索引 411（+11）零孤儿（W5D）</td></tr>
+<tr><td>2-P2-16</td><td>CR-09 措辞 CRD/RTM 不一致</td><td>✅ 互指出处取齐（W5D）</td></tr>
+<tr><td>2-P2-17</td><td>REQ-710「五服务」与 HLD 六服务不符</td><td>✅ 更正（W5D）</td></tr>
+<tr><td>2-P2-18</td><td>PRD 事实源行数 14576 漂移</td><td>✅ 更正 14605（W5D）</td></tr>
+<tr><td>2-P2-19</td><td>L0d 独立 KPI 卡未登记差异</td><td>✅ 新增 DSG-U06-24 双向挂接（W5D）</td></tr>
+<tr><td>2-P2-20</td><td>RTM §5 核查说明缺示例级差异注</td><td>✅ 补全（W5D）</td></tr>
+</table>
+<p class="meta" style="color:var(--mut);font-size:12.5px">附带裁决：任务书「REQ-104」经核实为「REQ-103」笔误，D03-7/A03-18 按实际承接落 REQ-102/103 行（R-03-23 登记）。</p>
+</div>
+
+<h2 id="s5">五、验证结果</h2>
+<div class="card">
+<table>
+<tr><th>验证项</th><th>结果</th></tr>
+<tr><td><code>check-codes.mjs</code> 错误码闭集</td><td class="v-pass">✅ 0 违规（§14 活跃 91 / §15 活跃 78 / 废止保留 46）</td></tr>
+<tr><td><code>build-rtm-index.mjs</code> 反向索引</td><td class="v-pass">✅ 411 个 DSG 条目，无重复登记、无零引用矩阵行</td></tr>
+<tr><td>原型行号引用抽查</td><td class="v-pass">✅ 14 处抽查全部命中</td></tr>
+<tr><td>原型回归（run-all）</td><td class="v-pass">✅ 28/30 套全绿（2 套缺历史快照目录属环境问题）</td></tr>
+<tr><td>自算健康度</td><td class="v-pass">✅ L0a=100%（active R 口径）、L0b=100%、L0c=100%、L0d=1</td></tr>
+</table>
+</div>
+
+<h2 id="s6">六、裁决与基线</h2>
+<div class="card">
+<ul>
+<li>二轮裁决共 <b>23 条</b>，登记于 <code>统稿裁决记录.md</code> R-03。</li>
+<li>基线重登：<code>RTM.md</code> §7（2026-09-21，13 文件 SHA-256 前 16 位清单）。</li>
+</ul>
+</div>
+
+<h2 id="s7">七、遗留与说明</h2>
+<div class="card">
+<ol>
+<li>原型 <code>syntax</code>/<code>design-boundary</code> 两套测试依赖维护源 V1.1~V1.9 历史快照目录，本环境缺失，属环境问题非缺陷。</li>
+<li>LLD-4 §16 C-6/C-11（沙箱限额与审计查询阈值）按 R-02-12 保持开放，待压测校准——非阻塞项。</li>
+<li>RTM 历史修订行内旧行号为当时事实叙述，按惯例不改历史记录。</li>
+</ol>
+</div>
+<div class="conclusion">结论：<b>二轮评审通过。</b>文档体系（13 份）与原型当前状态一致、闭集校验全绿，可作为后续产品化开发的基线。</div>
+
+<footer>MSF 产品文档体系二轮评审报告 · 2026-09-21 ｜ 配套：2026-09-21-二轮评审报告.md / 2026-09-20-修改计划.md（波次 5）</footer>
+</div>
+</body>
+</html>

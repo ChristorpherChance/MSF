@@ -1,0 +1,2380 @@
+{
+  "catalog": [
+    {
+      "id": "SRC-001",
+      "rev": 1,
+      "req": "REQ-001",
+      "module": "portal-web / cms / mwCache",
+      "summary": "首页领导动态每日更新，SSR 首页展示及 00:30 静态化重建；发布事件应失效首页缓存。",
+      "design": {
+        "doc": "模块/组件详细设计",
+        "docKey": "mod",
+        "anchor": "§1 portal-web",
+        "sectionId": "o0"
+      },
+      "designRefs": [
+        {
+          "doc": "模块/组件详细设计",
+          "docKey": "mod",
+          "anchor": "§8 静态化与缓存中间件",
+          "sectionId": "o7"
+        }
+      ],
+      "categories": [
+        "frontend",
+        "backend",
+        "integration"
+      ],
+      "version": "随当前已确认基线"
+    },
+    {
+      "id": "SRC-002",
+      "rev": 1,
+      "req": "REQ-002",
+      "module": "portal-web / cms / mwCache",
+      "summary": "新闻、公告、法规三类内容模型，已发布列表和详情页；栏目/详情缓存与归档详情 410。",
+      "design": {
+        "doc": "接口设计",
+        "docKey": "api",
+        "anchor": "§1 核心端点",
+        "sectionId": "a0"
+      },
+      "designRefs": [
+        {
+          "doc": "接口设计",
+          "docKey": "api",
+          "anchor": "§2 410 gone",
+          "sectionId": "a1"
+        },
+        {
+          "doc": "数据库详细设计",
+          "docKey": "db",
+          "anchor": "§1 contents/content_blocks",
+          "sectionId": "d0"
+        }
+      ],
+      "categories": [
+        "frontend",
+        "backend",
+        "integration"
+      ],
+      "version": "随当前已确认基线"
+    },
+    {
+      "id": "SRC-003",
+      "rev": 1,
+      "req": "REQ-002",
+      "module": "portal-web",
+      "summary": "栏目列表加载须有骨架屏，空栏目必须展示引导文案，读取失败时提供可恢复反馈。",
+      "design": {
+        "doc": "界面详细设计",
+        "docKey": "ui",
+        "anchor": "§2 加载与空态",
+        "sectionId": "u1"
+      },
+      "categories": [
+        "frontend"
+      ],
+      "version": "随当前已确认基线"
+    },
+    {
+      "id": "SRC-004",
+      "rev": 1,
+      "req": "REQ-003",
+      "module": "gateway / mwGateway",
+      "summary": "办事申请提交、回执和进度查询；幂等、适配器路由、超时重试、熔断待补及对账为同一业务链。",
+      "design": {
+        "doc": "算法与处理逻辑设计",
+        "docKey": "alg",
+        "anchor": "§1 办事申请全链流程",
+        "sectionId": "g0"
+      },
+      "designRefs": [
+        {
+          "doc": "算法与处理逻辑设计",
+          "docKey": "alg",
+          "anchor": "§4 熔断与对账流程",
+          "sectionId": "g3"
+        },
+        {
+          "doc": "接口设计",
+          "docKey": "api",
+          "anchor": "§1 应用与附件端点",
+          "sectionId": "a0"
+        },
+        {
+          "doc": "数据库详细设计",
+          "docKey": "db",
+          "anchor": "§1 applications",
+          "sectionId": "d0"
+        }
+      ],
+      "categories": [
+        "backend",
+        "integration"
+      ],
+      "version": "随当前已确认基线"
+    },
+    {
+      "id": "SRC-005",
+      "rev": 1,
+      "req": "REQ-003",
+      "module": "portal-web",
+      "summary": "办事大厅的事项指南、可回退分步表单、材料校验、提交回执和进度页。",
+      "design": {
+        "doc": "界面详细设计",
+        "docKey": "ui",
+        "anchor": "§2 交互细节",
+        "sectionId": "u1"
+      },
+      "designRefs": [
+        {
+          "doc": "界面详细设计",
+          "docKey": "ui",
+          "anchor": "§3 字段校验",
+          "sectionId": "u2"
+        },
+        {
+          "doc": "界面详细设计",
+          "docKey": "ui",
+          "anchor": "§4 页面跳转",
+          "sectionId": "u3"
+        },
+        {
+          "doc": "接口设计",
+          "docKey": "api",
+          "anchor": "§1 applications 与 attachments",
+          "sectionId": "a0"
+        }
+      ],
+      "categories": [
+        "frontend"
+      ],
+      "version": "随当前已确认基线"
+    },
+    {
+      "id": "SRC-006",
+      "rev": 1,
+      "req": "REQ-004",
+      "module": "mwI18n / cms / portal-web",
+      "summary": "URL、Cookie、Accept-Language 的优先级协商；fr/en 同源对，缺译回退法语并带标记，且进入待译清单。",
+      "design": {
+        "doc": "算法与处理逻辑设计",
+        "docKey": "alg",
+        "anchor": "§2 双语缺译回退流程",
+        "sectionId": "g1"
+      },
+      "categories": [
+        "common",
+        "frontend",
+        "backend"
+      ],
+      "version": "随当前已确认基线"
+    },
+    {
+      "id": "SRC-007",
+      "rev": 1,
+      "req": "REQ-005",
+      "module": "cms / mwSecAuth",
+      "summary": "块编辑器、草稿到归档的内容流转，以及编辑、审核、发布三角色能力矩阵和发布审计。",
+      "design": {
+        "doc": "模块/组件详细设计",
+        "docKey": "mod",
+        "anchor": "§2 cms 无头 CMS",
+        "sectionId": "o1"
+      },
+      "designRefs": [
+        {
+          "doc": "模块/组件详细设计",
+          "docKey": "mod",
+          "anchor": "§7 安全与身份中间件",
+          "sectionId": "o6"
+        },
+        {
+          "doc": "数据库详细设计",
+          "docKey": "db",
+          "anchor": "§1 contents/content_blocks",
+          "sectionId": "d0"
+        },
+        {
+          "doc": "算法与处理逻辑设计",
+          "docKey": "alg",
+          "anchor": "§5 内容发布流转流程",
+          "sectionId": "g4"
+        }
+      ],
+      "categories": [
+        "frontend",
+        "backend",
+        "integration"
+      ],
+      "version": "随当前已确认基线"
+    },
+    {
+      "id": "SRC-008",
+      "rev": 1,
+      "req": "REQ-006",
+      "module": "mwSearch / portal-web",
+      "summary": "fr/en 查询改写、ICU 索引召回整对、空结果引导、索引滞后提示与 ES 不可用时的基础检索模式。",
+      "design": {
+        "doc": "算法与处理逻辑设计",
+        "docKey": "alg",
+        "anchor": "§3 双语检索查询改写流程",
+        "sectionId": "g2"
+      },
+      "categories": [
+        "frontend",
+        "backend",
+        "integration"
+      ],
+      "version": "随当前已确认基线"
+    },
+    {
+      "id": "SRC-009",
+      "rev": 1,
+      "req": "REQ-007",
+      "module": "mwSearch / portal-web",
+      "summary": "开放数据双语目录、数据集下载、api_key 签发、配额和 60 req/min 限流、下载审计。",
+      "design": {
+        "doc": "模块/组件详细设计",
+        "docKey": "mod",
+        "anchor": "§6 检索与开放数据中间件",
+        "sectionId": "o5"
+      },
+      "categories": [
+        "frontend",
+        "backend",
+        "integration"
+      ],
+      "version": "随当前已确认基线"
+    },
+    {
+      "id": "SRC-010",
+      "rev": 1,
+      "req": "REQ-001～REQ-007",
+      "module": "portal-web / cms / gateway",
+      "summary": "统一 REST /api/v1、JSON 错误体、双语字段和增量兼容；未冻结的 12 部委协议文档只能登记描述符并分批联调。",
+      "design": {
+        "doc": "接口设计",
+        "docKey": "api",
+        "anchor": "§1 协议",
+        "sectionId": "a0"
+      },
+      "designRefs": [
+        {
+          "doc": "接口设计",
+          "docKey": "api",
+          "anchor": "§4 内部调用",
+          "sectionId": "a3"
+        },
+        {
+          "doc": "接口设计",
+          "docKey": "api",
+          "anchor": "§5 版本管理",
+          "sectionId": "a4"
+        }
+      ],
+      "categories": [
+        "common",
+        "integration"
+      ],
+      "version": "随当前已确认基线"
+    },
+    {
+      "id": "SRC-011",
+      "rev": 1,
+      "req": "REQ-001～REQ-007",
+      "module": "HLD / NFR",
+      "summary": "政务云内三层部署、缓存、监控、安全、审计、可访问性和性能目标。此为技术决策派生，不虚构业务 REQ。",
+      "design": {
+        "doc": "非功能性设计",
+        "docKey": "nfr",
+        "anchor": "§1 性能",
+        "sectionId": "n0"
+      },
+      "designRefs": [
+        {
+          "doc": "非功能性设计",
+          "docKey": "nfr",
+          "anchor": "§2 安全",
+          "sectionId": "n1"
+        },
+        {
+          "doc": "非功能性设计",
+          "docKey": "nfr",
+          "anchor": "§3 日志与异常",
+          "sectionId": "n2"
+        },
+        {
+          "doc": "概要设计说明书",
+          "docKey": "hld",
+          "anchor": "§6 部署拓扑",
+          "sectionId": "h5"
+        },
+        {
+          "doc": "概要设计说明书",
+          "docKey": "hld",
+          "anchor": "§8 非功能指标",
+          "sectionId": "h7"
+        }
+      ],
+      "categories": [
+        "common",
+        "integration"
+      ],
+      "version": "随当前已确认基线"
+    },
+    {
+      "id": "TECH-001",
+      "rev": 1,
+      "req": "技术支撑",
+      "module": "HLD 部署与测试计划",
+      "summary": "离线镜像仓、CI Lighthouse 阻断、接口契约和端到端构建验证从 HLD/NFR 派生，不映射为业务需求。",
+      "design": {
+        "doc": "概要设计说明书",
+        "docKey": "hld",
+        "anchor": "§6 部署拓扑",
+        "sectionId": "h5"
+      },
+      "designRefs": [
+        {
+          "doc": "概要设计说明书",
+          "docKey": "hld",
+          "anchor": "§8 非功能指标",
+          "sectionId": "h7"
+        },
+        {
+          "doc": "非功能性设计",
+          "docKey": "nfr",
+          "anchor": "§1 性能",
+          "sectionId": "n0"
+        }
+      ],
+      "categories": [
+        "common",
+        "integration"
+      ],
+      "version": "随当前已确认基线"
+    },
+    {
+      "id": "SRC-012",
+      "rev": 1,
+      "req": "REQ-003、REQ-005、REQ-007",
+      "module": "mwSecAuth",
+      "summary": "公民账户、OTP、双令牌会话、CMS 角色鉴权、API 密钥主体绑定、WAF 与审计是办事、CMS 和开放数据的共同安全前提。",
+      "design": {
+        "doc": "模块/组件详细设计",
+        "docKey": "mod",
+        "anchor": "§7 安全与身份中间件",
+        "sectionId": "o6"
+      },
+      "designRefs": [
+        {
+          "doc": "接口设计",
+          "docKey": "api",
+          "anchor": "§1 accounts 端点",
+          "sectionId": "a0"
+        },
+        {
+          "doc": "接口设计",
+          "docKey": "api",
+          "anchor": "§3 鉴权方式",
+          "sectionId": "a2"
+        },
+        {
+          "doc": "数据库详细设计",
+          "docKey": "db",
+          "anchor": "§1 accounts/api_keys/audit_log",
+          "sectionId": "d0"
+        },
+        {
+          "doc": "界面详细设计",
+          "docKey": "ui",
+          "anchor": "§3 OTP 字段规则",
+          "sectionId": "u2"
+        },
+        {
+          "doc": "非功能性设计",
+          "docKey": "nfr",
+          "anchor": "§2 安全；§3 审计",
+          "sectionId": "n1"
+        }
+      ],
+      "categories": [
+        "common",
+        "backend",
+        "integration"
+      ],
+      "version": "随当前已确认基线"
+    },
+    {
+      "id": "SRC-013",
+      "rev": 1,
+      "req": "REQ-004、REQ-005",
+      "module": "cms",
+      "summary": "CMS 必须提供块草稿 CRUD、块顺序持久化、条件写入和同源对并发 409；内容持久态采用 draft/review/published/archived。",
+      "design": {
+        "doc": "模块/组件详细设计",
+        "docKey": "mod",
+        "anchor": "§2 cms 无头 CMS",
+        "sectionId": "o1"
+      },
+      "designRefs": [
+        {
+          "doc": "数据库详细设计",
+          "docKey": "db",
+          "anchor": "§1 contents/content_blocks",
+          "sectionId": "d0"
+        },
+        {
+          "doc": "接口设计",
+          "docKey": "api",
+          "anchor": "§2 conflict",
+          "sectionId": "a1"
+        },
+        {
+          "doc": "算法与处理逻辑设计",
+          "docKey": "alg",
+          "anchor": "§5 内容发布流转流程",
+          "sectionId": "g4"
+        }
+      ],
+      "categories": [
+        "backend",
+        "frontend",
+        "integration"
+      ],
+      "version": "随当前已确认基线"
+    },
+    {
+      "id": "SRC-014",
+      "rev": 1,
+      "req": "REQ-003",
+      "module": "gateway",
+      "summary": "申请补充材料端点须按回执和账户归属校验，服务端限制 PDF/JPG 和 5MB，并拒绝重复挂载。",
+      "design": {
+        "doc": "接口设计",
+        "docKey": "api",
+        "anchor": "§1 POST /applications/{receipt}/attachments",
+        "sectionId": "a0"
+      },
+      "designRefs": [
+        {
+          "doc": "界面详细设计",
+          "docKey": "ui",
+          "anchor": "§3 申请材料校验",
+          "sectionId": "u2"
+        },
+        {
+          "doc": "数据库详细设计",
+          "docKey": "db",
+          "anchor": "§1 applications",
+          "sectionId": "d0"
+        }
+      ],
+      "categories": [
+        "backend",
+        "frontend",
+        "integration"
+      ],
+      "version": "随当前已确认基线"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "T-201",
+      "title": "首页领导动态与门户首屏",
+      "kind": "frontend",
+      "owner": "codex_cli",
+      "goal": "交付可从首页进入三类栏目和办事入口的双语 SSR 首屏。",
+      "scope": "首页布局、领导动态、三张办事卡及响应式入口；不实现内容查询 API。",
+      "boundary": "只消费已约定的内容读取契约，不在前端保存业务主数据。",
+      "sourceIds": [
+        "SRC-001",
+        "SRC-005",
+        "SRC-006"
+      ],
+      "work": [
+        "实现首页主新闻、领导动态和三项办事入口",
+        "按 /fr 与 /en 渲染导航并显示缺译标记",
+        "实现 1024、768 与移动端办事快捷入口"
+      ],
+      "inputs": [
+        "内容读取 API 契约",
+        "双语语言协商规则"
+      ],
+      "deliverables": [
+        "apps/portal-web/pages/home",
+        "apps/portal-web/components/leader-updates"
+      ],
+      "acceptance": [
+        "/fr 首页显示法语导航与当天领导动态",
+        "/en 缺译领导动态回退法语并显示 fallback 标记",
+        "窄屏时办事入口固定在底部快捷区且可点击"
+      ],
+      "quality": {
+        "object": "首页 SSR 渲染与响应式入口",
+        "scenarios": [
+          {
+            "type": "normal",
+            "applicable": true,
+            "case": "访问 /fr 且 CMS 返回已发布领导动态",
+            "expected": "首页显示法语动态和三个事项入口",
+            "pass": "首屏内容与路由链接可用"
+          },
+          {
+            "type": "boundary",
+            "applicable": true,
+            "case": "英文动态 title_en 为 null",
+            "expected": "显示 title_fr 与 fallback 标记",
+            "pass": "页面不显示空标题"
+          },
+          {
+            "type": "exception",
+            "applicable": true,
+            "case": "内容服务在 800ms 内未响应",
+            "expected": "显示标注内容快照或骨架并允许客户端补拉",
+            "pass": "不返回空白页"
+          }
+        ],
+        "line": 80,
+        "branch": 70
+      },
+      "deps": [],
+      "writeScopes": [
+        "apps/portal-web/pages/home",
+        "apps/portal-web/components/leader-updates"
+      ],
+      "effort": "中",
+      "qualityRev": 1,
+      "rev": 1,
+      "inputArtifactIds": [
+        "PRD",
+        "HLD",
+        "MOD",
+        "UI",
+        "API",
+        "ALG"
+      ]
+    },
+    {
+      "id": "T-202",
+      "title": "内容模型与发布内容 API",
+      "kind": "backend",
+      "owner": "codex_cli",
+      "goal": "提供三类内容的已发布列表与详情读取接口。",
+      "scope": "内容类型、发布态过滤、分页、详情和归档 410；不实现 CMS 操作界面。",
+      "boundary": "仅 cms 服务写内容；portal-web 只读已发布态。",
+      "sourceIds": [
+        "SRC-002",
+        "SRC-010"
+      ],
+      "work": [
+        "定义 news、notice、regulation 内容字段和 lang_pair",
+        "实现 GET /api/v1/contents 分页与类型过滤",
+        "实现详情读取、归档 410 和统一错误体"
+      ],
+      "inputs": [
+        "API §1 内容端点",
+        "DB contents/content_blocks 约束"
+      ],
+      "deliverables": [
+        "services/cms/content-api",
+        "services/cms/content-repository"
+      ],
+      "acceptance": [
+        "type=news 仅返回已发布新闻",
+        "归档内容详情返回 410 gone",
+        "列表响应含当前语言字段和缺译 fallback 信息"
+      ],
+      "quality": {
+        "object": "CMS 内容读取 API",
+        "scenarios": [
+          {
+            "type": "normal",
+            "applicable": true,
+            "case": "查询 type=notice 的第一页",
+            "expected": "返回已发布公告和分页元数据",
+            "pass": "草稿不出现在数据中"
+          },
+          {
+            "type": "boundary",
+            "applicable": true,
+            "case": "请求不存在的第 999 页",
+            "expected": "返回空 items 与有效分页信息",
+            "pass": "HTTP 200 且结构稳定"
+          },
+          {
+            "type": "exception",
+            "applicable": true,
+            "case": "读取 archived 内容 ID",
+            "expected": "返回 410 及双语引导错误体",
+            "pass": "不返回正文"
+          }
+        ],
+        "line": 80,
+        "branch": 70
+      },
+      "deps": [],
+      "writeScopes": [
+        "services/cms/content-api",
+        "services/cms/content-repository"
+      ],
+      "effort": "中",
+      "qualityRev": 1,
+      "rev": 1,
+      "inputArtifactIds": [
+        "PRD",
+        "HLD",
+        "API",
+        "DB"
+      ]
+    },
+    {
+      "id": "T-203",
+      "title": "新闻公告法规栏目与详情页",
+      "kind": "frontend",
+      "owner": "codex_cli",
+      "goal": "呈现三类栏目列表、内容详情与归档引导。",
+      "scope": "栏目/详情页面、分页和阅读跳转；不实现栏目空态。",
+      "boundary": "通过内容 API 获取数据，不能将内容种子硬编码在页面。",
+      "sourceIds": [
+        "SRC-002",
+        "SRC-006"
+      ],
+      "work": [
+        "实现 news、notice、regulation 参数化栏目页",
+        "实现详情页和归档 410 引导页",
+        "按当前语言渲染同源对与 fallback 标记"
+      ],
+      "inputs": [
+        "T-202 内容 API 契约",
+        "UI §4 页面跳转"
+      ],
+      "deliverables": [
+        "apps/portal-web/pages/sections",
+        "apps/portal-web/pages/content-detail"
+      ],
+      "acceptance": [
+        "公告栏目只展示公告列表",
+        "点击详情保留当前语言",
+        "归档链接进入引导页而非正文"
+      ],
+      "quality": {
+        "object": "栏目与详情路由",
+        "scenarios": [
+          {
+            "type": "normal",
+            "applicable": true,
+            "case": "访问 /en/sections/news?page=1",
+            "expected": "展示新闻卡片并可进入英文详情",
+            "pass": "类型和分页参数正确传递"
+          },
+          {
+            "type": "boundary",
+            "applicable": true,
+            "case": "最后一页只有一条法规",
+            "expected": "只显示一张卡且上一页链接有效",
+            "pass": "无重复或空白占位卡"
+          },
+          {
+            "type": "exception",
+            "applicable": true,
+            "case": "详情 API 返回 410",
+            "expected": "页面显示归档引导",
+            "pass": "不渲染归档正文"
+          }
+        ],
+        "line": 80,
+        "branch": 70
+      },
+      "deps": [],
+      "writeScopes": [
+        "apps/portal-web/pages/sections",
+        "apps/portal-web/pages/content-detail"
+      ],
+      "effort": "中",
+      "qualityRev": 1,
+      "rev": 1,
+      "inputArtifactIds": [
+        "PRD",
+        "HLD",
+        "API",
+        "DB",
+        "ALG"
+      ]
+    },
+    {
+      "id": "T-204",
+      "title": "统一申请单与部委适配器受理",
+      "kind": "backend",
+      "owner": "codex_cli",
+      "goal": "以统一申请单受理三项办事并按 svc_code 调度适配器。",
+      "scope": "校验、幂等、入队、回执、状态查询与适配器路由；不做门户表单。",
+      "boundary": "applications.status 仅适配中间件可写，未知部委协议不可伪装为已联调。",
+      "sourceIds": [
+        "SRC-004",
+        "SRC-010"
+      ],
+      "work": [
+        "实现 POST /applications 的材料和 svc_code 校验",
+        "以 idempotency_key 返回原回执而不重复入队",
+        "实现 receipt 进度查询及 tax/passport/company 描述符路由"
+      ],
+      "inputs": [
+        "API 应用端点",
+        "DB applications 约束"
+      ],
+      "deliverables": [
+        "services/gateway/applications",
+        "services/gateway/adapters"
+      ],
+      "acceptance": [
+        "相同幂等键两次提交返回同一回执",
+        "未知 svc_code 返回事项暂未开通",
+        "GET receipt 返回当前受理状态"
+      ],
+      "quality": {
+        "object": "申请单受理链",
+        "scenarios": [
+          {
+            "type": "normal",
+            "applicable": true,
+            "case": "提交含完整护照材料和新幂等键的 passport 申请",
+            "expected": "签发唯一回执并进入调度队列",
+            "pass": "返回 receipt_no"
+          },
+          {
+            "type": "boundary",
+            "applicable": true,
+            "case": "以同一幂等键重复提交相同申请",
+            "expected": "返回首次 receipt_no",
+            "pass": "队列记录仍为一条"
+          },
+          {
+            "type": "exception",
+            "applicable": true,
+            "case": "svc_code=land 未登记适配器",
+            "expected": "拒绝并提示事项暂未开通",
+            "pass": "不创建 applications 记录"
+          }
+        ],
+        "line": 80,
+        "branch": 70
+      },
+      "deps": [],
+      "writeScopes": [
+        "services/gateway/applications",
+        "services/gateway/adapters"
+      ],
+      "effort": "大",
+      "qualityRev": 1,
+      "rev": 1,
+      "inputArtifactIds": [
+        "PRD",
+        "HLD",
+        "ALG",
+        "API",
+        "DB"
+      ]
+    },
+    {
+      "id": "T-205",
+      "title": "办事大厅分步表单与回执进度页",
+      "kind": "frontend",
+      "owner": "codex_cli",
+      "goal": "让公民完成材料、填写、提交和进度查询。",
+      "scope": "三项办事指南、分步表单、内联校验、回执复制和进度入口。",
+      "boundary": "不在浏览器生成回执或模拟状态，按冻结申请/附件契约实现；真实联通由 T-209 验收。",
+      "sourceIds": [
+        "SRC-005",
+        "SRC-004",
+        "SRC-014"
+      ],
+      "work": [
+        "实现护照、企业注册、税务申报指南和材料清单",
+        "实现可返回修改的分步表单与 PDF/JPG 5MB 校验",
+        "按冻结契约提交申请、附件并展示回执和进度",
+        "接入共享账户/会话组件，未登录先进入账户入口，失效会话显示重新登录反馈"
+      ],
+      "inputs": [
+        "冻结申请与附件契约（SRC-004、SRC-014/API §1）",
+        "UI §3 表单规则",
+        "T-224 账户/会话组件实现（硬依赖），业务 API 仍按冻结契约开发"
+      ],
+      "deliverables": [
+        "apps/portal-web/pages/services",
+        "apps/portal-web/pages/application-status"
+      ],
+      "acceptance": [
+        "缺少必交材料时在当前步骤显示名称",
+        "成功提交后可复制回执并跳转进度页",
+        "回退上一步后已填字段保留"
+      ],
+      "quality": {
+        "object": "办事表单用户流",
+        "scenarios": [
+          {
+            "type": "normal",
+            "applicable": true,
+            "case": "提交符合要求的护照预约材料",
+            "expected": "显示网关返回的回执号",
+            "pass": "可打开该回执的进度页"
+          },
+          {
+            "type": "boundary",
+            "applicable": true,
+            "case": "上传恰好 5MB 的 JPG",
+            "expected": "材料校验通过",
+            "pass": "进入填写步骤"
+          },
+          {
+            "type": "exception",
+            "applicable": true,
+            "case": "缺少税务申报必交 PDF",
+            "expected": "内联提示缺少材料名称",
+            "pass": "提交按钮不调用 API"
+          }
+        ],
+        "line": 80,
+        "branch": 70
+      },
+      "deps": [
+        "T-224"
+      ],
+      "writeScopes": [
+        "apps/portal-web/pages/services",
+        "apps/portal-web/pages/application-status"
+      ],
+      "effort": "中",
+      "qualityRev": 1,
+      "rev": 1,
+      "inputArtifactIds": [
+        "PRD",
+        "HLD",
+        "UI",
+        "API",
+        "ALG",
+        "DB"
+      ]
+    },
+    {
+      "id": "T-206",
+      "title": "双语语言协商与缺译公共层",
+      "kind": "common",
+      "owner": "codex_cli",
+      "goal": "在全站一致解析语言并安全回退缺译内容。",
+      "scope": "URL/Cookie/Accept-Language 优先级、LangPair 解析、fallback 标记和待译记录。",
+      "boundary": "法语是权威回退语；单语发布允许，法语也缺失时不得伪装正常内容。",
+      "sourceIds": [
+        "SRC-006",
+        "SRC-010"
+      ],
+      "work": [
+        "实现三级语言协商",
+        "实现 LangPair resolve 和 fallback 元数据",
+        "记录缺译 lang_pair、语种、栏目和挂起天数"
+      ],
+      "inputs": [
+        "ALG §2",
+        "API §1 双语字段规则"
+      ],
+      "deliverables": [
+        "packages/i18n/language-negotiation",
+        "packages/i18n/lang-pair"
+      ],
+      "acceptance": [
+        "URL /en 覆盖 lang=fr Cookie",
+        "英文 null 回退法语并携带标记",
+        "fr/en 均缺失时返回占位及数据质量告警"
+      ],
+      "quality": {
+        "object": "双语解析公共库",
+        "scenarios": [
+          {
+            "type": "normal",
+            "applicable": true,
+            "case": "Cookie 为 en 且内容有 title_en",
+            "expected": "返回英文标题",
+            "pass": "fallback=false"
+          },
+          {
+            "type": "boundary",
+            "applicable": true,
+            "case": "URL /fr、Cookie en、Accept-Language en",
+            "expected": "选择 fr",
+            "pass": "URL 优先级生效"
+          },
+          {
+            "type": "exception",
+            "applicable": true,
+            "case": "title_fr 与 title_en 均为 null",
+            "expected": "返回占位与数据质量告警对象",
+            "pass": "不返回 null 作为可展示标题"
+          }
+        ],
+        "line": 80,
+        "branch": 70
+      },
+      "deps": [],
+      "writeScopes": [
+        "packages/i18n/language-negotiation",
+        "packages/i18n/lang-pair"
+      ],
+      "effort": "中",
+      "qualityRev": 1,
+      "rev": 1,
+      "inputArtifactIds": [
+        "PRD",
+        "HLD",
+        "ALG",
+        "API"
+      ]
+    },
+    {
+      "id": "T-207",
+      "title": "CMS 三角色流转与审计",
+      "kind": "backend",
+      "owner": "codex_cli",
+      "goal": "强制编辑、审核、发布角色的内容状态机和审计。",
+      "scope": "draft/review/published/archived 状态守卫、审核决定、发布、下线、归档和审计。",
+      "boundary": "审核通过作为 review decision 记录，不新增 approved 持久状态；状态和权限结论均由服务端守卫决定。",
+      "sourceIds": [
+        "SRC-007",
+        "SRC-010",
+        "SRC-011",
+        "SRC-012",
+        "SRC-013"
+      ],
+      "work": [
+        "实现角色能力矩阵和状态转换守卫",
+        "记录 review decision 后由发布角色将 review 内容发布",
+        "发布前校验至少一语种成文和必填元数据",
+        "记录发布、下线的审计上下文"
+      ],
+      "inputs": [
+        "T-220 身份鉴权服务",
+        "T-221 草稿与块写入 API"
+      ],
+      "deliverables": [
+        "services/cms/workflow",
+        "services/cms/audit"
+      ],
+      "acceptance": [
+        "编辑可提审但不能发布",
+        "审核可退回或写入 review decision 但不能编辑正文",
+        "发布动作记录 actor、IP、对象和时间"
+      ],
+      "quality": {
+        "object": "CMS 内容流转",
+        "scenarios": [
+          {
+            "type": "normal",
+            "applicable": true,
+            "case": "编辑提交完整法语草稿，审核写入通过决定后由发布角色上线",
+            "expected": "内容从 draft 进入 review 再进入 published，且写入 published_at 与发布审计",
+            "pass": "状态、审核决定、发布时间和审计记录均可查询"
+          },
+          {
+            "type": "boundary",
+            "applicable": true,
+            "case": "英文为空但法语和必填元数据完整",
+            "expected": "允许发布并创建待译记录",
+            "pass": "published 状态写入成功"
+          },
+          {
+            "type": "exception",
+            "applicable": true,
+            "case": "编辑角色调用发布操作",
+            "expected": "返回无权限错误并不改变状态",
+            "pass": "无 published_at 写入"
+          }
+        ],
+        "line": 80,
+        "branch": 70
+      },
+      "deps": [
+        "T-220",
+        "T-221"
+      ],
+      "writeScopes": [
+        "services/cms/workflow",
+        "services/cms/audit"
+      ],
+      "effort": "中",
+      "qualityRev": 1,
+      "rev": 1,
+      "inputArtifactIds": [
+        "PRD",
+        "HLD",
+        "MOD",
+        "DB",
+        "ALG",
+        "API",
+        "NFR",
+        "UI"
+      ]
+    },
+    {
+      "id": "T-208",
+      "title": "双语检索 API 与索引降级",
+      "kind": "backend",
+      "owner": "codex_cli",
+      "goal": "按双语改写查询并返回同源内容对。",
+      "scope": "查询校验、术语扩展、ES 查询、空结果引导和 DB 降级标记。",
+      "boundary": "不制作检索结果页面；索引构建与 CMS 发布事件由 T-214 承接。",
+      "sourceIds": [
+        "SRC-008",
+        "SRC-010"
+      ],
+      "work": [
+        "实现 2–64 字符查询校验与 fr/en 术语改写",
+        "实现同源对合并返回",
+        "实现 ES 不可用时 DB 模糊匹配和基础检索标记"
+      ],
+      "inputs": [
+        "ALG §3",
+        "API GET /search"
+      ],
+      "deliverables": [
+        "services/search/query-api",
+        "services/search/query-rewrite"
+      ],
+      "acceptance": [
+        "法语术语查询能命中英文同源内容",
+        "空查询返回引导错误而非全量内容",
+        "ES 故障时响应标记基础检索模式"
+      ],
+      "quality": {
+        "object": "检索查询 API",
+        "scenarios": [
+          {
+            "type": "normal",
+            "applicable": true,
+            "case": "以法语政务术语查询并命中英文索引字段",
+            "expected": "返回该 lang_pair 且按请求语言展示字段",
+            "pass": "结果不重复为两条"
+          },
+          {
+            "type": "boundary",
+            "applicable": true,
+            "case": "输入长度恰为 2 的关键词",
+            "expected": "执行检索",
+            "pass": "不触发参数错误"
+          },
+          {
+            "type": "exception",
+            "applicable": true,
+            "case": "Elasticsearch 连接失败",
+            "expected": "降级 DB 模糊匹配并附基础检索标记",
+            "pass": "HTTP 响应仍可用"
+          }
+        ],
+        "line": 80,
+        "branch": 70
+      },
+      "deps": [],
+      "writeScopes": [
+        "services/search/query-api",
+        "services/search/query-rewrite"
+      ],
+      "effort": "中",
+      "qualityRev": 1,
+      "rev": 1,
+      "inputArtifactIds": [
+        "PRD",
+        "HLD",
+        "ALG",
+        "API"
+      ]
+    },
+    {
+      "id": "T-209",
+      "title": "最终联调、构建与发布门禁",
+      "kind": "integration",
+      "owner": "codex_cli",
+      "goal": "验证 REQ-001～007、身份安全和离线部署的可部署契约。",
+      "scope": "逐 REQ 集成矩阵、端到端烟测、离线构建、自动质量门禁和部委联调结论；不新增业务功能。",
+      "boundary": "未提供的真实部委协议及未获批的环境证据必须报告为阻塞或延期，不能用模拟成功掩盖。",
+      "sourceIds": [
+        "SRC-001",
+        "SRC-002",
+        "SRC-004",
+        "SRC-005",
+        "SRC-006",
+        "SRC-007",
+        "SRC-008",
+        "SRC-009",
+        "SRC-010",
+        "SRC-011",
+        "SRC-012",
+        "SRC-013",
+        "SRC-014",
+        "TECH-001"
+      ],
+      "work": [
+        "执行内容编辑→审核→发布→首页/栏目可见及 30 分钟时效验收",
+        "执行护照、企业注册、税务三项申请、附件、回执和熔断待补链路",
+        "执行双语缺译、检索、开放数据密钥下载、匿名和越权拒绝链路",
+        "汇总无障碍、安全、性能、离线安装证据及逐 REQ 集成矩阵"
+      ],
+      "inputs": [
+        "所有任务产物和有效质量证据",
+        "冻结 HLD/NFR/API 基线"
+      ],
+      "deliverables": [
+        "tests/integration/portal-flow",
+        "tests/integration/req-matrix",
+        "ops/offline/install-record",
+        "evidence/build-verification.json"
+      ],
+      "acceptance": [
+        "七个 REQ 均有可执行集成用例和证据",
+        "三项办事均可提交并获回执，协议缺口显式列出",
+        "内容发布后首页/栏目可见且时效不超过 30 分钟",
+        "自动质量门禁不因人工跳过而放行",
+        "账户注册/OTP 登录→办事与密钥入口联通，锁定和续期失败均无法越过服务端鉴权"
+      ],
+      "quality": {
+        "object": "候选构建与跨服务联调",
+        "scenarios": [
+          {
+            "type": "normal",
+            "applicable": true,
+            "case": "编辑创建内容、审核决定、发布后访问首页；三项办事分别提交并获回执",
+            "expected": "内容在 30 分钟内首页/栏目可见，三项申请均可查询进度",
+            "pass": "REQ-001、002、003、005 的集成矩阵全部通过"
+          },
+          {
+            "type": "boundary",
+            "applicable": true,
+            "case": "英文内容缺译、跨语检索命中及有效 key 达到第 60 次下载请求",
+            "expected": "法语回退有标记、返回同源结果、第 60 次仍允许",
+            "pass": "REQ-004、006、007 的集成矩阵通过"
+          },
+          {
+            "type": "exception",
+            "applicable": true,
+            "case": "匿名申请、越权 CMS 发布、熔断通道申请和缺少真实部委协议",
+            "expected": "拒绝未授权操作、签发待补回执、协议缺口列阻塞或延期",
+            "pass": "无未授权业务写入且证据状态真实"
+          }
+        ],
+        "line": 80,
+        "branch": 70
+      },
+      "deps": [
+        "T-201",
+        "T-202",
+        "T-203",
+        "T-204",
+        "T-205",
+        "T-206",
+        "T-207",
+        "T-208",
+        "T-210",
+        "T-211",
+        "T-212",
+        "T-213",
+        "T-214",
+        "T-215",
+        "T-216",
+        "T-217",
+        "T-218",
+        "T-219",
+        "T-220",
+        "T-221",
+        "T-222",
+        "T-223",
+        "T-224"
+      ],
+      "writeScopes": [
+        "tests/integration",
+        "ops/offline/install-record",
+        "evidence/build-verification.json"
+      ],
+      "effort": "大",
+      "qualityRev": 1,
+      "rev": 1,
+      "inputArtifactIds": [
+        "PRD",
+        "HLD",
+        "MOD",
+        "API",
+        "DB",
+        "ALG",
+        "UI",
+        "NFR"
+      ]
+    },
+    {
+      "id": "T-211",
+      "title": "首页内容聚合 API 与每日重建",
+      "kind": "backend",
+      "owner": "codex_cli",
+      "goal": "为首页提供领导动态聚合，并在每日和发布时更新缓存。",
+      "scope": "首页内容选择、已发布态过滤、00:30 重建和缓存失效事件。",
+      "boundary": "不实现首页版式；不能读取草稿或审核中内容。",
+      "sourceIds": [
+        "SRC-001",
+        "SRC-002",
+        "SRC-011"
+      ],
+      "work": [
+        "实现首页领导动态聚合读取",
+        "安排每日 00:30 静态化重建",
+        "在发布/下线时发出 home:{lang} 缓存失效"
+      ],
+      "inputs": [
+        "T-202 内容仓储",
+        "缓存键规范"
+      ],
+      "deliverables": [
+        "services/cms/home-feed",
+        "services/cache/invalidation"
+      ],
+      "acceptance": [
+        "首页接口不返回草稿",
+        "发布领导动态后两个语言缓存键失效",
+        "每日任务生成可读首页快照"
+      ],
+      "quality": {
+        "object": "首页内容聚合",
+        "scenarios": [
+          {
+            "type": "normal",
+            "applicable": true,
+            "case": "存在三条已发布领导动态",
+            "expected": "接口按发布时间返回首页所需条目",
+            "pass": "不包含草稿"
+          },
+          {
+            "type": "boundary",
+            "applicable": true,
+            "case": "当天没有领导动态",
+            "expected": "返回空列表和可用元数据",
+            "pass": "不报 500"
+          },
+          {
+            "type": "exception",
+            "applicable": true,
+            "case": "缓存失效 API 连续失败三次",
+            "expected": "保留重试失败告警并由 TTL 兜底",
+            "pass": "事件失败可观测"
+          }
+        ],
+        "line": 80,
+        "branch": 70
+      },
+      "deps": [
+        "T-202"
+      ],
+      "writeScopes": [
+        "services/cms/home-feed",
+        "services/cache/invalidation"
+      ],
+      "effort": "小",
+      "qualityRev": 1,
+      "rev": 1,
+      "inputArtifactIds": [
+        "PRD",
+        "HLD",
+        "MOD",
+        "API",
+        "DB",
+        "NFR"
+      ]
+    },
+    {
+      "id": "T-212",
+      "title": "CMS 块编辑器管理前端",
+      "kind": "frontend",
+      "owner": "codex_cli",
+      "goal": "让非技术编辑创建双语内容块并执行其有权操作。",
+      "scope": "标题、段落、图片、表格、引用块，草稿保存、提审、审核和发布操作入口。",
+      "boundary": "权限和状态结论以 T-207 服务端返回为准，前端不可自行放行。",
+      "sourceIds": [
+        "SRC-007",
+        "SRC-006",
+        "SRC-013",
+        "SRC-012"
+      ],
+      "work": [
+        "实现块类型注册与块级保存界面",
+        "实现同源语言切换、缺译清单和冲突提示",
+        "按角色展示可用流转操作"
+      ],
+      "inputs": [
+        "冻结 API 工作流契约（T-207 的实现范围；按契约 mock 并行开发）",
+        "冻结草稿/内容块 CRUD、revision 与 409 契约（T-221 的实现范围；按契约 mock）",
+        "冻结 LangPair 和角色/actor 会话契约；真实联通由 T-209 汇合验证"
+      ],
+      "deliverables": [
+        "apps/cms-admin/editor",
+        "apps/cms-admin/content-workflow"
+      ],
+      "acceptance": [
+        "编辑可保存标题、段落、图片、表格、引用块",
+        "并发 409 提示用户合并而不覆盖",
+        "审核角色没有正文编辑控件"
+      ],
+      "quality": {
+        "object": "CMS 管理前端",
+        "scenarios": [
+          {
+            "type": "normal",
+            "applicable": true,
+            "case": "编辑保存含标题和段落的法语草稿",
+            "expected": "草稿保存且显示待译英文状态",
+            "pass": "刷新后块顺序不变"
+          },
+          {
+            "type": "boundary",
+            "applicable": true,
+            "case": "添加第一个引用块后立即提审",
+            "expected": "块数据被包含在提审请求中",
+            "pass": "服务端可读取 block_type=quote"
+          },
+          {
+            "type": "exception",
+            "applicable": true,
+            "case": "保存收到同源对并发 409",
+            "expected": "显示合并提示并保留本地未保存内容",
+            "pass": "不静默覆盖远端"
+          }
+        ],
+        "line": 80,
+        "branch": 70
+      },
+      "deps": [],
+      "writeScopes": [
+        "apps/cms-admin/editor",
+        "apps/cms-admin/content-workflow"
+      ],
+      "effort": "大",
+      "qualityRev": 1,
+      "rev": 1,
+      "inputArtifactIds": [
+        "PRD",
+        "HLD",
+        "MOD",
+        "DB",
+        "ALG",
+        "API",
+        "UI",
+        "NFR"
+      ]
+    },
+    {
+      "id": "T-213",
+      "title": "门户双语检索结果页",
+      "kind": "frontend",
+      "owner": "codex_cli",
+      "goal": "把全站检索框连接为可解释的双语结果体验。",
+      "scope": "搜索框、结果页、命中另一语种标记、空结果和基础检索提示。",
+      "boundary": "只调用检索 API，不复制分词或查询改写规则。",
+      "sourceIds": [
+        "SRC-008",
+        "SRC-006"
+      ],
+      "work": [
+        "实现页头搜索和结果路由",
+        "渲染同源对结果与跨语命中标记",
+        "实现空关键词、空结果、索引滞后和基础检索提示"
+      ],
+      "inputs": [
+        "T-208 搜索 API 契约",
+        "UI §3 检索词规则"
+      ],
+      "deliverables": [
+        "apps/portal-web/pages/search",
+        "apps/portal-web/components/global-search"
+      ],
+      "acceptance": [
+        "输入 2–64 字符可进入结果页",
+        "空关键词显示输入引导",
+        "降级响应显示基础检索模式"
+      ],
+      "quality": {
+        "object": "检索结果用户界面",
+        "scenarios": [
+          {
+            "type": "normal",
+            "applicable": true,
+            "case": "从 /en 页头搜索法语术语并获得同源结果",
+            "expected": "结果用英文渲染并标注跨语命中",
+            "pass": "点击可进入英文详情"
+          },
+          {
+            "type": "boundary",
+            "applicable": true,
+            "case": "输入刚好 64 字符关键词",
+            "expected": "提交搜索请求",
+            "pass": "不截断或错误提示"
+          },
+          {
+            "type": "exception",
+            "applicable": true,
+            "case": "搜索 API 返回基础检索标记",
+            "expected": "结果页展示基础检索模式说明",
+            "pass": "说明不遮挡结果"
+          }
+        ],
+        "line": 80,
+        "branch": 70
+      },
+      "deps": [],
+      "writeScopes": [
+        "apps/portal-web/pages/search",
+        "apps/portal-web/components/global-search"
+      ],
+      "effort": "中",
+      "qualityRev": 1,
+      "rev": 1,
+      "inputArtifactIds": [
+        "PRD",
+        "HLD",
+        "ALG"
+      ]
+    },
+    {
+      "id": "T-214",
+      "title": "CMS 发布事件与检索索引管道",
+      "kind": "integration",
+      "owner": "codex_cli",
+      "goal": "将发布和下线事件可靠地投递到缓存失效与双语索引增量。",
+      "scope": "事件结构、幂等消费、索引延迟监控和重投。",
+      "boundary": "不实现检索查询 UI/API；事件失败不能静默丢失。",
+      "sourceIds": [
+        "SRC-007",
+        "SRC-008",
+        "SRC-011"
+      ],
+      "work": [
+        "定义 content published/unpublished 事件",
+        "实现缓存和索引消费者的幂等处理",
+        "记录超过 5 分钟的索引落后告警"
+      ],
+      "inputs": [
+        "T-207 流转事件",
+        "T-211 缓存失效",
+        "搜索索引文档结构"
+      ],
+      "deliverables": [
+        "services/events/content-events",
+        "services/search/indexer"
+      ],
+      "acceptance": [
+        "发布产生缓存失效与索引增量两类事件",
+        "重复事件不会生成重复索引文档",
+        "索引五分钟未完成可查询告警"
+      ],
+      "quality": {
+        "object": "内容事件管道",
+        "scenarios": [
+          {
+            "type": "normal",
+            "applicable": true,
+            "case": "发布具有 fr/en 标题的新闻",
+            "expected": "索引器写入一个含双字段的 lang_pair 文档",
+            "pass": "两个语言查询均可命中"
+          },
+          {
+            "type": "boundary",
+            "applicable": true,
+            "case": "同一发布事件重投两次",
+            "expected": "索引文档保持一份",
+            "pass": "消费幂等键生效"
+          },
+          {
+            "type": "exception",
+            "applicable": true,
+            "case": "索引消费者持续失败超过 5 分钟",
+            "expected": "产生索引落后告警",
+            "pass": "告警含内容和延迟"
+          }
+        ],
+        "line": 80,
+        "branch": 70
+      },
+      "deps": [
+        "T-207",
+        "T-211"
+      ],
+      "writeScopes": [
+        "services/events/content-events",
+        "services/search/indexer"
+      ],
+      "effort": "中",
+      "qualityRev": 1,
+      "rev": 1,
+      "inputArtifactIds": [
+        "PRD",
+        "HLD",
+        "MOD",
+        "DB",
+        "ALG",
+        "NFR"
+      ]
+    },
+    {
+      "id": "T-215",
+      "title": "开放数据目录、密钥与下载 API",
+      "kind": "backend",
+      "owner": "codex_cli",
+      "goal": "安全提供数据集目录、密钥签发和受限下载。",
+      "scope": "目录、数据集详情、api_key、scope、日配额、60 req/min 与下载审计。",
+      "boundary": "不实现目录页面；无效密钥不得以匿名下载降级。",
+      "sourceIds": [
+        "SRC-009",
+        "SRC-010",
+        "SRC-011"
+      ],
+      "work": [
+        "实现 datasets 列表与双语元数据",
+        "实现密钥签发、scope 和 quota_day 检查",
+        "实现下载限流、401/429 及 audit_log"
+      ],
+      "inputs": [
+        "API 开放数据端点",
+        "api_keys 与 audit_log 数据模型"
+      ],
+      "deliverables": [
+        "services/opendata/catalog-api",
+        "services/opendata/key-service"
+      ],
+      "acceptance": [
+        "有效密钥可下载其 scope 内数据集",
+        "无效密钥返回 401 并审计",
+        "第 61 次分钟请求返回 429"
+      ],
+      "quality": {
+        "object": "开放数据 API",
+        "scenarios": [
+          {
+            "type": "normal",
+            "applicable": true,
+            "case": "带具备 dataset.read scope 的有效 key 下载公开数据集",
+            "expected": "返回数据并写下载审计",
+            "pass": "审计包含 actor 与数据集 ID"
+          },
+          {
+            "type": "boundary",
+            "applicable": true,
+            "case": "同一 key 在一分钟内第 60 次请求",
+            "expected": "仍允许访问",
+            "pass": "第 60 次非 429"
+          },
+          {
+            "type": "exception",
+            "applicable": true,
+            "case": "使用已撤销 api_key 下载",
+            "expected": "返回 401",
+            "pass": "无数据字节泄漏"
+          }
+        ],
+        "line": 80,
+        "branch": 70
+      },
+      "deps": [],
+      "writeScopes": [
+        "services/opendata/catalog-api",
+        "services/opendata/key-service"
+      ],
+      "effort": "中",
+      "qualityRev": 1,
+      "rev": 1,
+      "inputArtifactIds": [
+        "PRD",
+        "HLD",
+        "MOD",
+        "API",
+        "NFR"
+      ]
+    },
+    {
+      "id": "T-216",
+      "title": "开放数据目录与下载门户页",
+      "kind": "frontend",
+      "owner": "codex_cli",
+      "goal": "让用户浏览双语数据集并在授权后下载。",
+      "scope": "目录、详情、密钥输入、下载反馈和限流提示。",
+      "boundary": "前端不生成或保存明文密钥，不绕过下载 API 的鉴权。",
+      "sourceIds": [
+        "SRC-009",
+        "SRC-006"
+      ],
+      "work": [
+        "实现数据集目录卡片和详情页",
+        "实现 api_key 输入后发起下载",
+        "显示缺译、401 与 429 的本地化反馈",
+        "接入共享账户/会话组件，未登录先进入账户入口，失效会话显示重新登录反馈"
+      ],
+      "inputs": [
+        "T-215 开放数据 API 契约",
+        "UI §4 开放数据跳转",
+        "T-224 账户/会话组件实现（硬依赖），业务 API 仍按冻结契约开发"
+      ],
+      "deliverables": [
+        "apps/portal-web/pages/opendata",
+        "apps/portal-web/components/dataset-download"
+      ],
+      "acceptance": [
+        "目录按当前语言显示元数据",
+        "有效 key 下载成功",
+        "429 提示配额或限流而非重复重试"
+      ],
+      "quality": {
+        "object": "开放数据门户页",
+        "scenarios": [
+          {
+            "type": "normal",
+            "applicable": true,
+            "case": "在 /fr 浏览目录并使用有效 key 下载数据集",
+            "expected": "显示法语元数据并开始下载",
+            "pass": "下载请求携带 key"
+          },
+          {
+            "type": "boundary",
+            "applicable": true,
+            "case": "英文描述缺失",
+            "expected": "回退法语描述并标记 fallback",
+            "pass": "卡片仍有可读摘要"
+          },
+          {
+            "type": "exception",
+            "applicable": true,
+            "case": "下载响应 429",
+            "expected": "显示本地化限流提示",
+            "pass": "不自动连续重发请求"
+          }
+        ],
+        "line": 80,
+        "branch": 70
+      },
+      "deps": [
+        "T-224"
+      ],
+      "writeScopes": [
+        "apps/portal-web/pages/opendata",
+        "apps/portal-web/components/dataset-download"
+      ],
+      "effort": "中",
+      "qualityRev": 1,
+      "rev": 1,
+      "inputArtifactIds": [
+        "PRD",
+        "HLD",
+        "MOD",
+        "ALG"
+      ]
+    },
+    {
+      "id": "T-217",
+      "title": "网关熔断、回调与对账恢复",
+      "kind": "backend",
+      "owner": "codex_cli",
+      "goal": "确保部委不可用时不丢件并可恢复进度。",
+      "scope": "10 秒超时、3 次重试、5 次熔断 60 秒、回调签名、幂等吸收和对账重试。",
+      "boundary": "真实 12 部委协议缺口只使用描述符占位，不宣称所有通道已验证。",
+      "sourceIds": [
+        "SRC-004",
+        "SRC-011"
+      ],
+      "work": [
+        "实现按通道隔离的 Breaker 状态机",
+        "实现 callbacks 签名验证与 receipt+状态幂等",
+        "实现无回调通道夜间全量、15 分钟增量对账"
+      ],
+      "inputs": [
+        "T-204 应用服务",
+        "ALG §4"
+      ],
+      "deliverables": [
+        "services/gateway/breaker",
+        "services/gateway/reconciliation"
+      ],
+      "acceptance": [
+        "连续五次失败使该通道熔断 60 秒",
+        "熔断新单据获得待补回执",
+        "无效回调被拒绝并审计"
+      ],
+      "quality": {
+        "object": "适配器恢复逻辑",
+        "scenarios": [
+          {
+            "type": "normal",
+            "applicable": true,
+            "case": "company 通道对账返回待受理变办理中",
+            "expected": "回执状态更新为办理中",
+            "pass": "生成可追溯对账记录"
+          },
+          {
+            "type": "boundary",
+            "applicable": true,
+            "case": "熔断期满放行一个半开探测且成功",
+            "expected": "通道关闭熔断并恢复调度",
+            "pass": "仅一个探测请求被放行"
+          },
+          {
+            "type": "exception",
+            "applicable": true,
+            "case": "回调签名无效",
+            "expected": "拒绝回调并写审计",
+            "pass": "申请状态不变"
+          }
+        ],
+        "line": 80,
+        "branch": 70
+      },
+      "deps": [
+        "T-204"
+      ],
+      "writeScopes": [
+        "services/gateway/breaker",
+        "services/gateway/reconciliation"
+      ],
+      "effort": "中",
+      "qualityRev": 1,
+      "rev": 1,
+      "inputArtifactIds": [
+        "PRD",
+        "HLD",
+        "ALG",
+        "API",
+        "DB",
+        "NFR"
+      ]
+    },
+    {
+      "id": "T-218",
+      "title": "缓存、性能与可观测性工程支撑",
+      "kind": "common",
+      "owner": "codex_cli",
+      "goal": "落实缓存、首屏性能和显式降级的工程门槛。",
+      "scope": "缓存键、Lighthouse、运行指标和降级标记；安全、无障碍与离线门禁由 T-223 承接。",
+      "boundary": "目标来自 NFR/HLD 技术决策，未具备生产压测环境时仅记录可得证据范围。",
+      "sourceIds": [
+        "SRC-011",
+        "TECH-001"
+      ],
+      "work": [
+        "实现 home/section/content 缓存键与 TTL 规则",
+        "配置 Lighthouse 首屏预算和关键监控指标",
+        "统一快照、骨架、基础检索、待补的显式降级标记"
+      ],
+      "inputs": [
+        "冻结 NFR 性能/降级契约（SRC-011）"
+      ],
+      "deliverables": [
+        "packages/platform/cache-policy",
+        "ops/observability/portal-metrics",
+        "ci/lighthouse-budget"
+      ],
+      "acceptance": [
+        "首页和栏目缓存 TTL 为 10 分钟",
+        "Lighthouse 超过 3 秒预算使 CI 失败",
+        "每种降级响应具有用户可见标记"
+      ],
+      "quality": {
+        "object": "性能与降级工程基线",
+        "scenarios": [
+          {
+            "type": "normal",
+            "applicable": true,
+            "case": "CDN 命中首页缓存",
+            "expected": "首屏预算检查通过且记录缓存命中",
+            "pass": "Lighthouse 不超过 3 秒"
+          },
+          {
+            "type": "boundary",
+            "applicable": true,
+            "case": "同一 key 在 30 秒内收到多个失效事件",
+            "expected": "合并为一次刷新",
+            "pass": "刷新次数不超过一次"
+          },
+          {
+            "type": "exception",
+            "applicable": true,
+            "case": "CMS 下游不可用",
+            "expected": "缓存组件返回可消费的降级标记和原因",
+            "pass": "监控记录降级原因"
+          }
+        ],
+        "line": 80,
+        "branch": 70
+      },
+      "deps": [],
+      "writeScopes": [
+        "packages/platform/cache-policy",
+        "ops/observability/portal-metrics",
+        "ci/lighthouse-budget"
+      ],
+      "effort": "中",
+      "qualityRev": 1,
+      "rev": 1,
+      "inputArtifactIds": [
+        "PRD",
+        "HLD",
+        "NFR"
+      ]
+    },
+    {
+      "id": "T-219",
+      "title": "数据约束与接口兼容契约测试",
+      "kind": "integration",
+      "owner": "codex_cli",
+      "goal": "验证内容、申请、账户和密钥数据约束及 /api/v1 的兼容承诺。",
+      "scope": "schema 约束、错误体、字段增量兼容和关键端点契约测试。",
+      "boundary": "不替代各服务单测；不修改已确认的 API 语义。",
+      "sourceIds": [
+        "SRC-002",
+        "SRC-004",
+        "SRC-009",
+        "SRC-010",
+        "SRC-012",
+        "SRC-013",
+        "SRC-014"
+      ],
+      "work": [
+        "验证 contents/content_blocks、applications、accounts、api_keys、audit_log 约束",
+        "验证统一错误体、附件、会话和双语 null/fallback 契约",
+        "验证新增字段不破坏 v1 消费者"
+      ],
+      "inputs": [
+        "冻结 DB/API 契约（SRC-002、004、009、010、012、013、014）"
+      ],
+      "deliverables": [
+        "tests/contract/api-v1",
+        "tests/contract/data-constraints"
+      ],
+      "acceptance": [
+        "重复 idempotency_key 被唯一约束拦截",
+        "草稿状态只允许 draft/review/published/archived",
+        "错误响应始终包含 code、message、hint"
+      ],
+      "quality": {
+        "object": "数据与 API 契约",
+        "scenarios": [
+          {
+            "type": "normal",
+            "applicable": true,
+            "case": "创建含 title_fr 与 title_en 及两个排序块的草稿",
+            "expected": "读取契约返回同源字段、块顺序与 draft 状态",
+            "pass": "契约测试通过"
+          },
+          {
+            "type": "boundary",
+            "applicable": true,
+            "case": "旧客户端忽略新加的可选 title_xx 字段",
+            "expected": "仍成功解析响应",
+            "pass": "兼容样例通过"
+          },
+          {
+            "type": "exception",
+            "applicable": true,
+            "case": "插入重复 applications.idempotency_key 或非法 approved 内容状态",
+            "expected": "持久层拒绝写入",
+            "pass": "不会出现第二个回执或非法状态"
+          }
+        ],
+        "line": 80,
+        "branch": 70
+      },
+      "deps": [
+        "T-202",
+        "T-204",
+        "T-215",
+        "T-220",
+        "T-221",
+        "T-222"
+      ],
+      "writeScopes": [
+        "tests/contract/api-v1",
+        "tests/contract/data-constraints"
+      ],
+      "effort": "中",
+      "qualityRev": 1,
+      "rev": 1,
+      "inputArtifactIds": [
+        "PRD",
+        "HLD",
+        "API",
+        "DB",
+        "ALG",
+        "MOD",
+        "UI",
+        "NFR"
+      ]
+    },
+    {
+      "id": "T-220",
+      "title": "身份、会话与安全中间件",
+      "kind": "backend",
+      "owner": "codex_cli",
+      "goal": "建立公民账户、OTP 会话、角色鉴权、密钥主体绑定和可审计安全边界。",
+      "scope": "/accounts 注册、/accounts/session 登录刷新、access 2h/refresh 14d、OTP 锁定、CMS role/action 守卫、WAF/OWASP CI 基线。",
+      "boundary": "不制作登录界面；账户和令牌不替代业务服务的资源归属校验。",
+      "sourceIds": [
+        "SRC-012",
+        "SRC-010",
+        "SRC-011"
+      ],
+      "work": [
+        "实现账户注册、6 位 OTP 验证及五次失败锁定 30 分钟",
+        "实现 access/refresh 签发、过期 access 的一次静默刷新和注销",
+        "实现 CMS role/action 守卫、api_key 账户绑定、登录/发布/申请/签发审计",
+        "配置 WAF 规则和 OWASP Top10 扫描门禁"
+      ],
+      "inputs": [
+        "冻结身份契约（SRC-012/API §1、§3）"
+      ],
+      "deliverables": [
+        "services/auth/accounts",
+        "services/auth/session",
+        "services/auth/authorization",
+        "ci/security/owasp-baseline"
+      ],
+      "acceptance": [
+        "五次错误 OTP 后账户锁定 30 分钟",
+        "过期 access 只可由有效 refresh 续期一次",
+        "无会话不能创建申请或签发 api_key",
+        "编辑角色不能发布且拒绝动作写审计"
+      ],
+      "quality": {
+        "object": "身份与安全中间件",
+        "scenarios": [
+          {
+            "type": "normal",
+            "applicable": true,
+            "case": "新手机号以正确 6 位 OTP 登录",
+            "expected": "签发 2h access 和 14d refresh",
+            "pass": "令牌主体等于 accounts 记录"
+          },
+          {
+            "type": "boundary",
+            "applicable": true,
+            "case": "第五次错误 OTP",
+            "expected": "账户从本次起锁定 30 分钟",
+            "pass": "正确 OTP 在锁定期仍被拒绝"
+          },
+          {
+            "type": "exception",
+            "applicable": true,
+            "case": "匿名调用 applications 或 opendata keys",
+            "expected": "返回 401 并不创建业务记录",
+            "pass": "审计记录拒绝结果"
+          }
+        ],
+        "line": 80,
+        "branch": 70
+      },
+      "deps": [],
+      "writeScopes": [
+        "services/auth",
+        "ci/security"
+      ],
+      "effort": "大",
+      "qualityRev": 1,
+      "rev": 1,
+      "inputArtifactIds": [
+        "PRD",
+        "HLD",
+        "MOD",
+        "API",
+        "DB",
+        "UI",
+        "NFR"
+      ]
+    },
+    {
+      "id": "T-221",
+      "title": "CMS 草稿与内容块写入 API",
+      "kind": "backend",
+      "owner": "codex_cli",
+      "goal": "提供可由块编辑器安全保存、读取和提审的草稿内容后端。",
+      "scope": "contents/content_blocks CRUD、五种块、块顺序、revision/ETag 条件写入和 409 合并语义。",
+      "boundary": "持久状态只使用 draft/review/published/archived；审核通过是 review decision，不新增 approved 持久状态。",
+      "sourceIds": [
+        "SRC-007",
+        "SRC-013",
+        "SRC-006"
+      ],
+      "work": [
+        "实现草稿与标题、段落、图片、表格、引用块的 CRUD",
+        "持久化 block_no 和内容 revision，条件写入不匹配返回 409",
+        "实现草稿保存、提审和回读，并校验同源对至少一语种成文"
+      ],
+      "inputs": [
+        "冻结 CMS 写入契约（SRC-013）",
+        "T-220 鉴权服务"
+      ],
+      "deliverables": [
+        "services/cms/draft-api",
+        "services/cms/content-blocks"
+      ],
+      "acceptance": [
+        "刷新后块类型和顺序保持",
+        "过期 ETag 写入返回 409 且不覆盖",
+        "提审后状态为 review，发布后为 published"
+      ],
+      "quality": {
+        "object": "CMS 草稿和块写入",
+        "scenarios": [
+          {
+            "type": "normal",
+            "applicable": true,
+            "case": "编辑保存标题、段落和引用三个块的法语草稿",
+            "expected": "回读块顺序和数据一致",
+            "pass": "状态保持 draft"
+          },
+          {
+            "type": "boundary",
+            "applicable": true,
+            "case": "将第二块移动至第一块后保存",
+            "expected": "回读 block_no 反映新顺序",
+            "pass": "无块丢失或重复"
+          },
+          {
+            "type": "exception",
+            "applicable": true,
+            "case": "以旧 ETag 保存同一 lang_pair",
+            "expected": "返回 409 合并提示",
+            "pass": "服务端内容 revision 不变"
+          }
+        ],
+        "line": 80,
+        "branch": 70
+      },
+      "deps": [
+        "T-220"
+      ],
+      "writeScopes": [
+        "services/cms/draft-api",
+        "services/cms/content-blocks"
+      ],
+      "effort": "大",
+      "qualityRev": 1,
+      "rev": 1,
+      "inputArtifactIds": [
+        "PRD",
+        "HLD",
+        "MOD",
+        "DB",
+        "ALG",
+        "API"
+      ]
+    },
+    {
+      "id": "T-222",
+      "title": "申请材料附件上传 API",
+      "kind": "backend",
+      "owner": "codex_cli",
+      "goal": "安全接收并关联申请的补充材料。",
+      "scope": "POST /applications/{receipt}/attachments、回执和账户归属、PDF/JPG 类型/5MB 校验、附件元数据和幂等重试。",
+      "boundary": "不实现浏览器文件选择 UI；文件内容存储实现不得绕过账户资源边界。",
+      "sourceIds": [
+        "SRC-004",
+        "SRC-005",
+        "SRC-014"
+      ],
+      "work": [
+        "实现附件端点及 receipt/account 归属校验",
+        "在服务端校验 PDF/JPG、≤5MB 和 MIME/内容一致性",
+        "写入附件元数据/对象引用并使重复重试不重复挂载"
+      ],
+      "inputs": [
+        "冻结附件契约（SRC-014）",
+        "T-204 申请回执模型",
+        "T-220 会话主体"
+      ],
+      "deliverables": [
+        "services/gateway/attachments",
+        "services/gateway/attachment-storage"
+      ],
+      "acceptance": [
+        "所属账户可上传恰好 5MB PDF/JPG",
+        "5MB+1、伪造 MIME 和他人回执均被拒绝",
+        "重试同一附件不会产生第二条关联"
+      ],
+      "quality": {
+        "object": "申请附件服务端边界",
+        "scenarios": [
+          {
+            "type": "normal",
+            "applicable": true,
+            "case": "申请人向自己的回执上传恰好 5MB PDF",
+            "expected": "创建一条附件关联",
+            "pass": "进度查询可关联该附件元数据"
+          },
+          {
+            "type": "boundary",
+            "applicable": true,
+            "case": "重复提交同一附件的重试请求",
+            "expected": "返回既有附件关联",
+            "pass": "附件记录总数不增加"
+          },
+          {
+            "type": "exception",
+            "applicable": true,
+            "case": "另一账户上传 5MB+1 的伪造 JPG 到该回执",
+            "expected": "拒绝且不写对象引用",
+            "pass": "申请附件列表不变"
+          }
+        ],
+        "line": 80,
+        "branch": 70
+      },
+      "deps": [
+        "T-204",
+        "T-220"
+      ],
+      "writeScopes": [
+        "services/gateway/attachments",
+        "services/gateway/attachment-storage"
+      ],
+      "effort": "中",
+      "qualityRev": 1,
+      "rev": 1,
+      "inputArtifactIds": [
+        "PRD",
+        "HLD",
+        "ALG",
+        "API",
+        "DB",
+        "UI"
+      ]
+    },
+    {
+      "id": "T-223",
+      "title": "发布质量、无障碍与离线部署门禁",
+      "kind": "common",
+      "owner": "codex_cli",
+      "goal": "将性能、安全、无障碍、离线安装和容量证据落实为可执行发布门禁。",
+      "scope": "WCAG 扫描/键盘/对比度、OWASP/WAF、Lighthouse、5000 并发压测脚本、离线 compose/镜像 manifest 与结果记录。",
+      "boundary": "缺少生产级压测环境时输出未验证或批准延期，不得把缺失证据标为通过。",
+      "sourceIds": [
+        "SRC-011",
+        "TECH-001"
+      ],
+      "work": [
+        "配置无障碍扫描、键盘导航和对比度检查，严重问题为零才通过",
+        "配置 OWASP/WAF 扫描，高危发现阻断",
+        "交付离线 compose/镜像 manifest、断网启动记录与容量脚本",
+        "记录首屏 3 秒、5000 并发和发布 30 分钟门禁证据或延期原因"
+      ],
+      "inputs": [
+        "冻结 NFR/HLD 契约（SRC-011、TECH-001）"
+      ],
+      "deliverables": [
+        "ci/accessibility-gate",
+        "ci/security-gate",
+        "ops/offline/docker-compose.yml",
+        "ops/offline/image-manifest",
+        "tests/performance/portal-load",
+        "evidence/release-gates.json"
+      ],
+      "acceptance": [
+        "无障碍扫描严重问题为 0 且全键盘可达",
+        "OWASP 高危发现阻断构建",
+        "断网环境可由 manifest 启动三层服务",
+        "无容量环境时 evidence 明确为未验证或批准延期"
+      ],
+      "quality": {
+        "object": "发布质量与离线部署门禁",
+        "scenarios": [
+          {
+            "type": "normal",
+            "applicable": true,
+            "case": "候选构建在离线镜像仓通过 compose 启动",
+            "expected": "portal-web、cms、gateway 均健康",
+            "pass": "记录构建版本和启动日志"
+          },
+          {
+            "type": "boundary",
+            "applicable": true,
+            "case": "无障碍扫描存在一个重大但非严重问题",
+            "expected": "记录为待修复但不误报 0 严重",
+            "pass": "门禁结果保留分级统计"
+          },
+          {
+            "type": "exception",
+            "applicable": true,
+            "case": "OWASP 扫描发现高危漏洞或压测环境不可用",
+            "expected": "高危阻断；环境不可用标未验证/延期",
+            "pass": "两者均不能标记通过"
+          }
+        ],
+        "line": 80,
+        "branch": 70
+      },
+      "deps": [
+        "T-218",
+        "T-220"
+      ],
+      "writeScopes": [
+        "ci",
+        "ops/offline",
+        "tests/performance",
+        "evidence/release-gates.json"
+      ],
+      "effort": "大",
+      "qualityRev": 1,
+      "rev": 1,
+      "inputArtifactIds": [
+        "PRD",
+        "HLD",
+        "NFR"
+      ]
+    },
+    {
+      "id": "T-224",
+      "title": "账户注册与 OTP 会话前端",
+      "kind": "frontend",
+      "owner": "codex_cli",
+      "goal": "让用户完成账户注册、OTP 登录和失效会话恢复，为办事及密钥签发提供可操作入口。",
+      "scope": "账户入口、手机号/OTP 校验、锁定反馈、一次静默续期、重新登录，以及消费端会话组件。",
+      "boundary": "角色、锁定时间和会话有效性以服务端契约为准；不自行放行，也不把 OTP 或 token 写入日志。",
+      "sourceIds": [
+        "SRC-012",
+        "SRC-005"
+      ],
+      "work": [
+        "实现 /accounts 注册与 /accounts/session 登录入口，按界面册校验字段",
+        "呈现 OTP 过期与第五次失败锁定反馈，保留无敏感信息的返回路径",
+        "封装业务页面共用的会话组件：按契约仅静默续期一次，失败引导重新登录",
+        "向办事、CMS 和开放数据入口提供当前 actor 与登录状态，不复制服务端权限判断"
+      ],
+      "inputs": [
+        "冻结 API §1、§3 的 accounts/session 与双令牌契约（T-220 实现范围，可按 mock 并行）",
+        "冻结 UI §3 的手机号、6 位 OTP 与锁定提示规则；实际鉴权由 T-209 集成验证"
+      ],
+      "deliverables": [
+        "apps/portal-web/pages/account",
+        "packages/auth-client/session-ui"
+      ],
+      "acceptance": [
+        "用户可从办事或密钥入口跳转注册/登录，并在成功后回到原入口",
+        "有效 OTP 登录后显示当前账户状态；业务请求消费会话组件",
+        "服务端第五次 OTP 失败锁定时显示 30 分钟锁定反馈，页面不能继续放行登录",
+        "access 过期时仅按契约尝试一次静默续期，失败后引导重新登录且不循环重试",
+        "浏览器日志和错误提示不包含 OTP 或 token"
+      ],
+      "quality": {
+        "object": "账户页面和会话消费组件（使用冻结响应夹具）",
+        "scenarios": [
+          {
+            "type": "normal",
+            "applicable": true,
+            "case": "从办事入口输入符合冻结规则的手机号和有效 6 位 OTP，服务端返回登录成功",
+            "expected": "呈现当前账户并回到办事入口，后续请求使用会话组件",
+            "pass": "成功路径和返回地址断言通过；日志无验证码或令牌"
+          },
+          {
+            "type": "boundary",
+            "applicable": true,
+            "case": "服务端在第五次 OTP 失败后返回 30 分钟锁定",
+            "expected": "展示锁定反馈并停止提交登录",
+            "pass": "锁定提示可见，未建立会话，也未通过客户端计时绕过服务端"
+          },
+          {
+            "type": "exception",
+            "applicable": true,
+            "case": "access 过期，唯一一次静默续期失败",
+            "expected": "清理失效显示状态并引导重新登录，保留安全返回路径",
+            "pass": "刷新请求仅一次，无重试循环，不继续发送未授权业务请求"
+          }
+        ],
+        "line": 80,
+        "branch": 70
+      },
+      "deps": [],
+      "writeScopes": [
+        "apps/portal-web/pages/account",
+        "packages/auth-client/session-ui"
+      ],
+      "effort": "中",
+      "qualityRev": 1,
+      "rev": 1,
+      "inputArtifactIds": [
+        "PRD",
+        "HLD",
+        "MOD",
+        "API",
+        "DB",
+        "UI",
+        "NFR"
+      ]
+    }
+  ],
+  "missingTask": {
+    "id": "T-210",
+    "title": "栏目空态与失败状态前端",
+    "kind": "frontend",
+    "owner": "codex_cli",
+    "goal": "确保新闻、公告和法规栏目在无内容、加载和读取失败时仍提供可理解、可恢复的用户反馈。",
+    "scope": "新闻、公告、法规栏目空态、骨架和错误重试。",
+    "boundary": "仅处理栏目列表的展示状态；内容筛选、分页和详情路由继续由栏目页任务承接。",
+    "sourceIds": [
+      "SRC-003"
+    ],
+    "work": [
+      "为空栏目显示引导文案",
+      "300ms 内显示列表骨架",
+      "读取失败显示可重试错误状态"
+    ],
+    "inputs": [
+      "UI §2 加载与空态"
+    ],
+    "deliverables": [
+      "apps/portal-web/pages/sections/states"
+    ],
+    "acceptance": [
+      "空栏目不显示空白页",
+      "慢响应显示骨架",
+      "失败状态可重试"
+    ],
+    "quality": {
+      "object": "栏目异常与空态",
+      "scenarios": [
+        {
+          "type": "normal",
+          "applicable": true,
+          "case": "栏目有已发布内容",
+          "expected": "正常渲染列表",
+          "pass": "不显示空态"
+        },
+        {
+          "type": "boundary",
+          "applicable": true,
+          "case": "栏目返回空数组",
+          "expected": "显示双语引导文案",
+          "pass": "不显示空白区域"
+        },
+        {
+          "type": "exception",
+          "applicable": true,
+          "case": "列表 API 返回 502",
+          "expected": "显示重试控件",
+          "pass": "用户可再次请求"
+        }
+      ],
+      "line": 80,
+      "branch": 70
+    },
+    "deps": [
+      "T-203"
+    ],
+    "writeScopes": [
+      "apps/portal-web/pages/sections/states"
+    ],
+    "effort": "小",
+    "qualityRev": 1,
+    "rev": 1,
+    "inputArtifactIds": [
+      "PRD",
+      "HLD",
+      "UI"
+    ]
+  }
+}

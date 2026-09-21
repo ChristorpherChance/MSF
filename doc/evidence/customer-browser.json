@@ -1,0 +1,38 @@
+{
+  "ok": true,
+  "pages": 16,
+  "states": 58,
+  "controls": 106,
+  "fields": 8,
+  "input": {
+    "kind": "template-generator"
+  },
+  "inputSha256": "fb1f7c2b9c9408e2e9dbcfb6c28bca9827dd2c0ad750766bc3c2c2b02ee01a61",
+  "combinations": 38,
+  "stateCombinations": 138,
+  "errors": 0,
+  "architecture": "single-business-dom-tree",
+  "flows": [
+    "F-001",
+    "F-002",
+    "F-003",
+    "F-004",
+    "F-005",
+    "F-006",
+    "F-007",
+    "F-008",
+    "F-009"
+  ],
+  "boundaryRegressions": {
+    "accountGuards": true,
+    "citizenCmsDenied": true,
+    "continuousCmsLifecycle": true,
+    "publicProjection": true,
+    "hashRoundTrip": true
+  },
+  "permissions": {
+    "signedOutCmsDenied": true,
+    "reviewerRoleStable": true,
+    "publisherIndependent": true
+  }
+}

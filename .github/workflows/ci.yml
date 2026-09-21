@@ -1,0 +1,22 @@
+# MSF CI（LLD-7 DSG-N06）：lint → typecheck → 依赖方向 → 错误码闭集 → 测试+覆盖率门槛
+name: ci
+on: [push, pull_request]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 10 }
+      - uses: actions/setup-node@v4
+        with: { node-version: '22.19.0', cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - name: 模块依赖方向（LLD-1 §1.1 调用矩阵）
+        run: pnpm check:deps
+      - name: 错误码闭集（LLD-3 §14/§15）
+        run: pnpm check:codes
+      - name: 测试 + 覆盖率门槛（N06-2）
+        run: pnpm test

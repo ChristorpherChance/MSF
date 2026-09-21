@@ -1,0 +1,21 @@
+/* 设计令牌基板（LLD-6 §2 为权威；M0 骨架值，逐域实现时按 LLD-6 补全） */
+:root {
+  --msf-bg: #f6f7f9;
+  --msf-card: #ffffff;
+  --msf-ink: #1f2430;
+  --msf-mut: #6b7280;
+  --msf-line: #e5e7eb;
+  --msf-accent: #2563eb;
+  --msf-ok: #16a34a;
+  --msf-warn: #ca8a04;
+  --msf-danger: #dc2626;
+  --msf-radius: 12px;
+  --msf-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+body {
+  margin: 0;
+  background: var(--msf-bg);
+  color: var(--msf-ink);
+  font: 14px/1.75 -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+}

@@ -1,0 +1,94 @@
+{
+  "ok": true,
+  "templateSha256": "fb1f7c2b9c9408e2e9dbcfb6c28bca9827dd2c0ad750766bc3c2c2b02ee01a61",
+  "checks": [
+    {
+      "name": "anonymous 公民工件 P-PUB-APPLICATION",
+      "ok": true
+    },
+    {
+      "name": "anonymous 公民工件 P-PUB-RECEIPT",
+      "ok": true
+    },
+    {
+      "name": "anonymous 公民工件 P-PUB-APPLICATION-STATUS",
+      "ok": true
+    },
+    {
+      "name": "citizen 公民工件 P-PUB-APPLICATION",
+      "ok": true
+    },
+    {
+      "name": "citizen 公民工件 P-PUB-RECEIPT",
+      "ok": true
+    },
+    {
+      "name": "citizen 公民工件 P-PUB-APPLICATION-STATUS",
+      "ok": true
+    },
+    {
+      "name": "editor 公民工件 P-PUB-APPLICATION",
+      "ok": true
+    },
+    {
+      "name": "editor 公民工件 P-PUB-RECEIPT",
+      "ok": true
+    },
+    {
+      "name": "editor 公民工件 P-PUB-APPLICATION-STATUS",
+      "ok": true
+    },
+    {
+      "name": "reviewer 公民工件 P-PUB-APPLICATION",
+      "ok": true
+    },
+    {
+      "name": "reviewer 公民工件 P-PUB-RECEIPT",
+      "ok": true
+    },
+    {
+      "name": "reviewer 公民工件 P-PUB-APPLICATION-STATUS",
+      "ok": true
+    },
+    {
+      "name": "publisher 公民工件 P-PUB-APPLICATION",
+      "ok": true
+    },
+    {
+      "name": "publisher 公民工件 P-PUB-RECEIPT",
+      "ok": true
+    },
+    {
+      "name": "publisher 公民工件 P-PUB-APPLICATION-STATUS",
+      "ok": true
+    },
+    {
+      "name": "匿名初始URL拒绝 P-PUB-APPLICATION",
+      "ok": true
+    },
+    {
+      "name": "匿名初始URL拒绝 P-PUB-RECEIPT",
+      "ok": true
+    },
+    {
+      "name": "匿名初始URL拒绝 P-PUB-APPLICATION-STATUS",
+      "ok": true
+    },
+    {
+      "name": "reviewer 无匹配工作项时真实工作台为空",
+      "ok": true
+    },
+    {
+      "name": "publisher 无匹配工作项时真实工作台为空",
+      "ok": true
+    },
+    {
+      "name": "预览中的公民业务动作仍按真实身份拒绝",
+      "ok": true
+    },
+    {
+      "name": "下线与归档只影响目标新闻，不抹去其他内容或散布410",
+      "ok": true
+    }
+  ]
+}

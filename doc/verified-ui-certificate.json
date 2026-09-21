@@ -1,0 +1,57 @@
+{
+  "version": "V19-VERIFIED-UI-3",
+  "reviewDecision": "GO",
+  "reviewEvidence": "customer-authority-recheck-review.md",
+  "reviewSha256": "adc262c3c29ce615d7ea14d1da3f84d31a9071a64a09e0b4d54d5b65c6d28640",
+  "evidence": "customer-browser.json",
+  "templateSha256": "fb1f7c2b9c9408e2e9dbcfb6c28bca9827dd2c0ad750766bc3c2c2b02ee01a61",
+  "testSha256": "667c0133eff7937845205af2bc9d836a639fd274ef263f8a310e7b0e0c032467",
+  "evidenceSha256": "7168b9f5018c7150404415dd14bc9f7d0a9de1bfe504c91973aad0617064a013",
+  "kernelSha256": "2c9aabc8a30fff3c11d8c134fcb9879a25f911a2237e08275eb9f441d0ef1592",
+  "authorityEvidenceSha256": {
+    "customer-state-kernel": "d4d8769c664c08d4b800450296916c9002db14c8829e1b62661c1c9678725daa",
+    "customer-route-matrix": "77b056cd704d6ebead0d65a15ea1281fd88ce9f1dd6f6a66fa5b8370f8221b50",
+    "customer-authority-boundary": "5ba8faf56f50be94f76a18856805848fb725eddf1a2f2a74cd96e4f59ee95941",
+    "customer-privacy-projection": "b94c60f200395cff655901a350072f66964cb9c7aa8b1fa240364742b2954f2f"
+  },
+  "buildSourceSha256": "5abb119d65f17949c4dcf7d04e86ce7da1304481a030b39e0fe6120611ef3d46",
+  "runtime": "fp-a154cd36",
+  "styles": "fp-f3e23b5d",
+  "pages": {
+    "P-PUB-HOME": "fp-76c5635d",
+    "P-PUB-SECTION": "fp-dd865d1d",
+    "P-PUB-CONTENT": "fp-3b499b50",
+    "P-PUB-ARCHIVE": "fp-0b30ae2e",
+    "P-PUB-SERVICE-GUIDE": "fp-15743be9",
+    "P-PUB-APPLICATION": "fp-0df28e8c",
+    "P-PUB-RECEIPT": "fp-599a149d",
+    "P-PUB-APPLICATION-STATUS": "fp-b6b6b917",
+    "P-PUB-ACCOUNT": "fp-c4aa91bb",
+    "P-PUB-SEARCH": "fp-a06a131d",
+    "P-PUB-OPENDATA": "fp-46ea5354",
+    "P-CMS-LOGIN": "fp-9b2ca13e",
+    "P-CMS-DASHBOARD": "fp-9d5b4f62",
+    "P-CMS-EDITOR": "fp-a45cc175",
+    "P-CMS-REVIEW": "fp-8d95d72b",
+    "P-CMS-PUBLISH": "fp-3498b408"
+  },
+  "flows": [
+    "F-001",
+    "F-002",
+    "F-003",
+    "F-004",
+    "F-005",
+    "F-006",
+    "F-007",
+    "F-008",
+    "F-009"
+  ],
+  "stateViewportCount": 138,
+  "boundaryRegressions": {
+    "accountGuards": true,
+    "citizenCmsDenied": true,
+    "continuousCmsLifecycle": true,
+    "publicProjection": true,
+    "hashRoundTrip": true
+  }
+}

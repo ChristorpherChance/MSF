@@ -1,0 +1,37 @@
+{
+  "ok": true,
+  "checks": [
+    {
+      "name": "构建前不能启动项目自测或生成通过报告",
+      "ok": true
+    },
+    {
+      "name": "自动完整链生成四门报告并等待人工转测试",
+      "ok": true
+    },
+    {
+      "name": "功能通过但单页UI失败仍阻断且不能空重跑",
+      "ok": true
+    },
+    {
+      "name": "UI失败经实质返工与新构建后产生关联复测报告",
+      "ok": true
+    },
+    {
+      "name": "UI skipped 不能算已测或通过",
+      "ok": true
+    },
+    {
+      "name": "UI not-run 不能算已测或通过",
+      "ok": true
+    },
+    {
+      "name": "暂停自测淘汰旧回调并以新operation继续",
+      "ok": true
+    },
+    {
+      "name": "已通过报告在上游同版本变化后立即失效",
+      "ok": true
+    }
+  ]
+}

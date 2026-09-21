@@ -1,0 +1,326 @@
+{
+  "ok": true,
+  "checks": [
+    {
+      "kind": "workbench",
+      "width": 1280,
+      "collapsed": false,
+      "ok": true
+    },
+    {
+      "kind": "workbench",
+      "width": 1280,
+      "collapsed": true,
+      "ok": true
+    },
+    {
+      "kind": "workbench",
+      "width": 1440,
+      "collapsed": false,
+      "ok": true
+    },
+    {
+      "kind": "workbench",
+      "width": 1440,
+      "collapsed": true,
+      "ok": true
+    },
+    {
+      "kind": "sandbox-navigation",
+      "pageId": "P-PUB-APPLICATION",
+      "stateId": "upstream-pending",
+      "ok": true
+    },
+    {
+      "kind": "sandbox-navigation",
+      "pageId": "P-CMS-EDITOR",
+      "stateId": "submitted",
+      "ok": true
+    },
+    {
+      "kind": "sandbox-navigation",
+      "pageId": "P-PUB-HOME",
+      "stateId": "mobile",
+      "ok": true
+    },
+    {
+      "kind": "workbench",
+      "width": 1920,
+      "collapsed": false,
+      "ok": true
+    },
+    {
+      "kind": "workbench",
+      "width": 1920,
+      "collapsed": true,
+      "ok": true
+    },
+    {
+      "kind": "customer",
+      "pageId": "P-PUB-HOME",
+      "viewportId": "public-desktop",
+      "width": 1440,
+      "ok": true
+    },
+    {
+      "kind": "customer",
+      "pageId": "P-PUB-SECTION",
+      "viewportId": "public-desktop",
+      "width": 1440,
+      "ok": true
+    },
+    {
+      "kind": "customer",
+      "pageId": "P-PUB-CONTENT",
+      "viewportId": "public-desktop",
+      "width": 1440,
+      "ok": true
+    },
+    {
+      "kind": "customer",
+      "pageId": "P-PUB-ARCHIVE",
+      "viewportId": "public-desktop",
+      "width": 1440,
+      "ok": true
+    },
+    {
+      "kind": "customer",
+      "pageId": "P-PUB-SERVICE-GUIDE",
+      "viewportId": "public-desktop",
+      "width": 1440,
+      "ok": true
+    },
+    {
+      "kind": "customer",
+      "pageId": "P-PUB-APPLICATION",
+      "viewportId": "public-desktop",
+      "width": 1440,
+      "ok": true
+    },
+    {
+      "kind": "customer",
+      "pageId": "P-PUB-RECEIPT",
+      "viewportId": "public-desktop",
+      "width": 1440,
+      "ok": true
+    },
+    {
+      "kind": "customer",
+      "pageId": "P-PUB-APPLICATION-STATUS",
+      "viewportId": "public-desktop",
+      "width": 1440,
+      "ok": true
+    },
+    {
+      "kind": "customer",
+      "pageId": "P-PUB-ACCOUNT",
+      "viewportId": "public-desktop",
+      "width": 1440,
+      "ok": true
+    },
+    {
+      "kind": "customer",
+      "pageId": "P-PUB-SEARCH",
+      "viewportId": "public-desktop",
+      "width": 1440,
+      "ok": true
+    },
+    {
+      "kind": "customer",
+      "pageId": "P-PUB-OPENDATA",
+      "viewportId": "public-desktop",
+      "width": 1440,
+      "ok": true
+    },
+    {
+      "kind": "customer",
+      "pageId": "P-PUB-HOME",
+      "viewportId": "public-tablet",
+      "width": 820,
+      "ok": true
+    },
+    {
+      "kind": "customer",
+      "pageId": "P-PUB-SECTION",
+      "viewportId": "public-tablet",
+      "width": 820,
+      "ok": true
+    },
+    {
+      "kind": "customer",
+      "pageId": "P-PUB-CONTENT",
+      "viewportId": "public-tablet",
+      "width": 820,
+      "ok": true
+    },
+    {
+      "kind": "customer",
+      "pageId": "P-PUB-ARCHIVE",
+      "viewportId": "public-tablet",
+      "width": 820,
+      "ok": true
+    },
+    {
+      "kind": "customer",
+      "pageId": "P-PUB-SERVICE-GUIDE",
+      "viewportId": "public-tablet",
+      "width": 820,
+      "ok": true
+    },
+    {
+      "kind": "customer",
+      "pageId": "P-PUB-APPLICATION",
+      "viewportId": "public-tablet",
+      "width": 820,
+      "ok": true
+    },
+    {
+      "kind": "customer",
+      "pageId": "P-PUB-RECEIPT",
+      "viewportId": "public-tablet",
+      "width": 820,
+      "ok": true
+    },
+    {
+      "kind": "customer",
+      "pageId": "P-PUB-APPLICATION-STATUS",
+      "viewportId": "public-tablet",
+      "width": 820,
+      "ok": true
+    },
+    {
+      "kind": "customer",
+      "pageId": "P-PUB-ACCOUNT",
+      "viewportId": "public-tablet",
+      "width": 820,
+      "ok": true
+    },
+    {
+      "kind": "customer",
+      "pageId": "P-PUB-SEARCH",
+      "viewportId": "public-tablet",
+      "width": 820,
+      "ok": true
+    },
+    {
+      "kind": "customer",
+      "pageId": "P-PUB-OPENDATA",
+      "viewportId": "public-tablet",
+      "width": 820,
+      "ok": true
+    },
+    {
+      "kind": "customer",
+      "pageId": "P-PUB-HOME",
+      "viewportId": "public-mobile",
+      "width": 390,
+      "ok": true
+    },
+    {
+      "kind": "customer",
+      "pageId": "P-PUB-SECTION",
+      "viewportId": "public-mobile",
+      "width": 390,
+      "ok": true
+    },
+    {
+      "kind": "customer",
+      "pageId": "P-PUB-CONTENT",
+      "viewportId": "public-mobile",
+      "width": 390,
+      "ok": true
+    },
+    {
+      "kind": "customer",
+      "pageId": "P-PUB-ARCHIVE",
+      "viewportId": "public-mobile",
+      "width": 390,
+      "ok": true
+    },
+    {
+      "kind": "customer",
+      "pageId": "P-PUB-SERVICE-GUIDE",
+      "viewportId": "public-mobile",
+      "width": 390,
+      "ok": true
+    },
+    {
+      "kind": "customer",
+      "pageId": "P-PUB-APPLICATION",
+      "viewportId": "public-mobile",
+      "width": 390,
+      "ok": true
+    },
+    {
+      "kind": "customer",
+      "pageId": "P-PUB-RECEIPT",
+      "viewportId": "public-mobile",
+      "width": 390,
+      "ok": true
+    },
+    {
+      "kind": "customer",
+      "pageId": "P-PUB-APPLICATION-STATUS",
+      "viewportId": "public-mobile",
+      "width": 390,
+      "ok": true
+    },
+    {
+      "kind": "customer",
+      "pageId": "P-PUB-ACCOUNT",
+      "viewportId": "public-mobile",
+      "width": 390,
+      "ok": true
+    },
+    {
+      "kind": "customer",
+      "pageId": "P-PUB-SEARCH",
+      "viewportId": "public-mobile",
+      "width": 390,
+      "ok": true
+    },
+    {
+      "kind": "customer",
+      "pageId": "P-PUB-OPENDATA",
+      "viewportId": "public-mobile",
+      "width": 390,
+      "ok": true
+    },
+    {
+      "kind": "customer",
+      "pageId": "P-CMS-LOGIN",
+      "viewportId": "cms-desktop",
+      "width": 1440,
+      "ok": true
+    },
+    {
+      "kind": "customer",
+      "pageId": "P-CMS-DASHBOARD",
+      "viewportId": "cms-desktop",
+      "width": 1440,
+      "ok": true
+    },
+    {
+      "kind": "customer",
+      "pageId": "P-CMS-EDITOR",
+      "viewportId": "cms-desktop",
+      "width": 1440,
+      "ok": true
+    },
+    {
+      "kind": "customer",
+      "pageId": "P-CMS-REVIEW",
+      "viewportId": "cms-desktop",
+      "width": 1440,
+      "ok": true
+    },
+    {
+      "kind": "customer",
+      "pageId": "P-CMS-PUBLISH",
+      "viewportId": "cms-desktop",
+      "width": 1440,
+      "ok": true
+    }
+  ],
+  "errors": []
+}

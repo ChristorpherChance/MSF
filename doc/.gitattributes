@@ -1,0 +1,16 @@
+msf-prototype.html -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+task-specs.json text eol=lf
+design-catalog.json text eol=lf
+设计基线与自测契约.md text eol=lf
+evidence/final-validation.json text eol=lf
+prototype-template.js text eol=lf
+*.md text eol=lf whitespace=-blank-at-eol,-blank-at-eof
+evidence/*.md text eol=lf
+tests/*.cjs text eol=lf
+
+build-template.js text eol=lf
+runtime-hardening.js text eol=lf
+verified-ui-certificate.json text eol=lf
+source-acceptance-rules.json text eol=lf
+evidence/*.json text eol=lf
+customer-state-kernel.js text eol=lf

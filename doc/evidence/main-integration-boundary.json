@@ -1,0 +1,43 @@
+{
+  "ok": true,
+  "profile": "full",
+  "skipped": [],
+  "checks": [
+    {
+      "name": "全部上游readiness变化立即阻断旧规划与运行回调",
+      "ok": true
+    },
+    {
+      "name": "定稿原型各写入口拒绝且无操作时不解锁",
+      "ok": true
+    },
+    {
+      "name": "检查中原型写入先作废旧operation，审计失败整体回滚",
+      "ok": true
+    },
+    {
+      "name": "规划保存全部真实章节与目录目标的双向证据",
+      "ok": true
+    },
+    {
+      "name": "参考样本和初稿上传两个真实通道可用且初稿作废旧检查",
+      "ok": true
+    },
+    {
+      "name": "自测控制故障可显式恢复且只派发一次新自测 start",
+      "ok": true
+    },
+    {
+      "name": "自测控制故障可显式恢复且只派发一次新自测 complete",
+      "ok": true
+    },
+    {
+      "name": "人工交接保留已停止或无关运行 false",
+      "ok": true
+    },
+    {
+      "name": "人工交接保留已停止或无关运行 true",
+      "ok": true
+    }
+  ]
+}

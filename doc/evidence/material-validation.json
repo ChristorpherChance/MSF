@@ -1,0 +1,55 @@
+{
+  "ok": true,
+  "results": [
+    {
+      "name": "material-zip",
+      "ok": true,
+      "output": "PASS ZIP STORE/DEFLATE、路径、重复、CRC、加密、损坏\n"
+    },
+    {
+      "name": "material-folders",
+      "ok": true,
+      "output": "PASS ZIP上传、目录勾选折叠、原件保留、md保真、重名、项目隐藏\n"
+    },
+    {
+      "name": "material-boundary",
+      "ok": true,
+      "output": "PASS 原子失败、删除不复活、切项目取消解析与返回保留\n"
+    },
+    {
+      "name": "material-reading",
+      "ok": true,
+      "output": "PASS 默认过滤、md目标、未定稿查看门禁、译文查看切换与真实下载\n"
+    },
+    {
+      "name": "material-actions",
+      "ok": true,
+      "output": "PASS 手动解压、原包保留、独立删除、重新解析、人工批量定稿与定稿保护\n"
+    },
+    {
+      "name": "material-bulk",
+      "ok": true,
+      "output": "PASS 独立全选、内容批量目录、结果存储及人工内容定稿\n"
+    },
+    {
+      "name": "material-polish",
+      "ok": true,
+      "output": "PASS 可见勾选、根目录收拢、内容编辑保存取消、原稿保留、切换保护\n"
+    },
+    {
+      "name": "chat-reference",
+      "ok": true,
+      "output": "PASS 对话栏位置、thinking显隐、内容稿查看、失效保护、PRD自动关联\n"
+    },
+    {
+      "name": "regression",
+      "ok": true,
+      "output": "{\"ok\":true,\"checks\":[\"material渲染\",\"req渲染\",\"design渲染\",\"dev渲染\",\"test渲染\",\"设计/outline\",\"设计/detail\",\"设计/proto\",\"设计/review\",\"原型预览\",\"PRD版本及章节\",\"RTM\",\"人工编辑/撤销/重做\",\"版本提交\",\"定稿\",\"diff高亮/拒绝/接受\",\"目录定位\",\"模型切换\",\"流式/暂停/继续/停止\",\"F1助手\",\"返回项目列表\"],\"errors\":[]}\n"
+    }
+  ],
+  "scripts": 22,
+  "oldFilesChecked": 506,
+  "changed": [],
+  "htmlSha256": "1bab18a54230cd17040df736a2641d0dd224005274cede989dbdaa529388311e",
+  "note": "专项验收，不代表全系统通过"
+}

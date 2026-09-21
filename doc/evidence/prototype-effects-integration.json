@@ -1,0 +1,16 @@
+{
+  "ok": true,
+  "candidateSha256": "3510a1654d7cfd3271aff15d1bbf97675df591b853664c014ecacb400c211710",
+  "candidateUnchanged": true,
+  "skipped": [],
+  "checks": [
+    {
+      "name": "检查已启动后抛错恢复不得再次派发",
+      "ok": true
+    },
+    {
+      "name": "解锁后开发观察失败仍拒绝旧依据且可幂等恢复",
+      "ok": true
+    }
+  ]
+}

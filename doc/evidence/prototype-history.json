@@ -1,0 +1,87 @@
+{
+  "ok": true,
+  "candidateSha256": "0870389e909058ae4ab37da583ac3e4859182c1bba3ae07880ee7c5d6d715a70",
+  "immutableRunInput": true,
+  "checks": [
+    {
+      "name": "定稿后连续保存不改历史 1",
+      "ok": true
+    },
+    {
+      "name": "定稿后连续保存不改历史 35",
+      "ok": true
+    },
+    {
+      "name": "撤销重做恢复HTML与manifest并保护历史",
+      "ok": true
+    },
+    {
+      "name": "重复保存严格零写 H0",
+      "ok": true
+    },
+    {
+      "name": "重复保存严格零写 H1",
+      "ok": true
+    },
+    {
+      "name": "真实AI提案拒绝不改历史",
+      "ok": true
+    },
+    {
+      "name": "真实AI提案接受不改历史",
+      "ok": true
+    },
+    {
+      "name": "提交后切回旧版读取原文",
+      "ok": true
+    },
+    {
+      "name": "工作读接口深只读且历史读取严格匹配三指纹",
+      "ok": true
+    },
+    {
+      "name": "未提交草稿阻止 generate",
+      "ok": true
+    },
+    {
+      "name": "未提交草稿阻止 import",
+      "ok": true
+    },
+    {
+      "name": "未提交草稿阻止 switch",
+      "ok": true
+    },
+    {
+      "name": "追加者恰好新增一个版本 generate",
+      "ok": true
+    },
+    {
+      "name": "追加者恰好新增一个版本 import",
+      "ok": true
+    },
+    {
+      "name": "追加者恰好新增一个版本 commit",
+      "ok": true
+    },
+    {
+      "name": "提交审计失败保留草稿且不消费新版本",
+      "ok": true
+    },
+    {
+      "name": "撤销重做独立恢复不同manifest内容对",
+      "ok": true
+    },
+    {
+      "name": "pending阻止提交与导入并保留当前草稿",
+      "ok": true
+    },
+    {
+      "name": "生成完成呈现失败不回滚新版本",
+      "ok": true
+    },
+    {
+      "name": "错误草稿基准在纯准备阶段明确拒绝且零写",
+      "ok": true
+    }
+  ]
+}

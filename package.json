@@ -1,0 +1,25 @@
+{
+  "name": "msf",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22.19" },
+  "scripts": {
+    "dev": "pnpm -r --parallel run dev",
+    "build": "pnpm -r run build",
+    "test": "pnpm -r run test",
+    "lint": "eslint .",
+    "typecheck": "pnpm -r run typecheck",
+    "check:deps": "dependency-cruiser --validate .dependency-cruiser.cjs apps packages",
+    "check:codes": "node doc/product-design/tools/check-codes.mjs",
+    "gen:codes": "node packages/shared/scripts/gen-error-codes.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "dependency-cruiser": "^16.8.0",
+    "eslint": "^9.15.0",
+    "prettier": "^3.4.0",
+    "typescript": "^5.7.0",
+    "typescript-eslint": "^8.15.0",
+    "vitest": "^2.1.0"
+  }
+}

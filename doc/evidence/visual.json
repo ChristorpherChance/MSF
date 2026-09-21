@@ -1,0 +1,150 @@
+{
+  "ok": true,
+  "results": [
+    {
+      "width": 1280,
+      "collapsed": false,
+      "tab": "dev-plan",
+      "ok": true
+    },
+    {
+      "width": 1280,
+      "collapsed": false,
+      "tab": "dev-execute",
+      "ok": true
+    },
+    {
+      "width": 1280,
+      "collapsed": false,
+      "tab": "dev-quality",
+      "ok": true
+    },
+    {
+      "width": 1280,
+      "collapsed": false,
+      "tab": "dev-change",
+      "ok": true
+    },
+    {
+      "width": 1280,
+      "collapsed": true,
+      "tab": "dev-plan",
+      "ok": true
+    },
+    {
+      "width": 1280,
+      "collapsed": true,
+      "tab": "dev-execute",
+      "ok": true
+    },
+    {
+      "width": 1280,
+      "collapsed": true,
+      "tab": "dev-quality",
+      "ok": true
+    },
+    {
+      "width": 1280,
+      "collapsed": true,
+      "tab": "dev-change",
+      "ok": true
+    },
+    {
+      "width": 1440,
+      "collapsed": false,
+      "tab": "dev-plan",
+      "ok": true
+    },
+    {
+      "width": 1440,
+      "collapsed": false,
+      "tab": "dev-execute",
+      "ok": true
+    },
+    {
+      "width": 1440,
+      "collapsed": false,
+      "tab": "dev-quality",
+      "ok": true
+    },
+    {
+      "width": 1440,
+      "collapsed": false,
+      "tab": "dev-change",
+      "ok": true
+    },
+    {
+      "width": 1440,
+      "collapsed": true,
+      "tab": "dev-plan",
+      "ok": true
+    },
+    {
+      "width": 1440,
+      "collapsed": true,
+      "tab": "dev-execute",
+      "ok": true
+    },
+    {
+      "width": 1440,
+      "collapsed": true,
+      "tab": "dev-quality",
+      "ok": true
+    },
+    {
+      "width": 1440,
+      "collapsed": true,
+      "tab": "dev-change",
+      "ok": true
+    },
+    {
+      "width": 1920,
+      "collapsed": false,
+      "tab": "dev-plan",
+      "ok": true
+    },
+    {
+      "width": 1920,
+      "collapsed": false,
+      "tab": "dev-execute",
+      "ok": true
+    },
+    {
+      "width": 1920,
+      "collapsed": false,
+      "tab": "dev-quality",
+      "ok": true
+    },
+    {
+      "width": 1920,
+      "collapsed": false,
+      "tab": "dev-change",
+      "ok": true
+    },
+    {
+      "width": 1920,
+      "collapsed": true,
+      "tab": "dev-plan",
+      "ok": true
+    },
+    {
+      "width": 1920,
+      "collapsed": true,
+      "tab": "dev-execute",
+      "ok": true
+    },
+    {
+      "width": 1920,
+      "collapsed": true,
+      "tab": "dev-quality",
+      "ok": true
+    },
+    {
+      "width": 1920,
+      "collapsed": true,
+      "tab": "dev-change",
+      "ok": true
+    }
+  ],
+  "errors": []
+}

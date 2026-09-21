@@ -1,0 +1,14 @@
+node_modules/
+dist/
+coverage/
+*.log
+.DS_Store
+.env
+.env.local
+apps/web/dist
+packages/*/dist
+packages/*/node_modules
+apps/*/node_modules
+doc.zip
+.claude/
+.superpowers/

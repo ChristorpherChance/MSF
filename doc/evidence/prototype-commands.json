@@ -1,0 +1,275 @@
+{
+  "ok": true,
+  "candidateSha256": "0870389e909058ae4ab37da583ac3e4859182c1bba3ae07880ee7c5d6d715a70",
+  "immutableRunInput": true,
+  "checks": [
+    {
+      "name": "最终审计失败零写 save",
+      "ok": true
+    },
+    {
+      "name": "最终审计失败零写 undo",
+      "ok": true
+    },
+    {
+      "name": "最终审计失败零写 redo",
+      "ok": true
+    },
+    {
+      "name": "最终审计失败零写 commit",
+      "ok": true
+    },
+    {
+      "name": "最终审计失败零写 switch",
+      "ok": true
+    },
+    {
+      "name": "最终审计失败零写 accept",
+      "ok": true
+    },
+    {
+      "name": "最终审计失败零写 reject",
+      "ok": true
+    },
+    {
+      "name": "最终审计失败零写 import",
+      "ok": true
+    },
+    {
+      "name": "最终审计失败零写 reference-add",
+      "ok": true
+    },
+    {
+      "name": "最终审计失败零写 reference-remove",
+      "ok": true
+    },
+    {
+      "name": "最终审计失败零写 unlock",
+      "ok": true
+    },
+    {
+      "name": "失效审计失败零写 save",
+      "ok": true
+    },
+    {
+      "name": "失效审计失败零写 undo",
+      "ok": true
+    },
+    {
+      "name": "失效审计失败零写 redo",
+      "ok": true
+    },
+    {
+      "name": "失效审计失败零写 commit",
+      "ok": true
+    },
+    {
+      "name": "失效审计失败零写 switch",
+      "ok": true
+    },
+    {
+      "name": "失效审计失败零写 accept",
+      "ok": true
+    },
+    {
+      "name": "失效审计失败零写 reject",
+      "ok": true
+    },
+    {
+      "name": "失效审计失败零写 import",
+      "ok": true
+    },
+    {
+      "name": "失效审计失败零写 unlock",
+      "ok": true
+    },
+    {
+      "name": "目标文本不匹配时接受补丁不得清空pending或历史",
+      "ok": true
+    },
+    {
+      "name": "未完成工作阻止版本切换 modified",
+      "ok": true
+    },
+    {
+      "name": "未完成工作阻止版本切换 pending",
+      "ok": true
+    },
+    {
+      "name": "纯准备零写且发布拒绝原数组追加 events",
+      "ok": true
+    },
+    {
+      "name": "纯准备零写且发布拒绝原数组追加 messages",
+      "ok": true
+    },
+    {
+      "name": "迟到AI补丁不能写入新内容或消费收据",
+      "ok": true
+    },
+    {
+      "name": "发布不能用新身份重新授权旧草稿 events",
+      "ok": true
+    },
+    {
+      "name": "发布不能用新身份重新授权旧草稿 messages",
+      "ok": true
+    },
+    {
+      "name": "修改prepared启动身份也不能发布旧草稿",
+      "ok": true
+    },
+    {
+      "name": "切换不同版本立即移除旧检查通过状态且保留报告历史",
+      "ok": true
+    },
+    {
+      "name": "原型输入改变清除当前检查指针且保留历史 save",
+      "ok": true
+    },
+    {
+      "name": "原型输入改变清除当前检查指针且保留历史 undo",
+      "ok": true
+    },
+    {
+      "name": "原型输入改变清除当前检查指针且保留历史 redo",
+      "ok": true
+    },
+    {
+      "name": "原型输入改变清除当前检查指针且保留历史 commit",
+      "ok": true
+    },
+    {
+      "name": "原型输入改变清除当前检查指针且保留历史 switch",
+      "ok": true
+    },
+    {
+      "name": "原型输入改变清除当前检查指针且保留历史 accept",
+      "ok": true
+    },
+    {
+      "name": "原型输入改变清除当前检查指针且保留历史 reject",
+      "ok": true
+    },
+    {
+      "name": "原型输入改变清除当前检查指针且保留历史 propose",
+      "ok": true
+    },
+    {
+      "name": "原型输入改变清除当前检查指针且保留历史 import",
+      "ok": true
+    },
+    {
+      "name": "原型输入改变清除当前检查指针且保留历史 unlock",
+      "ok": true
+    },
+    {
+      "name": "AI补丁最终审计失败时内容会话和收据零写",
+      "ok": true
+    },
+    {
+      "name": "AI补丁拒绝非当前原型会话 previous-prototype",
+      "ok": true
+    },
+    {
+      "name": "AI补丁拒绝非当前原型会话 other-context",
+      "ok": true
+    },
+    {
+      "name": "第二个AI提议不能覆盖尚未处理的pending",
+      "ok": true
+    },
+    {
+      "name": "AI补丁拒绝消息或会话漂移 append",
+      "ok": true
+    },
+    {
+      "name": "AI补丁拒绝消息或会话漂移 replace",
+      "ok": true
+    },
+    {
+      "name": "AI补丁拒绝消息或会话漂移 earlier-message",
+      "ok": true
+    },
+    {
+      "name": "AI补丁拒绝消息或会话漂移 delete-session",
+      "ok": true
+    },
+    {
+      "name": "真实AI工具入口产生待确认修改且可接受",
+      "ok": true
+    },
+    {
+      "name": "入口上下文不能替换旧收据或伪造审计归因",
+      "ok": true
+    },
+    {
+      "name": "聊天发送修改主题色完整返回可确认提案",
+      "ok": true
+    },
+    {
+      "name": "纯准备拒绝复用已经发布的收据编号",
+      "ok": true
+    },
+    {
+      "name": "纯准备拒绝复用已发布commandId即使receiptId不同",
+      "ok": true
+    },
+    {
+      "name": "无操作不会作废运行中的检查或新增收据",
+      "ok": true
+    },
+    {
+      "name": "已定稿版本字节必须跨草稿保存与提交保留 1",
+      "ok": true
+    },
+    {
+      "name": "已定稿版本字节必须跨草稿保存与提交保留 35",
+      "ok": true
+    },
+    {
+      "name": "遗留snapProto入口不可绕过事务写历史 false",
+      "ok": true
+    },
+    {
+      "name": "遗留snapProto入口不可绕过事务写历史 true",
+      "ok": true
+    },
+    {
+      "name": "遗留任意callback事务入口不可回写原型 finalized",
+      "ok": true
+    },
+    {
+      "name": "遗留任意callback事务入口不可回写原型 other-project",
+      "ok": true
+    },
+    {
+      "name": "提交后渲染失败可恢复且不重放业务事件",
+      "ok": true
+    },
+    {
+      "name": "成功提示异常后恢复不重复消息 false",
+      "ok": true
+    },
+    {
+      "name": "成功提示异常后恢复不重复消息 true",
+      "ok": true
+    },
+    {
+      "name": "上传检查timer失败恢复至多一次真实派发 false",
+      "ok": true
+    },
+    {
+      "name": "上传检查timer失败恢复至多一次真实派发 true",
+      "ok": true
+    },
+    {
+      "name": "上传timer迟到时不能检查后来编辑的内容",
+      "ok": true
+    },
+    {
+      "name": "来源问题格式完整且重复审计ID稳定",
+      "ok": true
+    }
+  ]
+}

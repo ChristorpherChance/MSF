@@ -1,0 +1,31 @@
+{
+  "ok": true,
+  "checks": [
+    {
+      "name": "单边错误mergeBasis不能代替双PR当前合并依据",
+      "ok": true,
+      "result": {
+        "ok": false,
+        "issues": [
+          {
+            "code": "MERGE_BASIS_MISSING",
+            "message": "缺少当前提交的完整双向合并依据"
+          }
+        ]
+      }
+    },
+    {
+      "name": "legacy豁免必须有精确版本和人工决定审计",
+      "ok": true,
+      "result": {
+        "ok": false,
+        "issues": [
+          {
+            "code": "MERGE_BASIS_MISSING",
+            "message": "缺少当前提交的完整双向合并依据"
+          }
+        ]
+      }
+    }
+  ]
+}

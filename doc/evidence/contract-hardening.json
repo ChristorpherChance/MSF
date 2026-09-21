@@ -1,0 +1,40 @@
+{
+  "ok": true,
+  "profile": "full",
+  "candidate": "msf-prototype.html",
+  "skipped": [],
+  "checks": [
+    {
+      "name": "静态来源规则拒绝在启动前已被替换的正文",
+      "ok": true
+    },
+    {
+      "name": "规划显式物化全部非UI承接及需求反查",
+      "ok": true
+    },
+    {
+      "name": "删除一个非UI事实及其目录侧引用仍须fail closed",
+      "ok": true
+    },
+    {
+      "name": "build manifest逐项归属且fingerprint绑定计划与代码修订",
+      "ok": true
+    },
+    {
+      "name": "DevStore拒绝改写历史报告并回滚",
+      "ok": true
+    },
+    {
+      "name": "DevStore拒绝原地改写同buildId并回滚",
+      "ok": true
+    },
+    {
+      "name": "精确legacy checklist与skip可只读派生",
+      "ok": true
+    },
+    {
+      "name": "健康报告重验operation、复测身份和完成异常恢复",
+      "ok": true
+    }
+  ]
+}

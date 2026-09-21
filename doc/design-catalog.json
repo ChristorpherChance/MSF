@@ -1,0 +1,3376 @@
+{
+  "catalogVersion": "V1.9-draft-2",
+  "project": "喀麦隆国家政务门户网站",
+  "requirements": [
+    {
+      "id": "REQ-001",
+      "title": "首页领导动态每日更新与首屏呈现",
+      "uiApplicable": true,
+      "sourceRefs": [
+        "PRD:REQ-001",
+        "SRC-001"
+      ]
+    },
+    {
+      "id": "REQ-002",
+      "title": "新闻、公告、法规的双语发布、浏览与归档引导",
+      "uiApplicable": true,
+      "sourceRefs": [
+        "PRD:REQ-002",
+        "SRC-002",
+        "SRC-003"
+      ]
+    },
+    {
+      "id": "REQ-003",
+      "title": "护照、企业注册、税务申报的在线申请与进度查询",
+      "uiApplicable": true,
+      "sourceRefs": [
+        "PRD:REQ-003",
+        "SRC-004",
+        "SRC-005",
+        "SRC-014"
+      ]
+    },
+    {
+      "id": "REQ-004",
+      "title": "法语/英语同源内容、协商与缺译回退",
+      "uiApplicable": true,
+      "sourceRefs": [
+        "PRD:REQ-004",
+        "SRC-006",
+        "SRC-013"
+      ]
+    },
+    {
+      "id": "REQ-005",
+      "title": "CMS 块编辑、审核发布与三角色治理",
+      "uiApplicable": true,
+      "sourceRefs": [
+        "PRD:REQ-005",
+        "SRC-007",
+        "SRC-012",
+        "SRC-013"
+      ]
+    },
+    {
+      "id": "REQ-006",
+      "title": "双语全文检索与降级反馈",
+      "uiApplicable": true,
+      "sourceRefs": [
+        "PRD:REQ-006",
+        "SRC-008"
+      ]
+    },
+    {
+      "id": "REQ-007",
+      "title": "开放数据目录、密钥和下载",
+      "uiApplicable": true,
+      "sourceRefs": [
+        "PRD:REQ-007",
+        "SRC-009",
+        "SRC-012"
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "id": "P-PUB-HOME",
+      "title": "门户首页",
+      "route": "/{lang}",
+      "area": "公众门户",
+      "roles": [
+        "访客",
+        "公民"
+      ],
+      "reqIds": [
+        "REQ-001",
+        "REQ-003",
+        "REQ-004"
+      ],
+      "hldRefs": [
+        "hld:h1",
+        "hld:h3"
+      ],
+      "lldRefs": [
+        {
+          "docKey": "mod",
+          "sectionId": "o0",
+          "anchor": "§1 portal-web 门户前台",
+          "rule": "SSR 首页、领导动态与语言协商先于内容装配"
+        },
+        {
+          "docKey": "ui",
+          "sectionId": "u0",
+          "anchor": "§1 页面布局",
+          "rule": "顶栏、检索、主副焦点区、三张办事卡和响应式快捷入口"
+        },
+        {
+          "docKey": "alg",
+          "sectionId": "g1",
+          "anchor": "§2 双语缺译回退流程",
+          "rule": "英文缺译回退法语且展示 fallback 标记"
+        }
+      ],
+      "taskIds": [
+        "T-201",
+        "T-206",
+        "T-211"
+      ],
+      "states": [
+        {
+          "id": "ready",
+          "title": "已发布首页",
+          "required": true,
+          "expected": "显示当前语言导航、主新闻、当天领导动态与三项办事入口"
+        },
+        {
+          "id": "fallback",
+          "title": "缺译回退",
+          "required": true,
+          "expected": "显示法语内容和清晰 fallback 标记，不能显示空标题"
+        },
+        {
+          "id": "slow",
+          "title": "内容慢响应",
+          "required": true,
+          "expected": "800ms 内显示内容快照或骨架，并允许客户端补拉"
+        },
+        {
+          "id": "mobile",
+          "title": "窄屏布局",
+          "required": true,
+          "expected": "小于 768px 单栏，办事入口固定在底部且可点击"
+        }
+      ],
+      "controls": [
+        {
+          "id": "language",
+          "label": "FR | EN",
+          "type": "language-switch",
+          "expected": "切换 URL 前缀并保留当前可分享路径",
+          "action": "switch-language"
+        },
+        {
+          "id": "search",
+          "label": "全文检索",
+          "type": "search-input",
+          "expected": "提交 2–64 字符查询至当前语言结果页",
+          "action": "navigate-search",
+          "targetPageId": "P-PUB-SEARCH"
+        },
+        {
+          "id": "service-cards",
+          "label": "办事入口",
+          "type": "link-cards",
+          "expected": "进入对应事项指南",
+          "action": "navigate-service-guide",
+          "targetPageId": "P-PUB-SERVICE-GUIDE"
+        },
+        {
+          "id": "nav-home",
+          "label": "首页",
+          "type": "button",
+          "expected": "进入对应已声明页面，保留当前语言与允许的业务上下文。",
+          "action": "navigate-public-page",
+          "targetPageId": "P-PUB-HOME",
+          "sourceRefs": [
+            {
+              "docKey": "ui",
+              "sectionId": "u0",
+              "rule": "统一导航和响应式入口对应已声明客户页面"
+            },
+            {
+              "docKey": "mod",
+              "sectionId": "o0",
+              "rule": "门户栏目及服务模块入口"
+            }
+          ]
+        },
+        {
+          "id": "nav-section",
+          "label": "新闻栏目",
+          "type": "button",
+          "expected": "进入对应已声明页面，保留当前语言与允许的业务上下文。",
+          "action": "navigate-public-page",
+          "targetPageId": "P-PUB-SECTION",
+          "sourceRefs": [
+            {
+              "docKey": "ui",
+              "sectionId": "u0",
+              "rule": "统一导航和响应式入口对应已声明客户页面"
+            },
+            {
+              "docKey": "mod",
+              "sectionId": "o0",
+              "rule": "门户栏目及服务模块入口"
+            }
+          ]
+        },
+        {
+          "id": "nav-services",
+          "label": "办事指南",
+          "type": "button",
+          "expected": "进入对应已声明页面，保留当前语言与允许的业务上下文。",
+          "action": "navigate-public-page",
+          "targetPageId": "P-PUB-SERVICE-GUIDE",
+          "sourceRefs": [
+            {
+              "docKey": "ui",
+              "sectionId": "u0",
+              "rule": "统一导航和响应式入口对应已声明客户页面"
+            },
+            {
+              "docKey": "mod",
+              "sectionId": "o0",
+              "rule": "门户栏目及服务模块入口"
+            }
+          ]
+        },
+        {
+          "id": "nav-opendata",
+          "label": "开放数据",
+          "type": "button",
+          "expected": "进入对应已声明页面，保留当前语言与允许的业务上下文。",
+          "action": "navigate-public-page",
+          "targetPageId": "P-PUB-OPENDATA",
+          "sourceRefs": [
+            {
+              "docKey": "ui",
+              "sectionId": "u0",
+              "rule": "统一导航和响应式入口对应已声明客户页面"
+            },
+            {
+              "docKey": "mod",
+              "sectionId": "o0",
+              "rule": "门户栏目及服务模块入口"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "P-PUB-SECTION",
+      "title": "内容栏目列表",
+      "route": "/{lang}/sections/{type}?page={n}",
+      "area": "公众门户",
+      "roles": [
+        "访客",
+        "公民"
+      ],
+      "reqIds": [
+        "REQ-002",
+        "REQ-004"
+      ],
+      "hldRefs": [
+        "hld:h1"
+      ],
+      "lldRefs": [
+        {
+          "docKey": "api",
+          "sectionId": "a0",
+          "anchor": "§1 协议与报文格式",
+          "rule": "仅展示已发布 news/notice/regulation，保留分页与 fallback 元数据"
+        },
+        {
+          "docKey": "ui",
+          "sectionId": "u1",
+          "anchor": "§2 交互细节",
+          "rule": "列表骨架在 300ms 内出现，空栏目给引导文案"
+        }
+      ],
+      "taskIds": [
+        "T-203",
+        "T-206"
+      ],
+      "states": [
+        {
+          "id": "loaded",
+          "title": "已加载",
+          "required": true,
+          "expected": "仅显示当前 type 的已发布卡片，分页稳定"
+        },
+        {
+          "id": "loading",
+          "title": "加载中",
+          "required": true,
+          "expected": "展示列表骨架，不能白屏"
+        },
+        {
+          "id": "empty",
+          "title": "空栏目",
+          "required": true,
+          "expected": "显示当前语言引导文案"
+        },
+        {
+          "id": "failed",
+          "title": "读取失败",
+          "required": true,
+          "expected": "展示可重试反馈，不丢失栏目语境"
+        }
+      ],
+      "controls": [
+        {
+          "id": "pagination",
+          "label": "上一页/下一页",
+          "type": "pagination",
+          "expected": "保留 type、page 与语言",
+          "action": "change-page"
+        },
+        {
+          "id": "content-card",
+          "label": "阅读更多",
+          "type": "content-link",
+          "expected": "打开同语言详情页",
+          "action": "navigate-content-detail",
+          "targetPageId": "P-PUB-CONTENT"
+        },
+        {
+          "id": "retry",
+          "label": "重试",
+          "type": "button",
+          "expected": "仅在失败时重拉当前栏目",
+          "action": "reload-section"
+        },
+        {
+          "id": "nav-home",
+          "label": "首页",
+          "type": "button",
+          "expected": "进入对应已声明页面，保留当前语言与允许的业务上下文。",
+          "action": "navigate-public-page",
+          "targetPageId": "P-PUB-HOME",
+          "sourceRefs": [
+            {
+              "docKey": "ui",
+              "sectionId": "u0",
+              "rule": "统一导航和响应式入口对应已声明客户页面"
+            },
+            {
+              "docKey": "mod",
+              "sectionId": "o0",
+              "rule": "门户栏目及服务模块入口"
+            }
+          ]
+        },
+        {
+          "id": "nav-section",
+          "label": "新闻栏目",
+          "type": "button",
+          "expected": "进入对应已声明页面，保留当前语言与允许的业务上下文。",
+          "action": "navigate-public-page",
+          "targetPageId": "P-PUB-SECTION",
+          "sourceRefs": [
+            {
+              "docKey": "ui",
+              "sectionId": "u0",
+              "rule": "统一导航和响应式入口对应已声明客户页面"
+            },
+            {
+              "docKey": "mod",
+              "sectionId": "o0",
+              "rule": "门户栏目及服务模块入口"
+            }
+          ]
+        },
+        {
+          "id": "nav-services",
+          "label": "办事指南",
+          "type": "button",
+          "expected": "进入对应已声明页面，保留当前语言与允许的业务上下文。",
+          "action": "navigate-public-page",
+          "targetPageId": "P-PUB-SERVICE-GUIDE",
+          "sourceRefs": [
+            {
+              "docKey": "ui",
+              "sectionId": "u0",
+              "rule": "统一导航和响应式入口对应已声明客户页面"
+            },
+            {
+              "docKey": "mod",
+              "sectionId": "o0",
+              "rule": "门户栏目及服务模块入口"
+            }
+          ]
+        },
+        {
+          "id": "nav-opendata",
+          "label": "开放数据",
+          "type": "button",
+          "expected": "进入对应已声明页面，保留当前语言与允许的业务上下文。",
+          "action": "navigate-public-page",
+          "targetPageId": "P-PUB-OPENDATA",
+          "sourceRefs": [
+            {
+              "docKey": "ui",
+              "sectionId": "u0",
+              "rule": "统一导航和响应式入口对应已声明客户页面"
+            },
+            {
+              "docKey": "mod",
+              "sectionId": "o0",
+              "rule": "门户栏目及服务模块入口"
+            }
+          ]
+        }
+      ],
+      "proposedTaskIds": [
+        "T-210"
+      ]
+    },
+    {
+      "id": "P-PUB-CONTENT",
+      "title": "内容详情",
+      "route": "/{lang}/contents/{id}",
+      "area": "公众门户",
+      "roles": [
+        "访客",
+        "公民"
+      ],
+      "reqIds": [
+        "REQ-002",
+        "REQ-004"
+      ],
+      "hldRefs": [
+        "hld:h1"
+      ],
+      "lldRefs": [
+        {
+          "docKey": "api",
+          "sectionId": "a0",
+          "anchor": "§1 协议与报文格式",
+          "rule": "详情响应为 fr/en 同源字段，缺译可回退"
+        },
+        {
+          "docKey": "mod",
+          "sectionId": "o7",
+          "anchor": "§8 静态化与缓存中间件",
+          "rule": "详情按内容 ID 版本化缓存"
+        }
+      ],
+      "taskIds": [
+        "T-203",
+        "T-206",
+        "T-202"
+      ],
+      "states": [
+        {
+          "id": "published",
+          "title": "已发布详情",
+          "required": true,
+          "expected": "渲染正文、发布日期和当前语言版本"
+        },
+        {
+          "id": "fallback",
+          "title": "缺译详情",
+          "required": true,
+          "expected": "渲染法语并标明 fallback"
+        },
+        {
+          "id": "gone",
+          "title": "已归档",
+          "required": true,
+          "expected": "HTTP 410 时转归档引导，不渲染正文"
+        }
+      ],
+      "controls": [
+        {
+          "id": "language",
+          "label": "FR | EN",
+          "type": "language-switch",
+          "expected": "切换同一 lang_pair 的语言版本",
+          "action": "switch-language"
+        },
+        {
+          "id": "back",
+          "label": "返回栏目",
+          "type": "link",
+          "expected": "返回原栏目及页码",
+          "action": "navigate-section",
+          "targetPageId": "P-PUB-SECTION"
+        },
+        {
+          "id": "nav-home",
+          "label": "首页",
+          "type": "button",
+          "expected": "进入对应已声明页面，保留当前语言与允许的业务上下文。",
+          "action": "navigate-public-page",
+          "targetPageId": "P-PUB-HOME",
+          "sourceRefs": [
+            {
+              "docKey": "ui",
+              "sectionId": "u0",
+              "rule": "统一导航和响应式入口对应已声明客户页面"
+            },
+            {
+              "docKey": "mod",
+              "sectionId": "o0",
+              "rule": "门户栏目及服务模块入口"
+            }
+          ]
+        },
+        {
+          "id": "nav-section",
+          "label": "新闻栏目",
+          "type": "button",
+          "expected": "进入对应已声明页面，保留当前语言与允许的业务上下文。",
+          "action": "navigate-public-page",
+          "targetPageId": "P-PUB-SECTION",
+          "sourceRefs": [
+            {
+              "docKey": "ui",
+              "sectionId": "u0",
+              "rule": "统一导航和响应式入口对应已声明客户页面"
+            },
+            {
+              "docKey": "mod",
+              "sectionId": "o0",
+              "rule": "门户栏目及服务模块入口"
+            }
+          ]
+        },
+        {
+          "id": "nav-services",
+          "label": "办事指南",
+          "type": "button",
+          "expected": "进入对应已声明页面，保留当前语言与允许的业务上下文。",
+          "action": "navigate-public-page",
+          "targetPageId": "P-PUB-SERVICE-GUIDE",
+          "sourceRefs": [
+            {
+              "docKey": "ui",
+              "sectionId": "u0",
+              "rule": "统一导航和响应式入口对应已声明客户页面"
+            },
+            {
+              "docKey": "mod",
+              "sectionId": "o0",
+              "rule": "门户栏目及服务模块入口"
+            }
+          ]
+        },
+        {
+          "id": "nav-opendata",
+          "label": "开放数据",
+          "type": "button",
+          "expected": "进入对应已声明页面，保留当前语言与允许的业务上下文。",
+          "action": "navigate-public-page",
+          "targetPageId": "P-PUB-OPENDATA",
+          "sourceRefs": [
+            {
+              "docKey": "ui",
+              "sectionId": "u0",
+              "rule": "统一导航和响应式入口对应已声明客户页面"
+            },
+            {
+              "docKey": "mod",
+              "sectionId": "o0",
+              "rule": "门户栏目及服务模块入口"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "P-PUB-ARCHIVE",
+      "title": "归档内容引导",
+      "route": "/{lang}/contents/{id}/archived",
+      "area": "公众门户",
+      "roles": [
+        "访客",
+        "公民"
+      ],
+      "reqIds": [
+        "REQ-002",
+        "REQ-004"
+      ],
+      "hldRefs": [
+        "hld:h1"
+      ],
+      "lldRefs": [
+        {
+          "docKey": "api",
+          "sectionId": "a1",
+          "anchor": "§2 状态码与错误码表",
+          "rule": "归档内容直达返回 410，保留可检索元数据"
+        }
+      ],
+      "taskIds": [
+        "T-203",
+        "T-202"
+      ],
+      "states": [
+        {
+          "id": "gone",
+          "title": "归档引导",
+          "required": true,
+          "expected": "说明内容不可访问并提供栏目返回路径"
+        }
+      ],
+      "controls": [
+        {
+          "id": "return-section",
+          "label": "返回栏目",
+          "type": "link",
+          "expected": "跳回对应内容类型的栏目列表",
+          "action": "navigate-section",
+          "targetPageId": "P-PUB-SECTION"
+        },
+        {
+          "id": "nav-home",
+          "label": "首页",
+          "type": "button",
+          "expected": "进入对应已声明页面，保留当前语言与允许的业务上下文。",
+          "action": "navigate-public-page",
+          "targetPageId": "P-PUB-HOME",
+          "sourceRefs": [
+            {
+              "docKey": "ui",
+              "sectionId": "u0",
+              "rule": "统一导航和响应式入口对应已声明客户页面"
+            },
+            {
+              "docKey": "mod",
+              "sectionId": "o0",
+              "rule": "门户栏目及服务模块入口"
+            }
+          ]
+        },
+        {
+          "id": "nav-section",
+          "label": "新闻栏目",
+          "type": "button",
+          "expected": "进入对应已声明页面，保留当前语言与允许的业务上下文。",
+          "action": "navigate-public-page",
+          "targetPageId": "P-PUB-SECTION",
+          "sourceRefs": [
+            {
+              "docKey": "ui",
+              "sectionId": "u0",
+              "rule": "统一导航和响应式入口对应已声明客户页面"
+            },
+            {
+              "docKey": "mod",
+              "sectionId": "o0",
+              "rule": "门户栏目及服务模块入口"
+            }
+          ]
+        },
+        {
+          "id": "nav-services",
+          "label": "办事指南",
+          "type": "button",
+          "expected": "进入对应已声明页面，保留当前语言与允许的业务上下文。",
+          "action": "navigate-public-page",
+          "targetPageId": "P-PUB-SERVICE-GUIDE",
+          "sourceRefs": [
+            {
+              "docKey": "ui",
+              "sectionId": "u0",
+              "rule": "统一导航和响应式入口对应已声明客户页面"
+            },
+            {
+              "docKey": "mod",
+              "sectionId": "o0",
+              "rule": "门户栏目及服务模块入口"
+            }
+          ]
+        },
+        {
+          "id": "nav-opendata",
+          "label": "开放数据",
+          "type": "button",
+          "expected": "进入对应已声明页面，保留当前语言与允许的业务上下文。",
+          "action": "navigate-public-page",
+          "targetPageId": "P-PUB-OPENDATA",
+          "sourceRefs": [
+            {
+              "docKey": "ui",
+              "sectionId": "u0",
+              "rule": "统一导航和响应式入口对应已声明客户页面"
+            },
+            {
+              "docKey": "mod",
+              "sectionId": "o0",
+              "rule": "门户栏目及服务模块入口"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "P-PUB-SERVICE-GUIDE",
+      "title": "办事大厅与事项指南",
+      "route": "/{lang}/services/{svcCode}",
+      "area": "公众门户",
+      "roles": [
+        "访客",
+        "公民"
+      ],
+      "reqIds": [
+        "REQ-003",
+        "REQ-004"
+      ],
+      "hldRefs": [
+        "hld:h2",
+        "hld:h6"
+      ],
+      "lldRefs": [
+        {
+          "docKey": "ui",
+          "sectionId": "u1",
+          "anchor": "§2 交互细节",
+          "rule": "材料清单→填写→提交回执的向导可回退"
+        },
+        {
+          "docKey": "api",
+          "sectionId": "a0",
+          "anchor": "§1 协议与报文格式",
+          "rule": "事项限护照、企业注册、税务申报"
+        }
+      ],
+      "taskIds": [
+        "T-205",
+        "T-204",
+        "T-224"
+      ],
+      "states": [
+        {
+          "id": "available",
+          "title": "事项可办理",
+          "required": true,
+          "expected": "显示事项说明、材料清单与开始申请入口"
+        },
+        {
+          "id": "unavailable",
+          "title": "事项未开通",
+          "required": true,
+          "expected": "未知 svc_code 显示“事项暂未开通”，不可创建申请"
+        },
+        {
+          "id": "auth-needed",
+          "title": "需登录",
+          "required": true,
+          "expected": "进入注册/登录后可安全回跳到该事项"
+        }
+      ],
+      "controls": [
+        {
+          "id": "start",
+          "label": "开始申请",
+          "type": "primary-link",
+          "expected": "已登录进入表单，未登录进入账户页并保留 returnTo",
+          "action": "start-service-application",
+          "targetPageId": "P-PUB-APPLICATION"
+        },
+        {
+          "id": "requirements",
+          "label": "材料清单",
+          "type": "checklist",
+          "expected": "显示 PDF/JPG 与各事项必交材料",
+          "action": "view-service-requirements"
+        },
+        {
+          "id": "nav-home",
+          "label": "首页",
+          "type": "button",
+          "expected": "进入对应已声明页面，保留当前语言与允许的业务上下文。",
+          "action": "navigate-public-page",
+          "targetPageId": "P-PUB-HOME",
+          "sourceRefs": [
+            {
+              "docKey": "ui",
+              "sectionId": "u0",
+              "rule": "统一导航和响应式入口对应已声明客户页面"
+            },
+            {
+              "docKey": "mod",
+              "sectionId": "o0",
+              "rule": "门户栏目及服务模块入口"
+            }
+          ]
+        },
+        {
+          "id": "nav-section",
+          "label": "新闻栏目",
+          "type": "button",
+          "expected": "进入对应已声明页面，保留当前语言与允许的业务上下文。",
+          "action": "navigate-public-page",
+          "targetPageId": "P-PUB-SECTION",
+          "sourceRefs": [
+            {
+              "docKey": "ui",
+              "sectionId": "u0",
+              "rule": "统一导航和响应式入口对应已声明客户页面"
+            },
+            {
+              "docKey": "mod",
+              "sectionId": "o0",
+              "rule": "门户栏目及服务模块入口"
+            }
+          ]
+        },
+        {
+          "id": "nav-services",
+          "label": "办事指南",
+          "type": "button",
+          "expected": "进入对应已声明页面，保留当前语言与允许的业务上下文。",
+          "action": "navigate-public-page",
+          "targetPageId": "P-PUB-SERVICE-GUIDE",
+          "sourceRefs": [
+            {
+              "docKey": "ui",
+              "sectionId": "u0",
+              "rule": "统一导航和响应式入口对应已声明客户页面"
+            },
+            {
+              "docKey": "mod",
+              "sectionId": "o0",
+              "rule": "门户栏目及服务模块入口"
+            }
+          ]
+        },
+        {
+          "id": "nav-opendata",
+          "label": "开放数据",
+          "type": "button",
+          "expected": "进入对应已声明页面，保留当前语言与允许的业务上下文。",
+          "action": "navigate-public-page",
+          "targetPageId": "P-PUB-OPENDATA",
+          "sourceRefs": [
+            {
+              "docKey": "ui",
+              "sectionId": "u0",
+              "rule": "统一导航和响应式入口对应已声明客户页面"
+            },
+            {
+              "docKey": "mod",
+              "sectionId": "o0",
+              "rule": "门户栏目及服务模块入口"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "P-PUB-APPLICATION",
+      "title": "分步办事申请",
+      "route": "/{lang}/services/{svcCode}/apply",
+      "area": "公众门户",
+      "roles": [
+        "公民"
+      ],
+      "reqIds": [
+        "REQ-003",
+        "REQ-004"
+      ],
+      "hldRefs": [
+        "hld:h2",
+        "hld:h6"
+      ],
+      "lldRefs": [
+        {
+          "docKey": "ui",
+          "sectionId": "u2",
+          "anchor": "§3 字段校验规则与提示文案",
+          "rule": "材料 PDF/JPG 且不超过 5MB，缺件就地提示"
+        },
+        {
+          "docKey": "alg",
+          "sectionId": "g0",
+          "anchor": "§1 办事申请全链流程",
+          "rule": "提交携带幂等键；未知适配器不能受理"
+        },
+        {
+          "docKey": "api",
+          "sectionId": "a0",
+          "anchor": "§1 协议与报文格式",
+          "rule": "POST /applications 返回回执号"
+        }
+      ],
+      "taskIds": [
+        "T-205",
+        "T-204",
+        "T-222",
+        "T-224"
+      ],
+      "states": [
+        {
+          "id": "materials",
+          "title": "材料步骤",
+          "required": true,
+          "expected": "明确显示必交材料和上传结果"
+        },
+        {
+          "id": "details",
+          "title": "填写步骤",
+          "required": true,
+          "expected": "已填字段可回退保留"
+        },
+        {
+          "id": "validation",
+          "title": "内联校验失败",
+          "required": true,
+          "expected": "在当前步骤显示缺少材料或字段错误且不调 API"
+        },
+        {
+          "id": "submitting",
+          "title": "提交中",
+          "required": true,
+          "expected": "防重复点击，使用同一幂等提交语义"
+        },
+        {
+          "id": "upstream-pending",
+          "title": "回执待补",
+          "required": true,
+          "expected": "部委熔断/上游异常时保留申请并明确标注待补"
+        }
+      ],
+      "controls": [
+        {
+          "id": "back",
+          "label": "上一步",
+          "type": "button",
+          "expected": "不丢失当前输入",
+          "action": "previous-step"
+        },
+        {
+          "id": "next",
+          "label": "下一步",
+          "type": "button",
+          "expected": "只在当前步骤校验通过时推进",
+          "action": "next-step"
+        },
+        {
+          "id": "upload",
+          "label": "上传材料",
+          "type": "file-upload",
+          "expected": "客户端提示类型/大小，服务端继续强制校验",
+          "action": "validate-and-upload-attachment"
+        },
+        {
+          "id": "submit",
+          "label": "提交申请",
+          "type": "primary-button",
+          "expected": "只产生一个回执并进入回执页",
+          "action": "submit-idempotent-application",
+          "targetPageId": "P-PUB-RECEIPT"
+        },
+        {
+          "id": "nav-home",
+          "label": "首页",
+          "type": "button",
+          "expected": "进入对应已声明页面，保留当前语言与允许的业务上下文。",
+          "action": "navigate-public-page",
+          "targetPageId": "P-PUB-HOME",
+          "sourceRefs": [
+            {
+              "docKey": "ui",
+              "sectionId": "u0",
+              "rule": "统一导航和响应式入口对应已声明客户页面"
+            },
+            {
+              "docKey": "mod",
+              "sectionId": "o0",
+              "rule": "门户栏目及服务模块入口"
+            }
+          ]
+        },
+        {
+          "id": "nav-section",
+          "label": "新闻栏目",
+          "type": "button",
+          "expected": "进入对应已声明页面，保留当前语言与允许的业务上下文。",
+          "action": "navigate-public-page",
+          "targetPageId": "P-PUB-SECTION",
+          "sourceRefs": [
+            {
+              "docKey": "ui",
+              "sectionId": "u0",
+              "rule": "统一导航和响应式入口对应已声明客户页面"
+            },
+            {
+              "docKey": "mod",
+              "sectionId": "o0",
+              "rule": "门户栏目及服务模块入口"
+            }
+          ]
+        },
+        {
+          "id": "nav-services",
+          "label": "办事指南",
+          "type": "button",
+          "expected": "进入对应已声明页面，保留当前语言与允许的业务上下文。",
+          "action": "navigate-public-page",
+          "targetPageId": "P-PUB-SERVICE-GUIDE",
+          "sourceRefs": [
+            {
+              "docKey": "ui",
+              "sectionId": "u0",
+              "rule": "统一导航和响应式入口对应已声明客户页面"
+            },
+            {
+              "docKey": "mod",
+              "sectionId": "o0",
+              "rule": "门户栏目及服务模块入口"
+            }
+          ]
+        },
+        {
+          "id": "nav-opendata",
+          "label": "开放数据",
+          "type": "button",
+          "expected": "进入对应已声明页面，保留当前语言与允许的业务上下文。",
+          "action": "navigate-public-page",
+          "targetPageId": "P-PUB-OPENDATA",
+          "sourceRefs": [
+            {
+              "docKey": "ui",
+              "sectionId": "u0",
+              "rule": "统一导航和响应式入口对应已声明客户页面"
+            },
+            {
+              "docKey": "mod",
+              "sectionId": "o0",
+              "rule": "门户栏目及服务模块入口"
+            }
+          ]
+        }
+      ],
+      "fields": [
+        {
+          "id": "attachments",
+          "label": "申请材料",
+          "type": "file",
+          "required": true,
+          "maxSizeMb": 5,
+          "accept": [
+            "application/pdf",
+            "image/jpeg"
+          ],
+          "sourceRef": {
+            "docKey": "ui",
+            "sectionId": "u2",
+            "rule": "按事项清单必填，PDF/JPG ≤ 5MB"
+          }
+        }
+      ]
+    },
+    {
+      "id": "P-PUB-RECEIPT",
+      "title": "申请提交回执",
+      "route": "/{lang}/applications/{receipt}/receipt",
+      "area": "公众门户",
+      "roles": [
+        "公民"
+      ],
+      "reqIds": [
+        "REQ-003",
+        "REQ-004"
+      ],
+      "hldRefs": [
+        "hld:h6"
+      ],
+      "lldRefs": [
+        {
+          "docKey": "ui",
+          "sectionId": "u3",
+          "anchor": "§4 页面跳转逻辑",
+          "rule": "回执号可复制且可进入我的申请查进度"
+        },
+        {
+          "docKey": "db",
+          "sectionId": "d0",
+          "anchor": "§1 表结构",
+          "rule": "receipt_no 签发后不可变"
+        }
+      ],
+      "taskIds": [
+        "T-205",
+        "T-204"
+      ],
+      "states": [
+        {
+          "id": "accepted",
+          "title": "已受理",
+          "required": true,
+          "expected": "展示服务、回执号和进度入口"
+        },
+        {
+          "id": "pending",
+          "title": "回执待补",
+          "required": true,
+          "expected": "展示不丢件的待补说明，仍允许查询进度"
+        }
+      ],
+      "controls": [
+        {
+          "id": "copy",
+          "label": "复制回执号",
+          "type": "copy-button",
+          "expected": "复制不可变 receipt_no 并给成功反馈",
+          "action": "copy-receipt"
+        },
+        {
+          "id": "track",
+          "label": "查看进度",
+          "type": "link",
+          "expected": "打开该回执的进度页",
+          "action": "navigate-application-status",
+          "targetPageId": "P-PUB-APPLICATION-STATUS"
+        },
+        {
+          "id": "nav-home",
+          "label": "首页",
+          "type": "button",
+          "expected": "进入对应已声明页面，保留当前语言与允许的业务上下文。",
+          "action": "navigate-public-page",
+          "targetPageId": "P-PUB-HOME",
+          "sourceRefs": [
+            {
+              "docKey": "ui",
+              "sectionId": "u0",
+              "rule": "统一导航和响应式入口对应已声明客户页面"
+            },
+            {
+              "docKey": "mod",
+              "sectionId": "o0",
+              "rule": "门户栏目及服务模块入口"
+            }
+          ]
+        },
+        {
+          "id": "nav-section",
+          "label": "新闻栏目",
+          "type": "button",
+          "expected": "进入对应已声明页面，保留当前语言与允许的业务上下文。",
+          "action": "navigate-public-page",
+          "targetPageId": "P-PUB-SECTION",
+          "sourceRefs": [
+            {
+              "docKey": "ui",
+              "sectionId": "u0",
+              "rule": "统一导航和响应式入口对应已声明客户页面"
+            },
+            {
+              "docKey": "mod",
+              "sectionId": "o0",
+              "rule": "门户栏目及服务模块入口"
+            }
+          ]
+        },
+        {
+          "id": "nav-services",
+          "label": "办事指南",
+          "type": "button",
+          "expected": "进入对应已声明页面，保留当前语言与允许的业务上下文。",
+          "action": "navigate-public-page",
+          "targetPageId": "P-PUB-SERVICE-GUIDE",
+          "sourceRefs": [
+            {
+              "docKey": "ui",
+              "sectionId": "u0",
+              "rule": "统一导航和响应式入口对应已声明客户页面"
+            },
+            {
+              "docKey": "mod",
+              "sectionId": "o0",
+              "rule": "门户栏目及服务模块入口"
+            }
+          ]
+        },
+        {
+          "id": "nav-opendata",
+          "label": "开放数据",
+          "type": "button",
+          "expected": "进入对应已声明页面，保留当前语言与允许的业务上下文。",
+          "action": "navigate-public-page",
+          "targetPageId": "P-PUB-OPENDATA",
+          "sourceRefs": [
+            {
+              "docKey": "ui",
+              "sectionId": "u0",
+              "rule": "统一导航和响应式入口对应已声明客户页面"
+            },
+            {
+              "docKey": "mod",
+              "sectionId": "o0",
+              "rule": "门户栏目及服务模块入口"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "P-PUB-APPLICATION-STATUS",
+      "title": "我的申请进度",
+      "route": "/{lang}/applications/{receipt}",
+      "area": "公众门户",
+      "roles": [
+        "公民"
+      ],
+      "reqIds": [
+        "REQ-003",
+        "REQ-004"
+      ],
+      "hldRefs": [
+        "hld:h6"
+      ],
+      "lldRefs": [
+        {
+          "docKey": "db",
+          "sectionId": "d1",
+          "anchor": "§2 主外键与关系",
+          "rule": "仅办事网关适配层可写申请状态"
+        },
+        {
+          "docKey": "alg",
+          "sectionId": "g3",
+          "anchor": "§4 熔断与对账流程",
+          "rule": "语义不明进度以“办理中”兜底并进入复核"
+        }
+      ],
+      "taskIds": [
+        "T-205",
+        "T-204",
+        "T-217",
+        "T-224"
+      ],
+      "states": [
+        {
+          "id": "pending",
+          "title": "待受理",
+          "required": true,
+          "expected": "显示已提交且等待路由状态"
+        },
+        {
+          "id": "processing",
+          "title": "办理中",
+          "required": true,
+          "expected": "显示当前进度；语义不明亦使用此状态并标注"
+        },
+        {
+          "id": "completed",
+          "title": "已办结",
+          "required": true,
+          "expected": "显示办结结果"
+        },
+        {
+          "id": "returned",
+          "title": "退回",
+          "required": true,
+          "expected": "说明需要补正的可见原因或下一步"
+        },
+        {
+          "id": "unauthorized",
+          "title": "无权访问",
+          "required": true,
+          "expected": "他人回执不可读取，提示重新登录或返回"
+        }
+      ],
+      "controls": [
+        {
+          "id": "refresh",
+          "label": "刷新进度",
+          "type": "button",
+          "expected": "重新查询当前回执，不重提申请",
+          "action": "refresh-application-status"
+        },
+        {
+          "id": "login",
+          "label": "登录",
+          "type": "link",
+          "expected": "会话失效时保留安全返回路径",
+          "action": "authenticate-and-return",
+          "targetPageId": "P-PUB-ACCOUNT"
+        },
+        {
+          "id": "nav-home",
+          "label": "首页",
+          "type": "button",
+          "expected": "进入对应已声明页面，保留当前语言与允许的业务上下文。",
+          "action": "navigate-public-page",
+          "targetPageId": "P-PUB-HOME",
+          "sourceRefs": [
+            {
+              "docKey": "ui",
+              "sectionId": "u0",
+              "rule": "统一导航和响应式入口对应已声明客户页面"
+            },
+            {
+              "docKey": "mod",
+              "sectionId": "o0",
+              "rule": "门户栏目及服务模块入口"
+            }
+          ]
+        },
+        {
+          "id": "nav-section",
+          "label": "新闻栏目",
+          "type": "button",
+          "expected": "进入对应已声明页面，保留当前语言与允许的业务上下文。",
+          "action": "navigate-public-page",
+          "targetPageId": "P-PUB-SECTION",
+          "sourceRefs": [
+            {
+              "docKey": "ui",
+              "sectionId": "u0",
+              "rule": "统一导航和响应式入口对应已声明客户页面"
+            },
+            {
+              "docKey": "mod",
+              "sectionId": "o0",
+              "rule": "门户栏目及服务模块入口"
+            }
+          ]
+        },
+        {
+          "id": "nav-services",
+          "label": "办事指南",
+          "type": "button",
+          "expected": "进入对应已声明页面，保留当前语言与允许的业务上下文。",
+          "action": "navigate-public-page",
+          "targetPageId": "P-PUB-SERVICE-GUIDE",
+          "sourceRefs": [
+            {
+              "docKey": "ui",
+              "sectionId": "u0",
+              "rule": "统一导航和响应式入口对应已声明客户页面"
+            },
+            {
+              "docKey": "mod",
+              "sectionId": "o0",
+              "rule": "门户栏目及服务模块入口"
+            }
+          ]
+        },
+        {
+          "id": "nav-opendata",
+          "label": "开放数据",
+          "type": "button",
+          "expected": "进入对应已声明页面，保留当前语言与允许的业务上下文。",
+          "action": "navigate-public-page",
+          "targetPageId": "P-PUB-OPENDATA",
+          "sourceRefs": [
+            {
+              "docKey": "ui",
+              "sectionId": "u0",
+              "rule": "统一导航和响应式入口对应已声明客户页面"
+            },
+            {
+              "docKey": "mod",
+              "sectionId": "o0",
+              "rule": "门户栏目及服务模块入口"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "P-PUB-ACCOUNT",
+      "title": "账户注册与 OTP 登录",
+      "route": "/{lang}/accounts",
+      "area": "公众门户",
+      "roles": [
+        "访客",
+        "公民"
+      ],
+      "reqIds": [
+        "REQ-003",
+        "REQ-005",
+        "REQ-007"
+      ],
+      "hldRefs": [
+        "hld:h3"
+      ],
+      "lldRefs": [
+        {
+          "docKey": "ui",
+          "sectionId": "u2",
+          "anchor": "§3 字段校验规则与提示文案",
+          "rule": "喀麦隆手机号 8 位；OTP 为 6 位"
+        },
+        {
+          "docKey": "api",
+          "sectionId": "a2",
+          "anchor": "§3 鉴权方式",
+          "rule": "access 2h、refresh 14d，静默续期最多一次"
+        },
+        {
+          "docKey": "mod",
+          "sectionId": "o6",
+          "anchor": "§7 安全与身份中间件",
+          "rule": "连续五次 OTP 失败锁定 30 分钟"
+        }
+      ],
+      "taskIds": [
+        "T-224",
+        "T-220"
+      ],
+      "states": [
+        {
+          "id": "register",
+          "title": "注册",
+          "required": true,
+          "expected": "校验手机号并发起 OTP 流程"
+        },
+        {
+          "id": "otp",
+          "title": "输入 OTP",
+          "required": true,
+          "expected": "仅接受 6 位数字"
+        },
+        {
+          "id": "expired",
+          "title": "OTP 过期",
+          "required": true,
+          "expected": "提示重新获取，不泄露验证码"
+        },
+        {
+          "id": "locked",
+          "title": "账户锁定",
+          "required": true,
+          "expected": "第五次失败后展示 30 分钟锁定，禁止客户端绕过"
+        },
+        {
+          "id": "session-expired",
+          "title": "会话失效",
+          "required": true,
+          "expected": "仅尝试一次静默续期，失败则引导重新登录"
+        }
+      ],
+      "controls": [
+        {
+          "id": "phone",
+          "label": "手机号",
+          "type": "tel-input",
+          "expected": "8 位格式校验并输出双语提示",
+          "action": "validate-phone"
+        },
+        {
+          "id": "otp",
+          "label": "验证码",
+          "type": "otp-input",
+          "expected": "6 位数字输入",
+          "action": "validate-otp"
+        },
+        {
+          "id": "submit",
+          "label": "登录/继续",
+          "type": "primary-button",
+          "expected": "成功后回到安全 returnTo；成功后优先返回已记录且位于允许集合的来源页面，未指定来源时使用默认办事指南；不得丢失开放数据或申请进度上下文。",
+          "action": "authenticate-and-return",
+          "targetPageId": "P-PUB-SERVICE-GUIDE",
+          "allowedReturnPageIds": [
+            "P-PUB-SERVICE-GUIDE",
+            "P-PUB-APPLICATION-STATUS",
+            "P-PUB-OPENDATA"
+          ]
+        },
+        {
+          "id": "nav-home",
+          "label": "首页",
+          "type": "button",
+          "expected": "进入对应已声明页面，保留当前语言与允许的业务上下文。",
+          "action": "navigate-public-page",
+          "targetPageId": "P-PUB-HOME",
+          "sourceRefs": [
+            {
+              "docKey": "ui",
+              "sectionId": "u0",
+              "rule": "统一导航和响应式入口对应已声明客户页面"
+            },
+            {
+              "docKey": "mod",
+              "sectionId": "o0",
+              "rule": "门户栏目及服务模块入口"
+            }
+          ]
+        },
+        {
+          "id": "nav-section",
+          "label": "新闻栏目",
+          "type": "button",
+          "expected": "进入对应已声明页面，保留当前语言与允许的业务上下文。",
+          "action": "navigate-public-page",
+          "targetPageId": "P-PUB-SECTION",
+          "sourceRefs": [
+            {
+              "docKey": "ui",
+              "sectionId": "u0",
+              "rule": "统一导航和响应式入口对应已声明客户页面"
+            },
+            {
+              "docKey": "mod",
+              "sectionId": "o0",
+              "rule": "门户栏目及服务模块入口"
+            }
+          ]
+        },
+        {
+          "id": "nav-services",
+          "label": "办事指南",
+          "type": "button",
+          "expected": "进入对应已声明页面，保留当前语言与允许的业务上下文。",
+          "action": "navigate-public-page",
+          "targetPageId": "P-PUB-SERVICE-GUIDE",
+          "sourceRefs": [
+            {
+              "docKey": "ui",
+              "sectionId": "u0",
+              "rule": "统一导航和响应式入口对应已声明客户页面"
+            },
+            {
+              "docKey": "mod",
+              "sectionId": "o0",
+              "rule": "门户栏目及服务模块入口"
+            }
+          ]
+        },
+        {
+          "id": "nav-opendata",
+          "label": "开放数据",
+          "type": "button",
+          "expected": "进入对应已声明页面，保留当前语言与允许的业务上下文。",
+          "action": "navigate-public-page",
+          "targetPageId": "P-PUB-OPENDATA",
+          "sourceRefs": [
+            {
+              "docKey": "ui",
+              "sectionId": "u0",
+              "rule": "统一导航和响应式入口对应已声明客户页面"
+            },
+            {
+              "docKey": "mod",
+              "sectionId": "o0",
+              "rule": "门户栏目及服务模块入口"
+            }
+          ]
+        }
+      ],
+      "fields": [
+        {
+          "id": "phone",
+          "label": "手机号",
+          "type": "tel",
+          "required": true,
+          "pattern": "^\\d{8}$",
+          "sourceRef": {
+            "docKey": "ui",
+            "sectionId": "u2",
+            "rule": "喀麦隆号段 8 位数字"
+          }
+        },
+        {
+          "id": "otp",
+          "label": "OTP",
+          "type": "text",
+          "required": true,
+          "pattern": "^\\d{6}$",
+          "sourceRef": {
+            "docKey": "ui",
+            "sectionId": "u2",
+            "rule": "OTP 6 位数字，5 次失败锁 30 分钟"
+          }
+        }
+      ]
+    },
+    {
+      "id": "P-PUB-SEARCH",
+      "title": "双语检索结果",
+      "route": "/{lang}/search?q={query}",
+      "area": "公众门户",
+      "roles": [
+        "访客",
+        "公民"
+      ],
+      "reqIds": [
+        "REQ-006",
+        "REQ-004"
+      ],
+      "hldRefs": [
+        "hld:h1"
+      ],
+      "lldRefs": [
+        {
+          "docKey": "alg",
+          "sectionId": "g2",
+          "anchor": "§3 双语检索查询改写流程",
+          "rule": "命中任一语种即返回同源对，并按当前语言展示"
+        },
+        {
+          "docKey": "ui",
+          "sectionId": "u2",
+          "anchor": "§3 字段校验规则与提示文案",
+          "rule": "查询词为 2–64 字符，空串给引导"
+        }
+      ],
+      "taskIds": [
+        "T-213",
+        "T-208",
+        "T-206"
+      ],
+      "states": [
+        {
+          "id": "results",
+          "title": "有结果",
+          "required": true,
+          "expected": "显示按当前语言渲染的同源对结果"
+        },
+        {
+          "id": "empty",
+          "title": "无结果",
+          "required": true,
+          "expected": "显示查询建议，不能空白"
+        },
+        {
+          "id": "lagging",
+          "title": "索引滞后",
+          "required": true,
+          "expected": "提示结果可能不含最新发布"
+        },
+        {
+          "id": "basic",
+          "title": "基础检索模式",
+          "required": true,
+          "expected": "ES 不可用时标注 DB 模糊匹配降级"
+        }
+      ],
+      "controls": [
+        {
+          "id": "query",
+          "label": "检索词",
+          "type": "search-input",
+          "expected": "校验后发起当前语言查询",
+          "action": "submit-search"
+        },
+        {
+          "id": "result",
+          "label": "结果条目",
+          "type": "content-link",
+          "expected": "进入对应详情并保留语言",
+          "action": "navigate-content-detail",
+          "targetPageId": "P-PUB-CONTENT"
+        },
+        {
+          "id": "nav-home",
+          "label": "首页",
+          "type": "button",
+          "expected": "进入对应已声明页面，保留当前语言与允许的业务上下文。",
+          "action": "navigate-public-page",
+          "targetPageId": "P-PUB-HOME",
+          "sourceRefs": [
+            {
+              "docKey": "ui",
+              "sectionId": "u0",
+              "rule": "统一导航和响应式入口对应已声明客户页面"
+            },
+            {
+              "docKey": "mod",
+              "sectionId": "o0",
+              "rule": "门户栏目及服务模块入口"
+            }
+          ]
+        },
+        {
+          "id": "nav-section",
+          "label": "新闻栏目",
+          "type": "button",
+          "expected": "进入对应已声明页面，保留当前语言与允许的业务上下文。",
+          "action": "navigate-public-page",
+          "targetPageId": "P-PUB-SECTION",
+          "sourceRefs": [
+            {
+              "docKey": "ui",
+              "sectionId": "u0",
+              "rule": "统一导航和响应式入口对应已声明客户页面"
+            },
+            {
+              "docKey": "mod",
+              "sectionId": "o0",
+              "rule": "门户栏目及服务模块入口"
+            }
+          ]
+        },
+        {
+          "id": "nav-services",
+          "label": "办事指南",
+          "type": "button",
+          "expected": "进入对应已声明页面，保留当前语言与允许的业务上下文。",
+          "action": "navigate-public-page",
+          "targetPageId": "P-PUB-SERVICE-GUIDE",
+          "sourceRefs": [
+            {
+              "docKey": "ui",
+              "sectionId": "u0",
+              "rule": "统一导航和响应式入口对应已声明客户页面"
+            },
+            {
+              "docKey": "mod",
+              "sectionId": "o0",
+              "rule": "门户栏目及服务模块入口"
+            }
+          ]
+        },
+        {
+          "id": "nav-opendata",
+          "label": "开放数据",
+          "type": "button",
+          "expected": "进入对应已声明页面，保留当前语言与允许的业务上下文。",
+          "action": "navigate-public-page",
+          "targetPageId": "P-PUB-OPENDATA",
+          "sourceRefs": [
+            {
+              "docKey": "ui",
+              "sectionId": "u0",
+              "rule": "统一导航和响应式入口对应已声明客户页面"
+            },
+            {
+              "docKey": "mod",
+              "sectionId": "o0",
+              "rule": "门户栏目及服务模块入口"
+            }
+          ]
+        }
+      ],
+      "fields": [
+        {
+          "id": "query",
+          "label": "检索词",
+          "type": "search",
+          "required": true,
+          "minLength": 2,
+          "maxLength": 64,
+          "sourceRef": {
+            "docKey": "ui",
+            "sectionId": "u2",
+            "rule": "检索词 2–64 字符，空串给引导"
+          }
+        }
+      ]
+    },
+    {
+      "id": "P-PUB-OPENDATA",
+      "title": "开放数据目录与数据集详情",
+      "route": "/{lang}/opendata/{datasetId?}",
+      "area": "公众门户",
+      "roles": [
+        "访客",
+        "公民"
+      ],
+      "reqIds": [
+        "REQ-007",
+        "REQ-004"
+      ],
+      "hldRefs": [
+        "hld:h1",
+        "hld:h3"
+      ],
+      "lldRefs": [
+        {
+          "docKey": "mod",
+          "sectionId": "o5",
+          "anchor": "§6 检索与开放数据中间件",
+          "rule": "目录为双语元数据，下载需 api_key"
+        },
+        {
+          "docKey": "api",
+          "sectionId": "a2",
+          "anchor": "§3 鉴权方式",
+          "rule": "api_key 具有 scopes、日配额与 60 req/min 限流"
+        }
+      ],
+      "taskIds": [
+        "T-216",
+        "T-215",
+        "T-224"
+      ],
+      "states": [
+        {
+          "id": "catalog",
+          "title": "目录可浏览",
+          "required": true,
+          "expected": "显示双语数据集元数据和详情入口"
+        },
+        {
+          "id": "key-needed",
+          "title": "需密钥下载",
+          "required": true,
+          "expected": "无 api_key 时给出获取密钥入口而不下载"
+        },
+        {
+          "id": "unauthorized",
+          "title": "密钥无效",
+          "required": true,
+          "expected": "401 反馈且不暴露密钥内容"
+        },
+        {
+          "id": "rate-limited",
+          "title": "限流或配额超限",
+          "required": true,
+          "expected": "429 反馈说明稍后重试或配额限制"
+        }
+      ],
+      "controls": [
+        {
+          "id": "dataset",
+          "label": "数据集详情",
+          "type": "link",
+          "expected": "查看元数据与下载入口",
+          "action": "navigate-dataset-detail",
+          "targetPageId": "P-PUB-OPENDATA"
+        },
+        {
+          "id": "get-key",
+          "label": "获取 API 密钥",
+          "type": "link",
+          "expected": "已登录进入密钥签发动作",
+          "action": "authenticate-for-key-issuance",
+          "targetPageId": "P-PUB-ACCOUNT"
+        },
+        {
+          "id": "download",
+          "label": "下载数据集",
+          "type": "download-button",
+          "expected": "带 api_key 后请求下载，并给可理解的错误反馈",
+          "action": "download-with-api-key"
+        },
+        {
+          "id": "nav-home",
+          "label": "首页",
+          "type": "button",
+          "expected": "进入对应已声明页面，保留当前语言与允许的业务上下文。",
+          "action": "navigate-public-page",
+          "targetPageId": "P-PUB-HOME",
+          "sourceRefs": [
+            {
+              "docKey": "ui",
+              "sectionId": "u0",
+              "rule": "统一导航和响应式入口对应已声明客户页面"
+            },
+            {
+              "docKey": "mod",
+              "sectionId": "o0",
+              "rule": "门户栏目及服务模块入口"
+            }
+          ]
+        },
+        {
+          "id": "nav-section",
+          "label": "新闻栏目",
+          "type": "button",
+          "expected": "进入对应已声明页面，保留当前语言与允许的业务上下文。",
+          "action": "navigate-public-page",
+          "targetPageId": "P-PUB-SECTION",
+          "sourceRefs": [
+            {
+              "docKey": "ui",
+              "sectionId": "u0",
+              "rule": "统一导航和响应式入口对应已声明客户页面"
+            },
+            {
+              "docKey": "mod",
+              "sectionId": "o0",
+              "rule": "门户栏目及服务模块入口"
+            }
+          ]
+        },
+        {
+          "id": "nav-services",
+          "label": "办事指南",
+          "type": "button",
+          "expected": "进入对应已声明页面，保留当前语言与允许的业务上下文。",
+          "action": "navigate-public-page",
+          "targetPageId": "P-PUB-SERVICE-GUIDE",
+          "sourceRefs": [
+            {
+              "docKey": "ui",
+              "sectionId": "u0",
+              "rule": "统一导航和响应式入口对应已声明客户页面"
+            },
+            {
+              "docKey": "mod",
+              "sectionId": "o0",
+              "rule": "门户栏目及服务模块入口"
+            }
+          ]
+        },
+        {
+          "id": "nav-opendata",
+          "label": "开放数据",
+          "type": "button",
+          "expected": "进入对应已声明页面，保留当前语言与允许的业务上下文。",
+          "action": "navigate-public-page",
+          "targetPageId": "P-PUB-OPENDATA",
+          "sourceRefs": [
+            {
+              "docKey": "ui",
+              "sectionId": "u0",
+              "rule": "统一导航和响应式入口对应已声明客户页面"
+            },
+            {
+              "docKey": "mod",
+              "sectionId": "o0",
+              "rule": "门户栏目及服务模块入口"
+            }
+          ]
+        }
+      ],
+      "fields": [
+        {
+          "id": "apiKey",
+          "label": "API 密钥",
+          "type": "password",
+          "required": true,
+          "sourceRef": {
+            "docKey": "api",
+            "sectionId": "a2",
+            "rule": "数据集下载需 api_key，按 scopes、配额和 60 req/min 校验"
+          }
+        }
+      ]
+    },
+    {
+      "id": "P-CMS-LOGIN",
+      "title": "CMS 工作台登录",
+      "route": "/cms/login",
+      "area": "CMS 后台",
+      "roles": [
+        "编辑",
+        "审核",
+        "发布"
+      ],
+      "reqIds": [
+        "REQ-005"
+      ],
+      "hldRefs": [
+        "hld:h3"
+      ],
+      "lldRefs": [
+        {
+          "docKey": "mod",
+          "sectionId": "o6",
+          "anchor": "§7 安全与身份中间件",
+          "rule": "CMS 三角色能力以服务端鉴权为准"
+        },
+        {
+          "docKey": "api",
+          "sectionId": "a2",
+          "anchor": "§3 鉴权方式",
+          "rule": "发布操作须附带审计上下文"
+        }
+      ],
+      "taskIds": [
+        "T-220",
+        "T-224",
+        "T-207"
+      ],
+      "states": [
+        {
+          "id": "signed-out",
+          "title": "未登录",
+          "required": true,
+          "expected": "显示账户入口和受保护工作台提示"
+        },
+        {
+          "id": "denied",
+          "title": "权限不足",
+          "required": true,
+          "expected": "无对应角色时拒绝进入，不显示越权控件"
+        }
+      ],
+      "controls": [
+        {
+          "id": "sign-in",
+          "label": "登录",
+          "type": "auth-button",
+          "expected": "成功后按角色进入 CMS 工作台",
+          "action": "authenticate-cms",
+          "targetPageId": "P-CMS-DASHBOARD"
+        },
+        {
+          "id": "nav-dashboard",
+          "label": "CMS工作台",
+          "type": "button",
+          "expected": "真实点击须先校验当前已登录身份及目标页面所需角色；拒绝时不进入受保护页面，也不改变身份角色。",
+          "action": "navigate-cms-page",
+          "targetPageId": "P-CMS-DASHBOARD",
+          "sourceRefs": [
+            {
+              "docKey": "ui",
+              "sectionId": "u0",
+              "rule": "管理工作台导航遵守角色允许动作"
+            },
+            {
+              "docKey": "mod",
+              "sectionId": "o6",
+              "rule": "导航不得绕过会话及三角色边界"
+            }
+          ]
+        },
+        {
+          "id": "nav-editor",
+          "label": "内容编辑",
+          "type": "button",
+          "expected": "真实点击须先校验当前已登录身份及目标页面所需角色；拒绝时不进入受保护页面，也不改变身份角色。",
+          "action": "navigate-cms-page",
+          "targetPageId": "P-CMS-EDITOR",
+          "sourceRefs": [
+            {
+              "docKey": "ui",
+              "sectionId": "u0",
+              "rule": "管理工作台导航遵守角色允许动作"
+            },
+            {
+              "docKey": "mod",
+              "sectionId": "o6",
+              "rule": "导航不得绕过会话及三角色边界"
+            }
+          ]
+        },
+        {
+          "id": "nav-review",
+          "label": "审核队列",
+          "type": "button",
+          "expected": "真实点击须先校验当前已登录身份及目标页面所需角色；拒绝时不进入受保护页面，也不改变身份角色。",
+          "action": "navigate-cms-page",
+          "targetPageId": "P-CMS-REVIEW",
+          "sourceRefs": [
+            {
+              "docKey": "ui",
+              "sectionId": "u0",
+              "rule": "管理工作台导航遵守角色允许动作"
+            },
+            {
+              "docKey": "mod",
+              "sectionId": "o6",
+              "rule": "导航不得绕过会话及三角色边界"
+            }
+          ]
+        },
+        {
+          "id": "nav-publish",
+          "label": "发布工作台",
+          "type": "button",
+          "expected": "真实点击须先校验当前已登录身份及目标页面所需角色；拒绝时不进入受保护页面，也不改变身份角色。",
+          "action": "navigate-cms-page",
+          "targetPageId": "P-CMS-PUBLISH",
+          "sourceRefs": [
+            {
+              "docKey": "ui",
+              "sectionId": "u0",
+              "rule": "管理工作台导航遵守角色允许动作"
+            },
+            {
+              "docKey": "mod",
+              "sectionId": "o6",
+              "rule": "导航不得绕过会话及三角色边界"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "P-CMS-DASHBOARD",
+      "title": "CMS 内容与待译工作台",
+      "route": "/cms/dashboard",
+      "area": "CMS 后台",
+      "roles": [
+        "编辑",
+        "审核",
+        "发布"
+      ],
+      "reqIds": [
+        "REQ-004",
+        "REQ-005"
+      ],
+      "hldRefs": [
+        "hld:h2",
+        "hld:h3"
+      ],
+      "lldRefs": [
+        {
+          "docKey": "mod",
+          "sectionId": "o1",
+          "anchor": "§2 cms 无头 CMS",
+          "rule": "展示内容生产、流转和待译工作入口"
+        },
+        {
+          "docKey": "mod",
+          "sectionId": "o3",
+          "anchor": "§4 双语内容中间件",
+          "rule": "待译清单记录 lang_pair、缺失语种、栏目和挂起天数"
+        }
+      ],
+      "taskIds": [
+        "T-212",
+        "T-206",
+        "T-207"
+      ],
+      "states": [
+        {
+          "id": "role-filtered",
+          "title": "按角色过滤",
+          "required": true,
+          "expected": "仅显示角色可处理的草稿、审核或发布工作"
+        },
+        {
+          "id": "missing-translation",
+          "title": "待译项目",
+          "required": true,
+          "expected": "显示缺失语种、栏目与挂起天数"
+        },
+        {
+          "id": "empty",
+          "title": "无待办",
+          "required": true,
+          "expected": "有明确空态，不伪造任务"
+        }
+      ],
+      "controls": [
+        {
+          "id": "new-content",
+          "label": "新建内容",
+          "type": "button",
+          "expected": "编辑可进入块编辑器",
+          "action": "create-content-draft",
+          "targetPageId": "P-CMS-EDITOR"
+        },
+        {
+          "id": "review-queue",
+          "label": "审核队列",
+          "type": "link",
+          "expected": "审核角色进入待审清单",
+          "action": "navigate-review-queue",
+          "targetPageId": "P-CMS-REVIEW"
+        },
+        {
+          "id": "translation-item",
+          "label": "待译条目",
+          "type": "link",
+          "expected": "进入对应 lang_pair 编辑器",
+          "action": "navigate-lang-pair-editor",
+          "targetPageId": "P-CMS-EDITOR"
+        },
+        {
+          "id": "nav-dashboard",
+          "label": "CMS工作台",
+          "type": "button",
+          "expected": "真实点击须先校验当前已登录身份及目标页面所需角色；拒绝时不进入受保护页面，也不改变身份角色。",
+          "action": "navigate-cms-page",
+          "targetPageId": "P-CMS-DASHBOARD",
+          "sourceRefs": [
+            {
+              "docKey": "ui",
+              "sectionId": "u0",
+              "rule": "管理工作台导航遵守角色允许动作"
+            },
+            {
+              "docKey": "mod",
+              "sectionId": "o6",
+              "rule": "导航不得绕过会话及三角色边界"
+            }
+          ]
+        },
+        {
+          "id": "nav-editor",
+          "label": "内容编辑",
+          "type": "button",
+          "expected": "真实点击须先校验当前已登录身份及目标页面所需角色；拒绝时不进入受保护页面，也不改变身份角色。",
+          "action": "navigate-cms-page",
+          "targetPageId": "P-CMS-EDITOR",
+          "sourceRefs": [
+            {
+              "docKey": "ui",
+              "sectionId": "u0",
+              "rule": "管理工作台导航遵守角色允许动作"
+            },
+            {
+              "docKey": "mod",
+              "sectionId": "o6",
+              "rule": "导航不得绕过会话及三角色边界"
+            }
+          ]
+        },
+        {
+          "id": "nav-review",
+          "label": "审核队列",
+          "type": "button",
+          "expected": "真实点击须先校验当前已登录身份及目标页面所需角色；拒绝时不进入受保护页面，也不改变身份角色。",
+          "action": "navigate-cms-page",
+          "targetPageId": "P-CMS-REVIEW",
+          "sourceRefs": [
+            {
+              "docKey": "ui",
+              "sectionId": "u0",
+              "rule": "管理工作台导航遵守角色允许动作"
+            },
+            {
+              "docKey": "mod",
+              "sectionId": "o6",
+              "rule": "导航不得绕过会话及三角色边界"
+            }
+          ]
+        },
+        {
+          "id": "nav-publish",
+          "label": "发布工作台",
+          "type": "button",
+          "expected": "真实点击须先校验当前已登录身份及目标页面所需角色；拒绝时不进入受保护页面，也不改变身份角色。",
+          "action": "navigate-cms-page",
+          "targetPageId": "P-CMS-PUBLISH",
+          "sourceRefs": [
+            {
+              "docKey": "ui",
+              "sectionId": "u0",
+              "rule": "管理工作台导航遵守角色允许动作"
+            },
+            {
+              "docKey": "mod",
+              "sectionId": "o6",
+              "rule": "导航不得绕过会话及三角色边界"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "P-CMS-EDITOR",
+      "title": "CMS 双语块编辑器",
+      "route": "/cms/contents/{id}/edit",
+      "area": "CMS 后台",
+      "roles": [
+        "编辑"
+      ],
+      "reqIds": [
+        "REQ-004",
+        "REQ-005"
+      ],
+      "hldRefs": [
+        "hld:h2",
+        "hld:h3"
+      ],
+      "lldRefs": [
+        {
+          "docKey": "mod",
+          "sectionId": "o1",
+          "anchor": "§2 cms 无头 CMS",
+          "rule": "标题、段落、图片、表格、引用按注册表编辑；块级保存与整篇提交分离"
+        },
+        {
+          "docKey": "db",
+          "sectionId": "d0",
+          "anchor": "§1 表结构",
+          "rule": "content_blocks 按 block_no 和 block_type 持久化；同源对有唯一约束"
+        },
+        {
+          "docKey": "alg",
+          "sectionId": "g4",
+          "anchor": "§5 内容发布流转流程",
+          "rule": "编辑可保存草稿并提审，不能发布"
+        },
+        {
+          "docKey": "api",
+          "sectionId": "a0",
+          "anchor": "§1 协议与报文格式 · CMS 工作流响应字段（V1.9 种子澄清）",
+          "rule": "编辑器读取 status、workflowView、allowedActions、lastTransition；动作可见性以服务端 allowedActions 为准"
+        }
+      ],
+      "taskIds": [
+        "T-212",
+        "T-221",
+        "T-207"
+      ],
+      "states": [
+        {
+          "id": "draft",
+          "title": "草稿编辑",
+          "required": true,
+          "expected": "可编辑 fr/en 同源内容和块顺序"
+        },
+        {
+          "id": "conflict",
+          "title": "并发冲突",
+          "required": true,
+          "expected": "旧 ETag 保存返回 409 合并提示，不能覆写新版本"
+        },
+        {
+          "id": "validation",
+          "title": "提审校验失败",
+          "required": true,
+          "expected": "清单化显示缺项"
+        },
+        {
+          "id": "submitted",
+          "title": "已提审",
+          "required": true,
+          "expected": "进入 review，编辑不能继续发布"
+        }
+      ],
+      "controls": [
+        {
+          "id": "language-tabs",
+          "label": "FR / EN 内容",
+          "type": "tabs",
+          "expected": "编辑同一 lang_pair 的两个语种",
+          "action": "switch-lang-pair-language"
+        },
+        {
+          "id": "block-add",
+          "label": "添加内容块",
+          "type": "block-picker",
+          "expected": "支持标题、段落、图片、表格、引用",
+          "action": "add-content-block"
+        },
+        {
+          "id": "save",
+          "label": "保存草稿",
+          "type": "button",
+          "expected": "块级保存并处理版本冲突",
+          "action": "save-draft-with-revision"
+        },
+        {
+          "id": "submit-review",
+          "label": "提交审核",
+          "type": "primary-button",
+          "expected": "通过必填校验后转 review",
+          "action": "submit-content-review",
+          "targetPageId": "P-CMS-REVIEW"
+        },
+        {
+          "id": "nav-dashboard",
+          "label": "CMS工作台",
+          "type": "button",
+          "expected": "真实点击须先校验当前已登录身份及目标页面所需角色；拒绝时不进入受保护页面，也不改变身份角色。",
+          "action": "navigate-cms-page",
+          "targetPageId": "P-CMS-DASHBOARD",
+          "sourceRefs": [
+            {
+              "docKey": "ui",
+              "sectionId": "u0",
+              "rule": "管理工作台导航遵守角色允许动作"
+            },
+            {
+              "docKey": "mod",
+              "sectionId": "o6",
+              "rule": "导航不得绕过会话及三角色边界"
+            }
+          ]
+        },
+        {
+          "id": "nav-editor",
+          "label": "内容编辑",
+          "type": "button",
+          "expected": "真实点击须先校验当前已登录身份及目标页面所需角色；拒绝时不进入受保护页面，也不改变身份角色。",
+          "action": "navigate-cms-page",
+          "targetPageId": "P-CMS-EDITOR",
+          "sourceRefs": [
+            {
+              "docKey": "ui",
+              "sectionId": "u0",
+              "rule": "管理工作台导航遵守角色允许动作"
+            },
+            {
+              "docKey": "mod",
+              "sectionId": "o6",
+              "rule": "导航不得绕过会话及三角色边界"
+            }
+          ]
+        },
+        {
+          "id": "nav-review",
+          "label": "审核队列",
+          "type": "button",
+          "expected": "真实点击须先校验当前已登录身份及目标页面所需角色；拒绝时不进入受保护页面，也不改变身份角色。",
+          "action": "navigate-cms-page",
+          "targetPageId": "P-CMS-REVIEW",
+          "sourceRefs": [
+            {
+              "docKey": "ui",
+              "sectionId": "u0",
+              "rule": "管理工作台导航遵守角色允许动作"
+            },
+            {
+              "docKey": "mod",
+              "sectionId": "o6",
+              "rule": "导航不得绕过会话及三角色边界"
+            }
+          ]
+        },
+        {
+          "id": "nav-publish",
+          "label": "发布工作台",
+          "type": "button",
+          "expected": "真实点击须先校验当前已登录身份及目标页面所需角色；拒绝时不进入受保护页面，也不改变身份角色。",
+          "action": "navigate-cms-page",
+          "targetPageId": "P-CMS-PUBLISH",
+          "sourceRefs": [
+            {
+              "docKey": "ui",
+              "sectionId": "u0",
+              "rule": "管理工作台导航遵守角色允许动作"
+            },
+            {
+              "docKey": "mod",
+              "sectionId": "o6",
+              "rule": "导航不得绕过会话及三角色边界"
+            }
+          ]
+        }
+      ],
+      "fields": [
+        {
+          "id": "titleFr",
+          "label": "法语标题",
+          "type": "text",
+          "required": true,
+          "sourceRef": {
+            "docKey": "db",
+            "sectionId": "d0",
+            "rule": "title_fr NOT NULL"
+          }
+        },
+        {
+          "id": "titleEn",
+          "label": "英语标题",
+          "type": "text",
+          "required": false,
+          "sourceRef": {
+            "docKey": "db",
+            "sectionId": "d0",
+            "rule": "title_en 可为 NULL，缺译时 fallback"
+          }
+        },
+        {
+          "id": "imageBlock",
+          "label": "图片内容块",
+          "type": "file",
+          "required": false,
+          "sourceRef": {
+            "docKey": "mod",
+            "sectionId": "o1",
+            "rule": "块类型注册表包含图片；未冻结 MIME 或大小限制"
+          }
+        }
+      ]
+    },
+    {
+      "id": "P-CMS-REVIEW",
+      "title": "CMS 审核队列与差异核对",
+      "route": "/cms/review",
+      "area": "CMS 后台",
+      "roles": [
+        "审核"
+      ],
+      "reqIds": [
+        "REQ-005",
+        "REQ-004"
+      ],
+      "hldRefs": [
+        "hld:h2",
+        "hld:h3"
+      ],
+      "lldRefs": [
+        {
+          "docKey": "alg",
+          "sectionId": "g4",
+          "anchor": "§5 内容发布流转流程",
+          "rule": "审核通过进入待发布；退回草稿；审核不可编辑正文"
+        },
+        {
+          "docKey": "mod",
+          "sectionId": "o6",
+          "anchor": "§7 安全与身份中间件",
+          "rule": "能力矩阵硬约束审核角色"
+        },
+        {
+          "docKey": "api",
+          "sectionId": "a0",
+          "anchor": "§1 协议与报文格式 · CMS 工作流响应字段（V1.9 种子澄清）",
+          "rule": "审核队列依据 workflowView 与 allowedActions 展示 approve/return，returned 必须为 status=draft 且 lastTransition.action=return"
+        }
+      ],
+      "taskIds": [
+        "T-207",
+        "T-212"
+      ],
+      "states": [
+        {
+          "id": "review-queue",
+          "title": "待审核",
+          "required": true,
+          "expected": "列出 review 状态内容与必要元数据"
+        },
+        {
+          "id": "approved",
+          "title": "审核通过",
+          "required": true,
+          "expected": "转为待发布，审核角色不能直接上线"
+        },
+        {
+          "id": "returned",
+          "title": "退回草稿",
+          "required": true,
+          "expected": "要求带可见退回意见并回到编辑处理"
+        },
+        {
+          "id": "forbidden",
+          "title": "越权编辑",
+          "required": true,
+          "expected": "审核角色不能修改正文"
+        }
+      ],
+      "controls": [
+        {
+          "id": "compare",
+          "label": "查看内容",
+          "type": "read-only-detail",
+          "expected": "可检查语言与元数据，不出现正文编辑控件",
+          "action": "view-read-only-content"
+        },
+        {
+          "id": "approve",
+          "label": "通过",
+          "type": "button",
+          "expected": "转待发布",
+          "action": "approve-for-publish",
+          "targetPageId": "P-CMS-PUBLISH"
+        },
+        {
+          "id": "return",
+          "label": "退回",
+          "type": "button",
+          "expected": "填写意见后返回 draft",
+          "action": "return-to-draft",
+          "targetPageId": "P-CMS-EDITOR"
+        },
+        {
+          "id": "nav-dashboard",
+          "label": "CMS工作台",
+          "type": "button",
+          "expected": "真实点击须先校验当前已登录身份及目标页面所需角色；拒绝时不进入受保护页面，也不改变身份角色。",
+          "action": "navigate-cms-page",
+          "targetPageId": "P-CMS-DASHBOARD",
+          "sourceRefs": [
+            {
+              "docKey": "ui",
+              "sectionId": "u0",
+              "rule": "管理工作台导航遵守角色允许动作"
+            },
+            {
+              "docKey": "mod",
+              "sectionId": "o6",
+              "rule": "导航不得绕过会话及三角色边界"
+            }
+          ]
+        },
+        {
+          "id": "nav-editor",
+          "label": "内容编辑",
+          "type": "button",
+          "expected": "真实点击须先校验当前已登录身份及目标页面所需角色；拒绝时不进入受保护页面，也不改变身份角色。",
+          "action": "navigate-cms-page",
+          "targetPageId": "P-CMS-EDITOR",
+          "sourceRefs": [
+            {
+              "docKey": "ui",
+              "sectionId": "u0",
+              "rule": "管理工作台导航遵守角色允许动作"
+            },
+            {
+              "docKey": "mod",
+              "sectionId": "o6",
+              "rule": "导航不得绕过会话及三角色边界"
+            }
+          ]
+        },
+        {
+          "id": "nav-review",
+          "label": "审核队列",
+          "type": "button",
+          "expected": "真实点击须先校验当前已登录身份及目标页面所需角色；拒绝时不进入受保护页面，也不改变身份角色。",
+          "action": "navigate-cms-page",
+          "targetPageId": "P-CMS-REVIEW",
+          "sourceRefs": [
+            {
+              "docKey": "ui",
+              "sectionId": "u0",
+              "rule": "管理工作台导航遵守角色允许动作"
+            },
+            {
+              "docKey": "mod",
+              "sectionId": "o6",
+              "rule": "导航不得绕过会话及三角色边界"
+            }
+          ]
+        },
+        {
+          "id": "nav-publish",
+          "label": "发布工作台",
+          "type": "button",
+          "expected": "真实点击须先校验当前已登录身份及目标页面所需角色；拒绝时不进入受保护页面，也不改变身份角色。",
+          "action": "navigate-cms-page",
+          "targetPageId": "P-CMS-PUBLISH",
+          "sourceRefs": [
+            {
+              "docKey": "ui",
+              "sectionId": "u0",
+              "rule": "管理工作台导航遵守角色允许动作"
+            },
+            {
+              "docKey": "mod",
+              "sectionId": "o6",
+              "rule": "导航不得绕过会话及三角色边界"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "P-CMS-PUBLISH",
+      "title": "CMS 发布、下线与审计",
+      "route": "/cms/publish",
+      "area": "CMS 后台",
+      "roles": [
+        "发布"
+      ],
+      "reqIds": [
+        "REQ-001",
+        "REQ-002",
+        "REQ-004",
+        "REQ-005",
+        "REQ-006"
+      ],
+      "hldRefs": [
+        "hld:h2",
+        "hld:h3"
+      ],
+      "lldRefs": [
+        {
+          "docKey": "alg",
+          "sectionId": "g4",
+          "anchor": "§5 内容发布流转流程",
+          "rule": "发布前至少一语种成文且元数据完整；发布后发缓存失效与索引增量事件"
+        },
+        {
+          "docKey": "nfr",
+          "sectionId": "n2",
+          "anchor": "§3 日志与异常处理规范",
+          "rule": "发布/下线须完整审计；事件失败显式重投并由 TTL 兜底"
+        },
+        {
+          "docKey": "mod",
+          "sectionId": "o7",
+          "anchor": "§8 静态化与缓存中间件",
+          "rule": "发布/下线立即失效对应缓存 key"
+        },
+        {
+          "docKey": "api",
+          "sectionId": "a0",
+          "anchor": "§1 协议与报文格式 · CMS 工作流响应字段（V1.9 种子澄清）",
+          "rule": "待发布仅在 status=review、workflowView=pending-publish 且 allowedActions 含 publish 时显示；前端不得按角色推断"
+        }
+      ],
+      "taskIds": [
+        "T-207",
+        "T-214",
+        "T-211",
+        "T-218"
+      ],
+      "states": [
+        {
+          "id": "pending-publish",
+          "title": "待发布",
+          "required": true,
+          "expected": "仅显示审核通过的内容"
+        },
+        {
+          "id": "preflight-failed",
+          "title": "发布校验失败",
+          "required": true,
+          "expected": "列出缺失元数据或两语种均空等问题并阻断"
+        },
+        {
+          "id": "published",
+          "title": "已发布",
+          "required": true,
+          "expected": "写入 published_at，展示缓存/索引事件已提交状态"
+        },
+        {
+          "id": "event-retry",
+          "title": "下游事件重试",
+          "required": true,
+          "expected": "缓存或索引事件失败需显式标注重试，不能静默成功"
+        },
+        {
+          "id": "archived",
+          "title": "已归档",
+          "required": true,
+          "expected": "前台详情转 410 引导，元数据仍可检索"
+        }
+      ],
+      "controls": [
+        {
+          "id": "publish",
+          "label": "发布",
+          "type": "primary-button",
+          "expected": "通过前置校验、记录 actor/IP/对象/时间并触发双事件",
+          "action": "publish-with-preflight"
+        },
+        {
+          "id": "unpublish",
+          "label": "下线",
+          "type": "button",
+          "expected": "失效前台缓存并保留审计",
+          "action": "unpublish-content"
+        },
+        {
+          "id": "archive",
+          "label": "归档",
+          "type": "danger-button",
+          "expected": "确认后进入 archived，非破坏性保留元数据",
+          "action": "archive-content"
+        },
+        {
+          "id": "audit",
+          "label": "审计记录",
+          "type": "audit-link",
+          "expected": "查看发布和下线的审计上下文",
+          "action": "view-audit-records"
+        },
+        {
+          "id": "nav-dashboard",
+          "label": "CMS工作台",
+          "type": "button",
+          "expected": "真实点击须先校验当前已登录身份及目标页面所需角色；拒绝时不进入受保护页面，也不改变身份角色。",
+          "action": "navigate-cms-page",
+          "targetPageId": "P-CMS-DASHBOARD",
+          "sourceRefs": [
+            {
+              "docKey": "ui",
+              "sectionId": "u0",
+              "rule": "管理工作台导航遵守角色允许动作"
+            },
+            {
+              "docKey": "mod",
+              "sectionId": "o6",
+              "rule": "导航不得绕过会话及三角色边界"
+            }
+          ]
+        },
+        {
+          "id": "nav-editor",
+          "label": "内容编辑",
+          "type": "button",
+          "expected": "真实点击须先校验当前已登录身份及目标页面所需角色；拒绝时不进入受保护页面，也不改变身份角色。",
+          "action": "navigate-cms-page",
+          "targetPageId": "P-CMS-EDITOR",
+          "sourceRefs": [
+            {
+              "docKey": "ui",
+              "sectionId": "u0",
+              "rule": "管理工作台导航遵守角色允许动作"
+            },
+            {
+              "docKey": "mod",
+              "sectionId": "o6",
+              "rule": "导航不得绕过会话及三角色边界"
+            }
+          ]
+        },
+        {
+          "id": "nav-review",
+          "label": "审核队列",
+          "type": "button",
+          "expected": "真实点击须先校验当前已登录身份及目标页面所需角色；拒绝时不进入受保护页面，也不改变身份角色。",
+          "action": "navigate-cms-page",
+          "targetPageId": "P-CMS-REVIEW",
+          "sourceRefs": [
+            {
+              "docKey": "ui",
+              "sectionId": "u0",
+              "rule": "管理工作台导航遵守角色允许动作"
+            },
+            {
+              "docKey": "mod",
+              "sectionId": "o6",
+              "rule": "导航不得绕过会话及三角色边界"
+            }
+          ]
+        },
+        {
+          "id": "nav-publish",
+          "label": "发布工作台",
+          "type": "button",
+          "expected": "真实点击须先校验当前已登录身份及目标页面所需角色；拒绝时不进入受保护页面，也不改变身份角色。",
+          "action": "navigate-cms-page",
+          "targetPageId": "P-CMS-PUBLISH",
+          "sourceRefs": [
+            {
+              "docKey": "ui",
+              "sectionId": "u0",
+              "rule": "管理工作台导航遵守角色允许动作"
+            },
+            {
+              "docKey": "mod",
+              "sectionId": "o6",
+              "rule": "导航不得绕过会话及三角色边界"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "flows": [
+    {
+      "id": "F-001",
+      "title": "双语首页到内容阅读",
+      "roles": [
+        "访客"
+      ],
+      "reqIds": [
+        "REQ-001",
+        "REQ-002",
+        "REQ-004"
+      ],
+      "steps": [
+        {
+          "pageId": "P-PUB-HOME",
+          "action": "选择 EN，点击主新闻",
+          "expected": "URL 为 /en 且缺译时显示 fallback"
+        },
+        {
+          "pageId": "P-PUB-SECTION",
+          "action": "浏览对应栏目并翻页",
+          "expected": "仅见已发布同类型内容"
+        },
+        {
+          "pageId": "P-PUB-CONTENT",
+          "action": "打开详情",
+          "expected": "显示当前语言正文或法语回退标记"
+        }
+      ]
+    },
+    {
+      "id": "F-002",
+      "title": "归档内容保护",
+      "roles": [
+        "访客"
+      ],
+      "reqIds": [
+        "REQ-002"
+      ],
+      "steps": [
+        {
+          "pageId": "P-PUB-CONTENT",
+          "action": "访问已归档内容 URL",
+          "expected": "收到 410，不显示正文"
+        },
+        {
+          "pageId": "P-PUB-ARCHIVE",
+          "action": "返回栏目",
+          "expected": "回到仍可阅读的已发布内容"
+        }
+      ]
+    },
+    {
+      "id": "F-003",
+      "title": "注册登录并提交办事申请",
+      "roles": [
+        "访客",
+        "公民"
+      ],
+      "reqIds": [
+        "REQ-003"
+      ],
+      "steps": [
+        {
+          "pageId": "P-PUB-SERVICE-GUIDE",
+          "action": "从护照事项点击开始申请",
+          "expected": "未登录转账户页并保留 returnTo"
+        },
+        {
+          "pageId": "P-PUB-ACCOUNT",
+          "action": "以有效手机号和 OTP 登录",
+          "expected": "建立会话并返回事项"
+        },
+        {
+          "pageId": "P-PUB-APPLICATION",
+          "action": "上传合格材料、填写并提交",
+          "expected": "生成唯一回执"
+        },
+        {
+          "pageId": "P-PUB-RECEIPT",
+          "action": "复制回执并进入进度",
+          "expected": "可打开同一回执的状态页"
+        }
+      ]
+    },
+    {
+      "id": "F-004",
+      "title": "申请补正与状态查询",
+      "roles": [
+        "公民"
+      ],
+      "reqIds": [
+        "REQ-003"
+      ],
+      "steps": [
+        {
+          "pageId": "P-PUB-APPLICATION-STATUS",
+          "action": "刷新自己的回执进度",
+          "expected": "显示待受理、办理中、已办结或退回之一"
+        },
+        {
+          "pageId": "P-PUB-APPLICATION",
+          "action": "材料缺失时回到当前步骤补齐",
+          "expected": "内联显示必交材料名称且不发起无效提交"
+        }
+      ]
+    },
+    {
+      "id": "F-005",
+      "title": "双语检索降级可见",
+      "roles": [
+        "访客"
+      ],
+      "reqIds": [
+        "REQ-006",
+        "REQ-004"
+      ],
+      "steps": [
+        {
+          "pageId": "P-PUB-HOME",
+          "action": "输入有效检索词",
+          "expected": "进入当前语言检索页"
+        },
+        {
+          "pageId": "P-PUB-SEARCH",
+          "action": "查看结果或降级反馈",
+          "expected": "空结果有引导；索引滞后/基础检索模式显式标注"
+        },
+        {
+          "pageId": "P-PUB-CONTENT",
+          "action": "打开结果",
+          "expected": "保留语言或显示 fallback"
+        }
+      ]
+    },
+    {
+      "id": "F-006",
+      "title": "开放数据下载与限流反馈",
+      "roles": [
+        "访客",
+        "公民"
+      ],
+      "reqIds": [
+        "REQ-007"
+      ],
+      "steps": [
+        {
+          "pageId": "P-PUB-OPENDATA",
+          "action": "浏览数据集并尝试下载",
+          "expected": "无密钥给出获取入口"
+        },
+        {
+          "pageId": "P-PUB-ACCOUNT",
+          "action": "登录以取得账户会话",
+          "expected": "安全返回数据集"
+        },
+        {
+          "pageId": "P-PUB-OPENDATA",
+          "action": "持有效密钥下载或达到配额",
+          "expected": "成功下载或显示 429 限流/配额反馈"
+        }
+      ]
+    },
+    {
+      "id": "F-007",
+      "title": "编辑创建双语内容并提审",
+      "roles": [
+        "编辑"
+      ],
+      "reqIds": [
+        "REQ-004",
+        "REQ-005"
+      ],
+      "steps": [
+        {
+          "pageId": "P-CMS-LOGIN",
+          "action": "以编辑角色登录",
+          "expected": "进入受角色过滤的工作台"
+        },
+        {
+          "pageId": "P-CMS-DASHBOARD",
+          "action": "新建内容或打开待译条目",
+          "expected": "进入同一 lang_pair 的编辑器"
+        },
+        {
+          "pageId": "P-CMS-EDITOR",
+          "action": "保存块并提交审核",
+          "expected": "保存冲突给 409 合并提示；成功进入 review"
+        }
+      ]
+    },
+    {
+      "id": "F-008",
+      "title": "审核退回或通过",
+      "roles": [
+        "审核"
+      ],
+      "reqIds": [
+        "REQ-005"
+      ],
+      "steps": [
+        {
+          "pageId": "P-CMS-LOGIN",
+          "action": "以审核角色登录",
+          "expected": "不可获得正文编辑权限"
+        },
+        {
+          "pageId": "P-CMS-REVIEW",
+          "action": "查看待审内容并退回或通过",
+          "expected": "退回到 draft，或通过后转待发布"
+        }
+      ]
+    },
+    {
+      "id": "F-009",
+      "title": "发布、缓存失效、检索更新和归档",
+      "roles": [
+        "发布"
+      ],
+      "reqIds": [
+        "REQ-001",
+        "REQ-002",
+        "REQ-004",
+        "REQ-005",
+        "REQ-006"
+      ],
+      "steps": [
+        {
+          "pageId": "P-CMS-LOGIN",
+          "action": "以发布角色登录",
+          "expected": "仅见发布待办"
+        },
+        {
+          "pageId": "P-CMS-PUBLISH",
+          "action": "执行发布",
+          "expected": "通过校验后写 published_at、审计并发送缓存失效和索引事件"
+        },
+        {
+          "pageId": "P-PUB-HOME",
+          "action": "打开前台首页",
+          "expected": "发布后内容可见，失败事件有显式重试而非静默"
+        },
+        {
+          "pageId": "P-CMS-PUBLISH",
+          "action": "归档内容",
+          "expected": "前台详情进入 410 引导且元数据保留"
+        }
+      ]
+    }
+  ],
+  "nonUiCoverage": [
+    {
+      "id": "NUI-001",
+      "description": "首页每日 00:30 静态化重建、发布失效、CDN 刷新与 SSR 缓存命中率",
+      "hldRefs": [
+        "hld:h7"
+      ],
+      "lldRefs": [
+        {
+          "docKey": "mod",
+          "sectionId": "o7",
+          "anchor": "§8 静态化与缓存中间件",
+          "rule": "TTL、键空间、失效风暴合并与失败重试"
+        },
+        {
+          "docKey": "nfr",
+          "sectionId": "n0",
+          "anchor": "§1 性能设计",
+          "rule": "首屏 3 秒、5000 并发和缓存预算"
+        }
+      ],
+      "reason": "这些是服务端缓存、部署和性能门禁；前台只展示其可感知的加载/快照状态。",
+      "sourceRefs": [
+        "PRD:p3 §3 非功能实现方案（SSR + CDN，≤3s@4G）",
+        "HLD:h7 §8 非功能指标与容量估算",
+        "NFR:n0 §1 性能设计"
+      ]
+    },
+    {
+      "id": "NUI-002",
+      "description": "部委适配器、10 秒超时、三次重试、熔断、回调签名和对账恢复",
+      "hldRefs": [
+        "hld:h6"
+      ],
+      "lldRefs": [
+        {
+          "docKey": "alg",
+          "sectionId": "g0",
+          "anchor": "§1 办事申请全链流程",
+          "rule": "统一申请、幂等、适配器路由"
+        },
+        {
+          "docKey": "alg",
+          "sectionId": "g3",
+          "anchor": "§4 熔断与对账流程",
+          "rule": "半开探测、差异工单与回调幂等"
+        }
+      ],
+      "reason": "门户承接回执待补和进度展示，但协议处理、队列和对账不能虚造为用户页面。",
+      "sourceRefs": [
+        "PRD:p2 §2 功能需求（REQ-003）",
+        "HLD:h6 §7 关键时序（办事申请全链）",
+        "ALG:g0 §1 办事申请全链流程",
+        "ALG:g3 §4 熔断与对账流程"
+      ]
+    },
+    {
+      "id": "NUI-003",
+      "description": "双语内容存储、同源对约束、待译统计和索引合并召回",
+      "hldRefs": [
+        "hld:h4",
+        "hld:h5"
+      ],
+      "lldRefs": [
+        {
+          "docKey": "db",
+          "sectionId": "d0",
+          "anchor": "§1 表结构",
+          "rule": "contents.lang_pair 与双语字段/状态约束"
+        },
+        {
+          "docKey": "cls",
+          "sectionId": "k2",
+          "anchor": "§3 内部数据结构组织",
+          "rule": "同源对、索引文档与待译条目结构"
+        }
+      ],
+      "reason": "页面消费其可见结果，字段完整性和检索索引实体由数据库及中间件实现承接。",
+      "sourceRefs": [
+        "PRD:p2 §2 功能需求（REQ-004/REQ-006）",
+        "HLD:h4 §5 数据架构概览",
+        "DB:d0 §1 表结构",
+        "CLS:k2 §3 内部数据结构组织"
+      ]
+    },
+    {
+      "id": "NUI-004",
+      "description": "会话令牌、WAF、三域隔离、审计保留、数据主权和 API 密钥强制校验",
+      "hldRefs": [
+        "hld:h5",
+        "hld:h7"
+      ],
+      "lldRefs": [
+        {
+          "docKey": "nfr",
+          "sectionId": "n1",
+          "anchor": "§2 安全设计",
+          "rule": "TLS、等保三级、WAF、数据驻留与密钥限流"
+        },
+        {
+          "docKey": "nfr",
+          "sectionId": "n2",
+          "anchor": "§3 日志与异常处理规范",
+          "rule": "审计字段和至少 180 天保留"
+        }
+      ],
+      "reason": "登录、权限拒绝和限流反馈属于 UI；令牌存储、WAF、网络隔离和日志留存属于后端/NFR。",
+      "sourceRefs": [
+        "PRD:p3 §3 非功能实现方案（等保/WAF/离线部署）",
+        "HLD:h7 §8 非功能指标与容量估算",
+        "NFR:n1 §2 安全设计",
+        "NFR:n2 §3 日志与异常处理规范"
+      ]
+    },
+    {
+      "id": "NUI-005",
+      "description": "接口版本兼容、统一 JSON 错误体、离线镜像仓和 CI 发布质量门禁",
+      "hldRefs": [
+        "hld:h5",
+        "hld:h7"
+      ],
+      "lldRefs": [
+        {
+          "docKey": "api",
+          "sectionId": "a4",
+          "anchor": "§5 版本管理",
+          "rule": "/api/v1 增量兼容与 Sunset 下线规则"
+        },
+        {
+          "docKey": "nfr",
+          "sectionId": "n0",
+          "anchor": "§1 性能设计",
+          "rule": "Lighthouse 采样阻断与容量证据"
+        }
+      ],
+      "reason": "这是 HLD/LLD 的运行与发布契约；原型仅需由后续自测报告核验功能和 UI 符合度。",
+      "sourceRefs": [
+        "PRD:p3 §3 非功能实现方案",
+        "HLD:h5 §6 部署拓扑",
+        "HLD:h7 §8 非功能指标与容量估算",
+        "API:a4 §5 版本管理",
+        "NFR:n0 §1 性能设计"
+      ]
+    }
+  ],
+  "uiConformanceGate": {
+    "generalVisualComplianceMin": 0.95,
+    "criticalItemsMin": 1,
+    "measurement": "规则符合度检查，不要求像素级相似",
+    "criticalItems": [
+      "角色越权控件不可见且操作被拒绝",
+      "OTP 锁定与会话失效不绕过",
+      "申请材料、回执和状态语义正确",
+      "发布前校验、审计与前台归档 410",
+      "语言回退与所有显式降级反馈"
+    ]
+  },
+  "viewportProfiles": [
+    {
+      "id": "public-desktop",
+      "area": "公众门户",
+      "minWidth": 1024,
+      "sourceRef": {
+        "docKey": "ui",
+        "sectionId": "u0",
+        "rule": "≥1024 三栏"
+      },
+      "applicabilityReason": "首页、栏目、办事、检索和开放数据均使用门户信息架构。"
+    },
+    {
+      "id": "public-tablet",
+      "area": "公众门户",
+      "minWidth": 768,
+      "maxWidth": 1023,
+      "sourceRef": {
+        "docKey": "ui",
+        "sectionId": "u0",
+        "rule": "768–1023 两栏"
+      },
+      "applicabilityReason": "公众门户在中等宽度必须保持导航、内容与办事入口可达。"
+    },
+    {
+      "id": "public-mobile",
+      "area": "公众门户",
+      "maxWidth": 767,
+      "sourceRef": {
+        "docKey": "ui",
+        "sectionId": "u0",
+        "rule": "<768 单栏，办事入口固定底部快捷区"
+      },
+      "applicabilityReason": "所有公众页面适用；办事入口是明确的移动端关键路径。"
+    },
+    {
+      "id": "cms-desktop",
+      "area": "CMS 后台",
+      "minWidth": 1024,
+      "sourceRef": {
+        "docKey": "mod",
+        "sectionId": "o1",
+        "rule": "块编辑器、审核发布和内容生产台"
+      },
+      "applicabilityReason": "CMS 页面冻结为桌面工作台验证基线；现有 UI 册未给出 CMS 响应式断点，移动 CMS 不在本轮承诺范围。"
+    }
+  ],
+  "statusDisplayMapping": {
+    "canonicalStorageStates": [
+      {
+        "storageState": "draft",
+        "display": "草稿",
+        "roles": [
+          "编辑"
+        ],
+        "basis": {
+          "docKey": "db",
+          "sectionId": "d0",
+          "rule": "contents.status 枚举包含 draft"
+        }
+      },
+      {
+        "storageState": "review",
+        "display": "待审核",
+        "roles": [
+          "审核"
+        ],
+        "basis": {
+          "docKey": "db",
+          "sectionId": "d0",
+          "rule": "contents.status 枚举包含 review"
+        }
+      },
+      {
+        "storageState": "published",
+        "display": "已发布",
+        "roles": [
+          "发布",
+          "访客",
+          "公民"
+        ],
+        "basis": {
+          "docKey": "db",
+          "sectionId": "d0",
+          "rule": "contents.status 枚举包含 published"
+        }
+      },
+      {
+        "storageState": "archived",
+        "display": "已归档",
+        "roles": [
+          "发布"
+        ],
+        "basis": {
+          "docKey": "db",
+          "sectionId": "d0",
+          "rule": "contents.status 枚举包含 archived"
+        }
+      }
+    ],
+    "workflowViewStates": [
+      {
+        "id": "submitted",
+        "storageState": "review",
+        "display": "已提审",
+        "visibleTo": [
+          "编辑"
+        ],
+        "basis": {
+          "docKey": "api",
+          "sectionId": "a0",
+          "rule": "workflowView=submitted 由服务端返回；status 仍为 review"
+        }
+      },
+      {
+        "id": "pending-publish",
+        "storageState": "review",
+        "display": "待发布",
+        "visibleTo": [
+          "发布"
+        ],
+        "basis": {
+          "docKey": "api",
+          "sectionId": "a0",
+          "rule": "workflowView=pending-publish 必须满足 status=review 且 allowedActions 含 publish"
+        },
+        "rule": "服务端返回的 workflowView 与 allowedActions 共同成立才展示；前端不得由角色或 review 状态自行推断。"
+      },
+      {
+        "id": "returned",
+        "storageState": "draft",
+        "display": "已退回草稿",
+        "visibleTo": [
+          "编辑",
+          "审核"
+        ],
+        "basis": {
+          "docKey": "api",
+          "sectionId": "a0",
+          "rule": "workflowView=returned 必须满足 status=draft 且 lastTransition.action=return"
+        },
+        "rule": "以服务端返回的 lastTransition 为准；不能把所有 draft 误标为退回。"
+      }
+    ],
+    "resolution": "原型和实现均以 contents.status 的四个持久枚举为权威。审核通过/待发布是服务端响应的 workflowView，不新增数据库状态；服务端同时返回 allowedActions 与 lastTransition，前端只消费这些字段。"
+  }
+}

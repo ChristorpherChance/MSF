@@ -1,0 +1,39 @@
+{
+  "ok": true,
+  "pages": 16,
+  "states": 58,
+  "controls": 106,
+  "fields": 8,
+  "input": {
+    "kind": "build-artifact",
+    "path": "C:\\Users\\12377\\AppData\\Local\\Temp\\v19-build-artifact-5HMkgl\\candidate.html"
+  },
+  "inputSha256": "9b8eb94dcf3007859f1060f27250251900fb26255b86e73c24898b4240821b32",
+  "combinations": 38,
+  "stateCombinations": 138,
+  "errors": 0,
+  "architecture": "single-business-dom-tree",
+  "flows": [
+    "F-001",
+    "F-002",
+    "F-003",
+    "F-004",
+    "F-005",
+    "F-006",
+    "F-007",
+    "F-008",
+    "F-009"
+  ],
+  "boundaryRegressions": {
+    "accountGuards": true,
+    "citizenCmsDenied": true,
+    "continuousCmsLifecycle": true,
+    "publicProjection": true,
+    "hashRoundTrip": true
+  },
+  "permissions": {
+    "signedOutCmsDenied": true,
+    "reviewerRoleStable": true,
+    "publisherIndependent": true
+  }
+}

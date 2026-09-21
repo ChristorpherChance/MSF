@@ -1,0 +1,74 @@
+# MSF 部署形态（HLD §1/§6）：单节点 Docker Compose 六服务。
+# M0：postgres/minio/redis 实起；app/sandbox-runner/egress-proxy 为骨架（profile=full 才启动）。
+# 基镜像策略：node:22.19.x-slim，tag 锁补丁版本 + digest 锚定（HLD §6，升级走变更评审）。
+name: msf
+
+networks:
+  internal: {}   # 业务内部网
+  sandbox: { internal: true }  # 沙箱网：无出向，唯一例外经 egress-proxy（REQ-803）
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: msf
+      POSTGRES_PASSWORD: msf
+      POSTGRES_DB: msf
+    volumes: [pgdata:/var/lib/postgresql/data]
+    ports: ['5432:5432']
+    networks: [internal]
+    healthcheck: { test: ['CMD-SHELL', 'pg_isready -U msf'], interval: 5s, timeout: 3s, retries: 10 }
+
+  minio:
+    image: quay.io/minio/minio  # docker.io/minio/minio 在当前网络被拒，用 quay.io 官方镜像
+    command: server /data
+    environment:
+      MINIO_ROOT_USER: msf
+      MINIO_ROOT_PASSWORD: msfsecret
+    volumes: [minio:/data]
+    ports: ['9000:9000', '9001:9001']
+    networks: [internal]
+    healthcheck: { test: ['CMD', 'mc', 'ready', 'local'], interval: 5s, timeout: 3s, retries: 10 }
+
+  redis:
+    image: redis:7
+    volumes: [redis:/data]
+    ports: ['6379:6379']
+    networks: [internal]
+    healthcheck: { test: ['CMD', 'redis-cli', 'ping'], interval: 5s, timeout: 3s, retries: 10 }
+
+  app:
+    profiles: [full]
+    build: { context: ., dockerfile: apps/server/Dockerfile }
+    environment:
+      MSF_DATABASE_URL: postgres://msf:msf@postgres:5432/msf
+      MSF_REDIS_URL: redis://redis:6379
+      MSF_MINIO_ENDPOINT: minio
+    depends_on:
+      postgres: { condition: service_healthy }
+      minio: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    ports: ['8080:8080']
+    networks: [internal]
+    # Pi 会话目录卷（SessionManager JSONL 会话树，纳入备份，HLD §6）
+    volumes: [pi-sessions:/data/pi-sessions]
+
+  sandbox-runner:
+    profiles: [full]
+    image: node:22.19-slim
+    command: ['sleep', 'infinity']  # M0 骨架；M6 落地执行器（ADR-8：docker.sock+最小权限补偿）
+    networks: [sandbox]
+
+  egress-proxy:
+    profiles: [full]
+    image: nginx:1.27
+    volumes: ['./deploy/egress-proxy.conf:/etc/nginx/conf.d/default.conf:ro']
+    networks:
+      - sandbox   # 沙箱出向唯一通道：域名白名单=已配置模型供应商端点（ADR-8/LLD-7 N02-4）
+      - internal
+
+volumes:
+  pgdata:
+  minio:
+  redis:
+  pi-sessions:

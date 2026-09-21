@@ -1,0 +1,4445 @@
+{
+  "version": "V19-SOURCE-4",
+  "approval": "V1.9 已确认示例条款与双向目录；变更必须另行核对和更新版本",
+  "catalogFingerprint": "fp-83009b83",
+  "documents": {
+    "prd": {
+      "version": 1,
+      "sections": [
+        {
+          "id": "p1",
+          "title": "fp-bcca3ecd",
+          "content": "fp-8f8babc0"
+        },
+        {
+          "id": "p2",
+          "title": "fp-9f5b2b56",
+          "content": "fp-e51bdda8"
+        },
+        {
+          "id": "p3",
+          "title": "fp-a8644d0d",
+          "content": "fp-d5a1a86c"
+        },
+        {
+          "id": "p4",
+          "title": "fp-080fc290",
+          "content": "fp-7c4bfa81"
+        }
+      ]
+    },
+    "hld": {
+      "version": 2,
+      "sections": [
+        {
+          "id": "h0",
+          "title": "fp-4cc2b8f0",
+          "content": "fp-3b070d25"
+        },
+        {
+          "id": "h1",
+          "title": "fp-a0f9e7e5",
+          "content": "fp-fff23ef4"
+        },
+        {
+          "id": "h2",
+          "title": "fp-6357c2d4",
+          "content": "fp-5f453592"
+        },
+        {
+          "id": "h3",
+          "title": "fp-0e9d3b0d",
+          "content": "fp-3edff8bb"
+        },
+        {
+          "id": "h4",
+          "title": "fp-18932778",
+          "content": "fp-216d2ee4"
+        },
+        {
+          "id": "h5",
+          "title": "fp-85a3d9ef",
+          "content": "fp-f71f8443"
+        },
+        {
+          "id": "h6",
+          "title": "fp-c0b16854",
+          "content": "fp-444e3ca4"
+        },
+        {
+          "id": "h7",
+          "title": "fp-35aff6a8",
+          "content": "fp-ce67ae0c"
+        },
+        {
+          "id": "h8",
+          "title": "fp-eb07f9f3",
+          "content": "fp-f0319993"
+        }
+      ]
+    },
+    "mod": {
+      "version": 1,
+      "sections": [
+        {
+          "id": "o0",
+          "title": "fp-1f6355d7",
+          "content": "fp-f096da75"
+        },
+        {
+          "id": "o1",
+          "title": "fp-4a0aab1b",
+          "content": "fp-9d1488ab"
+        },
+        {
+          "id": "o2",
+          "title": "fp-2d56b9e3",
+          "content": "fp-4b8dfb92"
+        },
+        {
+          "id": "o3",
+          "title": "fp-8daaabc3",
+          "content": "fp-2d86ccc2"
+        },
+        {
+          "id": "o4",
+          "title": "fp-8ef6367d",
+          "content": "fp-0bf09a9d"
+        },
+        {
+          "id": "o5",
+          "title": "fp-e7b7f8dc",
+          "content": "fp-1accae12"
+        },
+        {
+          "id": "o6",
+          "title": "fp-beb22afe",
+          "content": "fp-b04f773f"
+        },
+        {
+          "id": "o7",
+          "title": "fp-21b86a43",
+          "content": "fp-23dd1252"
+        }
+      ]
+    },
+    "alg": {
+      "version": 1,
+      "sections": [
+        {
+          "id": "g0",
+          "title": "fp-58fc01f5",
+          "content": "fp-41435a5a"
+        },
+        {
+          "id": "g1",
+          "title": "fp-92023961",
+          "content": "fp-c4643808"
+        },
+        {
+          "id": "g2",
+          "title": "fp-c7b22fbc",
+          "content": "fp-bec8e23b"
+        },
+        {
+          "id": "g3",
+          "title": "fp-8f127a91",
+          "content": "fp-897d5efa"
+        },
+        {
+          "id": "g4",
+          "title": "fp-d2ec9861",
+          "content": "fp-0a01fa00"
+        }
+      ]
+    },
+    "cls": {
+      "version": 1,
+      "sections": [
+        {
+          "id": "k0",
+          "title": "fp-d9308cce",
+          "content": "fp-a6eb4163"
+        },
+        {
+          "id": "k1",
+          "title": "fp-775696ec",
+          "content": "fp-b1995ef2"
+        },
+        {
+          "id": "k2",
+          "title": "fp-e52397e9",
+          "content": "fp-f3565455"
+        }
+      ]
+    },
+    "db": {
+      "version": 1,
+      "sections": [
+        {
+          "id": "d0",
+          "title": "fp-d51cb81d",
+          "content": "fp-33774601"
+        },
+        {
+          "id": "d1",
+          "title": "fp-35299dcf",
+          "content": "fp-e082fdcb"
+        },
+        {
+          "id": "d2",
+          "title": "fp-789bea9d",
+          "content": "fp-3dbb7d35"
+        },
+        {
+          "id": "d3",
+          "title": "fp-058fe9e6",
+          "content": "fp-a1421cd0"
+        }
+      ]
+    },
+    "api": {
+      "version": 2,
+      "sections": [
+        {
+          "id": "a0",
+          "title": "fp-4dff5b22",
+          "content": "fp-83f0ea00"
+        },
+        {
+          "id": "a1",
+          "title": "fp-0560c612",
+          "content": "fp-9acf2659"
+        },
+        {
+          "id": "a2",
+          "title": "fp-3242526d",
+          "content": "fp-9e8f40e6"
+        },
+        {
+          "id": "a3",
+          "title": "fp-0ad2c3ec",
+          "content": "fp-2235be7a"
+        },
+        {
+          "id": "a4",
+          "title": "fp-07330321",
+          "content": "fp-f901241d"
+        }
+      ]
+    },
+    "ui": {
+      "version": 1,
+      "sections": [
+        {
+          "id": "u0",
+          "title": "fp-4790e392",
+          "content": "fp-a53ba433"
+        },
+        {
+          "id": "u1",
+          "title": "fp-4e70e0b3",
+          "content": "fp-e466dd0b"
+        },
+        {
+          "id": "u2",
+          "title": "fp-bf6bb57d",
+          "content": "fp-c68d5108"
+        },
+        {
+          "id": "u3",
+          "title": "fp-4dd8c78b",
+          "content": "fp-36444ef6"
+        }
+      ]
+    },
+    "nfr": {
+      "version": 1,
+      "sections": [
+        {
+          "id": "n0",
+          "title": "fp-67f64ff7",
+          "content": "fp-0bb1c753"
+        },
+        {
+          "id": "n1",
+          "title": "fp-e6d1b1b1",
+          "content": "fp-ad1f19f8"
+        },
+        {
+          "id": "n2",
+          "title": "fp-1022816b",
+          "content": "fp-3adc4139"
+        }
+      ]
+    }
+  },
+  "nonUiRequirementMap": {
+    "NUI-001": [
+      "REQ-001",
+      "REQ-002"
+    ],
+    "NUI-002": [
+      "REQ-003"
+    ],
+    "NUI-003": [
+      "REQ-004",
+      "REQ-006"
+    ],
+    "NUI-004": [
+      "REQ-003",
+      "REQ-005",
+      "REQ-007"
+    ],
+    "NUI-005": [
+      "REQ-001",
+      "REQ-002",
+      "REQ-003",
+      "REQ-004",
+      "REQ-005",
+      "REQ-006",
+      "REQ-007"
+    ]
+  },
+  "traceability": {
+    "basis": "已批准目录与全部真实章节的冻结双向对应；governing-context 为已核对的概述/约束背景，不冒充页面实现",
+    "forward": [
+      {
+        "sourceRef": "alg:g0",
+        "catalogTargets": [
+          "F-003",
+          "F-004",
+          "NUI-002",
+          "P-PUB-APPLICATION",
+          "P-PUB-APPLICATION/controls/back",
+          "P-PUB-APPLICATION/controls/nav-home",
+          "P-PUB-APPLICATION/controls/nav-opendata",
+          "P-PUB-APPLICATION/controls/nav-section",
+          "P-PUB-APPLICATION/controls/nav-services",
+          "P-PUB-APPLICATION/controls/next",
+          "P-PUB-APPLICATION/controls/submit",
+          "P-PUB-APPLICATION/controls/upload",
+          "P-PUB-APPLICATION/fields/attachments",
+          "P-PUB-APPLICATION/states/details",
+          "P-PUB-APPLICATION/states/materials",
+          "P-PUB-APPLICATION/states/submitting",
+          "P-PUB-APPLICATION/states/upstream-pending",
+          "P-PUB-APPLICATION/states/validation"
+        ],
+        "coverageKind": "implementation"
+      },
+      {
+        "sourceRef": "alg:g1",
+        "catalogTargets": [
+          "F-001",
+          "F-005",
+          "F-009",
+          "P-PUB-HOME",
+          "P-PUB-HOME/controls/language",
+          "P-PUB-HOME/controls/nav-home",
+          "P-PUB-HOME/controls/nav-opendata",
+          "P-PUB-HOME/controls/nav-section",
+          "P-PUB-HOME/controls/nav-services",
+          "P-PUB-HOME/controls/search",
+          "P-PUB-HOME/controls/service-cards",
+          "P-PUB-HOME/states/fallback",
+          "P-PUB-HOME/states/mobile",
+          "P-PUB-HOME/states/ready",
+          "P-PUB-HOME/states/slow"
+        ],
+        "coverageKind": "implementation"
+      },
+      {
+        "sourceRef": "alg:g2",
+        "catalogTargets": [
+          "F-005",
+          "P-PUB-SEARCH",
+          "P-PUB-SEARCH/controls/nav-home",
+          "P-PUB-SEARCH/controls/nav-opendata",
+          "P-PUB-SEARCH/controls/nav-section",
+          "P-PUB-SEARCH/controls/nav-services",
+          "P-PUB-SEARCH/controls/query",
+          "P-PUB-SEARCH/controls/result",
+          "P-PUB-SEARCH/fields/query",
+          "P-PUB-SEARCH/states/basic",
+          "P-PUB-SEARCH/states/empty",
+          "P-PUB-SEARCH/states/lagging",
+          "P-PUB-SEARCH/states/results"
+        ],
+        "coverageKind": "implementation"
+      },
+      {
+        "sourceRef": "alg:g3",
+        "catalogTargets": [
+          "F-004",
+          "NUI-002",
+          "P-PUB-APPLICATION-STATUS",
+          "P-PUB-APPLICATION-STATUS/controls/login",
+          "P-PUB-APPLICATION-STATUS/controls/nav-home",
+          "P-PUB-APPLICATION-STATUS/controls/nav-opendata",
+          "P-PUB-APPLICATION-STATUS/controls/nav-section",
+          "P-PUB-APPLICATION-STATUS/controls/nav-services",
+          "P-PUB-APPLICATION-STATUS/controls/refresh",
+          "P-PUB-APPLICATION-STATUS/states/completed",
+          "P-PUB-APPLICATION-STATUS/states/pending",
+          "P-PUB-APPLICATION-STATUS/states/processing",
+          "P-PUB-APPLICATION-STATUS/states/returned",
+          "P-PUB-APPLICATION-STATUS/states/unauthorized"
+        ],
+        "coverageKind": "implementation"
+      },
+      {
+        "sourceRef": "alg:g4",
+        "catalogTargets": [
+          "F-007",
+          "F-008",
+          "F-009",
+          "P-CMS-EDITOR",
+          "P-CMS-EDITOR/controls/block-add",
+          "P-CMS-EDITOR/controls/language-tabs",
+          "P-CMS-EDITOR/controls/nav-dashboard",
+          "P-CMS-EDITOR/controls/nav-editor",
+          "P-CMS-EDITOR/controls/nav-publish",
+          "P-CMS-EDITOR/controls/nav-review",
+          "P-CMS-EDITOR/controls/save",
+          "P-CMS-EDITOR/controls/submit-review",
+          "P-CMS-EDITOR/fields/imageBlock",
+          "P-CMS-EDITOR/fields/titleEn",
+          "P-CMS-EDITOR/fields/titleFr",
+          "P-CMS-EDITOR/states/conflict",
+          "P-CMS-EDITOR/states/draft",
+          "P-CMS-EDITOR/states/submitted",
+          "P-CMS-EDITOR/states/validation",
+          "P-CMS-PUBLISH",
+          "P-CMS-PUBLISH/controls/archive",
+          "P-CMS-PUBLISH/controls/audit",
+          "P-CMS-PUBLISH/controls/nav-dashboard",
+          "P-CMS-PUBLISH/controls/nav-editor",
+          "P-CMS-PUBLISH/controls/nav-publish",
+          "P-CMS-PUBLISH/controls/nav-review",
+          "P-CMS-PUBLISH/controls/publish",
+          "P-CMS-PUBLISH/controls/unpublish",
+          "P-CMS-PUBLISH/states/archived",
+          "P-CMS-PUBLISH/states/event-retry",
+          "P-CMS-PUBLISH/states/pending-publish",
+          "P-CMS-PUBLISH/states/preflight-failed",
+          "P-CMS-PUBLISH/states/published",
+          "P-CMS-REVIEW",
+          "P-CMS-REVIEW/controls/approve",
+          "P-CMS-REVIEW/controls/compare",
+          "P-CMS-REVIEW/controls/nav-dashboard",
+          "P-CMS-REVIEW/controls/nav-editor",
+          "P-CMS-REVIEW/controls/nav-publish",
+          "P-CMS-REVIEW/controls/nav-review",
+          "P-CMS-REVIEW/controls/return",
+          "P-CMS-REVIEW/states/approved",
+          "P-CMS-REVIEW/states/forbidden",
+          "P-CMS-REVIEW/states/returned",
+          "P-CMS-REVIEW/states/review-queue"
+        ],
+        "coverageKind": "implementation"
+      },
+      {
+        "sourceRef": "api:a0",
+        "catalogTargets": [
+          "F-001",
+          "F-002",
+          "F-003",
+          "F-004",
+          "F-005",
+          "F-007",
+          "F-008",
+          "F-009",
+          "P-CMS-EDITOR",
+          "P-CMS-EDITOR/controls/block-add",
+          "P-CMS-EDITOR/controls/language-tabs",
+          "P-CMS-EDITOR/controls/nav-dashboard",
+          "P-CMS-EDITOR/controls/nav-editor",
+          "P-CMS-EDITOR/controls/nav-publish",
+          "P-CMS-EDITOR/controls/nav-review",
+          "P-CMS-EDITOR/controls/save",
+          "P-CMS-EDITOR/controls/submit-review",
+          "P-CMS-EDITOR/fields/imageBlock",
+          "P-CMS-EDITOR/fields/titleEn",
+          "P-CMS-EDITOR/fields/titleFr",
+          "P-CMS-EDITOR/states/conflict",
+          "P-CMS-EDITOR/states/draft",
+          "P-CMS-EDITOR/states/submitted",
+          "P-CMS-EDITOR/states/validation",
+          "P-CMS-PUBLISH",
+          "P-CMS-PUBLISH/controls/archive",
+          "P-CMS-PUBLISH/controls/audit",
+          "P-CMS-PUBLISH/controls/nav-dashboard",
+          "P-CMS-PUBLISH/controls/nav-editor",
+          "P-CMS-PUBLISH/controls/nav-publish",
+          "P-CMS-PUBLISH/controls/nav-review",
+          "P-CMS-PUBLISH/controls/publish",
+          "P-CMS-PUBLISH/controls/unpublish",
+          "P-CMS-PUBLISH/states/archived",
+          "P-CMS-PUBLISH/states/event-retry",
+          "P-CMS-PUBLISH/states/pending-publish",
+          "P-CMS-PUBLISH/states/preflight-failed",
+          "P-CMS-PUBLISH/states/published",
+          "P-CMS-REVIEW",
+          "P-CMS-REVIEW/controls/approve",
+          "P-CMS-REVIEW/controls/compare",
+          "P-CMS-REVIEW/controls/nav-dashboard",
+          "P-CMS-REVIEW/controls/nav-editor",
+          "P-CMS-REVIEW/controls/nav-publish",
+          "P-CMS-REVIEW/controls/nav-review",
+          "P-CMS-REVIEW/controls/return",
+          "P-CMS-REVIEW/states/approved",
+          "P-CMS-REVIEW/states/forbidden",
+          "P-CMS-REVIEW/states/returned",
+          "P-CMS-REVIEW/states/review-queue",
+          "P-PUB-APPLICATION",
+          "P-PUB-APPLICATION/controls/back",
+          "P-PUB-APPLICATION/controls/nav-home",
+          "P-PUB-APPLICATION/controls/nav-opendata",
+          "P-PUB-APPLICATION/controls/nav-section",
+          "P-PUB-APPLICATION/controls/nav-services",
+          "P-PUB-APPLICATION/controls/next",
+          "P-PUB-APPLICATION/controls/submit",
+          "P-PUB-APPLICATION/controls/upload",
+          "P-PUB-APPLICATION/fields/attachments",
+          "P-PUB-APPLICATION/states/details",
+          "P-PUB-APPLICATION/states/materials",
+          "P-PUB-APPLICATION/states/submitting",
+          "P-PUB-APPLICATION/states/upstream-pending",
+          "P-PUB-APPLICATION/states/validation",
+          "P-PUB-CONTENT",
+          "P-PUB-CONTENT/controls/back",
+          "P-PUB-CONTENT/controls/language",
+          "P-PUB-CONTENT/controls/nav-home",
+          "P-PUB-CONTENT/controls/nav-opendata",
+          "P-PUB-CONTENT/controls/nav-section",
+          "P-PUB-CONTENT/controls/nav-services",
+          "P-PUB-CONTENT/states/fallback",
+          "P-PUB-CONTENT/states/gone",
+          "P-PUB-CONTENT/states/published",
+          "P-PUB-SECTION",
+          "P-PUB-SECTION/controls/content-card",
+          "P-PUB-SECTION/controls/nav-home",
+          "P-PUB-SECTION/controls/nav-opendata",
+          "P-PUB-SECTION/controls/nav-section",
+          "P-PUB-SECTION/controls/nav-services",
+          "P-PUB-SECTION/controls/pagination",
+          "P-PUB-SECTION/controls/retry",
+          "P-PUB-SECTION/states/empty",
+          "P-PUB-SECTION/states/failed",
+          "P-PUB-SECTION/states/loaded",
+          "P-PUB-SECTION/states/loading",
+          "P-PUB-SERVICE-GUIDE",
+          "P-PUB-SERVICE-GUIDE/controls/nav-home",
+          "P-PUB-SERVICE-GUIDE/controls/nav-opendata",
+          "P-PUB-SERVICE-GUIDE/controls/nav-section",
+          "P-PUB-SERVICE-GUIDE/controls/nav-services",
+          "P-PUB-SERVICE-GUIDE/controls/requirements",
+          "P-PUB-SERVICE-GUIDE/controls/start",
+          "P-PUB-SERVICE-GUIDE/states/auth-needed",
+          "P-PUB-SERVICE-GUIDE/states/available",
+          "P-PUB-SERVICE-GUIDE/states/unavailable"
+        ],
+        "coverageKind": "implementation"
+      },
+      {
+        "sourceRef": "api:a1",
+        "catalogTargets": [
+          "F-002",
+          "P-PUB-ARCHIVE",
+          "P-PUB-ARCHIVE/controls/nav-home",
+          "P-PUB-ARCHIVE/controls/nav-opendata",
+          "P-PUB-ARCHIVE/controls/nav-section",
+          "P-PUB-ARCHIVE/controls/nav-services",
+          "P-PUB-ARCHIVE/controls/return-section",
+          "P-PUB-ARCHIVE/states/gone"
+        ],
+        "coverageKind": "implementation"
+      },
+      {
+        "sourceRef": "api:a2",
+        "catalogTargets": [
+          "F-003",
+          "F-006",
+          "F-007",
+          "F-008",
+          "F-009",
+          "P-CMS-LOGIN",
+          "P-CMS-LOGIN/controls/nav-dashboard",
+          "P-CMS-LOGIN/controls/nav-editor",
+          "P-CMS-LOGIN/controls/nav-publish",
+          "P-CMS-LOGIN/controls/nav-review",
+          "P-CMS-LOGIN/controls/sign-in",
+          "P-CMS-LOGIN/states/denied",
+          "P-CMS-LOGIN/states/signed-out",
+          "P-PUB-ACCOUNT",
+          "P-PUB-ACCOUNT/controls/nav-home",
+          "P-PUB-ACCOUNT/controls/nav-opendata",
+          "P-PUB-ACCOUNT/controls/nav-section",
+          "P-PUB-ACCOUNT/controls/nav-services",
+          "P-PUB-ACCOUNT/controls/otp",
+          "P-PUB-ACCOUNT/controls/phone",
+          "P-PUB-ACCOUNT/controls/submit",
+          "P-PUB-ACCOUNT/fields/otp",
+          "P-PUB-ACCOUNT/fields/phone",
+          "P-PUB-ACCOUNT/states/expired",
+          "P-PUB-ACCOUNT/states/locked",
+          "P-PUB-ACCOUNT/states/otp",
+          "P-PUB-ACCOUNT/states/register",
+          "P-PUB-ACCOUNT/states/session-expired",
+          "P-PUB-OPENDATA",
+          "P-PUB-OPENDATA/controls/dataset",
+          "P-PUB-OPENDATA/controls/download",
+          "P-PUB-OPENDATA/controls/get-key",
+          "P-PUB-OPENDATA/controls/nav-home",
+          "P-PUB-OPENDATA/controls/nav-opendata",
+          "P-PUB-OPENDATA/controls/nav-section",
+          "P-PUB-OPENDATA/controls/nav-services",
+          "P-PUB-OPENDATA/fields/apiKey",
+          "P-PUB-OPENDATA/states/catalog",
+          "P-PUB-OPENDATA/states/key-needed",
+          "P-PUB-OPENDATA/states/rate-limited",
+          "P-PUB-OPENDATA/states/unauthorized"
+        ],
+        "coverageKind": "implementation"
+      },
+      {
+        "sourceRef": "api:a3",
+        "catalogTargets": [],
+        "coverageKind": "governing-context"
+      },
+      {
+        "sourceRef": "api:a4",
+        "catalogTargets": [
+          "NUI-005"
+        ],
+        "coverageKind": "implementation"
+      },
+      {
+        "sourceRef": "cls:k0",
+        "catalogTargets": [],
+        "coverageKind": "governing-context"
+      },
+      {
+        "sourceRef": "cls:k1",
+        "catalogTargets": [],
+        "coverageKind": "governing-context"
+      },
+      {
+        "sourceRef": "cls:k2",
+        "catalogTargets": [
+          "NUI-003"
+        ],
+        "coverageKind": "implementation"
+      },
+      {
+        "sourceRef": "db:d0",
+        "catalogTargets": [
+          "F-003",
+          "F-007",
+          "NUI-003",
+          "P-CMS-EDITOR",
+          "P-CMS-EDITOR/controls/block-add",
+          "P-CMS-EDITOR/controls/language-tabs",
+          "P-CMS-EDITOR/controls/nav-dashboard",
+          "P-CMS-EDITOR/controls/nav-editor",
+          "P-CMS-EDITOR/controls/nav-publish",
+          "P-CMS-EDITOR/controls/nav-review",
+          "P-CMS-EDITOR/controls/save",
+          "P-CMS-EDITOR/controls/submit-review",
+          "P-CMS-EDITOR/fields/imageBlock",
+          "P-CMS-EDITOR/fields/titleEn",
+          "P-CMS-EDITOR/fields/titleFr",
+          "P-CMS-EDITOR/states/conflict",
+          "P-CMS-EDITOR/states/draft",
+          "P-CMS-EDITOR/states/submitted",
+          "P-CMS-EDITOR/states/validation",
+          "P-PUB-RECEIPT",
+          "P-PUB-RECEIPT/controls/copy",
+          "P-PUB-RECEIPT/controls/nav-home",
+          "P-PUB-RECEIPT/controls/nav-opendata",
+          "P-PUB-RECEIPT/controls/nav-section",
+          "P-PUB-RECEIPT/controls/nav-services",
+          "P-PUB-RECEIPT/controls/track",
+          "P-PUB-RECEIPT/states/accepted",
+          "P-PUB-RECEIPT/states/pending"
+        ],
+        "coverageKind": "implementation"
+      },
+      {
+        "sourceRef": "db:d1",
+        "catalogTargets": [
+          "F-004",
+          "P-PUB-APPLICATION-STATUS",
+          "P-PUB-APPLICATION-STATUS/controls/login",
+          "P-PUB-APPLICATION-STATUS/controls/nav-home",
+          "P-PUB-APPLICATION-STATUS/controls/nav-opendata",
+          "P-PUB-APPLICATION-STATUS/controls/nav-section",
+          "P-PUB-APPLICATION-STATUS/controls/nav-services",
+          "P-PUB-APPLICATION-STATUS/controls/refresh",
+          "P-PUB-APPLICATION-STATUS/states/completed",
+          "P-PUB-APPLICATION-STATUS/states/pending",
+          "P-PUB-APPLICATION-STATUS/states/processing",
+          "P-PUB-APPLICATION-STATUS/states/returned",
+          "P-PUB-APPLICATION-STATUS/states/unauthorized"
+        ],
+        "coverageKind": "implementation"
+      },
+      {
+        "sourceRef": "db:d2",
+        "catalogTargets": [],
+        "coverageKind": "governing-context"
+      },
+      {
+        "sourceRef": "db:d3",
+        "catalogTargets": [],
+        "coverageKind": "governing-context"
+      },
+      {
+        "sourceRef": "hld:h0",
+        "catalogTargets": [],
+        "coverageKind": "governing-context"
+      },
+      {
+        "sourceRef": "hld:h1",
+        "catalogTargets": [
+          "F-001",
+          "F-002",
+          "F-005",
+          "F-006",
+          "F-009",
+          "P-PUB-ARCHIVE",
+          "P-PUB-ARCHIVE/controls/nav-home",
+          "P-PUB-ARCHIVE/controls/nav-opendata",
+          "P-PUB-ARCHIVE/controls/nav-section",
+          "P-PUB-ARCHIVE/controls/nav-services",
+          "P-PUB-ARCHIVE/controls/return-section",
+          "P-PUB-ARCHIVE/states/gone",
+          "P-PUB-CONTENT",
+          "P-PUB-CONTENT/controls/back",
+          "P-PUB-CONTENT/controls/language",
+          "P-PUB-CONTENT/controls/nav-home",
+          "P-PUB-CONTENT/controls/nav-opendata",
+          "P-PUB-CONTENT/controls/nav-section",
+          "P-PUB-CONTENT/controls/nav-services",
+          "P-PUB-CONTENT/states/fallback",
+          "P-PUB-CONTENT/states/gone",
+          "P-PUB-CONTENT/states/published",
+          "P-PUB-HOME",
+          "P-PUB-HOME/controls/language",
+          "P-PUB-HOME/controls/nav-home",
+          "P-PUB-HOME/controls/nav-opendata",
+          "P-PUB-HOME/controls/nav-section",
+          "P-PUB-HOME/controls/nav-services",
+          "P-PUB-HOME/controls/search",
+          "P-PUB-HOME/controls/service-cards",
+          "P-PUB-HOME/states/fallback",
+          "P-PUB-HOME/states/mobile",
+          "P-PUB-HOME/states/ready",
+          "P-PUB-HOME/states/slow",
+          "P-PUB-OPENDATA",
+          "P-PUB-OPENDATA/controls/dataset",
+          "P-PUB-OPENDATA/controls/download",
+          "P-PUB-OPENDATA/controls/get-key",
+          "P-PUB-OPENDATA/controls/nav-home",
+          "P-PUB-OPENDATA/controls/nav-opendata",
+          "P-PUB-OPENDATA/controls/nav-section",
+          "P-PUB-OPENDATA/controls/nav-services",
+          "P-PUB-OPENDATA/fields/apiKey",
+          "P-PUB-OPENDATA/states/catalog",
+          "P-PUB-OPENDATA/states/key-needed",
+          "P-PUB-OPENDATA/states/rate-limited",
+          "P-PUB-OPENDATA/states/unauthorized",
+          "P-PUB-SEARCH",
+          "P-PUB-SEARCH/controls/nav-home",
+          "P-PUB-SEARCH/controls/nav-opendata",
+          "P-PUB-SEARCH/controls/nav-section",
+          "P-PUB-SEARCH/controls/nav-services",
+          "P-PUB-SEARCH/controls/query",
+          "P-PUB-SEARCH/controls/result",
+          "P-PUB-SEARCH/fields/query",
+          "P-PUB-SEARCH/states/basic",
+          "P-PUB-SEARCH/states/empty",
+          "P-PUB-SEARCH/states/lagging",
+          "P-PUB-SEARCH/states/results",
+          "P-PUB-SECTION",
+          "P-PUB-SECTION/controls/content-card",
+          "P-PUB-SECTION/controls/nav-home",
+          "P-PUB-SECTION/controls/nav-opendata",
+          "P-PUB-SECTION/controls/nav-section",
+          "P-PUB-SECTION/controls/nav-services",
+          "P-PUB-SECTION/controls/pagination",
+          "P-PUB-SECTION/controls/retry",
+          "P-PUB-SECTION/states/empty",
+          "P-PUB-SECTION/states/failed",
+          "P-PUB-SECTION/states/loaded",
+          "P-PUB-SECTION/states/loading"
+        ],
+        "coverageKind": "implementation"
+      },
+      {
+        "sourceRef": "hld:h2",
+        "catalogTargets": [
+          "F-003",
+          "F-004",
+          "F-007",
+          "F-008",
+          "F-009",
+          "P-CMS-DASHBOARD",
+          "P-CMS-DASHBOARD/controls/nav-dashboard",
+          "P-CMS-DASHBOARD/controls/nav-editor",
+          "P-CMS-DASHBOARD/controls/nav-publish",
+          "P-CMS-DASHBOARD/controls/nav-review",
+          "P-CMS-DASHBOARD/controls/new-content",
+          "P-CMS-DASHBOARD/controls/review-queue",
+          "P-CMS-DASHBOARD/controls/translation-item",
+          "P-CMS-DASHBOARD/states/empty",
+          "P-CMS-DASHBOARD/states/missing-translation",
+          "P-CMS-DASHBOARD/states/role-filtered",
+          "P-CMS-EDITOR",
+          "P-CMS-EDITOR/controls/block-add",
+          "P-CMS-EDITOR/controls/language-tabs",
+          "P-CMS-EDITOR/controls/nav-dashboard",
+          "P-CMS-EDITOR/controls/nav-editor",
+          "P-CMS-EDITOR/controls/nav-publish",
+          "P-CMS-EDITOR/controls/nav-review",
+          "P-CMS-EDITOR/controls/save",
+          "P-CMS-EDITOR/controls/submit-review",
+          "P-CMS-EDITOR/fields/imageBlock",
+          "P-CMS-EDITOR/fields/titleEn",
+          "P-CMS-EDITOR/fields/titleFr",
+          "P-CMS-EDITOR/states/conflict",
+          "P-CMS-EDITOR/states/draft",
+          "P-CMS-EDITOR/states/submitted",
+          "P-CMS-EDITOR/states/validation",
+          "P-CMS-PUBLISH",
+          "P-CMS-PUBLISH/controls/archive",
+          "P-CMS-PUBLISH/controls/audit",
+          "P-CMS-PUBLISH/controls/nav-dashboard",
+          "P-CMS-PUBLISH/controls/nav-editor",
+          "P-CMS-PUBLISH/controls/nav-publish",
+          "P-CMS-PUBLISH/controls/nav-review",
+          "P-CMS-PUBLISH/controls/publish",
+          "P-CMS-PUBLISH/controls/unpublish",
+          "P-CMS-PUBLISH/states/archived",
+          "P-CMS-PUBLISH/states/event-retry",
+          "P-CMS-PUBLISH/states/pending-publish",
+          "P-CMS-PUBLISH/states/preflight-failed",
+          "P-CMS-PUBLISH/states/published",
+          "P-CMS-REVIEW",
+          "P-CMS-REVIEW/controls/approve",
+          "P-CMS-REVIEW/controls/compare",
+          "P-CMS-REVIEW/controls/nav-dashboard",
+          "P-CMS-REVIEW/controls/nav-editor",
+          "P-CMS-REVIEW/controls/nav-publish",
+          "P-CMS-REVIEW/controls/nav-review",
+          "P-CMS-REVIEW/controls/return",
+          "P-CMS-REVIEW/states/approved",
+          "P-CMS-REVIEW/states/forbidden",
+          "P-CMS-REVIEW/states/returned",
+          "P-CMS-REVIEW/states/review-queue",
+          "P-PUB-APPLICATION",
+          "P-PUB-APPLICATION/controls/back",
+          "P-PUB-APPLICATION/controls/nav-home",
+          "P-PUB-APPLICATION/controls/nav-opendata",
+          "P-PUB-APPLICATION/controls/nav-section",
+          "P-PUB-APPLICATION/controls/nav-services",
+          "P-PUB-APPLICATION/controls/next",
+          "P-PUB-APPLICATION/controls/submit",
+          "P-PUB-APPLICATION/controls/upload",
+          "P-PUB-APPLICATION/fields/attachments",
+          "P-PUB-APPLICATION/states/details",
+          "P-PUB-APPLICATION/states/materials",
+          "P-PUB-APPLICATION/states/submitting",
+          "P-PUB-APPLICATION/states/upstream-pending",
+          "P-PUB-APPLICATION/states/validation",
+          "P-PUB-SERVICE-GUIDE",
+          "P-PUB-SERVICE-GUIDE/controls/nav-home",
+          "P-PUB-SERVICE-GUIDE/controls/nav-opendata",
+          "P-PUB-SERVICE-GUIDE/controls/nav-section",
+          "P-PUB-SERVICE-GUIDE/controls/nav-services",
+          "P-PUB-SERVICE-GUIDE/controls/requirements",
+          "P-PUB-SERVICE-GUIDE/controls/start",
+          "P-PUB-SERVICE-GUIDE/states/auth-needed",
+          "P-PUB-SERVICE-GUIDE/states/available",
+          "P-PUB-SERVICE-GUIDE/states/unavailable"
+        ],
+        "coverageKind": "implementation"
+      },
+      {
+        "sourceRef": "hld:h3",
+        "catalogTargets": [
+          "F-001",
+          "F-003",
+          "F-005",
+          "F-006",
+          "F-007",
+          "F-008",
+          "F-009",
+          "P-CMS-DASHBOARD",
+          "P-CMS-DASHBOARD/controls/nav-dashboard",
+          "P-CMS-DASHBOARD/controls/nav-editor",
+          "P-CMS-DASHBOARD/controls/nav-publish",
+          "P-CMS-DASHBOARD/controls/nav-review",
+          "P-CMS-DASHBOARD/controls/new-content",
+          "P-CMS-DASHBOARD/controls/review-queue",
+          "P-CMS-DASHBOARD/controls/translation-item",
+          "P-CMS-DASHBOARD/states/empty",
+          "P-CMS-DASHBOARD/states/missing-translation",
+          "P-CMS-DASHBOARD/states/role-filtered",
+          "P-CMS-EDITOR",
+          "P-CMS-EDITOR/controls/block-add",
+          "P-CMS-EDITOR/controls/language-tabs",
+          "P-CMS-EDITOR/controls/nav-dashboard",
+          "P-CMS-EDITOR/controls/nav-editor",
+          "P-CMS-EDITOR/controls/nav-publish",
+          "P-CMS-EDITOR/controls/nav-review",
+          "P-CMS-EDITOR/controls/save",
+          "P-CMS-EDITOR/controls/submit-review",
+          "P-CMS-EDITOR/fields/imageBlock",
+          "P-CMS-EDITOR/fields/titleEn",
+          "P-CMS-EDITOR/fields/titleFr",
+          "P-CMS-EDITOR/states/conflict",
+          "P-CMS-EDITOR/states/draft",
+          "P-CMS-EDITOR/states/submitted",
+          "P-CMS-EDITOR/states/validation",
+          "P-CMS-LOGIN",
+          "P-CMS-LOGIN/controls/nav-dashboard",
+          "P-CMS-LOGIN/controls/nav-editor",
+          "P-CMS-LOGIN/controls/nav-publish",
+          "P-CMS-LOGIN/controls/nav-review",
+          "P-CMS-LOGIN/controls/sign-in",
+          "P-CMS-LOGIN/states/denied",
+          "P-CMS-LOGIN/states/signed-out",
+          "P-CMS-PUBLISH",
+          "P-CMS-PUBLISH/controls/archive",
+          "P-CMS-PUBLISH/controls/audit",
+          "P-CMS-PUBLISH/controls/nav-dashboard",
+          "P-CMS-PUBLISH/controls/nav-editor",
+          "P-CMS-PUBLISH/controls/nav-publish",
+          "P-CMS-PUBLISH/controls/nav-review",
+          "P-CMS-PUBLISH/controls/publish",
+          "P-CMS-PUBLISH/controls/unpublish",
+          "P-CMS-PUBLISH/states/archived",
+          "P-CMS-PUBLISH/states/event-retry",
+          "P-CMS-PUBLISH/states/pending-publish",
+          "P-CMS-PUBLISH/states/preflight-failed",
+          "P-CMS-PUBLISH/states/published",
+          "P-CMS-REVIEW",
+          "P-CMS-REVIEW/controls/approve",
+          "P-CMS-REVIEW/controls/compare",
+          "P-CMS-REVIEW/controls/nav-dashboard",
+          "P-CMS-REVIEW/controls/nav-editor",
+          "P-CMS-REVIEW/controls/nav-publish",
+          "P-CMS-REVIEW/controls/nav-review",
+          "P-CMS-REVIEW/controls/return",
+          "P-CMS-REVIEW/states/approved",
+          "P-CMS-REVIEW/states/forbidden",
+          "P-CMS-REVIEW/states/returned",
+          "P-CMS-REVIEW/states/review-queue",
+          "P-PUB-ACCOUNT",
+          "P-PUB-ACCOUNT/controls/nav-home",
+          "P-PUB-ACCOUNT/controls/nav-opendata",
+          "P-PUB-ACCOUNT/controls/nav-section",
+          "P-PUB-ACCOUNT/controls/nav-services",
+          "P-PUB-ACCOUNT/controls/otp",
+          "P-PUB-ACCOUNT/controls/phone",
+          "P-PUB-ACCOUNT/controls/submit",
+          "P-PUB-ACCOUNT/fields/otp",
+          "P-PUB-ACCOUNT/fields/phone",
+          "P-PUB-ACCOUNT/states/expired",
+          "P-PUB-ACCOUNT/states/locked",
+          "P-PUB-ACCOUNT/states/otp",
+          "P-PUB-ACCOUNT/states/register",
+          "P-PUB-ACCOUNT/states/session-expired",
+          "P-PUB-HOME",
+          "P-PUB-HOME/controls/language",
+          "P-PUB-HOME/controls/nav-home",
+          "P-PUB-HOME/controls/nav-opendata",
+          "P-PUB-HOME/controls/nav-section",
+          "P-PUB-HOME/controls/nav-services",
+          "P-PUB-HOME/controls/search",
+          "P-PUB-HOME/controls/service-cards",
+          "P-PUB-HOME/states/fallback",
+          "P-PUB-HOME/states/mobile",
+          "P-PUB-HOME/states/ready",
+          "P-PUB-HOME/states/slow",
+          "P-PUB-OPENDATA",
+          "P-PUB-OPENDATA/controls/dataset",
+          "P-PUB-OPENDATA/controls/download",
+          "P-PUB-OPENDATA/controls/get-key",
+          "P-PUB-OPENDATA/controls/nav-home",
+          "P-PUB-OPENDATA/controls/nav-opendata",
+          "P-PUB-OPENDATA/controls/nav-section",
+          "P-PUB-OPENDATA/controls/nav-services",
+          "P-PUB-OPENDATA/fields/apiKey",
+          "P-PUB-OPENDATA/states/catalog",
+          "P-PUB-OPENDATA/states/key-needed",
+          "P-PUB-OPENDATA/states/rate-limited",
+          "P-PUB-OPENDATA/states/unauthorized"
+        ],
+        "coverageKind": "implementation"
+      },
+      {
+        "sourceRef": "hld:h4",
+        "catalogTargets": [
+          "NUI-003"
+        ],
+        "coverageKind": "implementation"
+      },
+      {
+        "sourceRef": "hld:h5",
+        "catalogTargets": [
+          "NUI-003",
+          "NUI-004",
+          "NUI-005"
+        ],
+        "coverageKind": "implementation"
+      },
+      {
+        "sourceRef": "hld:h6",
+        "catalogTargets": [
+          "F-003",
+          "F-004",
+          "NUI-002",
+          "P-PUB-APPLICATION",
+          "P-PUB-APPLICATION-STATUS",
+          "P-PUB-APPLICATION-STATUS/controls/login",
+          "P-PUB-APPLICATION-STATUS/controls/nav-home",
+          "P-PUB-APPLICATION-STATUS/controls/nav-opendata",
+          "P-PUB-APPLICATION-STATUS/controls/nav-section",
+          "P-PUB-APPLICATION-STATUS/controls/nav-services",
+          "P-PUB-APPLICATION-STATUS/controls/refresh",
+          "P-PUB-APPLICATION-STATUS/states/completed",
+          "P-PUB-APPLICATION-STATUS/states/pending",
+          "P-PUB-APPLICATION-STATUS/states/processing",
+          "P-PUB-APPLICATION-STATUS/states/returned",
+          "P-PUB-APPLICATION-STATUS/states/unauthorized",
+          "P-PUB-APPLICATION/controls/back",
+          "P-PUB-APPLICATION/controls/nav-home",
+          "P-PUB-APPLICATION/controls/nav-opendata",
+          "P-PUB-APPLICATION/controls/nav-section",
+          "P-PUB-APPLICATION/controls/nav-services",
+          "P-PUB-APPLICATION/controls/next",
+          "P-PUB-APPLICATION/controls/submit",
+          "P-PUB-APPLICATION/controls/upload",
+          "P-PUB-APPLICATION/fields/attachments",
+          "P-PUB-APPLICATION/states/details",
+          "P-PUB-APPLICATION/states/materials",
+          "P-PUB-APPLICATION/states/submitting",
+          "P-PUB-APPLICATION/states/upstream-pending",
+          "P-PUB-APPLICATION/states/validation",
+          "P-PUB-RECEIPT",
+          "P-PUB-RECEIPT/controls/copy",
+          "P-PUB-RECEIPT/controls/nav-home",
+          "P-PUB-RECEIPT/controls/nav-opendata",
+          "P-PUB-RECEIPT/controls/nav-section",
+          "P-PUB-RECEIPT/controls/nav-services",
+          "P-PUB-RECEIPT/controls/track",
+          "P-PUB-RECEIPT/states/accepted",
+          "P-PUB-RECEIPT/states/pending",
+          "P-PUB-SERVICE-GUIDE",
+          "P-PUB-SERVICE-GUIDE/controls/nav-home",
+          "P-PUB-SERVICE-GUIDE/controls/nav-opendata",
+          "P-PUB-SERVICE-GUIDE/controls/nav-section",
+          "P-PUB-SERVICE-GUIDE/controls/nav-services",
+          "P-PUB-SERVICE-GUIDE/controls/requirements",
+          "P-PUB-SERVICE-GUIDE/controls/start",
+          "P-PUB-SERVICE-GUIDE/states/auth-needed",
+          "P-PUB-SERVICE-GUIDE/states/available",
+          "P-PUB-SERVICE-GUIDE/states/unavailable"
+        ],
+        "coverageKind": "implementation"
+      },
+      {
+        "sourceRef": "hld:h7",
+        "catalogTargets": [
+          "NUI-001",
+          "NUI-004",
+          "NUI-005"
+        ],
+        "coverageKind": "implementation"
+      },
+      {
+        "sourceRef": "hld:h8",
+        "catalogTargets": [],
+        "coverageKind": "governing-context"
+      },
+      {
+        "sourceRef": "mod:o0",
+        "catalogTargets": [
+          "F-001",
+          "F-002",
+          "F-003",
+          "F-004",
+          "F-005",
+          "F-006",
+          "F-009",
+          "P-PUB-ACCOUNT",
+          "P-PUB-ACCOUNT/controls/nav-home",
+          "P-PUB-ACCOUNT/controls/nav-opendata",
+          "P-PUB-ACCOUNT/controls/nav-section",
+          "P-PUB-ACCOUNT/controls/nav-services",
+          "P-PUB-ACCOUNT/controls/otp",
+          "P-PUB-ACCOUNT/controls/phone",
+          "P-PUB-ACCOUNT/controls/submit",
+          "P-PUB-ACCOUNT/fields/otp",
+          "P-PUB-ACCOUNT/fields/phone",
+          "P-PUB-ACCOUNT/states/expired",
+          "P-PUB-ACCOUNT/states/locked",
+          "P-PUB-ACCOUNT/states/otp",
+          "P-PUB-ACCOUNT/states/register",
+          "P-PUB-ACCOUNT/states/session-expired",
+          "P-PUB-APPLICATION",
+          "P-PUB-APPLICATION-STATUS",
+          "P-PUB-APPLICATION-STATUS/controls/login",
+          "P-PUB-APPLICATION-STATUS/controls/nav-home",
+          "P-PUB-APPLICATION-STATUS/controls/nav-opendata",
+          "P-PUB-APPLICATION-STATUS/controls/nav-section",
+          "P-PUB-APPLICATION-STATUS/controls/nav-services",
+          "P-PUB-APPLICATION-STATUS/controls/refresh",
+          "P-PUB-APPLICATION-STATUS/states/completed",
+          "P-PUB-APPLICATION-STATUS/states/pending",
+          "P-PUB-APPLICATION-STATUS/states/processing",
+          "P-PUB-APPLICATION-STATUS/states/returned",
+          "P-PUB-APPLICATION-STATUS/states/unauthorized",
+          "P-PUB-APPLICATION/controls/back",
+          "P-PUB-APPLICATION/controls/nav-home",
+          "P-PUB-APPLICATION/controls/nav-opendata",
+          "P-PUB-APPLICATION/controls/nav-section",
+          "P-PUB-APPLICATION/controls/nav-services",
+          "P-PUB-APPLICATION/controls/next",
+          "P-PUB-APPLICATION/controls/submit",
+          "P-PUB-APPLICATION/controls/upload",
+          "P-PUB-APPLICATION/fields/attachments",
+          "P-PUB-APPLICATION/states/details",
+          "P-PUB-APPLICATION/states/materials",
+          "P-PUB-APPLICATION/states/submitting",
+          "P-PUB-APPLICATION/states/upstream-pending",
+          "P-PUB-APPLICATION/states/validation",
+          "P-PUB-ARCHIVE",
+          "P-PUB-ARCHIVE/controls/nav-home",
+          "P-PUB-ARCHIVE/controls/nav-opendata",
+          "P-PUB-ARCHIVE/controls/nav-section",
+          "P-PUB-ARCHIVE/controls/nav-services",
+          "P-PUB-ARCHIVE/controls/return-section",
+          "P-PUB-ARCHIVE/states/gone",
+          "P-PUB-CONTENT",
+          "P-PUB-CONTENT/controls/back",
+          "P-PUB-CONTENT/controls/language",
+          "P-PUB-CONTENT/controls/nav-home",
+          "P-PUB-CONTENT/controls/nav-opendata",
+          "P-PUB-CONTENT/controls/nav-section",
+          "P-PUB-CONTENT/controls/nav-services",
+          "P-PUB-CONTENT/states/fallback",
+          "P-PUB-CONTENT/states/gone",
+          "P-PUB-CONTENT/states/published",
+          "P-PUB-HOME",
+          "P-PUB-HOME/controls/language",
+          "P-PUB-HOME/controls/nav-home",
+          "P-PUB-HOME/controls/nav-opendata",
+          "P-PUB-HOME/controls/nav-section",
+          "P-PUB-HOME/controls/nav-services",
+          "P-PUB-HOME/controls/search",
+          "P-PUB-HOME/controls/service-cards",
+          "P-PUB-HOME/states/fallback",
+          "P-PUB-HOME/states/mobile",
+          "P-PUB-HOME/states/ready",
+          "P-PUB-HOME/states/slow",
+          "P-PUB-OPENDATA",
+          "P-PUB-OPENDATA/controls/dataset",
+          "P-PUB-OPENDATA/controls/download",
+          "P-PUB-OPENDATA/controls/get-key",
+          "P-PUB-OPENDATA/controls/nav-home",
+          "P-PUB-OPENDATA/controls/nav-opendata",
+          "P-PUB-OPENDATA/controls/nav-section",
+          "P-PUB-OPENDATA/controls/nav-services",
+          "P-PUB-OPENDATA/fields/apiKey",
+          "P-PUB-OPENDATA/states/catalog",
+          "P-PUB-OPENDATA/states/key-needed",
+          "P-PUB-OPENDATA/states/rate-limited",
+          "P-PUB-OPENDATA/states/unauthorized",
+          "P-PUB-RECEIPT",
+          "P-PUB-RECEIPT/controls/copy",
+          "P-PUB-RECEIPT/controls/nav-home",
+          "P-PUB-RECEIPT/controls/nav-opendata",
+          "P-PUB-RECEIPT/controls/nav-section",
+          "P-PUB-RECEIPT/controls/nav-services",
+          "P-PUB-RECEIPT/controls/track",
+          "P-PUB-RECEIPT/states/accepted",
+          "P-PUB-RECEIPT/states/pending",
+          "P-PUB-SEARCH",
+          "P-PUB-SEARCH/controls/nav-home",
+          "P-PUB-SEARCH/controls/nav-opendata",
+          "P-PUB-SEARCH/controls/nav-section",
+          "P-PUB-SEARCH/controls/nav-services",
+          "P-PUB-SEARCH/controls/query",
+          "P-PUB-SEARCH/controls/result",
+          "P-PUB-SEARCH/fields/query",
+          "P-PUB-SEARCH/states/basic",
+          "P-PUB-SEARCH/states/empty",
+          "P-PUB-SEARCH/states/lagging",
+          "P-PUB-SEARCH/states/results",
+          "P-PUB-SECTION",
+          "P-PUB-SECTION/controls/content-card",
+          "P-PUB-SECTION/controls/nav-home",
+          "P-PUB-SECTION/controls/nav-opendata",
+          "P-PUB-SECTION/controls/nav-section",
+          "P-PUB-SECTION/controls/nav-services",
+          "P-PUB-SECTION/controls/pagination",
+          "P-PUB-SECTION/controls/retry",
+          "P-PUB-SECTION/states/empty",
+          "P-PUB-SECTION/states/failed",
+          "P-PUB-SECTION/states/loaded",
+          "P-PUB-SECTION/states/loading",
+          "P-PUB-SERVICE-GUIDE",
+          "P-PUB-SERVICE-GUIDE/controls/nav-home",
+          "P-PUB-SERVICE-GUIDE/controls/nav-opendata",
+          "P-PUB-SERVICE-GUIDE/controls/nav-section",
+          "P-PUB-SERVICE-GUIDE/controls/nav-services",
+          "P-PUB-SERVICE-GUIDE/controls/requirements",
+          "P-PUB-SERVICE-GUIDE/controls/start",
+          "P-PUB-SERVICE-GUIDE/states/auth-needed",
+          "P-PUB-SERVICE-GUIDE/states/available",
+          "P-PUB-SERVICE-GUIDE/states/unavailable"
+        ],
+        "coverageKind": "implementation"
+      },
+      {
+        "sourceRef": "mod:o1",
+        "catalogTargets": [
+          "F-007",
+          "P-CMS-DASHBOARD",
+          "P-CMS-DASHBOARD/controls/nav-dashboard",
+          "P-CMS-DASHBOARD/controls/nav-editor",
+          "P-CMS-DASHBOARD/controls/nav-publish",
+          "P-CMS-DASHBOARD/controls/nav-review",
+          "P-CMS-DASHBOARD/controls/new-content",
+          "P-CMS-DASHBOARD/controls/review-queue",
+          "P-CMS-DASHBOARD/controls/translation-item",
+          "P-CMS-DASHBOARD/states/empty",
+          "P-CMS-DASHBOARD/states/missing-translation",
+          "P-CMS-DASHBOARD/states/role-filtered",
+          "P-CMS-EDITOR",
+          "P-CMS-EDITOR/controls/block-add",
+          "P-CMS-EDITOR/controls/language-tabs",
+          "P-CMS-EDITOR/controls/nav-dashboard",
+          "P-CMS-EDITOR/controls/nav-editor",
+          "P-CMS-EDITOR/controls/nav-publish",
+          "P-CMS-EDITOR/controls/nav-review",
+          "P-CMS-EDITOR/controls/save",
+          "P-CMS-EDITOR/controls/submit-review",
+          "P-CMS-EDITOR/fields/imageBlock",
+          "P-CMS-EDITOR/fields/titleEn",
+          "P-CMS-EDITOR/fields/titleFr",
+          "P-CMS-EDITOR/states/conflict",
+          "P-CMS-EDITOR/states/draft",
+          "P-CMS-EDITOR/states/submitted",
+          "P-CMS-EDITOR/states/validation"
+        ],
+        "coverageKind": "implementation"
+      },
+      {
+        "sourceRef": "mod:o2",
+        "catalogTargets": [],
+        "coverageKind": "governing-context"
+      },
+      {
+        "sourceRef": "mod:o3",
+        "catalogTargets": [
+          "F-007",
+          "P-CMS-DASHBOARD",
+          "P-CMS-DASHBOARD/controls/nav-dashboard",
+          "P-CMS-DASHBOARD/controls/nav-editor",
+          "P-CMS-DASHBOARD/controls/nav-publish",
+          "P-CMS-DASHBOARD/controls/nav-review",
+          "P-CMS-DASHBOARD/controls/new-content",
+          "P-CMS-DASHBOARD/controls/review-queue",
+          "P-CMS-DASHBOARD/controls/translation-item",
+          "P-CMS-DASHBOARD/states/empty",
+          "P-CMS-DASHBOARD/states/missing-translation",
+          "P-CMS-DASHBOARD/states/role-filtered"
+        ],
+        "coverageKind": "implementation"
+      },
+      {
+        "sourceRef": "mod:o4",
+        "catalogTargets": [],
+        "coverageKind": "governing-context"
+      },
+      {
+        "sourceRef": "mod:o5",
+        "catalogTargets": [
+          "F-006",
+          "P-PUB-OPENDATA",
+          "P-PUB-OPENDATA/controls/dataset",
+          "P-PUB-OPENDATA/controls/download",
+          "P-PUB-OPENDATA/controls/get-key",
+          "P-PUB-OPENDATA/controls/nav-home",
+          "P-PUB-OPENDATA/controls/nav-opendata",
+          "P-PUB-OPENDATA/controls/nav-section",
+          "P-PUB-OPENDATA/controls/nav-services",
+          "P-PUB-OPENDATA/fields/apiKey",
+          "P-PUB-OPENDATA/states/catalog",
+          "P-PUB-OPENDATA/states/key-needed",
+          "P-PUB-OPENDATA/states/rate-limited",
+          "P-PUB-OPENDATA/states/unauthorized"
+        ],
+        "coverageKind": "implementation"
+      },
+      {
+        "sourceRef": "mod:o6",
+        "catalogTargets": [
+          "F-003",
+          "F-006",
+          "F-007",
+          "F-008",
+          "F-009",
+          "P-CMS-DASHBOARD",
+          "P-CMS-DASHBOARD/controls/nav-dashboard",
+          "P-CMS-DASHBOARD/controls/nav-editor",
+          "P-CMS-DASHBOARD/controls/nav-publish",
+          "P-CMS-DASHBOARD/controls/nav-review",
+          "P-CMS-DASHBOARD/controls/new-content",
+          "P-CMS-DASHBOARD/controls/review-queue",
+          "P-CMS-DASHBOARD/controls/translation-item",
+          "P-CMS-DASHBOARD/states/empty",
+          "P-CMS-DASHBOARD/states/missing-translation",
+          "P-CMS-DASHBOARD/states/role-filtered",
+          "P-CMS-EDITOR",
+          "P-CMS-EDITOR/controls/block-add",
+          "P-CMS-EDITOR/controls/language-tabs",
+          "P-CMS-EDITOR/controls/nav-dashboard",
+          "P-CMS-EDITOR/controls/nav-editor",
+          "P-CMS-EDITOR/controls/nav-publish",
+          "P-CMS-EDITOR/controls/nav-review",
+          "P-CMS-EDITOR/controls/save",
+          "P-CMS-EDITOR/controls/submit-review",
+          "P-CMS-EDITOR/fields/imageBlock",
+          "P-CMS-EDITOR/fields/titleEn",
+          "P-CMS-EDITOR/fields/titleFr",
+          "P-CMS-EDITOR/states/conflict",
+          "P-CMS-EDITOR/states/draft",
+          "P-CMS-EDITOR/states/submitted",
+          "P-CMS-EDITOR/states/validation",
+          "P-CMS-LOGIN",
+          "P-CMS-LOGIN/controls/nav-dashboard",
+          "P-CMS-LOGIN/controls/nav-editor",
+          "P-CMS-LOGIN/controls/nav-publish",
+          "P-CMS-LOGIN/controls/nav-review",
+          "P-CMS-LOGIN/controls/sign-in",
+          "P-CMS-LOGIN/states/denied",
+          "P-CMS-LOGIN/states/signed-out",
+          "P-CMS-PUBLISH",
+          "P-CMS-PUBLISH/controls/archive",
+          "P-CMS-PUBLISH/controls/audit",
+          "P-CMS-PUBLISH/controls/nav-dashboard",
+          "P-CMS-PUBLISH/controls/nav-editor",
+          "P-CMS-PUBLISH/controls/nav-publish",
+          "P-CMS-PUBLISH/controls/nav-review",
+          "P-CMS-PUBLISH/controls/publish",
+          "P-CMS-PUBLISH/controls/unpublish",
+          "P-CMS-PUBLISH/states/archived",
+          "P-CMS-PUBLISH/states/event-retry",
+          "P-CMS-PUBLISH/states/pending-publish",
+          "P-CMS-PUBLISH/states/preflight-failed",
+          "P-CMS-PUBLISH/states/published",
+          "P-CMS-REVIEW",
+          "P-CMS-REVIEW/controls/approve",
+          "P-CMS-REVIEW/controls/compare",
+          "P-CMS-REVIEW/controls/nav-dashboard",
+          "P-CMS-REVIEW/controls/nav-editor",
+          "P-CMS-REVIEW/controls/nav-publish",
+          "P-CMS-REVIEW/controls/nav-review",
+          "P-CMS-REVIEW/controls/return",
+          "P-CMS-REVIEW/states/approved",
+          "P-CMS-REVIEW/states/forbidden",
+          "P-CMS-REVIEW/states/returned",
+          "P-CMS-REVIEW/states/review-queue",
+          "P-PUB-ACCOUNT",
+          "P-PUB-ACCOUNT/controls/nav-home",
+          "P-PUB-ACCOUNT/controls/nav-opendata",
+          "P-PUB-ACCOUNT/controls/nav-section",
+          "P-PUB-ACCOUNT/controls/nav-services",
+          "P-PUB-ACCOUNT/controls/otp",
+          "P-PUB-ACCOUNT/controls/phone",
+          "P-PUB-ACCOUNT/controls/submit",
+          "P-PUB-ACCOUNT/fields/otp",
+          "P-PUB-ACCOUNT/fields/phone",
+          "P-PUB-ACCOUNT/states/expired",
+          "P-PUB-ACCOUNT/states/locked",
+          "P-PUB-ACCOUNT/states/otp",
+          "P-PUB-ACCOUNT/states/register",
+          "P-PUB-ACCOUNT/states/session-expired"
+        ],
+        "coverageKind": "implementation"
+      },
+      {
+        "sourceRef": "mod:o7",
+        "catalogTargets": [
+          "F-001",
+          "F-002",
+          "F-005",
+          "F-009",
+          "NUI-001",
+          "P-CMS-PUBLISH",
+          "P-CMS-PUBLISH/controls/archive",
+          "P-CMS-PUBLISH/controls/audit",
+          "P-CMS-PUBLISH/controls/nav-dashboard",
+          "P-CMS-PUBLISH/controls/nav-editor",
+          "P-CMS-PUBLISH/controls/nav-publish",
+          "P-CMS-PUBLISH/controls/nav-review",
+          "P-CMS-PUBLISH/controls/publish",
+          "P-CMS-PUBLISH/controls/unpublish",
+          "P-CMS-PUBLISH/states/archived",
+          "P-CMS-PUBLISH/states/event-retry",
+          "P-CMS-PUBLISH/states/pending-publish",
+          "P-CMS-PUBLISH/states/preflight-failed",
+          "P-CMS-PUBLISH/states/published",
+          "P-PUB-CONTENT",
+          "P-PUB-CONTENT/controls/back",
+          "P-PUB-CONTENT/controls/language",
+          "P-PUB-CONTENT/controls/nav-home",
+          "P-PUB-CONTENT/controls/nav-opendata",
+          "P-PUB-CONTENT/controls/nav-section",
+          "P-PUB-CONTENT/controls/nav-services",
+          "P-PUB-CONTENT/states/fallback",
+          "P-PUB-CONTENT/states/gone",
+          "P-PUB-CONTENT/states/published"
+        ],
+        "coverageKind": "implementation"
+      },
+      {
+        "sourceRef": "nfr:n0",
+        "catalogTargets": [
+          "NUI-001",
+          "NUI-005"
+        ],
+        "coverageKind": "implementation"
+      },
+      {
+        "sourceRef": "nfr:n1",
+        "catalogTargets": [
+          "NUI-004"
+        ],
+        "coverageKind": "implementation"
+      },
+      {
+        "sourceRef": "nfr:n2",
+        "catalogTargets": [
+          "F-009",
+          "NUI-004",
+          "P-CMS-PUBLISH",
+          "P-CMS-PUBLISH/controls/archive",
+          "P-CMS-PUBLISH/controls/audit",
+          "P-CMS-PUBLISH/controls/nav-dashboard",
+          "P-CMS-PUBLISH/controls/nav-editor",
+          "P-CMS-PUBLISH/controls/nav-publish",
+          "P-CMS-PUBLISH/controls/nav-review",
+          "P-CMS-PUBLISH/controls/publish",
+          "P-CMS-PUBLISH/controls/unpublish",
+          "P-CMS-PUBLISH/states/archived",
+          "P-CMS-PUBLISH/states/event-retry",
+          "P-CMS-PUBLISH/states/pending-publish",
+          "P-CMS-PUBLISH/states/preflight-failed",
+          "P-CMS-PUBLISH/states/published"
+        ],
+        "coverageKind": "implementation"
+      },
+      {
+        "sourceRef": "prd:p1",
+        "catalogTargets": [],
+        "coverageKind": "governing-context"
+      },
+      {
+        "sourceRef": "prd:p2",
+        "catalogTargets": [
+          "F-001",
+          "F-002",
+          "F-003",
+          "F-004",
+          "F-005",
+          "F-006",
+          "F-007",
+          "F-008",
+          "F-009",
+          "NUI-002",
+          "NUI-003",
+          "P-CMS-DASHBOARD",
+          "P-CMS-DASHBOARD/controls/nav-dashboard",
+          "P-CMS-DASHBOARD/controls/nav-editor",
+          "P-CMS-DASHBOARD/controls/nav-publish",
+          "P-CMS-DASHBOARD/controls/nav-review",
+          "P-CMS-DASHBOARD/controls/new-content",
+          "P-CMS-DASHBOARD/controls/review-queue",
+          "P-CMS-DASHBOARD/controls/translation-item",
+          "P-CMS-DASHBOARD/states/empty",
+          "P-CMS-DASHBOARD/states/missing-translation",
+          "P-CMS-DASHBOARD/states/role-filtered",
+          "P-CMS-EDITOR",
+          "P-CMS-EDITOR/controls/block-add",
+          "P-CMS-EDITOR/controls/language-tabs",
+          "P-CMS-EDITOR/controls/nav-dashboard",
+          "P-CMS-EDITOR/controls/nav-editor",
+          "P-CMS-EDITOR/controls/nav-publish",
+          "P-CMS-EDITOR/controls/nav-review",
+          "P-CMS-EDITOR/controls/save",
+          "P-CMS-EDITOR/controls/submit-review",
+          "P-CMS-EDITOR/fields/imageBlock",
+          "P-CMS-EDITOR/fields/titleEn",
+          "P-CMS-EDITOR/fields/titleFr",
+          "P-CMS-EDITOR/states/conflict",
+          "P-CMS-EDITOR/states/draft",
+          "P-CMS-EDITOR/states/submitted",
+          "P-CMS-EDITOR/states/validation",
+          "P-CMS-LOGIN",
+          "P-CMS-LOGIN/controls/nav-dashboard",
+          "P-CMS-LOGIN/controls/nav-editor",
+          "P-CMS-LOGIN/controls/nav-publish",
+          "P-CMS-LOGIN/controls/nav-review",
+          "P-CMS-LOGIN/controls/sign-in",
+          "P-CMS-LOGIN/states/denied",
+          "P-CMS-LOGIN/states/signed-out",
+          "P-CMS-PUBLISH",
+          "P-CMS-PUBLISH/controls/archive",
+          "P-CMS-PUBLISH/controls/audit",
+          "P-CMS-PUBLISH/controls/nav-dashboard",
+          "P-CMS-PUBLISH/controls/nav-editor",
+          "P-CMS-PUBLISH/controls/nav-publish",
+          "P-CMS-PUBLISH/controls/nav-review",
+          "P-CMS-PUBLISH/controls/publish",
+          "P-CMS-PUBLISH/controls/unpublish",
+          "P-CMS-PUBLISH/states/archived",
+          "P-CMS-PUBLISH/states/event-retry",
+          "P-CMS-PUBLISH/states/pending-publish",
+          "P-CMS-PUBLISH/states/preflight-failed",
+          "P-CMS-PUBLISH/states/published",
+          "P-CMS-REVIEW",
+          "P-CMS-REVIEW/controls/approve",
+          "P-CMS-REVIEW/controls/compare",
+          "P-CMS-REVIEW/controls/nav-dashboard",
+          "P-CMS-REVIEW/controls/nav-editor",
+          "P-CMS-REVIEW/controls/nav-publish",
+          "P-CMS-REVIEW/controls/nav-review",
+          "P-CMS-REVIEW/controls/return",
+          "P-CMS-REVIEW/states/approved",
+          "P-CMS-REVIEW/states/forbidden",
+          "P-CMS-REVIEW/states/returned",
+          "P-CMS-REVIEW/states/review-queue",
+          "P-PUB-ACCOUNT",
+          "P-PUB-ACCOUNT/controls/nav-home",
+          "P-PUB-ACCOUNT/controls/nav-opendata",
+          "P-PUB-ACCOUNT/controls/nav-section",
+          "P-PUB-ACCOUNT/controls/nav-services",
+          "P-PUB-ACCOUNT/controls/otp",
+          "P-PUB-ACCOUNT/controls/phone",
+          "P-PUB-ACCOUNT/controls/submit",
+          "P-PUB-ACCOUNT/fields/otp",
+          "P-PUB-ACCOUNT/fields/phone",
+          "P-PUB-ACCOUNT/states/expired",
+          "P-PUB-ACCOUNT/states/locked",
+          "P-PUB-ACCOUNT/states/otp",
+          "P-PUB-ACCOUNT/states/register",
+          "P-PUB-ACCOUNT/states/session-expired",
+          "P-PUB-APPLICATION",
+          "P-PUB-APPLICATION-STATUS",
+          "P-PUB-APPLICATION-STATUS/controls/login",
+          "P-PUB-APPLICATION-STATUS/controls/nav-home",
+          "P-PUB-APPLICATION-STATUS/controls/nav-opendata",
+          "P-PUB-APPLICATION-STATUS/controls/nav-section",
+          "P-PUB-APPLICATION-STATUS/controls/nav-services",
+          "P-PUB-APPLICATION-STATUS/controls/refresh",
+          "P-PUB-APPLICATION-STATUS/states/completed",
+          "P-PUB-APPLICATION-STATUS/states/pending",
+          "P-PUB-APPLICATION-STATUS/states/processing",
+          "P-PUB-APPLICATION-STATUS/states/returned",
+          "P-PUB-APPLICATION-STATUS/states/unauthorized",
+          "P-PUB-APPLICATION/controls/back",
+          "P-PUB-APPLICATION/controls/nav-home",
+          "P-PUB-APPLICATION/controls/nav-opendata",
+          "P-PUB-APPLICATION/controls/nav-section",
+          "P-PUB-APPLICATION/controls/nav-services",
+          "P-PUB-APPLICATION/controls/next",
+          "P-PUB-APPLICATION/controls/submit",
+          "P-PUB-APPLICATION/controls/upload",
+          "P-PUB-APPLICATION/fields/attachments",
+          "P-PUB-APPLICATION/states/details",
+          "P-PUB-APPLICATION/states/materials",
+          "P-PUB-APPLICATION/states/submitting",
+          "P-PUB-APPLICATION/states/upstream-pending",
+          "P-PUB-APPLICATION/states/validation",
+          "P-PUB-ARCHIVE",
+          "P-PUB-ARCHIVE/controls/nav-home",
+          "P-PUB-ARCHIVE/controls/nav-opendata",
+          "P-PUB-ARCHIVE/controls/nav-section",
+          "P-PUB-ARCHIVE/controls/nav-services",
+          "P-PUB-ARCHIVE/controls/return-section",
+          "P-PUB-ARCHIVE/states/gone",
+          "P-PUB-CONTENT",
+          "P-PUB-CONTENT/controls/back",
+          "P-PUB-CONTENT/controls/language",
+          "P-PUB-CONTENT/controls/nav-home",
+          "P-PUB-CONTENT/controls/nav-opendata",
+          "P-PUB-CONTENT/controls/nav-section",
+          "P-PUB-CONTENT/controls/nav-services",
+          "P-PUB-CONTENT/states/fallback",
+          "P-PUB-CONTENT/states/gone",
+          "P-PUB-CONTENT/states/published",
+          "P-PUB-HOME",
+          "P-PUB-HOME/controls/language",
+          "P-PUB-HOME/controls/nav-home",
+          "P-PUB-HOME/controls/nav-opendata",
+          "P-PUB-HOME/controls/nav-section",
+          "P-PUB-HOME/controls/nav-services",
+          "P-PUB-HOME/controls/search",
+          "P-PUB-HOME/controls/service-cards",
+          "P-PUB-HOME/states/fallback",
+          "P-PUB-HOME/states/mobile",
+          "P-PUB-HOME/states/ready",
+          "P-PUB-HOME/states/slow",
+          "P-PUB-OPENDATA",
+          "P-PUB-OPENDATA/controls/dataset",
+          "P-PUB-OPENDATA/controls/download",
+          "P-PUB-OPENDATA/controls/get-key",
+          "P-PUB-OPENDATA/controls/nav-home",
+          "P-PUB-OPENDATA/controls/nav-opendata",
+          "P-PUB-OPENDATA/controls/nav-section",
+          "P-PUB-OPENDATA/controls/nav-services",
+          "P-PUB-OPENDATA/fields/apiKey",
+          "P-PUB-OPENDATA/states/catalog",
+          "P-PUB-OPENDATA/states/key-needed",
+          "P-PUB-OPENDATA/states/rate-limited",
+          "P-PUB-OPENDATA/states/unauthorized",
+          "P-PUB-RECEIPT",
+          "P-PUB-RECEIPT/controls/copy",
+          "P-PUB-RECEIPT/controls/nav-home",
+          "P-PUB-RECEIPT/controls/nav-opendata",
+          "P-PUB-RECEIPT/controls/nav-section",
+          "P-PUB-RECEIPT/controls/nav-services",
+          "P-PUB-RECEIPT/controls/track",
+          "P-PUB-RECEIPT/states/accepted",
+          "P-PUB-RECEIPT/states/pending",
+          "P-PUB-SEARCH",
+          "P-PUB-SEARCH/controls/nav-home",
+          "P-PUB-SEARCH/controls/nav-opendata",
+          "P-PUB-SEARCH/controls/nav-section",
+          "P-PUB-SEARCH/controls/nav-services",
+          "P-PUB-SEARCH/controls/query",
+          "P-PUB-SEARCH/controls/result",
+          "P-PUB-SEARCH/fields/query",
+          "P-PUB-SEARCH/states/basic",
+          "P-PUB-SEARCH/states/empty",
+          "P-PUB-SEARCH/states/lagging",
+          "P-PUB-SEARCH/states/results",
+          "P-PUB-SECTION",
+          "P-PUB-SECTION/controls/content-card",
+          "P-PUB-SECTION/controls/nav-home",
+          "P-PUB-SECTION/controls/nav-opendata",
+          "P-PUB-SECTION/controls/nav-section",
+          "P-PUB-SECTION/controls/nav-services",
+          "P-PUB-SECTION/controls/pagination",
+          "P-PUB-SECTION/controls/retry",
+          "P-PUB-SECTION/states/empty",
+          "P-PUB-SECTION/states/failed",
+          "P-PUB-SECTION/states/loaded",
+          "P-PUB-SECTION/states/loading",
+          "P-PUB-SERVICE-GUIDE",
+          "P-PUB-SERVICE-GUIDE/controls/nav-home",
+          "P-PUB-SERVICE-GUIDE/controls/nav-opendata",
+          "P-PUB-SERVICE-GUIDE/controls/nav-section",
+          "P-PUB-SERVICE-GUIDE/controls/nav-services",
+          "P-PUB-SERVICE-GUIDE/controls/requirements",
+          "P-PUB-SERVICE-GUIDE/controls/start",
+          "P-PUB-SERVICE-GUIDE/states/auth-needed",
+          "P-PUB-SERVICE-GUIDE/states/available",
+          "P-PUB-SERVICE-GUIDE/states/unavailable",
+          "REQ-001",
+          "REQ-002",
+          "REQ-003",
+          "REQ-004",
+          "REQ-005",
+          "REQ-006",
+          "REQ-007"
+        ],
+        "coverageKind": "implementation"
+      },
+      {
+        "sourceRef": "prd:p3",
+        "catalogTargets": [
+          "NUI-001",
+          "NUI-004",
+          "NUI-005"
+        ],
+        "coverageKind": "implementation"
+      },
+      {
+        "sourceRef": "prd:p4",
+        "catalogTargets": [],
+        "coverageKind": "governing-context"
+      },
+      {
+        "sourceRef": "ui:u0",
+        "catalogTargets": [
+          "F-001",
+          "F-002",
+          "F-003",
+          "F-004",
+          "F-005",
+          "F-006",
+          "F-007",
+          "F-008",
+          "F-009",
+          "P-CMS-DASHBOARD",
+          "P-CMS-DASHBOARD/controls/nav-dashboard",
+          "P-CMS-DASHBOARD/controls/nav-editor",
+          "P-CMS-DASHBOARD/controls/nav-publish",
+          "P-CMS-DASHBOARD/controls/nav-review",
+          "P-CMS-DASHBOARD/controls/new-content",
+          "P-CMS-DASHBOARD/controls/review-queue",
+          "P-CMS-DASHBOARD/controls/translation-item",
+          "P-CMS-DASHBOARD/states/empty",
+          "P-CMS-DASHBOARD/states/missing-translation",
+          "P-CMS-DASHBOARD/states/role-filtered",
+          "P-CMS-EDITOR",
+          "P-CMS-EDITOR/controls/block-add",
+          "P-CMS-EDITOR/controls/language-tabs",
+          "P-CMS-EDITOR/controls/nav-dashboard",
+          "P-CMS-EDITOR/controls/nav-editor",
+          "P-CMS-EDITOR/controls/nav-publish",
+          "P-CMS-EDITOR/controls/nav-review",
+          "P-CMS-EDITOR/controls/save",
+          "P-CMS-EDITOR/controls/submit-review",
+          "P-CMS-EDITOR/fields/imageBlock",
+          "P-CMS-EDITOR/fields/titleEn",
+          "P-CMS-EDITOR/fields/titleFr",
+          "P-CMS-EDITOR/states/conflict",
+          "P-CMS-EDITOR/states/draft",
+          "P-CMS-EDITOR/states/submitted",
+          "P-CMS-EDITOR/states/validation",
+          "P-CMS-LOGIN",
+          "P-CMS-LOGIN/controls/nav-dashboard",
+          "P-CMS-LOGIN/controls/nav-editor",
+          "P-CMS-LOGIN/controls/nav-publish",
+          "P-CMS-LOGIN/controls/nav-review",
+          "P-CMS-LOGIN/controls/sign-in",
+          "P-CMS-LOGIN/states/denied",
+          "P-CMS-LOGIN/states/signed-out",
+          "P-CMS-PUBLISH",
+          "P-CMS-PUBLISH/controls/archive",
+          "P-CMS-PUBLISH/controls/audit",
+          "P-CMS-PUBLISH/controls/nav-dashboard",
+          "P-CMS-PUBLISH/controls/nav-editor",
+          "P-CMS-PUBLISH/controls/nav-publish",
+          "P-CMS-PUBLISH/controls/nav-review",
+          "P-CMS-PUBLISH/controls/publish",
+          "P-CMS-PUBLISH/controls/unpublish",
+          "P-CMS-PUBLISH/states/archived",
+          "P-CMS-PUBLISH/states/event-retry",
+          "P-CMS-PUBLISH/states/pending-publish",
+          "P-CMS-PUBLISH/states/preflight-failed",
+          "P-CMS-PUBLISH/states/published",
+          "P-CMS-REVIEW",
+          "P-CMS-REVIEW/controls/approve",
+          "P-CMS-REVIEW/controls/compare",
+          "P-CMS-REVIEW/controls/nav-dashboard",
+          "P-CMS-REVIEW/controls/nav-editor",
+          "P-CMS-REVIEW/controls/nav-publish",
+          "P-CMS-REVIEW/controls/nav-review",
+          "P-CMS-REVIEW/controls/return",
+          "P-CMS-REVIEW/states/approved",
+          "P-CMS-REVIEW/states/forbidden",
+          "P-CMS-REVIEW/states/returned",
+          "P-CMS-REVIEW/states/review-queue",
+          "P-PUB-ACCOUNT",
+          "P-PUB-ACCOUNT/controls/nav-home",
+          "P-PUB-ACCOUNT/controls/nav-opendata",
+          "P-PUB-ACCOUNT/controls/nav-section",
+          "P-PUB-ACCOUNT/controls/nav-services",
+          "P-PUB-ACCOUNT/controls/otp",
+          "P-PUB-ACCOUNT/controls/phone",
+          "P-PUB-ACCOUNT/controls/submit",
+          "P-PUB-ACCOUNT/fields/otp",
+          "P-PUB-ACCOUNT/fields/phone",
+          "P-PUB-ACCOUNT/states/expired",
+          "P-PUB-ACCOUNT/states/locked",
+          "P-PUB-ACCOUNT/states/otp",
+          "P-PUB-ACCOUNT/states/register",
+          "P-PUB-ACCOUNT/states/session-expired",
+          "P-PUB-APPLICATION",
+          "P-PUB-APPLICATION-STATUS",
+          "P-PUB-APPLICATION-STATUS/controls/login",
+          "P-PUB-APPLICATION-STATUS/controls/nav-home",
+          "P-PUB-APPLICATION-STATUS/controls/nav-opendata",
+          "P-PUB-APPLICATION-STATUS/controls/nav-section",
+          "P-PUB-APPLICATION-STATUS/controls/nav-services",
+          "P-PUB-APPLICATION-STATUS/controls/refresh",
+          "P-PUB-APPLICATION-STATUS/states/completed",
+          "P-PUB-APPLICATION-STATUS/states/pending",
+          "P-PUB-APPLICATION-STATUS/states/processing",
+          "P-PUB-APPLICATION-STATUS/states/returned",
+          "P-PUB-APPLICATION-STATUS/states/unauthorized",
+          "P-PUB-APPLICATION/controls/back",
+          "P-PUB-APPLICATION/controls/nav-home",
+          "P-PUB-APPLICATION/controls/nav-opendata",
+          "P-PUB-APPLICATION/controls/nav-section",
+          "P-PUB-APPLICATION/controls/nav-services",
+          "P-PUB-APPLICATION/controls/next",
+          "P-PUB-APPLICATION/controls/submit",
+          "P-PUB-APPLICATION/controls/upload",
+          "P-PUB-APPLICATION/fields/attachments",
+          "P-PUB-APPLICATION/states/details",
+          "P-PUB-APPLICATION/states/materials",
+          "P-PUB-APPLICATION/states/submitting",
+          "P-PUB-APPLICATION/states/upstream-pending",
+          "P-PUB-APPLICATION/states/validation",
+          "P-PUB-ARCHIVE",
+          "P-PUB-ARCHIVE/controls/nav-home",
+          "P-PUB-ARCHIVE/controls/nav-opendata",
+          "P-PUB-ARCHIVE/controls/nav-section",
+          "P-PUB-ARCHIVE/controls/nav-services",
+          "P-PUB-ARCHIVE/controls/return-section",
+          "P-PUB-ARCHIVE/states/gone",
+          "P-PUB-CONTENT",
+          "P-PUB-CONTENT/controls/back",
+          "P-PUB-CONTENT/controls/language",
+          "P-PUB-CONTENT/controls/nav-home",
+          "P-PUB-CONTENT/controls/nav-opendata",
+          "P-PUB-CONTENT/controls/nav-section",
+          "P-PUB-CONTENT/controls/nav-services",
+          "P-PUB-CONTENT/states/fallback",
+          "P-PUB-CONTENT/states/gone",
+          "P-PUB-CONTENT/states/published",
+          "P-PUB-HOME",
+          "P-PUB-HOME/controls/language",
+          "P-PUB-HOME/controls/nav-home",
+          "P-PUB-HOME/controls/nav-opendata",
+          "P-PUB-HOME/controls/nav-section",
+          "P-PUB-HOME/controls/nav-services",
+          "P-PUB-HOME/controls/search",
+          "P-PUB-HOME/controls/service-cards",
+          "P-PUB-HOME/states/fallback",
+          "P-PUB-HOME/states/mobile",
+          "P-PUB-HOME/states/ready",
+          "P-PUB-HOME/states/slow",
+          "P-PUB-OPENDATA",
+          "P-PUB-OPENDATA/controls/dataset",
+          "P-PUB-OPENDATA/controls/download",
+          "P-PUB-OPENDATA/controls/get-key",
+          "P-PUB-OPENDATA/controls/nav-home",
+          "P-PUB-OPENDATA/controls/nav-opendata",
+          "P-PUB-OPENDATA/controls/nav-section",
+          "P-PUB-OPENDATA/controls/nav-services",
+          "P-PUB-OPENDATA/fields/apiKey",
+          "P-PUB-OPENDATA/states/catalog",
+          "P-PUB-OPENDATA/states/key-needed",
+          "P-PUB-OPENDATA/states/rate-limited",
+          "P-PUB-OPENDATA/states/unauthorized",
+          "P-PUB-RECEIPT",
+          "P-PUB-RECEIPT/controls/copy",
+          "P-PUB-RECEIPT/controls/nav-home",
+          "P-PUB-RECEIPT/controls/nav-opendata",
+          "P-PUB-RECEIPT/controls/nav-section",
+          "P-PUB-RECEIPT/controls/nav-services",
+          "P-PUB-RECEIPT/controls/track",
+          "P-PUB-RECEIPT/states/accepted",
+          "P-PUB-RECEIPT/states/pending",
+          "P-PUB-SEARCH",
+          "P-PUB-SEARCH/controls/nav-home",
+          "P-PUB-SEARCH/controls/nav-opendata",
+          "P-PUB-SEARCH/controls/nav-section",
+          "P-PUB-SEARCH/controls/nav-services",
+          "P-PUB-SEARCH/controls/query",
+          "P-PUB-SEARCH/controls/result",
+          "P-PUB-SEARCH/fields/query",
+          "P-PUB-SEARCH/states/basic",
+          "P-PUB-SEARCH/states/empty",
+          "P-PUB-SEARCH/states/lagging",
+          "P-PUB-SEARCH/states/results",
+          "P-PUB-SECTION",
+          "P-PUB-SECTION/controls/content-card",
+          "P-PUB-SECTION/controls/nav-home",
+          "P-PUB-SECTION/controls/nav-opendata",
+          "P-PUB-SECTION/controls/nav-section",
+          "P-PUB-SECTION/controls/nav-services",
+          "P-PUB-SECTION/controls/pagination",
+          "P-PUB-SECTION/controls/retry",
+          "P-PUB-SECTION/states/empty",
+          "P-PUB-SECTION/states/failed",
+          "P-PUB-SECTION/states/loaded",
+          "P-PUB-SECTION/states/loading",
+          "P-PUB-SERVICE-GUIDE",
+          "P-PUB-SERVICE-GUIDE/controls/nav-home",
+          "P-PUB-SERVICE-GUIDE/controls/nav-opendata",
+          "P-PUB-SERVICE-GUIDE/controls/nav-section",
+          "P-PUB-SERVICE-GUIDE/controls/nav-services",
+          "P-PUB-SERVICE-GUIDE/controls/requirements",
+          "P-PUB-SERVICE-GUIDE/controls/start",
+          "P-PUB-SERVICE-GUIDE/states/auth-needed",
+          "P-PUB-SERVICE-GUIDE/states/available",
+          "P-PUB-SERVICE-GUIDE/states/unavailable"
+        ],
+        "coverageKind": "implementation"
+      },
+      {
+        "sourceRef": "ui:u1",
+        "catalogTargets": [
+          "F-001",
+          "F-003",
+          "P-PUB-SECTION",
+          "P-PUB-SECTION/controls/content-card",
+          "P-PUB-SECTION/controls/nav-home",
+          "P-PUB-SECTION/controls/nav-opendata",
+          "P-PUB-SECTION/controls/nav-section",
+          "P-PUB-SECTION/controls/nav-services",
+          "P-PUB-SECTION/controls/pagination",
+          "P-PUB-SECTION/controls/retry",
+          "P-PUB-SECTION/states/empty",
+          "P-PUB-SECTION/states/failed",
+          "P-PUB-SECTION/states/loaded",
+          "P-PUB-SECTION/states/loading",
+          "P-PUB-SERVICE-GUIDE",
+          "P-PUB-SERVICE-GUIDE/controls/nav-home",
+          "P-PUB-SERVICE-GUIDE/controls/nav-opendata",
+          "P-PUB-SERVICE-GUIDE/controls/nav-section",
+          "P-PUB-SERVICE-GUIDE/controls/nav-services",
+          "P-PUB-SERVICE-GUIDE/controls/requirements",
+          "P-PUB-SERVICE-GUIDE/controls/start",
+          "P-PUB-SERVICE-GUIDE/states/auth-needed",
+          "P-PUB-SERVICE-GUIDE/states/available",
+          "P-PUB-SERVICE-GUIDE/states/unavailable"
+        ],
+        "coverageKind": "implementation"
+      },
+      {
+        "sourceRef": "ui:u2",
+        "catalogTargets": [
+          "F-003",
+          "F-004",
+          "F-005",
+          "F-006",
+          "P-PUB-ACCOUNT",
+          "P-PUB-ACCOUNT/controls/nav-home",
+          "P-PUB-ACCOUNT/controls/nav-opendata",
+          "P-PUB-ACCOUNT/controls/nav-section",
+          "P-PUB-ACCOUNT/controls/nav-services",
+          "P-PUB-ACCOUNT/controls/otp",
+          "P-PUB-ACCOUNT/controls/phone",
+          "P-PUB-ACCOUNT/controls/submit",
+          "P-PUB-ACCOUNT/fields/otp",
+          "P-PUB-ACCOUNT/fields/phone",
+          "P-PUB-ACCOUNT/states/expired",
+          "P-PUB-ACCOUNT/states/locked",
+          "P-PUB-ACCOUNT/states/otp",
+          "P-PUB-ACCOUNT/states/register",
+          "P-PUB-ACCOUNT/states/session-expired",
+          "P-PUB-APPLICATION",
+          "P-PUB-APPLICATION/controls/back",
+          "P-PUB-APPLICATION/controls/nav-home",
+          "P-PUB-APPLICATION/controls/nav-opendata",
+          "P-PUB-APPLICATION/controls/nav-section",
+          "P-PUB-APPLICATION/controls/nav-services",
+          "P-PUB-APPLICATION/controls/next",
+          "P-PUB-APPLICATION/controls/submit",
+          "P-PUB-APPLICATION/controls/upload",
+          "P-PUB-APPLICATION/fields/attachments",
+          "P-PUB-APPLICATION/states/details",
+          "P-PUB-APPLICATION/states/materials",
+          "P-PUB-APPLICATION/states/submitting",
+          "P-PUB-APPLICATION/states/upstream-pending",
+          "P-PUB-APPLICATION/states/validation",
+          "P-PUB-SEARCH",
+          "P-PUB-SEARCH/controls/nav-home",
+          "P-PUB-SEARCH/controls/nav-opendata",
+          "P-PUB-SEARCH/controls/nav-section",
+          "P-PUB-SEARCH/controls/nav-services",
+          "P-PUB-SEARCH/controls/query",
+          "P-PUB-SEARCH/controls/result",
+          "P-PUB-SEARCH/fields/query",
+          "P-PUB-SEARCH/states/basic",
+          "P-PUB-SEARCH/states/empty",
+          "P-PUB-SEARCH/states/lagging",
+          "P-PUB-SEARCH/states/results"
+        ],
+        "coverageKind": "implementation"
+      },
+      {
+        "sourceRef": "ui:u3",
+        "catalogTargets": [
+          "F-003",
+          "P-PUB-RECEIPT",
+          "P-PUB-RECEIPT/controls/copy",
+          "P-PUB-RECEIPT/controls/nav-home",
+          "P-PUB-RECEIPT/controls/nav-opendata",
+          "P-PUB-RECEIPT/controls/nav-section",
+          "P-PUB-RECEIPT/controls/nav-services",
+          "P-PUB-RECEIPT/controls/track",
+          "P-PUB-RECEIPT/states/accepted",
+          "P-PUB-RECEIPT/states/pending"
+        ],
+        "coverageKind": "implementation"
+      }
+    ],
+    "reverse": [
+      {
+        "targetId": "F-001",
+        "sourceRefs": [
+          "alg:g1",
+          "api:a0",
+          "hld:h1",
+          "hld:h3",
+          "mod:o0",
+          "mod:o7",
+          "prd:p2",
+          "ui:u0",
+          "ui:u1"
+        ]
+      },
+      {
+        "targetId": "F-002",
+        "sourceRefs": [
+          "api:a0",
+          "api:a1",
+          "hld:h1",
+          "mod:o0",
+          "mod:o7",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "F-003",
+        "sourceRefs": [
+          "alg:g0",
+          "api:a0",
+          "api:a2",
+          "db:d0",
+          "hld:h2",
+          "hld:h3",
+          "hld:h6",
+          "mod:o0",
+          "mod:o6",
+          "prd:p2",
+          "ui:u0",
+          "ui:u1",
+          "ui:u2",
+          "ui:u3"
+        ]
+      },
+      {
+        "targetId": "F-004",
+        "sourceRefs": [
+          "alg:g0",
+          "alg:g3",
+          "api:a0",
+          "db:d1",
+          "hld:h2",
+          "hld:h6",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0",
+          "ui:u2"
+        ]
+      },
+      {
+        "targetId": "F-005",
+        "sourceRefs": [
+          "alg:g1",
+          "alg:g2",
+          "api:a0",
+          "hld:h1",
+          "hld:h3",
+          "mod:o0",
+          "mod:o7",
+          "prd:p2",
+          "ui:u0",
+          "ui:u2"
+        ]
+      },
+      {
+        "targetId": "F-006",
+        "sourceRefs": [
+          "api:a2",
+          "hld:h1",
+          "hld:h3",
+          "mod:o0",
+          "mod:o5",
+          "mod:o6",
+          "prd:p2",
+          "ui:u0",
+          "ui:u2"
+        ]
+      },
+      {
+        "targetId": "F-007",
+        "sourceRefs": [
+          "alg:g4",
+          "api:a0",
+          "api:a2",
+          "db:d0",
+          "hld:h2",
+          "hld:h3",
+          "mod:o1",
+          "mod:o3",
+          "mod:o6",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "F-008",
+        "sourceRefs": [
+          "alg:g4",
+          "api:a0",
+          "api:a2",
+          "hld:h2",
+          "hld:h3",
+          "mod:o6",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "F-009",
+        "sourceRefs": [
+          "alg:g1",
+          "alg:g4",
+          "api:a0",
+          "api:a2",
+          "hld:h1",
+          "hld:h2",
+          "hld:h3",
+          "mod:o0",
+          "mod:o6",
+          "mod:o7",
+          "nfr:n2",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "NUI-001",
+        "sourceRefs": [
+          "hld:h7",
+          "mod:o7",
+          "nfr:n0",
+          "prd:p3"
+        ]
+      },
+      {
+        "targetId": "NUI-002",
+        "sourceRefs": [
+          "alg:g0",
+          "alg:g3",
+          "hld:h6",
+          "prd:p2"
+        ]
+      },
+      {
+        "targetId": "NUI-003",
+        "sourceRefs": [
+          "cls:k2",
+          "db:d0",
+          "hld:h4",
+          "hld:h5",
+          "prd:p2"
+        ]
+      },
+      {
+        "targetId": "NUI-004",
+        "sourceRefs": [
+          "hld:h5",
+          "hld:h7",
+          "nfr:n1",
+          "nfr:n2",
+          "prd:p3"
+        ]
+      },
+      {
+        "targetId": "NUI-005",
+        "sourceRefs": [
+          "api:a4",
+          "hld:h5",
+          "hld:h7",
+          "nfr:n0",
+          "prd:p3"
+        ]
+      },
+      {
+        "targetId": "P-CMS-DASHBOARD",
+        "sourceRefs": [
+          "hld:h2",
+          "hld:h3",
+          "mod:o1",
+          "mod:o3",
+          "mod:o6",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-CMS-DASHBOARD/controls/nav-dashboard",
+        "sourceRefs": [
+          "hld:h2",
+          "hld:h3",
+          "mod:o1",
+          "mod:o3",
+          "mod:o6",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-CMS-DASHBOARD/controls/nav-editor",
+        "sourceRefs": [
+          "hld:h2",
+          "hld:h3",
+          "mod:o1",
+          "mod:o3",
+          "mod:o6",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-CMS-DASHBOARD/controls/nav-publish",
+        "sourceRefs": [
+          "hld:h2",
+          "hld:h3",
+          "mod:o1",
+          "mod:o3",
+          "mod:o6",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-CMS-DASHBOARD/controls/nav-review",
+        "sourceRefs": [
+          "hld:h2",
+          "hld:h3",
+          "mod:o1",
+          "mod:o3",
+          "mod:o6",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-CMS-DASHBOARD/controls/new-content",
+        "sourceRefs": [
+          "hld:h2",
+          "hld:h3",
+          "mod:o1",
+          "mod:o3",
+          "mod:o6",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-CMS-DASHBOARD/controls/review-queue",
+        "sourceRefs": [
+          "hld:h2",
+          "hld:h3",
+          "mod:o1",
+          "mod:o3",
+          "mod:o6",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-CMS-DASHBOARD/controls/translation-item",
+        "sourceRefs": [
+          "hld:h2",
+          "hld:h3",
+          "mod:o1",
+          "mod:o3",
+          "mod:o6",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-CMS-DASHBOARD/states/empty",
+        "sourceRefs": [
+          "hld:h2",
+          "hld:h3",
+          "mod:o1",
+          "mod:o3",
+          "mod:o6",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-CMS-DASHBOARD/states/missing-translation",
+        "sourceRefs": [
+          "hld:h2",
+          "hld:h3",
+          "mod:o1",
+          "mod:o3",
+          "mod:o6",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-CMS-DASHBOARD/states/role-filtered",
+        "sourceRefs": [
+          "hld:h2",
+          "hld:h3",
+          "mod:o1",
+          "mod:o3",
+          "mod:o6",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-CMS-EDITOR",
+        "sourceRefs": [
+          "alg:g4",
+          "api:a0",
+          "db:d0",
+          "hld:h2",
+          "hld:h3",
+          "mod:o1",
+          "mod:o6",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-CMS-EDITOR/controls/block-add",
+        "sourceRefs": [
+          "alg:g4",
+          "api:a0",
+          "db:d0",
+          "hld:h2",
+          "hld:h3",
+          "mod:o1",
+          "mod:o6",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-CMS-EDITOR/controls/language-tabs",
+        "sourceRefs": [
+          "alg:g4",
+          "api:a0",
+          "db:d0",
+          "hld:h2",
+          "hld:h3",
+          "mod:o1",
+          "mod:o6",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-CMS-EDITOR/controls/nav-dashboard",
+        "sourceRefs": [
+          "alg:g4",
+          "api:a0",
+          "db:d0",
+          "hld:h2",
+          "hld:h3",
+          "mod:o1",
+          "mod:o6",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-CMS-EDITOR/controls/nav-editor",
+        "sourceRefs": [
+          "alg:g4",
+          "api:a0",
+          "db:d0",
+          "hld:h2",
+          "hld:h3",
+          "mod:o1",
+          "mod:o6",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-CMS-EDITOR/controls/nav-publish",
+        "sourceRefs": [
+          "alg:g4",
+          "api:a0",
+          "db:d0",
+          "hld:h2",
+          "hld:h3",
+          "mod:o1",
+          "mod:o6",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-CMS-EDITOR/controls/nav-review",
+        "sourceRefs": [
+          "alg:g4",
+          "api:a0",
+          "db:d0",
+          "hld:h2",
+          "hld:h3",
+          "mod:o1",
+          "mod:o6",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-CMS-EDITOR/controls/save",
+        "sourceRefs": [
+          "alg:g4",
+          "api:a0",
+          "db:d0",
+          "hld:h2",
+          "hld:h3",
+          "mod:o1",
+          "mod:o6",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-CMS-EDITOR/controls/submit-review",
+        "sourceRefs": [
+          "alg:g4",
+          "api:a0",
+          "db:d0",
+          "hld:h2",
+          "hld:h3",
+          "mod:o1",
+          "mod:o6",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-CMS-EDITOR/fields/imageBlock",
+        "sourceRefs": [
+          "alg:g4",
+          "api:a0",
+          "db:d0",
+          "hld:h2",
+          "hld:h3",
+          "mod:o1",
+          "mod:o6",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-CMS-EDITOR/fields/titleEn",
+        "sourceRefs": [
+          "alg:g4",
+          "api:a0",
+          "db:d0",
+          "hld:h2",
+          "hld:h3",
+          "mod:o1",
+          "mod:o6",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-CMS-EDITOR/fields/titleFr",
+        "sourceRefs": [
+          "alg:g4",
+          "api:a0",
+          "db:d0",
+          "hld:h2",
+          "hld:h3",
+          "mod:o1",
+          "mod:o6",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-CMS-EDITOR/states/conflict",
+        "sourceRefs": [
+          "alg:g4",
+          "api:a0",
+          "db:d0",
+          "hld:h2",
+          "hld:h3",
+          "mod:o1",
+          "mod:o6",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-CMS-EDITOR/states/draft",
+        "sourceRefs": [
+          "alg:g4",
+          "api:a0",
+          "db:d0",
+          "hld:h2",
+          "hld:h3",
+          "mod:o1",
+          "mod:o6",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-CMS-EDITOR/states/submitted",
+        "sourceRefs": [
+          "alg:g4",
+          "api:a0",
+          "db:d0",
+          "hld:h2",
+          "hld:h3",
+          "mod:o1",
+          "mod:o6",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-CMS-EDITOR/states/validation",
+        "sourceRefs": [
+          "alg:g4",
+          "api:a0",
+          "db:d0",
+          "hld:h2",
+          "hld:h3",
+          "mod:o1",
+          "mod:o6",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-CMS-LOGIN",
+        "sourceRefs": [
+          "api:a2",
+          "hld:h3",
+          "mod:o6",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-CMS-LOGIN/controls/nav-dashboard",
+        "sourceRefs": [
+          "api:a2",
+          "hld:h3",
+          "mod:o6",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-CMS-LOGIN/controls/nav-editor",
+        "sourceRefs": [
+          "api:a2",
+          "hld:h3",
+          "mod:o6",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-CMS-LOGIN/controls/nav-publish",
+        "sourceRefs": [
+          "api:a2",
+          "hld:h3",
+          "mod:o6",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-CMS-LOGIN/controls/nav-review",
+        "sourceRefs": [
+          "api:a2",
+          "hld:h3",
+          "mod:o6",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-CMS-LOGIN/controls/sign-in",
+        "sourceRefs": [
+          "api:a2",
+          "hld:h3",
+          "mod:o6",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-CMS-LOGIN/states/denied",
+        "sourceRefs": [
+          "api:a2",
+          "hld:h3",
+          "mod:o6",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-CMS-LOGIN/states/signed-out",
+        "sourceRefs": [
+          "api:a2",
+          "hld:h3",
+          "mod:o6",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-CMS-PUBLISH",
+        "sourceRefs": [
+          "alg:g4",
+          "api:a0",
+          "hld:h2",
+          "hld:h3",
+          "mod:o6",
+          "mod:o7",
+          "nfr:n2",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-CMS-PUBLISH/controls/archive",
+        "sourceRefs": [
+          "alg:g4",
+          "api:a0",
+          "hld:h2",
+          "hld:h3",
+          "mod:o6",
+          "mod:o7",
+          "nfr:n2",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-CMS-PUBLISH/controls/audit",
+        "sourceRefs": [
+          "alg:g4",
+          "api:a0",
+          "hld:h2",
+          "hld:h3",
+          "mod:o6",
+          "mod:o7",
+          "nfr:n2",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-CMS-PUBLISH/controls/nav-dashboard",
+        "sourceRefs": [
+          "alg:g4",
+          "api:a0",
+          "hld:h2",
+          "hld:h3",
+          "mod:o6",
+          "mod:o7",
+          "nfr:n2",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-CMS-PUBLISH/controls/nav-editor",
+        "sourceRefs": [
+          "alg:g4",
+          "api:a0",
+          "hld:h2",
+          "hld:h3",
+          "mod:o6",
+          "mod:o7",
+          "nfr:n2",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-CMS-PUBLISH/controls/nav-publish",
+        "sourceRefs": [
+          "alg:g4",
+          "api:a0",
+          "hld:h2",
+          "hld:h3",
+          "mod:o6",
+          "mod:o7",
+          "nfr:n2",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-CMS-PUBLISH/controls/nav-review",
+        "sourceRefs": [
+          "alg:g4",
+          "api:a0",
+          "hld:h2",
+          "hld:h3",
+          "mod:o6",
+          "mod:o7",
+          "nfr:n2",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-CMS-PUBLISH/controls/publish",
+        "sourceRefs": [
+          "alg:g4",
+          "api:a0",
+          "hld:h2",
+          "hld:h3",
+          "mod:o6",
+          "mod:o7",
+          "nfr:n2",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-CMS-PUBLISH/controls/unpublish",
+        "sourceRefs": [
+          "alg:g4",
+          "api:a0",
+          "hld:h2",
+          "hld:h3",
+          "mod:o6",
+          "mod:o7",
+          "nfr:n2",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-CMS-PUBLISH/states/archived",
+        "sourceRefs": [
+          "alg:g4",
+          "api:a0",
+          "hld:h2",
+          "hld:h3",
+          "mod:o6",
+          "mod:o7",
+          "nfr:n2",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-CMS-PUBLISH/states/event-retry",
+        "sourceRefs": [
+          "alg:g4",
+          "api:a0",
+          "hld:h2",
+          "hld:h3",
+          "mod:o6",
+          "mod:o7",
+          "nfr:n2",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-CMS-PUBLISH/states/pending-publish",
+        "sourceRefs": [
+          "alg:g4",
+          "api:a0",
+          "hld:h2",
+          "hld:h3",
+          "mod:o6",
+          "mod:o7",
+          "nfr:n2",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-CMS-PUBLISH/states/preflight-failed",
+        "sourceRefs": [
+          "alg:g4",
+          "api:a0",
+          "hld:h2",
+          "hld:h3",
+          "mod:o6",
+          "mod:o7",
+          "nfr:n2",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-CMS-PUBLISH/states/published",
+        "sourceRefs": [
+          "alg:g4",
+          "api:a0",
+          "hld:h2",
+          "hld:h3",
+          "mod:o6",
+          "mod:o7",
+          "nfr:n2",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-CMS-REVIEW",
+        "sourceRefs": [
+          "alg:g4",
+          "api:a0",
+          "hld:h2",
+          "hld:h3",
+          "mod:o6",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-CMS-REVIEW/controls/approve",
+        "sourceRefs": [
+          "alg:g4",
+          "api:a0",
+          "hld:h2",
+          "hld:h3",
+          "mod:o6",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-CMS-REVIEW/controls/compare",
+        "sourceRefs": [
+          "alg:g4",
+          "api:a0",
+          "hld:h2",
+          "hld:h3",
+          "mod:o6",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-CMS-REVIEW/controls/nav-dashboard",
+        "sourceRefs": [
+          "alg:g4",
+          "api:a0",
+          "hld:h2",
+          "hld:h3",
+          "mod:o6",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-CMS-REVIEW/controls/nav-editor",
+        "sourceRefs": [
+          "alg:g4",
+          "api:a0",
+          "hld:h2",
+          "hld:h3",
+          "mod:o6",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-CMS-REVIEW/controls/nav-publish",
+        "sourceRefs": [
+          "alg:g4",
+          "api:a0",
+          "hld:h2",
+          "hld:h3",
+          "mod:o6",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-CMS-REVIEW/controls/nav-review",
+        "sourceRefs": [
+          "alg:g4",
+          "api:a0",
+          "hld:h2",
+          "hld:h3",
+          "mod:o6",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-CMS-REVIEW/controls/return",
+        "sourceRefs": [
+          "alg:g4",
+          "api:a0",
+          "hld:h2",
+          "hld:h3",
+          "mod:o6",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-CMS-REVIEW/states/approved",
+        "sourceRefs": [
+          "alg:g4",
+          "api:a0",
+          "hld:h2",
+          "hld:h3",
+          "mod:o6",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-CMS-REVIEW/states/forbidden",
+        "sourceRefs": [
+          "alg:g4",
+          "api:a0",
+          "hld:h2",
+          "hld:h3",
+          "mod:o6",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-CMS-REVIEW/states/returned",
+        "sourceRefs": [
+          "alg:g4",
+          "api:a0",
+          "hld:h2",
+          "hld:h3",
+          "mod:o6",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-CMS-REVIEW/states/review-queue",
+        "sourceRefs": [
+          "alg:g4",
+          "api:a0",
+          "hld:h2",
+          "hld:h3",
+          "mod:o6",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-PUB-ACCOUNT",
+        "sourceRefs": [
+          "api:a2",
+          "hld:h3",
+          "mod:o0",
+          "mod:o6",
+          "prd:p2",
+          "ui:u0",
+          "ui:u2"
+        ]
+      },
+      {
+        "targetId": "P-PUB-ACCOUNT/controls/nav-home",
+        "sourceRefs": [
+          "api:a2",
+          "hld:h3",
+          "mod:o0",
+          "mod:o6",
+          "prd:p2",
+          "ui:u0",
+          "ui:u2"
+        ]
+      },
+      {
+        "targetId": "P-PUB-ACCOUNT/controls/nav-opendata",
+        "sourceRefs": [
+          "api:a2",
+          "hld:h3",
+          "mod:o0",
+          "mod:o6",
+          "prd:p2",
+          "ui:u0",
+          "ui:u2"
+        ]
+      },
+      {
+        "targetId": "P-PUB-ACCOUNT/controls/nav-section",
+        "sourceRefs": [
+          "api:a2",
+          "hld:h3",
+          "mod:o0",
+          "mod:o6",
+          "prd:p2",
+          "ui:u0",
+          "ui:u2"
+        ]
+      },
+      {
+        "targetId": "P-PUB-ACCOUNT/controls/nav-services",
+        "sourceRefs": [
+          "api:a2",
+          "hld:h3",
+          "mod:o0",
+          "mod:o6",
+          "prd:p2",
+          "ui:u0",
+          "ui:u2"
+        ]
+      },
+      {
+        "targetId": "P-PUB-ACCOUNT/controls/otp",
+        "sourceRefs": [
+          "api:a2",
+          "hld:h3",
+          "mod:o0",
+          "mod:o6",
+          "prd:p2",
+          "ui:u0",
+          "ui:u2"
+        ]
+      },
+      {
+        "targetId": "P-PUB-ACCOUNT/controls/phone",
+        "sourceRefs": [
+          "api:a2",
+          "hld:h3",
+          "mod:o0",
+          "mod:o6",
+          "prd:p2",
+          "ui:u0",
+          "ui:u2"
+        ]
+      },
+      {
+        "targetId": "P-PUB-ACCOUNT/controls/submit",
+        "sourceRefs": [
+          "api:a2",
+          "hld:h3",
+          "mod:o0",
+          "mod:o6",
+          "prd:p2",
+          "ui:u0",
+          "ui:u2"
+        ]
+      },
+      {
+        "targetId": "P-PUB-ACCOUNT/fields/otp",
+        "sourceRefs": [
+          "api:a2",
+          "hld:h3",
+          "mod:o0",
+          "mod:o6",
+          "prd:p2",
+          "ui:u0",
+          "ui:u2"
+        ]
+      },
+      {
+        "targetId": "P-PUB-ACCOUNT/fields/phone",
+        "sourceRefs": [
+          "api:a2",
+          "hld:h3",
+          "mod:o0",
+          "mod:o6",
+          "prd:p2",
+          "ui:u0",
+          "ui:u2"
+        ]
+      },
+      {
+        "targetId": "P-PUB-ACCOUNT/states/expired",
+        "sourceRefs": [
+          "api:a2",
+          "hld:h3",
+          "mod:o0",
+          "mod:o6",
+          "prd:p2",
+          "ui:u0",
+          "ui:u2"
+        ]
+      },
+      {
+        "targetId": "P-PUB-ACCOUNT/states/locked",
+        "sourceRefs": [
+          "api:a2",
+          "hld:h3",
+          "mod:o0",
+          "mod:o6",
+          "prd:p2",
+          "ui:u0",
+          "ui:u2"
+        ]
+      },
+      {
+        "targetId": "P-PUB-ACCOUNT/states/otp",
+        "sourceRefs": [
+          "api:a2",
+          "hld:h3",
+          "mod:o0",
+          "mod:o6",
+          "prd:p2",
+          "ui:u0",
+          "ui:u2"
+        ]
+      },
+      {
+        "targetId": "P-PUB-ACCOUNT/states/register",
+        "sourceRefs": [
+          "api:a2",
+          "hld:h3",
+          "mod:o0",
+          "mod:o6",
+          "prd:p2",
+          "ui:u0",
+          "ui:u2"
+        ]
+      },
+      {
+        "targetId": "P-PUB-ACCOUNT/states/session-expired",
+        "sourceRefs": [
+          "api:a2",
+          "hld:h3",
+          "mod:o0",
+          "mod:o6",
+          "prd:p2",
+          "ui:u0",
+          "ui:u2"
+        ]
+      },
+      {
+        "targetId": "P-PUB-APPLICATION",
+        "sourceRefs": [
+          "alg:g0",
+          "api:a0",
+          "hld:h2",
+          "hld:h6",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0",
+          "ui:u2"
+        ]
+      },
+      {
+        "targetId": "P-PUB-APPLICATION-STATUS",
+        "sourceRefs": [
+          "alg:g3",
+          "db:d1",
+          "hld:h6",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-PUB-APPLICATION-STATUS/controls/login",
+        "sourceRefs": [
+          "alg:g3",
+          "db:d1",
+          "hld:h6",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-PUB-APPLICATION-STATUS/controls/nav-home",
+        "sourceRefs": [
+          "alg:g3",
+          "db:d1",
+          "hld:h6",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-PUB-APPLICATION-STATUS/controls/nav-opendata",
+        "sourceRefs": [
+          "alg:g3",
+          "db:d1",
+          "hld:h6",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-PUB-APPLICATION-STATUS/controls/nav-section",
+        "sourceRefs": [
+          "alg:g3",
+          "db:d1",
+          "hld:h6",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-PUB-APPLICATION-STATUS/controls/nav-services",
+        "sourceRefs": [
+          "alg:g3",
+          "db:d1",
+          "hld:h6",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-PUB-APPLICATION-STATUS/controls/refresh",
+        "sourceRefs": [
+          "alg:g3",
+          "db:d1",
+          "hld:h6",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-PUB-APPLICATION-STATUS/states/completed",
+        "sourceRefs": [
+          "alg:g3",
+          "db:d1",
+          "hld:h6",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-PUB-APPLICATION-STATUS/states/pending",
+        "sourceRefs": [
+          "alg:g3",
+          "db:d1",
+          "hld:h6",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-PUB-APPLICATION-STATUS/states/processing",
+        "sourceRefs": [
+          "alg:g3",
+          "db:d1",
+          "hld:h6",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-PUB-APPLICATION-STATUS/states/returned",
+        "sourceRefs": [
+          "alg:g3",
+          "db:d1",
+          "hld:h6",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-PUB-APPLICATION-STATUS/states/unauthorized",
+        "sourceRefs": [
+          "alg:g3",
+          "db:d1",
+          "hld:h6",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-PUB-APPLICATION/controls/back",
+        "sourceRefs": [
+          "alg:g0",
+          "api:a0",
+          "hld:h2",
+          "hld:h6",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0",
+          "ui:u2"
+        ]
+      },
+      {
+        "targetId": "P-PUB-APPLICATION/controls/nav-home",
+        "sourceRefs": [
+          "alg:g0",
+          "api:a0",
+          "hld:h2",
+          "hld:h6",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0",
+          "ui:u2"
+        ]
+      },
+      {
+        "targetId": "P-PUB-APPLICATION/controls/nav-opendata",
+        "sourceRefs": [
+          "alg:g0",
+          "api:a0",
+          "hld:h2",
+          "hld:h6",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0",
+          "ui:u2"
+        ]
+      },
+      {
+        "targetId": "P-PUB-APPLICATION/controls/nav-section",
+        "sourceRefs": [
+          "alg:g0",
+          "api:a0",
+          "hld:h2",
+          "hld:h6",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0",
+          "ui:u2"
+        ]
+      },
+      {
+        "targetId": "P-PUB-APPLICATION/controls/nav-services",
+        "sourceRefs": [
+          "alg:g0",
+          "api:a0",
+          "hld:h2",
+          "hld:h6",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0",
+          "ui:u2"
+        ]
+      },
+      {
+        "targetId": "P-PUB-APPLICATION/controls/next",
+        "sourceRefs": [
+          "alg:g0",
+          "api:a0",
+          "hld:h2",
+          "hld:h6",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0",
+          "ui:u2"
+        ]
+      },
+      {
+        "targetId": "P-PUB-APPLICATION/controls/submit",
+        "sourceRefs": [
+          "alg:g0",
+          "api:a0",
+          "hld:h2",
+          "hld:h6",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0",
+          "ui:u2"
+        ]
+      },
+      {
+        "targetId": "P-PUB-APPLICATION/controls/upload",
+        "sourceRefs": [
+          "alg:g0",
+          "api:a0",
+          "hld:h2",
+          "hld:h6",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0",
+          "ui:u2"
+        ]
+      },
+      {
+        "targetId": "P-PUB-APPLICATION/fields/attachments",
+        "sourceRefs": [
+          "alg:g0",
+          "api:a0",
+          "hld:h2",
+          "hld:h6",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0",
+          "ui:u2"
+        ]
+      },
+      {
+        "targetId": "P-PUB-APPLICATION/states/details",
+        "sourceRefs": [
+          "alg:g0",
+          "api:a0",
+          "hld:h2",
+          "hld:h6",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0",
+          "ui:u2"
+        ]
+      },
+      {
+        "targetId": "P-PUB-APPLICATION/states/materials",
+        "sourceRefs": [
+          "alg:g0",
+          "api:a0",
+          "hld:h2",
+          "hld:h6",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0",
+          "ui:u2"
+        ]
+      },
+      {
+        "targetId": "P-PUB-APPLICATION/states/submitting",
+        "sourceRefs": [
+          "alg:g0",
+          "api:a0",
+          "hld:h2",
+          "hld:h6",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0",
+          "ui:u2"
+        ]
+      },
+      {
+        "targetId": "P-PUB-APPLICATION/states/upstream-pending",
+        "sourceRefs": [
+          "alg:g0",
+          "api:a0",
+          "hld:h2",
+          "hld:h6",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0",
+          "ui:u2"
+        ]
+      },
+      {
+        "targetId": "P-PUB-APPLICATION/states/validation",
+        "sourceRefs": [
+          "alg:g0",
+          "api:a0",
+          "hld:h2",
+          "hld:h6",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0",
+          "ui:u2"
+        ]
+      },
+      {
+        "targetId": "P-PUB-ARCHIVE",
+        "sourceRefs": [
+          "api:a1",
+          "hld:h1",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-PUB-ARCHIVE/controls/nav-home",
+        "sourceRefs": [
+          "api:a1",
+          "hld:h1",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-PUB-ARCHIVE/controls/nav-opendata",
+        "sourceRefs": [
+          "api:a1",
+          "hld:h1",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-PUB-ARCHIVE/controls/nav-section",
+        "sourceRefs": [
+          "api:a1",
+          "hld:h1",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-PUB-ARCHIVE/controls/nav-services",
+        "sourceRefs": [
+          "api:a1",
+          "hld:h1",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-PUB-ARCHIVE/controls/return-section",
+        "sourceRefs": [
+          "api:a1",
+          "hld:h1",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-PUB-ARCHIVE/states/gone",
+        "sourceRefs": [
+          "api:a1",
+          "hld:h1",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-PUB-CONTENT",
+        "sourceRefs": [
+          "api:a0",
+          "hld:h1",
+          "mod:o0",
+          "mod:o7",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-PUB-CONTENT/controls/back",
+        "sourceRefs": [
+          "api:a0",
+          "hld:h1",
+          "mod:o0",
+          "mod:o7",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-PUB-CONTENT/controls/language",
+        "sourceRefs": [
+          "api:a0",
+          "hld:h1",
+          "mod:o0",
+          "mod:o7",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-PUB-CONTENT/controls/nav-home",
+        "sourceRefs": [
+          "api:a0",
+          "hld:h1",
+          "mod:o0",
+          "mod:o7",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-PUB-CONTENT/controls/nav-opendata",
+        "sourceRefs": [
+          "api:a0",
+          "hld:h1",
+          "mod:o0",
+          "mod:o7",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-PUB-CONTENT/controls/nav-section",
+        "sourceRefs": [
+          "api:a0",
+          "hld:h1",
+          "mod:o0",
+          "mod:o7",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-PUB-CONTENT/controls/nav-services",
+        "sourceRefs": [
+          "api:a0",
+          "hld:h1",
+          "mod:o0",
+          "mod:o7",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-PUB-CONTENT/states/fallback",
+        "sourceRefs": [
+          "api:a0",
+          "hld:h1",
+          "mod:o0",
+          "mod:o7",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-PUB-CONTENT/states/gone",
+        "sourceRefs": [
+          "api:a0",
+          "hld:h1",
+          "mod:o0",
+          "mod:o7",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-PUB-CONTENT/states/published",
+        "sourceRefs": [
+          "api:a0",
+          "hld:h1",
+          "mod:o0",
+          "mod:o7",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-PUB-HOME",
+        "sourceRefs": [
+          "alg:g1",
+          "hld:h1",
+          "hld:h3",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-PUB-HOME/controls/language",
+        "sourceRefs": [
+          "alg:g1",
+          "hld:h1",
+          "hld:h3",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-PUB-HOME/controls/nav-home",
+        "sourceRefs": [
+          "alg:g1",
+          "hld:h1",
+          "hld:h3",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-PUB-HOME/controls/nav-opendata",
+        "sourceRefs": [
+          "alg:g1",
+          "hld:h1",
+          "hld:h3",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-PUB-HOME/controls/nav-section",
+        "sourceRefs": [
+          "alg:g1",
+          "hld:h1",
+          "hld:h3",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-PUB-HOME/controls/nav-services",
+        "sourceRefs": [
+          "alg:g1",
+          "hld:h1",
+          "hld:h3",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-PUB-HOME/controls/search",
+        "sourceRefs": [
+          "alg:g1",
+          "hld:h1",
+          "hld:h3",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-PUB-HOME/controls/service-cards",
+        "sourceRefs": [
+          "alg:g1",
+          "hld:h1",
+          "hld:h3",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-PUB-HOME/states/fallback",
+        "sourceRefs": [
+          "alg:g1",
+          "hld:h1",
+          "hld:h3",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-PUB-HOME/states/mobile",
+        "sourceRefs": [
+          "alg:g1",
+          "hld:h1",
+          "hld:h3",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-PUB-HOME/states/ready",
+        "sourceRefs": [
+          "alg:g1",
+          "hld:h1",
+          "hld:h3",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-PUB-HOME/states/slow",
+        "sourceRefs": [
+          "alg:g1",
+          "hld:h1",
+          "hld:h3",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-PUB-OPENDATA",
+        "sourceRefs": [
+          "api:a2",
+          "hld:h1",
+          "hld:h3",
+          "mod:o0",
+          "mod:o5",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-PUB-OPENDATA/controls/dataset",
+        "sourceRefs": [
+          "api:a2",
+          "hld:h1",
+          "hld:h3",
+          "mod:o0",
+          "mod:o5",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-PUB-OPENDATA/controls/download",
+        "sourceRefs": [
+          "api:a2",
+          "hld:h1",
+          "hld:h3",
+          "mod:o0",
+          "mod:o5",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-PUB-OPENDATA/controls/get-key",
+        "sourceRefs": [
+          "api:a2",
+          "hld:h1",
+          "hld:h3",
+          "mod:o0",
+          "mod:o5",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-PUB-OPENDATA/controls/nav-home",
+        "sourceRefs": [
+          "api:a2",
+          "hld:h1",
+          "hld:h3",
+          "mod:o0",
+          "mod:o5",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-PUB-OPENDATA/controls/nav-opendata",
+        "sourceRefs": [
+          "api:a2",
+          "hld:h1",
+          "hld:h3",
+          "mod:o0",
+          "mod:o5",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-PUB-OPENDATA/controls/nav-section",
+        "sourceRefs": [
+          "api:a2",
+          "hld:h1",
+          "hld:h3",
+          "mod:o0",
+          "mod:o5",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-PUB-OPENDATA/controls/nav-services",
+        "sourceRefs": [
+          "api:a2",
+          "hld:h1",
+          "hld:h3",
+          "mod:o0",
+          "mod:o5",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-PUB-OPENDATA/fields/apiKey",
+        "sourceRefs": [
+          "api:a2",
+          "hld:h1",
+          "hld:h3",
+          "mod:o0",
+          "mod:o5",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-PUB-OPENDATA/states/catalog",
+        "sourceRefs": [
+          "api:a2",
+          "hld:h1",
+          "hld:h3",
+          "mod:o0",
+          "mod:o5",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-PUB-OPENDATA/states/key-needed",
+        "sourceRefs": [
+          "api:a2",
+          "hld:h1",
+          "hld:h3",
+          "mod:o0",
+          "mod:o5",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-PUB-OPENDATA/states/rate-limited",
+        "sourceRefs": [
+          "api:a2",
+          "hld:h1",
+          "hld:h3",
+          "mod:o0",
+          "mod:o5",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-PUB-OPENDATA/states/unauthorized",
+        "sourceRefs": [
+          "api:a2",
+          "hld:h1",
+          "hld:h3",
+          "mod:o0",
+          "mod:o5",
+          "prd:p2",
+          "ui:u0"
+        ]
+      },
+      {
+        "targetId": "P-PUB-RECEIPT",
+        "sourceRefs": [
+          "db:d0",
+          "hld:h6",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0",
+          "ui:u3"
+        ]
+      },
+      {
+        "targetId": "P-PUB-RECEIPT/controls/copy",
+        "sourceRefs": [
+          "db:d0",
+          "hld:h6",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0",
+          "ui:u3"
+        ]
+      },
+      {
+        "targetId": "P-PUB-RECEIPT/controls/nav-home",
+        "sourceRefs": [
+          "db:d0",
+          "hld:h6",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0",
+          "ui:u3"
+        ]
+      },
+      {
+        "targetId": "P-PUB-RECEIPT/controls/nav-opendata",
+        "sourceRefs": [
+          "db:d0",
+          "hld:h6",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0",
+          "ui:u3"
+        ]
+      },
+      {
+        "targetId": "P-PUB-RECEIPT/controls/nav-section",
+        "sourceRefs": [
+          "db:d0",
+          "hld:h6",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0",
+          "ui:u3"
+        ]
+      },
+      {
+        "targetId": "P-PUB-RECEIPT/controls/nav-services",
+        "sourceRefs": [
+          "db:d0",
+          "hld:h6",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0",
+          "ui:u3"
+        ]
+      },
+      {
+        "targetId": "P-PUB-RECEIPT/controls/track",
+        "sourceRefs": [
+          "db:d0",
+          "hld:h6",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0",
+          "ui:u3"
+        ]
+      },
+      {
+        "targetId": "P-PUB-RECEIPT/states/accepted",
+        "sourceRefs": [
+          "db:d0",
+          "hld:h6",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0",
+          "ui:u3"
+        ]
+      },
+      {
+        "targetId": "P-PUB-RECEIPT/states/pending",
+        "sourceRefs": [
+          "db:d0",
+          "hld:h6",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0",
+          "ui:u3"
+        ]
+      },
+      {
+        "targetId": "P-PUB-SEARCH",
+        "sourceRefs": [
+          "alg:g2",
+          "hld:h1",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0",
+          "ui:u2"
+        ]
+      },
+      {
+        "targetId": "P-PUB-SEARCH/controls/nav-home",
+        "sourceRefs": [
+          "alg:g2",
+          "hld:h1",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0",
+          "ui:u2"
+        ]
+      },
+      {
+        "targetId": "P-PUB-SEARCH/controls/nav-opendata",
+        "sourceRefs": [
+          "alg:g2",
+          "hld:h1",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0",
+          "ui:u2"
+        ]
+      },
+      {
+        "targetId": "P-PUB-SEARCH/controls/nav-section",
+        "sourceRefs": [
+          "alg:g2",
+          "hld:h1",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0",
+          "ui:u2"
+        ]
+      },
+      {
+        "targetId": "P-PUB-SEARCH/controls/nav-services",
+        "sourceRefs": [
+          "alg:g2",
+          "hld:h1",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0",
+          "ui:u2"
+        ]
+      },
+      {
+        "targetId": "P-PUB-SEARCH/controls/query",
+        "sourceRefs": [
+          "alg:g2",
+          "hld:h1",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0",
+          "ui:u2"
+        ]
+      },
+      {
+        "targetId": "P-PUB-SEARCH/controls/result",
+        "sourceRefs": [
+          "alg:g2",
+          "hld:h1",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0",
+          "ui:u2"
+        ]
+      },
+      {
+        "targetId": "P-PUB-SEARCH/fields/query",
+        "sourceRefs": [
+          "alg:g2",
+          "hld:h1",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0",
+          "ui:u2"
+        ]
+      },
+      {
+        "targetId": "P-PUB-SEARCH/states/basic",
+        "sourceRefs": [
+          "alg:g2",
+          "hld:h1",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0",
+          "ui:u2"
+        ]
+      },
+      {
+        "targetId": "P-PUB-SEARCH/states/empty",
+        "sourceRefs": [
+          "alg:g2",
+          "hld:h1",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0",
+          "ui:u2"
+        ]
+      },
+      {
+        "targetId": "P-PUB-SEARCH/states/lagging",
+        "sourceRefs": [
+          "alg:g2",
+          "hld:h1",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0",
+          "ui:u2"
+        ]
+      },
+      {
+        "targetId": "P-PUB-SEARCH/states/results",
+        "sourceRefs": [
+          "alg:g2",
+          "hld:h1",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0",
+          "ui:u2"
+        ]
+      },
+      {
+        "targetId": "P-PUB-SECTION",
+        "sourceRefs": [
+          "api:a0",
+          "hld:h1",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0",
+          "ui:u1"
+        ]
+      },
+      {
+        "targetId": "P-PUB-SECTION/controls/content-card",
+        "sourceRefs": [
+          "api:a0",
+          "hld:h1",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0",
+          "ui:u1"
+        ]
+      },
+      {
+        "targetId": "P-PUB-SECTION/controls/nav-home",
+        "sourceRefs": [
+          "api:a0",
+          "hld:h1",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0",
+          "ui:u1"
+        ]
+      },
+      {
+        "targetId": "P-PUB-SECTION/controls/nav-opendata",
+        "sourceRefs": [
+          "api:a0",
+          "hld:h1",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0",
+          "ui:u1"
+        ]
+      },
+      {
+        "targetId": "P-PUB-SECTION/controls/nav-section",
+        "sourceRefs": [
+          "api:a0",
+          "hld:h1",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0",
+          "ui:u1"
+        ]
+      },
+      {
+        "targetId": "P-PUB-SECTION/controls/nav-services",
+        "sourceRefs": [
+          "api:a0",
+          "hld:h1",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0",
+          "ui:u1"
+        ]
+      },
+      {
+        "targetId": "P-PUB-SECTION/controls/pagination",
+        "sourceRefs": [
+          "api:a0",
+          "hld:h1",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0",
+          "ui:u1"
+        ]
+      },
+      {
+        "targetId": "P-PUB-SECTION/controls/retry",
+        "sourceRefs": [
+          "api:a0",
+          "hld:h1",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0",
+          "ui:u1"
+        ]
+      },
+      {
+        "targetId": "P-PUB-SECTION/states/empty",
+        "sourceRefs": [
+          "api:a0",
+          "hld:h1",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0",
+          "ui:u1"
+        ]
+      },
+      {
+        "targetId": "P-PUB-SECTION/states/failed",
+        "sourceRefs": [
+          "api:a0",
+          "hld:h1",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0",
+          "ui:u1"
+        ]
+      },
+      {
+        "targetId": "P-PUB-SECTION/states/loaded",
+        "sourceRefs": [
+          "api:a0",
+          "hld:h1",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0",
+          "ui:u1"
+        ]
+      },
+      {
+        "targetId": "P-PUB-SECTION/states/loading",
+        "sourceRefs": [
+          "api:a0",
+          "hld:h1",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0",
+          "ui:u1"
+        ]
+      },
+      {
+        "targetId": "P-PUB-SERVICE-GUIDE",
+        "sourceRefs": [
+          "api:a0",
+          "hld:h2",
+          "hld:h6",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0",
+          "ui:u1"
+        ]
+      },
+      {
+        "targetId": "P-PUB-SERVICE-GUIDE/controls/nav-home",
+        "sourceRefs": [
+          "api:a0",
+          "hld:h2",
+          "hld:h6",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0",
+          "ui:u1"
+        ]
+      },
+      {
+        "targetId": "P-PUB-SERVICE-GUIDE/controls/nav-opendata",
+        "sourceRefs": [
+          "api:a0",
+          "hld:h2",
+          "hld:h6",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0",
+          "ui:u1"
+        ]
+      },
+      {
+        "targetId": "P-PUB-SERVICE-GUIDE/controls/nav-section",
+        "sourceRefs": [
+          "api:a0",
+          "hld:h2",
+          "hld:h6",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0",
+          "ui:u1"
+        ]
+      },
+      {
+        "targetId": "P-PUB-SERVICE-GUIDE/controls/nav-services",
+        "sourceRefs": [
+          "api:a0",
+          "hld:h2",
+          "hld:h6",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0",
+          "ui:u1"
+        ]
+      },
+      {
+        "targetId": "P-PUB-SERVICE-GUIDE/controls/requirements",
+        "sourceRefs": [
+          "api:a0",
+          "hld:h2",
+          "hld:h6",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0",
+          "ui:u1"
+        ]
+      },
+      {
+        "targetId": "P-PUB-SERVICE-GUIDE/controls/start",
+        "sourceRefs": [
+          "api:a0",
+          "hld:h2",
+          "hld:h6",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0",
+          "ui:u1"
+        ]
+      },
+      {
+        "targetId": "P-PUB-SERVICE-GUIDE/states/auth-needed",
+        "sourceRefs": [
+          "api:a0",
+          "hld:h2",
+          "hld:h6",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0",
+          "ui:u1"
+        ]
+      },
+      {
+        "targetId": "P-PUB-SERVICE-GUIDE/states/available",
+        "sourceRefs": [
+          "api:a0",
+          "hld:h2",
+          "hld:h6",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0",
+          "ui:u1"
+        ]
+      },
+      {
+        "targetId": "P-PUB-SERVICE-GUIDE/states/unavailable",
+        "sourceRefs": [
+          "api:a0",
+          "hld:h2",
+          "hld:h6",
+          "mod:o0",
+          "prd:p2",
+          "ui:u0",
+          "ui:u1"
+        ]
+      },
+      {
+        "targetId": "REQ-001",
+        "sourceRefs": [
+          "prd:p2"
+        ]
+      },
+      {
+        "targetId": "REQ-002",
+        "sourceRefs": [
+          "prd:p2"
+        ]
+      },
+      {
+        "targetId": "REQ-003",
+        "sourceRefs": [
+          "prd:p2"
+        ]
+      },
+      {
+        "targetId": "REQ-004",
+        "sourceRefs": [
+          "prd:p2"
+        ]
+      },
+      {
+        "targetId": "REQ-005",
+        "sourceRefs": [
+          "prd:p2"
+        ]
+      },
+      {
+        "targetId": "REQ-006",
+        "sourceRefs": [
+          "prd:p2"
+        ]
+      },
+      {
+        "targetId": "REQ-007",
+        "sourceRefs": [
+          "prd:p2"
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "ok": true,
+  "templateSha256": "fb1f7c2b9c9408e2e9dbcfb6c28bca9827dd2c0ad750766bc3c2c2b02ee01a61",
+  "checks": [
+    {
+      "name": "普通 CMS dashboard initial 必须先认证",
+      "ok": true
+    },
+    {
+      "name": "普通 CMS dashboard hashchange 必须先认证",
+      "ok": true
+    },
+    {
+      "name": "普通 CMS editor initial 必须先认证",
+      "ok": true
+    },
+    {
+      "name": "普通 CMS editor hashchange 必须先认证",
+      "ok": true
+    },
+    {
+      "name": "普通 CMS review initial 必须先认证",
+      "ok": true
+    },
+    {
+      "name": "普通 CMS review hashchange 必须先认证",
+      "ok": true
+    },
+    {
+      "name": "普通 CMS publish initial 必须先认证",
+      "ok": true
+    },
+    {
+      "name": "普通 CMS publish hashchange 必须先认证",
+      "ok": true
+    },
+    {
+      "name": "连续发布下线后的 workflowView 必须属于冻结目录",
+      "ok": true
+    }
+  ]
+}
