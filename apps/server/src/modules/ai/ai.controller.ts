@@ -3,6 +3,7 @@ import {
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { getActor } from '../api/identity.middleware.js';
+import { AiDelegationsService } from './delegations.service.js';
 import { AiModelsService, type ModelUpsertPayload } from './models.service.js';
 import { AiPromptsService } from './prompts.service.js';
 import { AiUsageService } from './usage.service.js';
@@ -14,6 +15,7 @@ export class AiController {
     @Inject(AiModelsService) private readonly models: AiModelsService,
     @Inject(AiPromptsService) private readonly prompts: AiPromptsService,
     @Inject(AiUsageService) private readonly usage: AiUsageService,
+    @Inject(AiDelegationsService) private readonly delegations: AiDelegationsService,
   ) {}
 
   private actor(req: Request) {
@@ -87,5 +89,19 @@ export class AiController {
   @Get('usage/summary')
   usageSummary() {
     return this.usage.summary();
+  }
+
+  // ---- 委派目标注册（A08-8 注册向导；密钥类 config 字段加密存储） ----
+
+  @Post('delegation-targets')
+  @HttpCode(200)
+  upsertTarget(@Body() body: Record<string, unknown>, @Req() req: Request) {
+    return this.delegations.upsertTarget(body, this.actor(req));
+  }
+
+  @Post('delegation-targets/:key\\:test')
+  @HttpCode(200)
+  testTarget(@Param('key') key: string, @Req() req: Request) {
+    return this.delegations.testTarget(key, this.actor(req));
   }
 }

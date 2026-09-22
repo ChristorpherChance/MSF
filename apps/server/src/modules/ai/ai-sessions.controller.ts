@@ -3,17 +3,19 @@ import {
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { getActor } from '../api/identity.middleware.js';
+import { AiDelegationsService } from './delegations.service.js';
 import { AiSessionsService } from './sessions.service.js';
 import { AiToolsService } from './tools.service.js';
 import { AiUsageService } from './usage.service.js';
 
-/** AI 会话端点（LLD-5 DSG-A08-1/2/3/4；REQ-601/602/603/608） */
+/** AI 会话端点（LLD-5 DSG-A08-1/2/3/4/8；REQ-601/602/603/608/610） */
 @Controller('api/v1/projects/:projectId/ai')
 export class AiSessionsController {
   constructor(
     @Inject(AiSessionsService) private readonly sessions: AiSessionsService,
     @Inject(AiToolsService) private readonly tools: AiToolsService,
     @Inject(AiUsageService) private readonly usage: AiUsageService,
+    @Inject(AiDelegationsService) private readonly delegations: AiDelegationsService,
   ) {}
 
   private actor(req: Request, projectId: string) {
@@ -166,5 +168,45 @@ export class AiSessionsController {
       ...(cursor !== undefined ? { cursor } : {}),
       ...(limit !== undefined ? { limit: Number(limit) } : {}),
     });
+  }
+
+  // ---- 委派（A08-8） ----
+
+  @Get('delegations')
+  delegationList(@Param('projectId') projectId: string, @Query('status') status?: string) {
+    return this.delegations.list(projectId, status);
+  }
+
+  @Post('delegations')
+  @HttpCode(200)
+  delegationCreate(
+    @Param('projectId') projectId: string,
+    @Body() body: {
+      target: string; taskDesc: string; taskId?: string;
+      workspaceScope?: unknown[]; budgetLimit?: number;
+    },
+    @Req() req: Request,
+  ) {
+    return this.delegations.create(projectId, body, this.actor(req, projectId));
+  }
+
+  @Get('delegations/:delegationId')
+  delegationDetail(@Param('projectId') projectId: string, @Param('delegationId') delegationId: string) {
+    return this.delegations.detail(projectId, delegationId);
+  }
+
+  @Post('delegations/:delegationId\\:cancel')
+  @HttpCode(200)
+  delegationCancel(
+    @Param('projectId') projectId: string,
+    @Param('delegationId') delegationId: string,
+    @Req() req: Request,
+  ) {
+    return this.delegations.cancel(projectId, delegationId, this.actor(req, projectId));
+  }
+
+  @Get('delegation-targets')
+  delegationTargets() {
+    return this.delegations.targets();
   }
 }

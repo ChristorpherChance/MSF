@@ -1,7 +1,9 @@
 import { Module } from '@nestjs/common';
+import { ExecutorModule } from '../executor/executor.module.js';
 import { AI_PROVIDER } from './ai-provider.interface.js';
 import { AiController } from './ai.controller.js';
 import { AiSessionsController } from './ai-sessions.controller.js';
+import { AiDelegationsService } from './delegations.service.js';
 import { AiModelsService } from './models.service.js';
 import { AiPromptsService } from './prompts.service.js';
 import { AiSessionsService } from './sessions.service.js';
@@ -16,6 +18,7 @@ import { StreamPipeline } from './stream-pipeline.js';
  * 模型注册/路由（D08-5）独立于开关——pi 模式下经 ModelRouter 解析用途→模型。
  */
 @Module({
+  imports: [ExecutorModule],
   controllers: [AiController, AiSessionsController],
   providers: [
     AiModelsService,
@@ -23,6 +26,7 @@ import { StreamPipeline } from './stream-pipeline.js';
     AiToolsService,
     AiPromptsService,
     AiUsageService,
+    AiDelegationsService,
     StreamPipeline,
     {
       provide: AI_PROVIDER,
@@ -31,6 +35,6 @@ import { StreamPipeline } from './stream-pipeline.js';
         process.env.MSF_AI_PROVIDER === 'pi' ? new PiAiGateway(models) : new MockAiProvider(),
     },
   ],
-  exports: [AI_PROVIDER, AiModelsService, AiSessionsService, AiToolsService, AiPromptsService, AiUsageService, StreamPipeline],
+  exports: [AI_PROVIDER, AiModelsService, AiSessionsService, AiToolsService, AiPromptsService, AiUsageService, AiDelegationsService, StreamPipeline],
 })
 export class AiModule {}
