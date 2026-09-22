@@ -1,4 +1,5 @@
 import { NavLink, Route, Routes } from 'react-router-dom';
+import { DesignPage } from './pages/design/DesignPage';
 import { MaterialPage } from './pages/material/MaterialPage';
 import { ReqPage } from './pages/req/ReqPage';
 
@@ -44,7 +45,8 @@ export function App() {
       <Routes>
         <Route path="/material" element={<MaterialPage />} />
         <Route path="/req" element={<ReqPage />} />
-        {STAGES.filter((s) => s.path !== '/material' && s.path !== '/req').map((s) => (
+        <Route path="/design" element={<DesignPage />} />
+        {STAGES.filter((s) => s.path !== '/material' && s.path !== '/req' && s.path !== '/design').map((s) => (
           <Route key={s.path} path={s.path} element={<StagePlaceholder {...s} />} />
         ))}
         <Route path="*" element={<MaterialPage />} />
