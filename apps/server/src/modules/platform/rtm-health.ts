@@ -1,5 +1,5 @@
 import { fingerprint } from '@msf/shared';
-import { splitSections } from './sections.js';
+import { splitSections } from './doc-sections.js';
 
 /**
  * RTM 追踪链派生与健康度实算（LLD-2 DSG-F06 同步纯函数；REQ-207/208/310）。

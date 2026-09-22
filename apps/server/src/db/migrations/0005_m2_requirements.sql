@@ -38,9 +38,13 @@ CREATE TABLE IF NOT EXISTS req_versions (
 );
 CREATE INDEX IF NOT EXISTS req_versions_fp_idx ON req_versions (content_fingerprint);
 
-ALTER TABLE req_documents
-  ADD CONSTRAINT req_documents_cur_fk FOREIGN KEY (current_version_id) REFERENCES req_versions(id),
-  ADD CONSTRAINT req_documents_final_fk FOREIGN KEY (final_version_id) REFERENCES req_versions(id);
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'req_documents_cur_fk') THEN
+    ALTER TABLE req_documents
+      ADD CONSTRAINT req_documents_cur_fk FOREIGN KEY (current_version_id) REFERENCES req_versions(id),
+      ADD CONSTRAINT req_documents_final_fk FOREIGN KEY (final_version_id) REFERENCES req_versions(id);
+  END IF;
+END $$;
 
 -- D04-3 单一工作草稿（每文档至多一条；undo/redo 栈上限 30 由服务层不变式保证）
 CREATE TABLE IF NOT EXISTS req_drafts (

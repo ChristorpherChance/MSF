@@ -5,8 +5,8 @@ import { query } from '../../db/pool.js';
 import { executeCommand, registerCommand, type CommandContext } from '../evidence/command-bus.js';
 import { appendEvidence } from '../evidence/audit.service.js';
 import { PolicyService } from '../policy/policy.service.js';
-import { applyPatch, joinSections, sha256Text, splitSections, type EditPatch } from './sections.js';
-import { deriveLinks, computeHealth } from './rtm.js';
+import { applyPatch, joinSections, sha256Text, splitSections, type EditPatch } from '../platform/doc-sections.js';
+import { deriveLinks, computeHealth } from '../platform/rtm-health.js';
 
 /**
  * 需求文档生命周期核（LLD-2 DSG-F02-1 权威状态机；REQ-203/204/205/209/210、BR-05/12）。

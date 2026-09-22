@@ -3,7 +3,7 @@ import { DomainError } from '@msf/shared';
 import { query } from '../../db/pool.js';
 import { executeCommand, registerCommand, type CommandContext } from '../evidence/command-bus.js';
 import { ReqDocsService } from './docs.service.js';
-import { deriveLinks } from './rtm.js';
+import { deriveLinks } from '../platform/rtm-health.js';
 
 /**
  * RTM 查询与健康度门禁（A04-11/12，REQ-207/208/310）+ deferred 人工标记。

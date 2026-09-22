@@ -52,6 +52,30 @@ export const COMMANDS = [
   'req.doc.export',
   'rtm.deferred.mark',
   'rtm.deferred.unmark',
+  // M3 设计域：设计文档八册生命周期（F02-1 同构复用，REQ-301/302）
+  'design.doc.import-draft',
+  'design.doc.save-html',
+  'design.doc.undo',
+  'design.doc.redo',
+  'design.doc.switch-version',
+  'design.doc.commit-version',
+  'design.doc.propose-pending',
+  'design.doc.accept-pending',
+  'design.doc.reject-pending',
+  'design.doc.finalize',   // 非策略确认点：人工 confirm + 未决 DR 二次确认（LLD-6 §3.4）
+  'design.doc.unlock',
+  'design.doc.generate',
+  'design.doc.gen_control',
+  // M3 设计域：原型四步流水（F02-2；A05-5/6/7/9）
+  'design.prototype.plan',
+  'design.prototype.generate',
+  'design.prototype.check',
+  'design.prototype.finalize', // 同名单元既是命令也是策略确认点（7 确认点之一）
+  // M3 设计域：目录人工增删（A05-13）与评审结论（A05-3）
+  'design.catalog.add-item',
+  'design.catalog.remove-item',
+  'design.review.seed',
+  'design.review.conclude',
 ] as const;
 export type CommandName = (typeof COMMANDS)[number];
 

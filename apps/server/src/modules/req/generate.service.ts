@@ -3,7 +3,7 @@ import { Injectable } from '@nestjs/common';
 import { DomainError } from '@msf/shared';
 import { query } from '../../db/pool.js';
 import { executeCommand, registerCommand, type CommandContext } from '../evidence/command-bus.js';
-import { sha256Text, type EditPatch } from './sections.js';
+import { sha256Text, type EditPatch } from '../platform/doc-sections.js';
 
 /**
  * 文档 AI 生成（A04-4/5；REQ-202/114/115；F02-12 流式控制）。
