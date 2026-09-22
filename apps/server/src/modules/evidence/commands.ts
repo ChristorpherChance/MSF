@@ -145,6 +145,7 @@ export const COMMANDS = [
   'ai.session.create',
   'ai.session.switch',
   'ai.message.send',
+  'ai.message.finish', // 消息终态落库（流式结束于事务外，完成写需独立命令；C10-2(f) 之外补，差异登记）
   'ai.message.pause',
   'ai.message.resume',
   'ai.message.stop',

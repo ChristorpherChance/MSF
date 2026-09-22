@@ -27,6 +27,10 @@ const HTTP_BY_CODE: Partial<Record<string, number>> = {
   POLICY_MANUAL_REQUIRED: HttpStatus.FORBIDDEN,
   AI_BASIS_INVALID: HttpStatus.CONFLICT,
   AI_RESULT_STALE: HttpStatus.CONFLICT,
+  // M6 AI 域
+  FORBIDDEN: HttpStatus.FORBIDDEN,
+  MODEL_UNAVAILABLE: HttpStatus.SERVICE_UNAVAILABLE,
+  MODEL_RATE_LIMITED: 429,
 };
 
 /** 统一错误壳：{ error: { code, message, target?, details? } }（LLD-5 §1.4 ApiError） */

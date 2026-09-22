@@ -18,8 +18,8 @@ export interface AiMessageResult {
 
 export interface AiSession {
   readonly sessionId: string;
-  /** 流式输出：逐 delta 推送；结束（或 abort）时 resolve 消息结果（含 Usage） */
-  stream(prompt: string): {
+  /** 流式输出：逐 delta 推送；结束（或 abort）时 resolve 消息结果（含 Usage）。thinkLevel=思考强度（三档） */
+  stream(prompt: string, extra?: { thinkLevel?: string | undefined }): {
     deltas: AsyncIterable<string>;
     result: Promise<AiMessageResult>;
   };
