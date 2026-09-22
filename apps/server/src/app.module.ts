@@ -10,6 +10,8 @@ import { ReqModule } from './modules/req/req.module.js';
 import { DesignModule } from './modules/design/design.module.js';
 import { DevModule } from './modules/dev/dev.module.js';
 import { TestModule } from './modules/test/test.module.js';
+import { ExecutorModule } from './modules/executor/executor.module.js';
+import { IntegrationModule } from './modules/integration/integration.module.js';
 
 /**
  * 应用根模块（模块化单体，ADR-1）。
@@ -18,7 +20,7 @@ import { TestModule } from './modules/test/test.module.js';
  * 随里程碑 M1~M6 逐个落地（目录边界与依赖方向规则已在 dependency-cruiser 固化）。
  */
 @Module({
-  imports: [ApiModule, EvidenceModule, PolicyModule, PlatformModule, AiModule, MaterialModule, ReqModule, DesignModule, DevModule, TestModule],
+  imports: [ApiModule, EvidenceModule, PolicyModule, PlatformModule, AiModule, MaterialModule, ReqModule, DesignModule, DevModule, TestModule, ExecutorModule, IntegrationModule],
   controllers: [HealthController],
 })
 export class AppModule {}
