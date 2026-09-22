@@ -76,6 +76,52 @@ export const COMMANDS = [
   'design.catalog.remove-item',
   'design.review.seed',
   'design.review.conclude',
+  // M4 开发域：任务识别/计划（LLD-3 DSG-C10-2(c) 点式映射；A06-1~7）
+  'dev.identify.start',
+  'dev.identify.complete',
+  'dev.task.save',
+  'dev.coverage.confirm',
+  'dev.coverage.confirm-all',
+  'dev.plan.submit',
+  'dev.plan.approve', // 同名单元既是命令也是策略确认点（7 确认点之一）
+  // M4 开发域：看板流转与任务循环（F02-5；A06-8）
+  'dev.task.start',
+  'dev.task.pause',
+  'dev.task.resume',
+  'dev.task.stop',
+  'dev.task.run',
+  'dev.task.progress',
+  'dev.task.rework', // 评审驳回/影响返工重入（devBeginRework+devConfirmRework）
+  'dev.pr.submit',
+  'dev.pr.toggle-check',
+  'dev.pr.skip',     // 有理由的人工豁免（理由必填，REQ-411）
+  'dev.pr.merge',    // 合并依据四类之一深冻结（REQ-411）
+  'dev.quality.complete', // 单测证据（mock 执行器，M6 换沙箱 Pi）
+  'dev.ai-review.complete',
+  // M4 开发域：autopilot（F02-6/F07；A06-10/11）
+  'dev.autopilot.approve-start',
+  'dev.autopilot.advance',
+  'dev.autopilot.pause',
+  'dev.autopilot.resume',
+  'dev.autopilot.stop',
+  'dev.autopilot.takeover',
+  'dev.autopilot.block',
+  'dev.autopilot.awaiting-transfer',
+  // M4 开发域：集成构建/自测/交接（A06-13/14/19）
+  'dev.build.start',
+  'dev.build.complete',
+  'dev.selftest.start',
+  'dev.selftest.complete',
+  'dev.selftest.retest',
+  'dev.selftest.stale',
+  'dev.report.export',
+  'dev.transfer.handoff', // 策略确认点 dev.transfer（7 确认点之一）
+  // M4 开发域：变更影响/失效传播/CI 回传（A06-20/21/22）
+  'dev.impact.apply',
+  'dev.baseline.confirm',
+  'dev.input.observe',
+  'dev.ci.callback',
+  'dev.ci.webhook-secret.set',
 ] as const;
 export type CommandName = (typeof COMMANDS)[number];
 
