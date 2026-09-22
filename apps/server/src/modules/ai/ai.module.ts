@@ -3,7 +3,10 @@ import { AI_PROVIDER } from './ai-provider.interface.js';
 import { AiController } from './ai.controller.js';
 import { AiSessionsController } from './ai-sessions.controller.js';
 import { AiModelsService } from './models.service.js';
+import { AiPromptsService } from './prompts.service.js';
 import { AiSessionsService } from './sessions.service.js';
+import { AiToolsService } from './tools.service.js';
+import { AiUsageService } from './usage.service.js';
 import { MockAiProvider } from './mock-ai.provider.js';
 import { PiAiGateway } from './pi-gateway.js';
 import { StreamPipeline } from './stream-pipeline.js';
@@ -17,6 +20,9 @@ import { StreamPipeline } from './stream-pipeline.js';
   providers: [
     AiModelsService,
     AiSessionsService,
+    AiToolsService,
+    AiPromptsService,
+    AiUsageService,
     StreamPipeline,
     {
       provide: AI_PROVIDER,
@@ -25,6 +31,6 @@ import { StreamPipeline } from './stream-pipeline.js';
         process.env.MSF_AI_PROVIDER === 'pi' ? new PiAiGateway(models) : new MockAiProvider(),
     },
   ],
-  exports: [AI_PROVIDER, AiModelsService, AiSessionsService, StreamPipeline],
+  exports: [AI_PROVIDER, AiModelsService, AiSessionsService, AiToolsService, AiPromptsService, AiUsageService, StreamPipeline],
 })
 export class AiModule {}

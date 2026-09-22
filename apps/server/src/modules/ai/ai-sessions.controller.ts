@@ -4,11 +4,17 @@ import {
 import type { Request, Response } from 'express';
 import { getActor } from '../api/identity.middleware.js';
 import { AiSessionsService } from './sessions.service.js';
+import { AiToolsService } from './tools.service.js';
+import { AiUsageService } from './usage.service.js';
 
 /** AI 会话端点（LLD-5 DSG-A08-1/2/3/4；REQ-601/602/603/608） */
 @Controller('api/v1/projects/:projectId/ai')
 export class AiSessionsController {
-  constructor(@Inject(AiSessionsService) private readonly sessions: AiSessionsService) {}
+  constructor(
+    @Inject(AiSessionsService) private readonly sessions: AiSessionsService,
+    @Inject(AiToolsService) private readonly tools: AiToolsService,
+    @Inject(AiUsageService) private readonly usage: AiUsageService,
+  ) {}
 
   private actor(req: Request, projectId: string) {
     const a = getActor(req);
@@ -117,5 +123,48 @@ export class AiSessionsController {
     const emit = (data: unknown) => res.write(`data: ${JSON.stringify(data)}\n\n`);
     await this.sessions.attach(projectId, messageId, lastEventId ? Number(lastEventId) : 0, emit);
     res.end();
+  }
+
+  // ---- 工具桥（A08-5/6） ----
+
+  @Get('tools')
+  toolList() {
+    return this.tools.list();
+  }
+
+  @Post('tools\\:invoke')
+  @HttpCode(200)
+  invokeTool(
+    @Param('projectId') projectId: string,
+    @Body() body: { sessionId?: string; toolName: string; args?: Record<string, unknown> },
+    @Req() req: Request,
+  ) {
+    return this.tools.invoke(projectId, body, this.actor(req, projectId));
+  }
+
+  @Get('sessions/:sessionId/tool-calls')
+  toolCalls(@Param('projectId') projectId: string, @Param('sessionId') sessionId: string) {
+    return this.tools.callsOfSession(projectId, sessionId);
+  }
+
+  // ---- 项目用量（A08-10） ----
+
+  @Get('usage')
+  async projectUsage(
+    @Param('projectId') projectId: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('purpose') purpose?: string,
+    @Query('cursor') cursor?: string,
+    @Query('limit') limit?: string,
+  ) {
+    await this.usage.assertProject(projectId);
+    return this.usage.ofProject(projectId, {
+      ...(from !== undefined ? { from } : {}),
+      ...(to !== undefined ? { to } : {}),
+      ...(purpose !== undefined ? { purpose } : {}),
+      ...(cursor !== undefined ? { cursor } : {}),
+      ...(limit !== undefined ? { limit: Number(limit) } : {}),
+    });
   }
 }

@@ -74,7 +74,7 @@ CREATE TABLE IF NOT EXISTS ai_models (
   conn_status text NOT NULL DEFAULT 'untested' CHECK (conn_status IN ('ok','fail','untested')),
   supports_thinking boolean NOT NULL DEFAULT false,
   context_window int NOT NULL DEFAULT 128000,
-  routes jsonb NOT NULL DEFAULT '{}',               -- 用途路由 {planning,generation,review,translation}
+  routes jsonb NOT NULL DEFAULT '[]',               -- 用途路由数组（planning/generation/review/translation/chat；0011 修补默认）
   price_table jsonb NOT NULL DEFAULT '{}',          -- {in:number,out:number} 每 1k token 单价（REQ-612 兜底）
   created_by text NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
