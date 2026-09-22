@@ -37,13 +37,16 @@ describe('审计哈希链（集成，需 DB）', async () => {
     await executeCommand('health.ping', {}, { projectId: null, actorKind: 'human', actorId: 't' });
     const a = await query<{ n: number }>("SELECT count(*)::int AS n FROM audit_log WHERE command='health.ping'");
     expect(a.rows[0]!.n - b.rows[0]!.n).toBe(1);
-    // 多测试文件并发共库会交错插入，改为验证全局不变量：每行 prev_hash = 前一行 hash
-    const bad = await query<{ n: number }>(
-      `SELECT count(*)::int AS n FROM (
-         SELECT prev_hash, lag(hash) OVER (ORDER BY seq) AS ph FROM audit_log
-       ) t WHERE prev_hash IS DISTINCT FROM ph`,
+    // 链式断言只落在本行：prev_hash 必须等于「小于本行 seq 的最大行」的 hash
+    //（咨询锁串行化保证插入时刻链尾即该行；全表 lag 校验会误食旧库在串行化修复前的历史断链行）
+    const mine = await query<{ seq: string; prev_hash: string | null }>(
+      "SELECT seq::text, prev_hash FROM audit_log WHERE command='health.ping' ORDER BY seq DESC LIMIT 1",
     );
-    expect(bad.rows[0]!.n).toBe(0);
+    const prev = await query<{ hash: string }>(
+      'SELECT hash FROM audit_log WHERE seq < $1 ORDER BY seq DESC LIMIT 1',
+      [mine.rows[0]!.seq],
+    );
+    expect(mine.rows[0]!.prev_hash).toBe(prev.rows[0]?.hash ?? null);
   });
 
   it('处理器抛错 → 整体回滚零写（审计失败零写对称面）', async () => {

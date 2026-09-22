@@ -99,11 +99,12 @@ describe('UploadsService（集成，需 DB+MinIO）', async () => {
     await expect(storage.getObject(`uploads/${session.uploadId}/1`)).rejects.toThrow();
 
     // 审计链留痕（complete 命令同事务审计）
+    // audit_log append-only 且跨运行累积（afterAll 不清审计），只断言本次流程的最新 5 行
     const audit = await query<{ command: string }>(
-      "SELECT command FROM audit_log WHERE project_id=$1 AND command LIKE 'material.upload.%' ORDER BY seq",
+      "SELECT command FROM audit_log WHERE project_id=$1 AND command LIKE 'material.upload.%' ORDER BY seq DESC LIMIT 5",
       [PID],
     );
-    expect(audit.rows.map((r) => r.command)).toEqual([
+    expect(audit.rows.map((r) => r.command).reverse()).toEqual([
       'material.upload.create',
       'material.upload.part',
       'material.upload.part',
