@@ -44,6 +44,11 @@ export class TestController {
     return this.batches.list(pid);
   }
 
+  @Get('handoffs/pending')
+  pendingHandoffs(@Param('projectId') pid: string) {
+    return this.batches.pendingHandoffs(pid);
+  }
+
   @Get('batches/:batchId')
   batchDetail(@Param('projectId') pid: string, @Param('batchId') batchId: string) {
     return this.batches.detail(pid, batchId);

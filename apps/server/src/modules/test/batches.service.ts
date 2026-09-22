@@ -195,6 +195,27 @@ export class TstBatchesService {
     void ctx;
     return { downloadUrl: await this.storage.presignedGet(objectKey), batchId };
   }
+
+  /** 待接收交接清单（跨域 SQL 直读 dev_transfer；已接收按 handoff_fingerprint 归并剔除，供 UI 接收入口） */
+  async pendingHandoffs(projectId: string) {
+    const r = await query(
+      `SELECT t.id, t.build_fingerprint, t.report_fingerprint, t.created_at,
+              b.code AS build_code, rep.code AS report_code, rep.status AS report_status
+       FROM dev_transfer t
+       JOIN dev_builds b ON b.id=t.build_id
+       JOIN dev_reports rep ON rep.id=t.report_id
+       WHERE t.project_id=$1
+         AND NOT EXISTS (SELECT 1 FROM tst_batches tb WHERE tb.handoff_fingerprint=t.handoff_fingerprint)
+       ORDER BY t.created_at DESC`, [projectId]);
+    return {
+      items: r.rows.map((h: Record<string, unknown>) => ({
+        handoffId: h.id, buildCode: h.build_code, reportCode: h.report_code, reportStatus: h.report_status,
+        buildFingerprint: `sha256:${String(h.build_fingerprint)}`,
+        selftestReportFingerprint: `sha256:${String(h.report_fingerprint)}`,
+        createdAt: h.created_at,
+      })),
+    };
+  }
 }
 
 export { assertNotBlocked };
