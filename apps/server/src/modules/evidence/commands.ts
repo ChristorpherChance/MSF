@@ -141,6 +141,23 @@ export const COMMANDS = [
   'tst.report.finalize', // 策略确认点 test.report.finalize（7 确认点之一）
   'tst.report.export',
   'tst.delivery.authorize', // 策略确认点 test.release（7 确认点之一）
+  // M6 AI/执行/集成域（C10-2(f)；REQ-601~615/610）
+  'ai.session.create',
+  'ai.session.switch',
+  'ai.message.send',
+  'ai.message.pause',
+  'ai.message.resume',
+  'ai.message.stop',
+  'ai.tool.invoke', // 注册表校验 + 审计（写动作回调对应域命令入口）
+  'ai.prompt.publish',
+  'ai.prompt.rollback',
+  'ai.model.upsert',
+  'ai.model.test',
+  'ai.model.route.set',
+  'ai.delegate.create',
+  'ai.delegate.cancel',
+  'ai.target.upsert', // 委派目标注册（C10-2(f) 之外补，LLD-6 §3.8 注册向导所需，差异登记）
+  'ai.target.test', // 目标连通测试（失败不入册），差异登记
 ] as const;
 export type CommandName = (typeof COMMANDS)[number];
 
