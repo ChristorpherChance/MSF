@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { pool, query } from '../../db/pool.js';
 import { resetCommands } from '../evidence/command-bus.js';
 import { FilesService, type TreeNode } from './files.service.js';
-import { StorageService } from './storage.service.js';
+import { StorageService } from '../platform/storage.service.js';
 import { UploadsService } from './uploads.service.js';
 import { ZipExtractService } from './zip-extract.service.js';
 

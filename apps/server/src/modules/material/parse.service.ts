@@ -4,7 +4,7 @@ import type { PoolClient } from 'pg';
 import { DomainError, type MatParseStatus } from '@msf/shared';
 import { query } from '../../db/pool.js';
 import { executeCommand, registerCommand, type CommandContext } from '../evidence/command-bus.js';
-import { StorageService } from './storage.service.js';
+import { StorageService } from '../platform/storage.service.js';
 import type { MatFile, MatParsed } from './types.js';
 
 /**

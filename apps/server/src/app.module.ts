@@ -6,6 +6,7 @@ import { PolicyModule } from './modules/policy/policy.module.js';
 import { PlatformModule } from './modules/platform/platform.module.js';
 import { AiModule } from './modules/ai/ai.module.js';
 import { MaterialModule } from './modules/material/material.module.js';
+import { ReqModule } from './modules/req/req.module.js';
 
 /**
  * 应用根模块（模块化单体，ADR-1）。
@@ -14,7 +15,7 @@ import { MaterialModule } from './modules/material/material.module.js';
  * 随里程碑 M1~M6 逐个落地（目录边界与依赖方向规则已在 dependency-cruiser 固化）。
  */
 @Module({
-  imports: [ApiModule, EvidenceModule, PolicyModule, PlatformModule, AiModule, MaterialModule],
+  imports: [ApiModule, EvidenceModule, PolicyModule, PlatformModule, AiModule, MaterialModule, ReqModule],
   controllers: [HealthController],
 })
 export class AppModule {}

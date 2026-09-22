@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { StorageService } from './storage.service.js';
+import { StorageService } from '../platform/storage.service.js';
 
 /**
  * 对象存储接线验证（T1-02）：内容寻址读写 + 前缀回收。

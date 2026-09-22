@@ -1,7 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { DomainError, type MatParseStatus } from '@msf/shared';
 import { query } from '../../db/pool.js';
-import { StorageService } from './storage.service.js';
+import { StorageService } from '../platform/storage.service.js';
 import type { MatFile, MatFolderNode, MatParsed } from './types.js';
 
 /**

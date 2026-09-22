@@ -33,6 +33,25 @@ export const COMMANDS = [
   'material.job.row_process',
   'material.job.row_update',
   'material.job.item_retry',
+  // M2 需求域：文档生命周期（LLD-3 DSG-C10-2(b)，F02-1 状态机迁移一一对应）
+  'doc.save-html',
+  'doc.undo',
+  'doc.redo',
+  'doc.switch-version',
+  'doc.commit-version',
+  'doc.propose-pending',
+  'doc.accept-pending',
+  'doc.reject-pending',
+  'doc.import-draft',
+  'doc.unlock',
+  'doc.add-reference',
+  'doc.remove-reference',
+  'req.doc.finalize', // 同名单元既是命令也是策略确认点（LLD-3 C09-1）
+  'req.doc.generate',
+  'req.doc.gen_control',
+  'req.doc.export',
+  'rtm.deferred.mark',
+  'rtm.deferred.unmark',
 ] as const;
 export type CommandName = (typeof COMMANDS)[number];
 

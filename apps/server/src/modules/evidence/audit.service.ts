@@ -58,3 +58,29 @@ export async function appendAudit(client: PoolClient, entry: AuditEntry): Promis
 function isUniqueViolation(e: unknown): boolean {
   return typeof e === 'object' && e !== null && (e as { code?: string }).code === '23505';
 }
+
+/**
+ * 证据链追加（LLD-4 DSG-D11：evd_records append-only + 哈希链；定稿=kind='finalize' 证据行，DSG-D04-2 注）。
+ * 与审计链共用同一把咨询锁串行化（两链各自哈希独立，锁只起串行化作用）。
+ */
+export async function appendEvidence(
+  client: PoolClient,
+  entry: { projectId: string | null; kind: string; payload: unknown },
+): Promise<void> {
+  await client.query("SELECT pg_advisory_xact_lock(hashtext('msf_audit_chain'))");
+  const tail = await client.query<{ hash: string }>(
+    'SELECT hash FROM evd_records ORDER BY seq DESC LIMIT 1 FOR UPDATE',
+  );
+  const prevHash = tail.rows[0]?.hash ?? null;
+  const contentHash = chainHash(null, (entry.payload ?? {}) as never);
+  const hash = chainHash(prevHash, {
+    kind: entry.kind,
+    payload: entry.payload as never,
+    prevHash,
+  } as never);
+  await client.query(
+    'INSERT INTO evd_records (project_id, kind, payload, content_hash, prev_hash, hash) VALUES ($1,$2,$3,$4,$5,$6)',
+    [entry.projectId, entry.kind, JSON.stringify(entry.payload), contentHash, prevHash, hash],
+  );
+}
+

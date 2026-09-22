@@ -5,7 +5,7 @@ import { DomainError } from '@msf/shared';
 import { pool, query } from '../../db/pool.js';
 import { resetCommands } from '../evidence/command-bus.js';
 import { ParseService } from './parse.service.js';
-import { StorageService } from './storage.service.js';
+import { StorageService } from '../platform/storage.service.js';
 import { UploadsService } from './uploads.service.js';
 
 const sha256 = (b: Buffer | string): string => createHash('sha256').update(b).digest('hex');

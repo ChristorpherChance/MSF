@@ -3,7 +3,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import type { PoolClient } from 'pg';
 import { DomainError, UPLOAD_FORMATS } from '@msf/shared';
 import { executeCommand, registerCommand, type CommandContext } from '../evidence/command-bus.js';
-import { StorageService } from './storage.service.js';
+import { StorageService } from '../platform/storage.service.js';
 import type { MatFile } from './types.js';
 import { inflateEntry, validateZipPackage } from './zip-check.js';
 

@@ -47,6 +47,9 @@ importers:
       ioredis:
         specifier: ^5.4.0
         version: 5.11.1
+      marked:
+        specifier: ^18.0.13
+        version: 18.0.13
       minio:
         specifier: ^8.0.0
         version: 8.0.7

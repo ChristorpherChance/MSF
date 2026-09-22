@@ -5,7 +5,7 @@ import { DomainError, UPLOAD_FORMATS } from '@msf/shared';
 import { query } from '../../db/pool.js';
 import { executeCommand, registerCommand, type CommandContext } from '../evidence/command-bus.js';
 import { validateZipPackage } from './zip-check.js';
-import { StorageService } from './storage.service.js';
+import { StorageService } from '../platform/storage.service.js';
 import type { MatUpload, UploadPart } from './types.js';
 
 /**
