@@ -52,6 +52,7 @@ class FakeSession implements AiSession {
 }
 
 class FakeProvider implements AiProvider {
+  readonly kind = 'mock' as const;
   last: FakeSession | null = null;
   async createSession(): Promise<AiSession> {
     this.last = new FakeSession();

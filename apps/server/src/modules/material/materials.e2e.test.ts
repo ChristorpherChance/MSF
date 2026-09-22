@@ -91,7 +91,7 @@ describe('资料上传 e2e（需 DB+MinIO）', async () => {
       body: '{}',
     });
     expect(complete.status).toBe(200);
-    const done = (await complete.json()) as { file: { code: string; parse_status: string } };
+    const done = (await complete.json()) as { file: { id: string; code: string; parse_status: string } };
     expect(done.file.parse_status).toBe('pending');
 
     const again = await fetch(`${BASE}/uploads/${uploadId}:complete`, {
@@ -107,5 +107,16 @@ describe('资料上传 e2e（需 DB+MinIO）', async () => {
       headers: { 'Idempotency-Key': 'e2e-4' },
     });
     expect(abort.status).toBe(409); // 已完成会话中止 → INVALID_STATE
+
+    // 字面冒号动作路由回归（单反斜杠 `\:` 会被吞成参数分隔符，fileId 只剩首字符）：
+    // :parse 必须完整捕获 uuid（未修复时 500 invalid uuid "e"）
+    const fileId = done.file.id;
+    const parse = await fetch(`${BASE}/files/${fileId}:parse`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': 'e2e-5' },
+      body: '{}',
+    });
+    expect(parse.status).toBe(202);
+    expect((await parse.json()).operationId).toMatch(/^op_parse_/);
   });
 });

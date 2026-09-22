@@ -1,14 +1,31 @@
 import { Injectable } from '@nestjs/common';
 import { DomainError } from '@msf/shared';
 import { query } from '../../db/pool.js';
+import { registerCommand } from '../evidence/command-bus.js';
 
 /**
  * UsageCollector 用量统计（DSG-D08-6；A08-10；REQ-612）：
  * - ai_usage 行由 ai.message.finish / 委派终结写入（price_table 兜底成本在写入侧完成）
  * - 本服务只读：项目用量查询 + 跨项目汇总（设置页用量面板）
+ * - ai.usage.record：无消息载体的调用（文档生成等）经此命令落账（调用方在事务外完成流式后写入）
  */
 @Injectable()
 export class AiUsageService {
+  onModuleInit(): void {
+    registerCommand('ai.usage.record', async (client, payload) => {
+      const p = payload as {
+        projectId: string; modelId: string | null; purpose: string;
+        tokensIn: number; tokensOut: number; durationMs: number; cost: number;
+      };
+      await client.query(
+        `INSERT INTO ai_usage (project_id, session_id, message_id, model_id, purpose,
+           tokens_in, tokens_out, duration_ms, cost)
+         VALUES ($1,NULL,NULL,$2,$3,$4,$5,$6,$7)`,
+        [p.projectId, p.modelId, p.purpose, p.tokensIn, p.tokensOut, p.durationMs, p.cost]);
+      return { recorded: true };
+    });
+  }
+
   /** 项目用量明细（时间窗 + 用途过滤，游标分页） */
   async ofProject(projectId: string, q: { from?: string; to?: string; purpose?: string; cursor?: string; limit?: number }) {
     const params: unknown[] = [projectId];

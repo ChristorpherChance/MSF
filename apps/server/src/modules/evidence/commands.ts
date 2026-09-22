@@ -160,6 +160,7 @@ export const COMMANDS = [
   'ai.delegate.transition', // 运行态迁移（queued→running→终态；执行器内部用，晚到回调零写；C10-2(f) 之外补，差异登记）
   'ai.target.upsert', // 委派目标注册（C10-2(f) 之外补，LLD-6 §3.8 注册向导所需，差异登记）
   'ai.target.test', // 目标连通测试（失败不入册），差异登记
+  'ai.usage.record', // 文档生成等无消息载体的用量落账（REQ-612；C10-2(f) 之外补，差异登记）
 ] as const;
 export type CommandName = (typeof COMMANDS)[number];
 

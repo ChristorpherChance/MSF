@@ -14,6 +14,8 @@ export interface AiUsage {
 export interface AiMessageResult {
   text: string;
   usage: AiUsage;
+  /** 实际调用的 ai_models.id（用量落账用；mock 可为空） */
+  modelId?: string | undefined;
 }
 
 export interface AiSession {
@@ -30,6 +32,8 @@ export interface AiSession {
 }
 
 export interface AiProvider {
+  /** mock=占位实现（文档生成等链路保持各域既有 mock 口径）；pi=真实模型 */
+  readonly kind: 'mock' | 'pi';
   createSession(options: { projectId: string; purpose: string }): Promise<AiSession>;
 }
 

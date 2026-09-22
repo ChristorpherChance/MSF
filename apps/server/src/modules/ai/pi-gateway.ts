@@ -34,6 +34,8 @@ export interface StreamExtra {
 }
 
 export class PiAiGateway implements AiProvider {
+  readonly kind = 'pi' as const;
+
   constructor(private readonly models: AiModelsService) {}
 
   async createSession(options: { projectId: string; purpose: string }): Promise<AiSession> {
@@ -125,18 +127,18 @@ class PiAiSession implements AiSession {
             yield ev.delta;
           } else if (ev.type === 'done') {
             settled = true;
-            settle({ text, usage: toUsage(ev.message) });
+            settle({ text, usage: toUsage(ev.message), modelId: this.row.id });
           } else if (ev.type === 'error') {
             settled = true;
             if (ev.reason === 'aborted') {
               // stop 语义：resolve 部分结果，不抛错（接口事实：abort 时 resolve）
-              settle({ text, usage: toUsage(ev.error) });
+              settle({ text, usage: toUsage(ev.error), modelId: this.row.id });
             } else {
               throw mapError(ev.error);
             }
           }
         }
-        if (!settled) settle({ text, usage: { inputTokens: 0, outputTokens: 0 } });
+        if (!settled) settle({ text, usage: { inputTokens: 0, outputTokens: 0 }, modelId: this.row.id });
       } catch (e) {
         const err = e instanceof DomainError
           ? e

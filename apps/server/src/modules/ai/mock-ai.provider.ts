@@ -11,6 +11,8 @@ import type {
  * Usage 附着消息结果返回（对齐 Pi 事实），便于计量链路先行落库。
  */
 export class MockAiProvider implements AiProvider {
+  readonly kind = 'mock' as const;
+
   async createSession(options: { projectId: string; purpose: string }): Promise<AiSession> {
     return new MockAiSession(options);
   }

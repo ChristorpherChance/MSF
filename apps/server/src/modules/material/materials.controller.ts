@@ -98,7 +98,7 @@ export class MaterialsController {
   }
 
   /** A03-4 ZIP 行内解压（同名冲突默认拒绝，rename 自动追加序号；REQ-104） */
-  @Post('files/:fileId\:extract')
+  @Post('files/:fileId\\:extract')
   @HttpCode(200)
   extractZip(
     @Param('projectId') projectId: string,
@@ -115,7 +115,7 @@ export class MaterialsController {
   }
 
   /** A03-8 单个解析（202 + operationId，异步完成） */
-  @Post('files/:fileId\:parse')
+  @Post('files/:fileId\\:parse')
   @HttpCode(202)
   parseFile(@Param('projectId') projectId: string, @Param('fileId') fileId: string, @Req() req: Request) {
     const actor = getActor(req);
@@ -123,7 +123,7 @@ export class MaterialsController {
   }
 
   /** A03-10 解析重试（仅 failed；流转全量留痕） */
-  @Post('files/:fileId\:retry-parse')
+  @Post('files/:fileId\\:retry-parse')
   @HttpCode(202)
   retryParse(@Param('projectId') projectId: string, @Param('fileId') fileId: string, @Req() req: Request) {
     const actor = getActor(req);
@@ -131,14 +131,14 @@ export class MaterialsController {
   }
 
   /** A03-11 文件定稿 / 解锁定稿 */
-  @Post('files/:fileId\:finalize-file')
+  @Post('files/:fileId\\:finalize-file')
   @HttpCode(200)
   finalizeFile(@Param('projectId') projectId: string, @Param('fileId') fileId: string, @Req() req: Request) {
     const actor = getActor(req);
     return this.parse.finalizeFile(projectId, fileId, { projectId, actorKind: actor.kind, actorId: actor.id });
   }
 
-  @Post('files/:fileId\:unfinalize-file')
+  @Post('files/:fileId\\:unfinalize-file')
   @HttpCode(200)
   unfinalizeFile(@Param('projectId') projectId: string, @Param('fileId') fileId: string, @Req() req: Request) {
     const actor = getActor(req);
@@ -146,7 +146,7 @@ export class MaterialsController {
   }
 
   /** A03-12 内容定稿（单件；批量随 T1-15） */
-  @Post('files/:fileId\:finalize-content')
+  @Post('files/:fileId\\:finalize-content')
   @HttpCode(200)
   finalizeContent(@Param('projectId') projectId: string, @Param('fileId') fileId: string, @Req() req: Request) {
     const actor = getActor(req);
@@ -187,7 +187,7 @@ export class MaterialsController {
   }
 
   /** A03-9 批量解析（默认仅待解析；逐条成功/失败） */
-  @Post('files\:batch-parse')
+  @Post('files\\:batch-parse')
   @HttpCode(202)
   batchParse(
     @Param('projectId') projectId: string,
@@ -203,7 +203,7 @@ export class MaterialsController {
   }
 
   /** A03-12 批量内容定稿（INV-BULK-1：confirm:true 强制） */
-  @Post('files\:batch-finalize-content')
+  @Post('files\\:batch-finalize-content')
   @HttpCode(200)
   batchFinalizeContent(
     @Param('projectId') projectId: string,
@@ -241,7 +241,7 @@ export class MaterialsController {
   }
 
   /** A03-15 确认提交（整批复核 → running；不一致 STALE_EVIDENCE 整批拒绝） */
-  @Post('jobs/:jobId\:confirm')
+  @Post('jobs/:jobId\\:confirm')
   @HttpCode(202)
   confirmJob(@Param('projectId') projectId: string, @Param('jobId') jobId: string, @Req() req: Request) {
     const actor = getActor(req);
@@ -255,7 +255,7 @@ export class MaterialsController {
   }
 
   /** A03-16 停止（running → stopped，后续行 skipped） */
-  @Post('jobs/:jobId\:stop')
+  @Post('jobs/:jobId\\:stop')
   @HttpCode(200)
   stopJob(@Param('projectId') projectId: string, @Param('jobId') jobId: string, @Req() req: Request) {
     const actor = getActor(req);
@@ -263,7 +263,7 @@ export class MaterialsController {
   }
 
   /** A03-16 单条重试（行仍 file_final 前置） */
-  @Post('jobs/:jobId/items/:fileId\:retry')
+  @Post('jobs/:jobId/items/:fileId\\:retry')
   @HttpCode(202)
   retryItem(
     @Param('projectId') projectId: string,
