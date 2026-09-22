@@ -86,6 +86,8 @@ export class ReqController {
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
     const send = (data: unknown) => res.write(`data: ${JSON.stringify(data)}\n\n`);
+    // 首帧携带 operationId：pause/resume/stop（A04-5）需在流式进行中寻址本次生成
+    send({ type: 'stream.start', operationId });
     const result = await this.gen.drive(operationId, ctx, (text) => send({ type: 'stream.delta', text }));
     if (result.status === 'done') {
       send({ type: 'stream.done', operationId, proposedPatchIds: result.patchIds });
