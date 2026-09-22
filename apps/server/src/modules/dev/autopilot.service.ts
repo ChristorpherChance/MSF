@@ -59,8 +59,8 @@ export class DevAutopilotService {
       const active = await client.query<{ run_id: string }>(
         "SELECT run_id FROM dev_runs WHERE project_id=$1 AND status NOT IN ('stopped','transferred')", [projectId]);
       if (active.rows[0]) throw new DomainError('INVALID_STATE', '存在未终态运行', active.rows[0].run_id);
-      const seqA = await client.query<{ n: string }>('SELECT count(*) AS n FROM dev_authorizations WHERE project_id=$1', [projectId]);
-      const authId = `auth_${Number(seqA.rows[0]?.n ?? 0) + 1}`;
+      const seqA = await client.query<{ n: string }>("SELECT nextval('dev_auth_seq') AS n");
+      const authId = `auth_${Number(seqA.rows[0]!.n)}`;
       const tasks = await client.query<{ code: string; rev: number }>(
         'SELECT code, rev FROM dev_tasks WHERE project_id=$1 AND code = ANY($2)', [projectId, p.snapshot.taskIds ?? []]);
       // scope 深冻结：transferToTest 永 false（F07-3 自动放行上限）
@@ -69,8 +69,8 @@ export class DevAutopilotService {
         `INSERT INTO dev_authorizations (project_id, authorization_id, plan_id, scope, task_ids, status, created_by)
          VALUES ($1,$2,$3,$4,$5,'active',$6)`,
         [projectId, authId, p.id, JSON.stringify(scope), JSON.stringify(tasks.rows), ctx.actorId]);
-      const seqR = await client.query<{ n: string }>('SELECT count(*) AS n FROM dev_runs WHERE project_id=$1', [projectId]);
-      const runId = `run_${Number(seqR.rows[0]?.n ?? 0) + 1}`;
+      const seqR = await client.query<{ n: string }>("SELECT nextval('dev_run_seq') AS n");
+      const runId = `run_${Number(seqR.rows[0]!.n)}`;
       const runToken = randomUUID();
       await client.query(
         `INSERT INTO dev_runs (project_id, run_id, run_token, plan_id, plan_fingerprint, authorization_id, status, phase, created_by)

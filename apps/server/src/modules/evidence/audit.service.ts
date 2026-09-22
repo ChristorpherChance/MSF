@@ -66,7 +66,7 @@ function isUniqueViolation(e: unknown): boolean {
 export async function appendEvidence(
   client: PoolClient,
   entry: { projectId: string | null; kind: string; payload: unknown },
-): Promise<void> {
+): Promise<number> {
   await client.query("SELECT pg_advisory_xact_lock(hashtext('msf_audit_chain'))");
   const tail = await client.query<{ hash: string }>(
     'SELECT hash FROM evd_records ORDER BY seq DESC LIMIT 1 FOR UPDATE',
@@ -78,9 +78,10 @@ export async function appendEvidence(
     payload: entry.payload as never,
     prevHash,
   } as never);
-  await client.query(
-    'INSERT INTO evd_records (project_id, kind, payload, content_hash, prev_hash, hash) VALUES ($1,$2,$3,$4,$5,$6)',
+  const ins = await client.query<{ seq: string }>(
+    'INSERT INTO evd_records (project_id, kind, payload, content_hash, prev_hash, hash) VALUES ($1,$2,$3,$4,$5,$6) RETURNING seq',
     [entry.projectId, entry.kind, JSON.stringify(entry.payload), contentHash, prevHash, hash],
   );
+  return Number(ins.rows[0]!.seq);
 }
 

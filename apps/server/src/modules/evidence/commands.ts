@@ -122,6 +122,25 @@ export const COMMANDS = [
   'dev.input.observe',
   'dev.ci.callback',
   'dev.ci.webhook-secret.set',
+  // M5 测试验收域（C10-2(e)；REQ-501~510）
+  'tst.batch.receive',
+  'tst.batch.block',
+  'tst.batch.unblock',
+  'tst.plan.draft',
+  'tst.plan.approve', // 策略确认点 test.plan.approve（7 确认点之一）
+  'tst.run.execute',
+  'tst.run.manual.record',
+  'tst.defect.create',
+  'tst.defect.confirm',
+  'tst.defect.fix-start',
+  'tst.defect.mark-fixed', // A07-8（C10-2(e) 之外补，F02-10 迁移表事件，差异登记）
+  'tst.defect.link-regression',
+  'tst.defect.close',
+  'tst.defect.reopen',
+  'tst.report.generate',
+  'tst.report.finalize', // 策略确认点 test.report.finalize（7 确认点之一）
+  'tst.report.export',
+  'tst.delivery.authorize', // 策略确认点 test.release（7 确认点之一）
 ] as const;
 export type CommandName = (typeof COMMANDS)[number];
 
