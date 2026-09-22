@@ -1,0 +1,92 @@
+/* 开发页样式（LLD-6 §3.5；令牌沿用 req.css/design.css 基板） */
+
+.dev-board {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin: 12px 0;
+}
+
+.dev-col {
+  background: var(--msf-card);
+  border: 1px solid var(--msf-line);
+  border-radius: 8px;
+  min-height: 120px;
+  padding: 8px;
+}
+
+.dev-col-head {
+  font-weight: 600;
+  font-size: 13px;
+  padding: 4px 6px 8px;
+  border-bottom: 1px solid var(--msf-line);
+  margin-bottom: 8px;
+}
+
+.dev-card {
+  border: 1px solid var(--msf-line);
+  border-radius: 6px;
+  padding: 8px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  background: var(--msf-bg, #fff);
+}
+
+.dev-card:hover { border-color: var(--msf-accent, #4a7dff); }
+.dev-card.sel { border-color: var(--msf-accent, #4a7dff); box-shadow: 0 0 0 1px var(--msf-accent, #4a7dff); }
+
+.dev-card-title { font-size: 13px; font-weight: 500; }
+
+.dev-badge-block {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  font-size: 11px;
+  border-radius: 4px;
+  background: #c0392b;
+  color: #fff;
+}
+
+.dev-run {
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  background: var(--msf-line);
+}
+
+.dev-run-running { background: #2e7d32; color: #fff; }
+.dev-run-blocked { background: #c0392b; color: #fff; }
+.dev-run-awaiting-transfer { background: #b7950b; color: #fff; }
+.dev-run-taken-over, .dev-run-paused { background: #7d6608; color: #fff; }
+
+.dev-ok { color: #2e7d32; }
+.dev-bad { color: #c0392b; }
+
+.dev-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  margin-top: 8px;
+}
+
+.dev-table th, .dev-table td {
+  border: 1px solid var(--msf-line);
+  padding: 6px 8px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.dev-table th { background: var(--msf-card); font-weight: 600; }
+
+.dev-drawer { margin-top: 12px; }
+
+.dev-check { display: inline-flex; align-items: center; gap: 4px; margin-right: 14px; font-size: 13px; }
+
+.dev-compare {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.dev-compare .proto-iframe { width: 100%; height: 420px; }
