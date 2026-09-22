@@ -1,0 +1,391 @@
+import { Inject, Injectable } from '@nestjs/common';
+import { DomainError, fingerprint } from '@msf/shared';
+import type { PoolClient } from 'pg';
+import { query } from '../../db/pool.js';
+import { executeCommand, registerCommand, type CommandContext } from '../evidence/command-bus.js';
+import { mdToHtml } from '../platform/md-html.js';
+import { StorageService } from '../platform/storage.service.js';
+import { evaluateUiEvidence, type UiMatrixCell, type UiObserved } from '../platform/ui-score.js';
+import { latestBaseline, qof, type GateIssue } from './gate-common.js';
+
+/**
+ * 开发自测四门 + 报告（A06-14~17；F02-7/F05；REQ-413/414/415/416/417）。
+ * mock 口径：四门由执行证据派生（functional=单测证据齐、integration=CI 最新 pass、
+ * ui=目录矩阵×视口 evaluateUiEvidence 全 pass 观察、review=ai-review 证据齐）；
+ * 单飞（SELFTEST_RUNNING 零写拒绝）；retest 实质返工核验（RETEST_WITHOUT_CHANGE）；
+ * 报告不可变（指纹剔除自身字段自重算，篡改 → SELFTEST_REPORT_TAMPERED）。
+ */
+@Injectable()
+export class DevSelftestService {
+  constructor(@Inject(StorageService) private readonly storage: StorageService) {}
+
+  onModuleInit(): void {
+    // A06-14 启动（含 retest 内部分支；门禁 F02-7 devStartSelfTest 前置）
+    registerCommand('dev.selftest.start', async (client, payload, ctx) => {
+      const { projectId, retestOfReportId, reason } = payload as {
+        projectId: string; retestOfReportId?: string; reason?: string;
+      };
+      const issues = await this.startIssues(client, projectId, retestOfReportId ?? null, reason ?? null);
+      if (issues.length > 0) {
+        const code = issues[0]!.code;
+        if (code === 'RETEST_WITHOUT_CHANGE') {
+          throw new DomainError('RETEST_WITHOUT_CHANGE', issues[0]!.message, issues[0]!.target);
+        }
+        throw new DomainError('GATE_BLOCKED', '自测启动门禁未通过', 'selftest', { issues });
+      }
+      const build = await client.query<{ id: string; code: string; build_fingerprint: string }>(
+        'SELECT * FROM dev_builds WHERE project_id=$1 ORDER BY created_at DESC LIMIT 1', [projectId]);
+      const b = build.rows[0]!;
+      const bl = await latestBaseline(client, projectId);
+      const basisFp = fingerprint({ build: b.build_fingerprint, baseline: bl?.baseline_fingerprint ?? null });
+      const retestOf = retestOfReportId
+        ? (await client.query<{ selftest_id: string }>('SELECT selftest_id FROM dev_reports WHERE id=$1', [retestOfReportId])).rows[0]?.selftest_id ?? null
+        : null;
+      const remediationFp = await this.remediationFingerprint(client, projectId); // 始终记录：复测实质返工比对基准
+      const r = await client.query<{ id: string }>(
+        `INSERT INTO dev_selftests (project_id, build_id, build_fingerprint, gate_function, gate_smoke, gate_ui, gate_review,
+           status, basis_fingerprint, retest_of, remediation_fingerprint, started_by)
+         VALUES ($1,$2,$3,'{}','{}','{}','{}','running',$4,$5,$6,$7) RETURNING id`,
+        [projectId, b.id, b.build_fingerprint, basisFp, retestOf, remediationFp, ctx.actorId]);
+      return { selftestId: r.rows[0]!.id, status: 'running', basisFingerprint: `sha256:${basisFp}` };
+    });
+
+    // A06-14 复测入口（devRetestSelfTest：针对最近失败报告 + reason 必填 + 实质返工核验）
+    registerCommand('dev.selftest.retest', async (client, payload, ctx) => {
+      const { projectId, retestOfReportId, reason } = payload as {
+        projectId: string; retestOfReportId?: string; reason?: string;
+      };
+      if (!retestOfReportId) throw new DomainError('VALIDATION_FAILED', '复测须携带 retestOfReportId', 'retestOfReportId');
+      const inner = async (): Promise<unknown> => {
+        const issues = await this.startIssues(client, projectId, retestOfReportId, reason ?? null);
+        if (issues.length > 0) {
+          if (issues.some((i) => i.code === 'RETEST_WITHOUT_CHANGE')) {
+            throw new DomainError('RETEST_WITHOUT_CHANGE', issues.find((i) => i.code === 'RETEST_WITHOUT_CHANGE')!.message);
+          }
+          throw new DomainError('GATE_BLOCKED', '复测门禁未通过', 'selftest', { issues });
+        }
+        const build = await client.query<{ id: string; build_fingerprint: string }>(
+          'SELECT * FROM dev_builds WHERE project_id=$1 ORDER BY created_at DESC LIMIT 1', [projectId]);
+        const bl = await latestBaseline(client, projectId);
+        const basisFp = fingerprint({ build: build.rows[0]!.build_fingerprint, baseline: bl?.baseline_fingerprint ?? null });
+        const retestOf = (await client.query<{ selftest_id: string }>(
+          'SELECT selftest_id FROM dev_reports WHERE id=$1', [retestOfReportId])).rows[0]?.selftest_id ?? null;
+        const remediationFp = await this.remediationFingerprint(client, projectId);
+        const r = await client.query<{ id: string }>(
+          `INSERT INTO dev_selftests (project_id, build_id, build_fingerprint, gate_function, gate_smoke, gate_ui, gate_review,
+             status, basis_fingerprint, retest_of, remediation_fingerprint, started_by)
+           VALUES ($1,$2,$3,'{}','{}','{}','{}','running',$4,$5,$6,$7) RETURNING id`,
+          [projectId, build.rows[0]!.id, build.rows[0]!.build_fingerprint, basisFp, retestOf, remediationFp, ctx.actorId]);
+        return { selftestId: r.rows[0]!.id, status: 'running', retestOfReportId };
+      };
+      return inner();
+    });
+
+    // 完成回调（mock 执行器同步完成；真实执行器经 operation 回调，F02-7 完成回调迁移行）
+    registerCommand('dev.selftest.complete', async (client, payload, ctx) => {
+      const { projectId, selftestId } = payload as { projectId: string; selftestId: string };
+      const st = await client.query<{ id: string; build_id: string; build_fingerprint: string; status: string }>(
+        'SELECT * FROM dev_selftests WHERE id=$1 AND project_id=$2 FOR UPDATE', [selftestId, projectId]);
+      const s = st.rows[0];
+      if (!s) throw new DomainError('NOT_FOUND', '自测操作不存在', selftestId);
+      if (s.status !== 'running') throw new DomainError('INVALID_STATE', `自测状态 ${s.status} 不可完成`, selftestId);
+
+      // 四门求值
+      const functional = await this.gateFunctional(client, projectId);
+      const integration = await this.gateIntegration(client, projectId);
+      const review = await this.gateReview(client, projectId);
+      const ui = await this.gateUi(client, projectId);
+      const gates = { functional, integration, ui: { ok: ui.ok, issues: ui.issues }, review };
+      const status = functional.ok && integration.ok && ui.ok && review.ok ? 'pass' : 'fail';
+
+      await client.query(
+        `UPDATE dev_selftests SET gate_function=$3, gate_smoke=$4, gate_ui=$5, gate_review=$6, status=$7, finished_at=now()
+         WHERE id=$1 AND project_id=$2`,
+        [selftestId, projectId, JSON.stringify(functional), JSON.stringify(integration),
+          JSON.stringify({ ok: ui.ok, issues: ui.issues, defects: ui.defects }), JSON.stringify(review), status]);
+
+      // 逐页×视口明细（append-only）
+      for (const cell of ui.cells) {
+        await client.query(
+          `INSERT INTO dev_selftest_pages (selftest_id, page_code, viewport_code, critical_total, critical_pass,
+             general_total, general_pass, severe_deviations, skipped, not_run, passed, evidence_ids)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'[]')`,
+          [selftestId, cell.pageId, cell.viewportId, cell.criticalTotal, cell.criticalPass,
+            cell.generalTotal, cell.generalPass, cell.severeDeviations, cell.skipped, cell.notRun, cell.passed]);
+      }
+
+      // 不可变报告（REQ-417：执行证据自动汇总；指纹剔除自身字段）
+      const seq = await client.query<{ n: string }>('SELECT count(*) AS n FROM dev_reports WHERE project_id=$1', [projectId]);
+      const code = `SR-${String(Number(seq.rows[0]?.n ?? 0) + 1).padStart(4, '0')}`;
+      const bl = await latestBaseline(client, projectId);
+      const basedOn = { build_fingerprint: s.build_fingerprint, baseline_fingerprint: bl?.baseline_fingerprint ?? null, selftest_basis: selftestId };
+      const summary = { gates, pages: ui.pages, cellCount: ui.cells.length };
+      const reportFp = fingerprint(JSON.parse(JSON.stringify({ code, selftestId, basedOn, summary, status })));
+      const rep = await client.query<{ id: string }>(
+        `INSERT INTO dev_reports (project_id, code, selftest_id, based_on, summary, status, report_fingerprint, created_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+        [projectId, code, selftestId, JSON.stringify(basedOn), JSON.stringify(summary), status, reportFp, ctx.actorId]);
+      return { reportId: rep.rows[0]!.id, code, status, gates };
+    });
+
+    // A06-16 导出（md+html 落 MinIO；报告不可变——仅回写 export_object_key 引用，不改内容）
+    registerCommand('dev.report.export', async (client, payload) => {
+      const { projectId, reportId, objectKey } = payload as { projectId: string; reportId: string; objectKey: string };
+      await client.query('UPDATE dev_reports SET export_object_key=$3 WHERE id=$1 AND project_id=$2', [reportId, projectId, objectKey]);
+      return { reportId, objectKey };
+    });
+  }
+
+  // ---------- 命令入口 ----------
+
+  async start(projectId: string, ctx: CommandContext) {
+    const r = (await executeCommand('dev.selftest.start', { projectId }, { ...ctx, projectId })) as { selftestId: string };
+    const done = (await this.complete(projectId, r.selftestId, ctx)) as Record<string, unknown>;
+    return { operationId: `op_st_${r.selftestId.slice(0, 8)}`, ...done };
+  }
+
+  async retest(projectId: string, reason: string, ctx: CommandContext) {
+    const latest = await query<{ id: string }>(
+      'SELECT id FROM dev_reports WHERE project_id=$1 ORDER BY created_at DESC LIMIT 1', [projectId]);
+    const r = (await executeCommand('dev.selftest.retest',
+      { projectId, retestOfReportId: latest.rows[0]?.id, reason }, { ...ctx, projectId })) as { selftestId: string };
+    const done = (await this.complete(projectId, r.selftestId, ctx)) as Record<string, unknown>;
+    return { operationId: `op_st_${r.selftestId.slice(0, 8)}`, retestOfReportId: latest.rows[0]?.id, ...done };
+  }
+
+  async complete(projectId: string, selftestId: string, ctx: CommandContext) {
+    return executeCommand('dev.selftest.complete', { projectId, selftestId }, { ...ctx, projectId });
+  }
+
+  async export(projectId: string, reportId: string, format: 'md' | 'html', ctx: CommandContext) {
+    const r = await query<{ code: string; summary: { gates: Record<string, { ok: boolean }> }; status: string; based_on: unknown }>(
+      'SELECT * FROM dev_reports WHERE id=$1 AND project_id=$2', [reportId, projectId]);
+    const rep = r.rows[0];
+    if (!rep) throw new DomainError('NOT_FOUND', '报告不存在', reportId);
+    const GATE_NAMES: Record<string, string> = { functional: '功能检查', integration: '联调与冒烟', ui: 'UI 符合度', review: '开发审核' };
+    const md = `# 开发自测报告 ${rep.code}\n\n- 结论：${rep.status}\n- 依据：${JSON.stringify(rep.based_on)}\n\n` +
+      Object.entries(rep.summary.gates).map(([k, g]) => `- ${GATE_NAMES[k] ?? k}：${g.ok ? '通过' : '阻断'}`).join('\n');
+    const body = format === 'md' ? md
+      : `<!doctype html><html><head><meta charset="utf-8"><title>${rep.code}</title></head><body>${mdToHtml(md)}</body></html>`;
+    const objectKey = `exports/${projectId}/report-${rep.code}.${format}`;
+    await this.storage.putObject(objectKey, Buffer.from(body, 'utf8'));
+    await executeCommand('dev.report.export', { projectId, reportId, format, objectKey }, { ...ctx, projectId });
+    return { downloadUrl: await this.storage.presignedGet(objectKey), format };
+  }
+
+  // ---------- 查询面 ----------
+
+  /** A06-15 自测门禁（实时求值 §15(b) 闭集） */
+  async gate(projectId: string): Promise<{ ok: boolean; issues: GateIssue[]; report: unknown }> {
+    const issues = await this.liveIssues(projectId);
+    const rep = await query<{ id: string; code: string; status: string }>(
+      'SELECT id, code, status FROM dev_reports WHERE project_id=$1 ORDER BY created_at DESC LIMIT 1', [projectId]);
+    return { ok: issues.length === 0 && rep.rows[0]?.status === 'pass', issues, report: rep.rows[0] ?? null };
+  }
+
+  /** A06-16 报告列表/详情 */
+  async reports(projectId: string) {
+    const r = await query(
+      'SELECT id, code, status, based_on, report_fingerprint, export_object_key, created_at FROM dev_reports WHERE project_id=$1 ORDER BY created_at DESC',
+      [projectId]);
+    return { items: r.rows };
+  }
+
+  async reportDetail(projectId: string, reportId: string) {
+    const r = await query('SELECT * FROM dev_reports WHERE id=$1 AND project_id=$2', [reportId, projectId]);
+    const rep = r.rows[0] as Record<string, unknown> | undefined;
+    if (!rep) throw new DomainError('NOT_FOUND', '报告不存在', reportId);
+    const pages = await query(
+      'SELECT page_code, viewport_code, critical_total, critical_pass, general_total, general_pass, severe_deviations, skipped, not_run, passed FROM dev_selftest_pages WHERE selftest_id=$1 ORDER BY page_code, viewport_code',
+      [rep.selftest_id]);
+    // 报告自重算校验（SELFTEST_REPORT_TAMPERED 探测）
+    const recomputed = fingerprint(JSON.parse(JSON.stringify({
+      code: rep.code, selftestId: rep.selftest_id, basedOn: rep.based_on, summary: rep.summary, status: rep.status,
+    })));
+    return {
+      reportId: rep.id, code: rep.code, status: rep.status, gates: (rep.summary as { gates: unknown }).gates,
+      pages: pages.rows, basedOn: rep.based_on,
+      fingerprint: `sha256:${String(rep.report_fingerprint)}`, tampered: recomputed !== rep.report_fingerprint,
+      immutable: true, createdAt: rep.created_at,
+    };
+  }
+
+  /** A06-17 双侧对照（两侧不得渲染同一对象：指纹不同源校验） */
+  async comparison(projectId: string, pageId: string) {
+    const proto = await query<{ content_object_key: string | null; content_fingerprint: string }>(
+      `SELECT v.content_object_key, v.content_fingerprint FROM dsg_documents d
+       JOIN dsg_versions v ON v.id=COALESCE(d.final_version_id, d.current_version_id)
+       WHERE d.project_id=$1 AND d.doc_kind='prototype'`, [projectId]);
+    const build = await query<{ ui_artifact_object_key: string; ui_artifact_fingerprint: string }>(
+      'SELECT ui_artifact_object_key, ui_artifact_fingerprint FROM dev_builds WHERE project_id=$1 ORDER BY created_at DESC LIMIT 1',
+      [projectId]);
+    if (!proto.rows[0]?.content_object_key) throw new DomainError('NOT_FOUND', '原型工件不存在', pageId);
+    if (!build.rows[0]) throw new DomainError('NOT_FOUND', '无候选构建 UI 工件', pageId);
+    const p = proto.rows[0];
+    const b = build.rows[0];
+    const distinct = p.content_fingerprint !== b.ui_artifact_fingerprint;
+    return {
+      prototypePreviewUrl: `${await this.storage.presignedGet(p.content_object_key!)}#${encodeURIComponent(pageId)}`,
+      buildPreviewUrl: await this.storage.presignedGet(b.ui_artifact_object_key),
+      sameObjectGuard: {
+        prototypeHtmlFingerprint: `sha256:${p.content_fingerprint}`,
+        buildHtmlFingerprint: `sha256:${b.ui_artifact_fingerprint}`,
+        distinct,
+      },
+    };
+  }
+
+  // ---------- 内部 ----------
+
+  /** 启动门禁（F02-7 devStartSelfTest 前置；§15(b)/(c) 子码） */
+  private async startIssues(client: PoolClient, projectId: string, retestOfReportId: string | null, reason: string | null): Promise<GateIssue[]> {
+    const q = qof(client);
+    const issues: GateIssue[] = [];
+    const build = await q<{ id: string; build_fingerprint: string; status: string }>(
+      'SELECT * FROM dev_builds WHERE project_id=$1 ORDER BY created_at DESC LIMIT 1', [projectId]);
+    if (!build.rows[0]) issues.push({ code: 'BUILD_REQUIRED', message: '尚无候选构建（构建前启动被拒）' });
+    else if (build.rows[0].status !== 'pass') issues.push({ code: 'BUILD_INVALID', message: '候选构建未通过' });
+    const plan = await q<{ snapshot: { taskIds?: string[] } }>(
+      "SELECT snapshot FROM dev_plans WHERE project_id=$1 AND state='approved' ORDER BY revision DESC LIMIT 1", [projectId]);
+    if (plan.rows[0]) {
+      const notDone = await q<{ code: string }>(
+        `SELECT code FROM dev_tasks WHERE project_id=$1 AND code = ANY($2) AND col <> 'done'`,
+        [projectId, plan.rows[0].snapshot.taskIds ?? []]);
+      for (const t of notDone.rows) issues.push({ code: 'TASK_NOT_DONE', message: `${t.code} 尚未合并完成`, target: t.code });
+    }
+    const running = await q<{ id: string }>(
+      "SELECT id FROM dev_selftests WHERE project_id=$1 AND status='running'", [projectId]);
+    if (running.rows[0]) issues.push({ code: 'SELFTEST_RUNNING', message: '自测运行中（重复启动零写拒绝）', target: running.rows[0].id });
+    const latestReport = await q<{ id: string; status: string; based_on: { build_fingerprint?: string } }>(
+      'SELECT id, status, based_on FROM dev_reports WHERE project_id=$1 ORDER BY created_at DESC LIMIT 1', [projectId]);
+    const lr = latestReport.rows[0];
+    if (!retestOfReportId) {
+      if (lr?.status === 'fail') issues.push({ code: 'RETEST_REQUIRED', message: '最近报告 fail，必须走复测入口', target: lr.id });
+    } else {
+      // 复测：reason 必填 + 实质返工核验（INV-RETEST-1）
+      if (!reason?.trim()) issues.push({ code: 'VALIDATION_FAILED', message: '复测理由必填' });
+      if (!lr || lr.status !== 'fail' || lr.id !== retestOfReportId) {
+        issues.push({ code: 'INVALID_STATE', message: '复测须针对最近失败报告' });
+      } else {
+        const failedSt = await q<{ remediation_fingerprint: string | null }>(
+          'SELECT remediation_fingerprint FROM dev_selftests WHERE id=(SELECT selftest_id FROM dev_reports WHERE id=$1)',
+          [lr.id]);
+        const remediation = await this.remediationFingerprint(client, projectId);
+        if (failedSt.rows[0] && remediation === failedSt.rows[0].remediation_fingerprint) {
+          issues.push({ code: 'RETEST_WITHOUT_CHANGE', message: '无实质返工的复测（构建/任务修订/提交集合均未变化）' });
+        }
+      }
+    }
+    return issues;
+  }
+
+  /** 实质返工派生指纹：当前构建指纹 + 任务修订集合（系统派生，调用方不可填） */
+  private async remediationFingerprint(client: PoolClient | null, projectId: string): Promise<string> {
+    const q = qof(client);
+    const build = await q<{ build_fingerprint: string }>(
+      'SELECT build_fingerprint FROM dev_builds WHERE project_id=$1 ORDER BY created_at DESC LIMIT 1', [projectId]);
+    const tasks = await q<{ code: string; rev: number; code_rev: number }>(
+      'SELECT code, rev, code_rev FROM dev_tasks WHERE project_id=$1 ORDER BY code', [projectId]);
+    return fingerprint({
+      build: build.rows[0]?.build_fingerprint ?? null,
+      tasks: tasks.rows.map((t) => `${t.code}:${t.rev}:${t.code_rev}`),
+    });
+  }
+
+  /** 实时门禁（A06-15；转测试门禁透传组复用） */
+  async liveIssues(projectId: string): Promise<GateIssue[]> {
+    const issues: GateIssue[] = [];
+    const running = await query<{ id: string }>(
+      "SELECT id FROM dev_selftests WHERE project_id=$1 AND status='running'", [projectId]);
+    if (running.rows[0]) issues.push({ code: 'SELFTEST_RUNNING', message: '自测运行中', target: running.rows[0].id });
+    const rep = await query<{ id: string; code: string; status: string; based_on: { build_fingerprint?: string; baseline_fingerprint?: string }; report_fingerprint: string; selftest_id: string; summary: unknown }>(
+      'SELECT * FROM dev_reports WHERE project_id=$1 ORDER BY created_at DESC LIMIT 1', [projectId]);
+    const r = rep.rows[0];
+    if (!r || r.status !== 'pass') {
+      issues.push({ code: 'SELFTEST_REQUIRED', message: '需要当前通过的开发自测报告' });
+      return issues;
+    }
+    // 报告篡改探测（自重算）
+    const recomputed = fingerprint(JSON.parse(JSON.stringify({ code: r.code, selftestId: r.selftest_id, basedOn: r.based_on, summary: r.summary, status: r.status })));
+    if (recomputed !== r.report_fingerprint) {
+      issues.push({ code: 'SELFTEST_REPORT_TAMPERED', message: '报告对象指纹不符', target: r.code });
+    }
+    const build = await query<{ build_fingerprint: string }>(
+      'SELECT build_fingerprint FROM dev_builds WHERE project_id=$1 ORDER BY created_at DESC LIMIT 1', [projectId]);
+    if (build.rows[0] && build.rows[0].build_fingerprint !== r.based_on.build_fingerprint) {
+      issues.push({ code: 'SELFTEST_BUILD_STALE', message: '候选构建已变化', target: r.code });
+    }
+    const bl = await latestBaseline(null, projectId);
+    if (bl && r.based_on.baseline_fingerprint && bl.baseline_fingerprint !== r.based_on.baseline_fingerprint) {
+      issues.push({ code: 'SELFTEST_DESIGN_STALE', message: '设计基线已变化', target: r.code });
+    }
+    return issues;
+  }
+
+  // ---------- 四门 mock 求值 ----------
+
+  private async gateFunctional(client: PoolClient, projectId: string) {
+    const tasks = await client.query<{ id: string; code: string; acceptance: unknown[] }>(
+      "SELECT id, code, acceptance FROM dev_tasks WHERE project_id=$1 AND col='done'", [projectId]);
+    const missing: string[] = [];
+    for (const t of tasks.rows) {
+      const ev = await client.query<{ id: string }>(
+        `SELECT seq FROM evd_records WHERE project_id=$1 AND kind='unit' AND payload->>'taskId'=$2 AND (payload->>'pass')::boolean=true LIMIT 1`,
+        [projectId, t.id]);
+      if (!ev.rows[0]) missing.push(t.code);
+    }
+    return { ok: missing.length === 0, missing, coverage: { line: 85, branch: 78 } };
+  }
+
+  private async gateIntegration(client: PoolClient, projectId: string) {
+    const bad = await client.query<{ commit_sha: string; conclusion: string }>(
+      `SELECT DISTINCT ON (commit_sha) commit_sha, conclusion FROM dev_ci_reports
+       WHERE project_id=$1 ORDER BY commit_sha, received_at DESC`, [projectId]);
+    const failed = bad.rows.filter((r) => r.conclusion !== 'pass');
+    return { ok: failed.length === 0, failed };
+  }
+
+  private async gateReview(client: PoolClient, projectId: string) {
+    const tasks = await client.query<{ id: string; code: string }>(
+      "SELECT id, code FROM dev_tasks WHERE project_id=$1 AND col='done'", [projectId]);
+    const missing: string[] = [];
+    for (const t of tasks.rows) {
+      const ev = await client.query<{ id: string }>(
+        `SELECT seq FROM evd_records WHERE project_id=$1 AND kind='ai-review' AND payload->>'taskId'=$2 AND payload->>'conclusion'='pass' LIMIT 1`,
+        [projectId, t.id]);
+      if (!ev.rows[0]) missing.push(t.code);
+    }
+    return { ok: missing.length === 0, missing, reviewer: 'mock-reviewer' };
+  }
+
+  /** UI 门：矩阵从当前设计目录派生（页面×视口），mock 观察全 pass → evaluateUiEvidence */
+  private async gateUi(client: PoolClient, projectId: string) {
+    const cat = await client.query<{ catalog_version: string }>(
+      'SELECT catalog_version FROM dsg_catalog_items WHERE project_id=$1 ORDER BY catalog_version DESC LIMIT 1', [projectId]);
+    const catVer = cat.rows[0]?.catalog_version;
+    if (!catVer) return { ok: false, issues: [{ code: 'UI_EXPECTED_MATRIX_MISMATCH', message: '无设计目录' }], defects: [], cells: [], pages: [] };
+    const items = await client.query<{ item_type: string; code: string }>(
+      'SELECT item_type, code FROM dsg_catalog_items WHERE project_id=$1 AND catalog_version=$2', [projectId, catVer]);
+    const pages = items.rows.filter((i) => i.item_type === 'page').map((i) => i.code);
+    const viewports = items.rows.filter((i) => i.item_type === 'viewport').map((i) => i.code);
+    const states = items.rows.filter((i) => i.item_type === 'state').map((i) => i.code);
+    const matrix: UiMatrixCell[] = [];
+    for (const p of pages) {
+      for (const v of viewports) {
+        matrix.push({
+          pageId: p, viewportId: v,
+          criticalItems: [{ id: 'c-layout', kind: 'visual' }, { id: 'c-content', kind: 'visual' }],
+          generalItems: [
+            { id: 'g-visual', kind: 'visual' },
+            ...states.map((s) => ({ id: `state-${s}`, kind: 'state', requiredState: true })),
+          ],
+        });
+      }
+    }
+    const observed: UiObserved[] = matrix.flatMap((c) =>
+      [...c.criticalItems, ...c.generalItems].map((d) => ({
+        pageId: c.pageId, viewportId: c.viewportId, checkId: d.id, kind: d.kind, outcome: 'pass',
+      })));
+    return evaluateUiEvidence(matrix, observed);
+  }
+}

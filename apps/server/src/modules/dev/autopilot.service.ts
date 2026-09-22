@@ -1,0 +1,321 @@
+import { Inject, Injectable } from '@nestjs/common';
+import { DomainError } from '@msf/shared';
+import { randomUUID } from 'node:crypto';
+import { query } from '../../db/pool.js';
+import { executeCommand, registerCommand, type CommandContext } from '../evidence/command-bus.js';
+import { liveBaselineFingerprint } from './gate-common.js';
+import { DevBoardService } from './board.service.js';
+import { DevBuildService } from './build.service.js';
+import { DevSelftestService } from './selftest.service.js';
+
+/** mock runner 节奏（测试置 0；M6 换 BullMQ delayed job 链，D-11） */
+export const devAutopilotTiming = { tickDelayMs: 15 };
+
+const RECOVERABLE_BLOCKERS = new Set(['RUNNER_START_FAILED', 'HUMAN_TASK_REQUIRED', 'SELFTEST_START_FAILED']);
+
+interface RunRow {
+  id: string; run_id: string; run_token: string; plan_id: string; plan_fingerprint: string;
+  authorization_id: string; status: string; blocker: { code: string; message: string; taskId?: string; category: string } | null;
+}
+
+/**
+ * autopilot 自动主线（A06-10~12；F02-6/F07；REQ-409/410、BR-13）。
+ * - approve.start 同事务：复核展示指纹 → 签发授权（scope 深冻结 transferToTest:false）→ 创建 run+runToken。
+ * - tick 决策次序 ①token/status → ②授权/输入/计划重验 → ③运行中操作等待 → ④首个未完成任务派发（一 tick 一动作）
+ *   → ⑤全完成查构建 → ⑥自测（人工自测只等待不认领；失败无实质修复不空转） → ⑦合格 → awaiting-transfer 停 runner。
+ * - pause/stop/takeover 先旋转 runToken（晚到回调严格零写 OPERATION_STALE），仅取消本运行拥有的 running 操作。
+ * - 派发动作各自走命令事务（独立审计）；本服务只做编排（v18DispatchAction 同构）。
+ */
+@Injectable()
+export class DevAutopilotService {
+  private readonly runners = new Map<string, boolean>();
+
+  constructor(
+    @Inject(DevBoardService) private readonly board: DevBoardService,
+    @Inject(DevBuildService) private readonly build: DevBuildService,
+    @Inject(DevSelftestService) private readonly selftest: DevSelftestService,
+  ) {}
+
+  onModuleInit(): void {
+    // A06-10 批准并启动（同事务：复核 → 授权 → run）
+    registerCommand('dev.autopilot.approve-start', async (client, payload, ctx) => {
+      const { projectId, displayedRevisionId, displayedFingerprint } = payload as {
+        projectId: string; displayedRevisionId: string; displayedFingerprint: string;
+      };
+      // 人工硬约束（F07-3：7 确认点冻结枚举之外，批准启动永不可由 AI 通道触发）
+      if (ctx.actorKind !== 'human') {
+        throw new DomainError('POLICY_MANUAL_REQUIRED', 'autopilot 批准启动须人工操作', 'dev.autopilot.approve-start');
+      }
+      const revNo = Number(displayedRevisionId.replace(/^plan-r/, ''));
+      const plan = await client.query<{ id: string; state: string; plan_fingerprint: string; baseline_fingerprint: string; snapshot: { taskIds?: string[] } }>(
+        'SELECT * FROM dev_plans WHERE project_id=$1 AND revision=$2 FOR UPDATE', [projectId, revNo]);
+      const p = plan.rows[0];
+      if (!p || p.state !== 'approved') throw new DomainError('INVALID_STATE', '计划未批准', displayedRevisionId);
+      if (p.plan_fingerprint !== displayedFingerprint.replace(/^sha256:/, '')) {
+        throw new DomainError('STALE_EVIDENCE', '展示的修订/指纹与服务端不一致', displayedRevisionId);
+      }
+      const live = await liveBaselineFingerprint(client, projectId);
+      if (live !== p.baseline_fingerprint) throw new DomainError('STALE_EVIDENCE', '基线已变化', displayedRevisionId);
+      const active = await client.query<{ run_id: string }>(
+        "SELECT run_id FROM dev_runs WHERE project_id=$1 AND status NOT IN ('stopped','transferred')", [projectId]);
+      if (active.rows[0]) throw new DomainError('INVALID_STATE', '存在未终态运行', active.rows[0].run_id);
+      const seqA = await client.query<{ n: string }>('SELECT count(*) AS n FROM dev_authorizations WHERE project_id=$1', [projectId]);
+      const authId = `auth_${Number(seqA.rows[0]?.n ?? 0) + 1}`;
+      const tasks = await client.query<{ code: string; rev: number }>(
+        'SELECT code, rev FROM dev_tasks WHERE project_id=$1 AND code = ANY($2)', [projectId, p.snapshot.taskIds ?? []]);
+      // scope 深冻结：transferToTest 永 false（F07-3 自动放行上限）
+      const scope = { development: true, unitCi: true, aiReview: true, merge: true, integrationBuild: true, transferToTest: false };
+      await client.query(
+        `INSERT INTO dev_authorizations (project_id, authorization_id, plan_id, scope, task_ids, status, created_by)
+         VALUES ($1,$2,$3,$4,$5,'active',$6)`,
+        [projectId, authId, p.id, JSON.stringify(scope), JSON.stringify(tasks.rows), ctx.actorId]);
+      const seqR = await client.query<{ n: string }>('SELECT count(*) AS n FROM dev_runs WHERE project_id=$1', [projectId]);
+      const runId = `run_${Number(seqR.rows[0]?.n ?? 0) + 1}`;
+      const runToken = randomUUID();
+      await client.query(
+        `INSERT INTO dev_runs (project_id, run_id, run_token, plan_id, plan_fingerprint, authorization_id, status, phase, created_by)
+         VALUES ($1,$2,$3,$4,$5,$6,'running','tasks',$7)`,
+        [projectId, runId, runToken, p.id, p.plan_fingerprint, authId, ctx.actorId]);
+      return { runId, runToken, authorizationId: authId, status: 'running', operationId: `op_ap_${runId}` };
+    });
+
+    // A06-11 控制：先旋转 runToken，再仅取消本运行归属的 running 操作；stop 另撤销授权
+    const control = async (client: import('pg').PoolClient, projectId: string, action: 'paused' | 'stopped' | 'taken-over') => {
+      const run = await client.query<RunRow>(
+        "SELECT * FROM dev_runs WHERE project_id=$1 AND status IN ('running','blocked','paused','taken-over') ORDER BY created_at DESC LIMIT 1 FOR UPDATE",
+        [projectId]);
+      const r = run.rows[0];
+      if (!r) throw new DomainError('INVALID_STATE', '无可控制的运行', projectId);
+      const newToken = randomUUID();
+      const cancelled = await client.query<{ n: string }>(
+        `WITH upd AS (UPDATE dev_operations SET status='cancelled', updated_at=now()
+           WHERE project_id=$1 AND run_id=$2 AND token=$3 AND status='running' RETURNING 1)
+         SELECT count(*) AS n FROM upd`, [projectId, r.run_id, r.run_token]);
+      await client.query('UPDATE dev_runs SET run_token=$3, status=$4, updated_at=now() WHERE id=$1 AND project_id=$2',
+        [r.id, projectId, newToken, action]);
+      if (action === 'stopped') {
+        await client.query("UPDATE dev_authorizations SET status='revoked', updated_at=now() WHERE project_id=$1 AND authorization_id=$2",
+          [projectId, r.authorization_id]);
+      }
+      return { runId: r.run_id, status: action, cancelledOperations: Number(cancelled.rows[0]?.n ?? 0) };
+    };
+    registerCommand('dev.autopilot.pause', async (client, payload) => {
+      const { projectId } = payload as { projectId: string };
+      return control(client, projectId, 'paused');
+    });
+    registerCommand('dev.autopilot.stop', async (client, payload) => {
+      const { projectId } = payload as { projectId: string };
+      return control(client, projectId, 'stopped');
+    });
+    registerCommand('dev.autopilot.takeover', async (client, payload) => {
+      const { projectId } = payload as { projectId: string };
+      return control(client, projectId, 'taken-over');
+    });
+
+    // resume（可恢复阻断码白名单 + 重验授权/输入/计划；新 token）
+    registerCommand('dev.autopilot.resume', async (client, payload) => {
+      const { projectId } = payload as { projectId: string };
+      const run = await client.query<RunRow>(
+        "SELECT * FROM dev_runs WHERE project_id=$1 AND status IN ('paused','blocked','taken-over') ORDER BY created_at DESC LIMIT 1 FOR UPDATE",
+        [projectId]);
+      const r = run.rows[0];
+      if (!r) throw new DomainError('INVALID_STATE', '无可恢复的运行', projectId);
+      if (r.status === 'blocked' && !RECOVERABLE_BLOCKERS.has(r.blocker?.code ?? '')) {
+        throw new DomainError('INVALID_STATE', `阻断码 ${r.blocker?.code ?? ''} 不可直接恢复，须经人工处置链`, r.run_id);
+      }
+      const auth = await client.query<{ status: string }>(
+        'SELECT status FROM dev_authorizations WHERE project_id=$1 AND authorization_id=$2', [projectId, r.authorization_id]);
+      if (auth.rows[0]?.status !== 'active') throw new DomainError('INVALID_STATE', '授权已失效', r.authorization_id);
+      const plan = await client.query<{ plan_fingerprint: string; baseline_fingerprint: string; state: string }>(
+        'SELECT * FROM dev_plans WHERE id=$1', [r.plan_id]);
+      if (plan.rows[0]?.state !== 'approved' || plan.rows[0].plan_fingerprint !== r.plan_fingerprint) {
+        throw new DomainError('STALE_EVIDENCE', '计划已变化，须重新准备', r.run_id);
+      }
+      const live = await liveBaselineFingerprint(client, projectId);
+      if (live !== plan.rows[0].baseline_fingerprint) throw new DomainError('STALE_EVIDENCE', '基线已变化', r.run_id);
+      const newToken = randomUUID();
+      await client.query("UPDATE dev_runs SET run_token=$3, status='running', blocker=NULL, updated_at=now() WHERE id=$1 AND project_id=$2",
+        [r.id, projectId, newToken]);
+      return { runId: r.run_id, status: 'running' };
+    });
+
+    // 阻断（旋转 token + blocker + 停 runner；F07-4 生成「需你处理」由 status 查询承载）
+    registerCommand('dev.autopilot.block', async (client, payload) => {
+      const { projectId, runId, blocker } = payload as {
+        projectId: string; runId: string; blocker: { code: string; message: string; taskId?: string; category: string };
+      };
+      const run = await client.query<RunRow>(
+        'SELECT * FROM dev_runs WHERE project_id=$1 AND run_id=$2 FOR UPDATE', [projectId, runId]);
+      if (!run.rows[0]) throw new DomainError('NOT_FOUND', '运行不存在', runId);
+      await client.query(
+        "UPDATE dev_runs SET run_token=$3, status='blocked', blocker=$4, updated_at=now() WHERE id=$1 AND project_id=$2",
+        [run.rows[0].id, projectId, randomUUID(), JSON.stringify(blocker)]);
+      return { runId, status: 'blocked', blocker };
+    });
+
+    // 原子写 awaiting-transfer（⑦；停在此态等人工——autopilot 永不自行转测试）
+    registerCommand('dev.autopilot.awaiting-transfer', async (client, payload) => {
+      const { projectId, runId } = payload as { projectId: string; runId: string };
+      await client.query(
+        "UPDATE dev_runs SET status='awaiting-transfer', phase='awaiting-transfer', updated_at=now() WHERE project_id=$1 AND run_id=$2 AND status='running'",
+        [projectId, runId]);
+      return { runId, status: 'awaiting-transfer' };
+    });
+
+    // 派发回执登记（审计链：每 tick 一条）
+    registerCommand('dev.autopilot.advance', async (_client, payload) => {
+      return { receipt: payload };
+    });
+  }
+
+  // ---------- 命令入口与编排 ----------
+
+  async approveStart(projectId: string, displayedRevisionId: string, displayedFingerprint: string, ctx: CommandContext) {
+    const r = (await executeCommand('dev.autopilot.approve-start',
+      { projectId, displayedRevisionId, displayedFingerprint }, { ...ctx, projectId })) as { runId: string };
+    this.kickRunner(projectId, r.runId, ctx);
+    return r;
+  }
+
+  async control(projectId: string, action: 'pause' | 'stop' | 'takeover' | 'resume', ctx: CommandContext) {
+    const cmd = { pause: 'dev.autopilot.pause', stop: 'dev.autopilot.stop', takeover: 'dev.autopilot.takeover', resume: 'dev.autopilot.resume' }[action];
+    if (action !== 'resume') this.runners.delete(projectId); // 停 runner 循环
+    const r = await executeCommand(cmd, { projectId }, { ...ctx, projectId });
+    if (action === 'resume') {
+      const st = (await this.status(projectId)) as { run: { runId: string } | null };
+      if (st.run) this.kickRunner(projectId, st.run.runId, ctx);
+    }
+    return r;
+  }
+
+  /** A06-12 状态查询 */
+  async status(projectId: string) {
+    const run = await query<RunRow & { created_at: string }>(
+      'SELECT * FROM dev_runs WHERE project_id=$1 ORDER BY created_at DESC LIMIT 1', [projectId]);
+    const r = run.rows[0];
+    if (!r) return { run: null, authorization: null };
+    const auth = await query<{ authorization_id: string; status: string; scope: unknown; plan_id: string }>(
+      'SELECT * FROM dev_authorizations WHERE project_id=$1 AND authorization_id=$2', [projectId, r.authorization_id]);
+    return {
+      run: { runId: r.run_id, status: r.status, phase: r.status, currentAction: '', blocker: r.blocker },
+      authorization: auth.rows[0]
+        ? { authorizationId: auth.rows[0].authorization_id, status: auth.rows[0].status, scope: auth.rows[0].scope }
+        : null,
+    };
+  }
+
+  /** 晚到回调严格零写（BR-08/REQ-410）：token 双不匹配 → OPERATION_STALE，不产生任何写 */
+  async lateCallback(projectId: string, operationId: string, token: string) {
+    const op = await query<{ token: string; status: string }>(
+      'SELECT token, status FROM dev_operations WHERE project_id=$1 AND operation_id=$2', [projectId, operationId]);
+    if (!op.rows[0] || op.rows[0].token !== token || op.rows[0].status !== 'running') {
+      throw new DomainError('OPERATION_STALE', '回调身份不符（晚到/失效），严格零写', operationId);
+    }
+    return { ok: true };
+  }
+
+  /** mock runner：每 tickDelayMs 触发一次 tick 直到终态/被停（D-11 BullMQ 链的进程内替身） */
+  private kickRunner(projectId: string, runId: string, ctx: CommandContext): void {
+    if (this.runners.get(projectId)) return;
+    this.runners.set(projectId, true);
+    const loop = async (): Promise<void> => {
+      if (!this.runners.get(projectId)) return;
+      const done = await this.tick(projectId, runId, ctx).catch(() => false);
+      if (done) { this.runners.delete(projectId); return; }
+      setTimeout(() => void loop(), devAutopilotTiming.tickDelayMs);
+    };
+    setTimeout(() => void loop(), devAutopilotTiming.tickDelayMs);
+  }
+
+  /** 单次 tick（决策次序①~⑦，一次至多一个派发动作）；返回 true=已到终态 */
+  async tick(projectId: string, runId: string, ctx: CommandContext): Promise<boolean> {
+    const autoCtx: CommandContext = { projectId, actorKind: 'autopilot', actorId: `autopilot:${runId}` };
+    // ① runToken/status
+    const run = await query<RunRow>('SELECT * FROM dev_runs WHERE project_id=$1 AND run_id=$2', [projectId, runId]);
+    const r = run.rows[0];
+    if (!r || r.status !== 'running') return true;
+    // ② 授权/计划/输入重验
+    const auth = await query<{ status: string }>(
+      'SELECT status FROM dev_authorizations WHERE project_id=$1 AND authorization_id=$2', [projectId, r.authorization_id]);
+    const plan = await query<{ state: string; plan_fingerprint: string; baseline_fingerprint: string; snapshot: { taskIds?: string[] } }>(
+      'SELECT * FROM dev_plans WHERE id=$1', [r.plan_id]);
+    const p = plan.rows[0];
+    const live = await liveBaselineFingerprint(null, projectId);
+    if (auth.rows[0]?.status !== 'active' || !p || p.state !== 'approved' || p.plan_fingerprint !== r.plan_fingerprint || live !== p.baseline_fingerprint) {
+      await this.block(projectId, runId, { code: 'SELFTEST_INPUT_STALE', message: '授权/计划/输入已变化', category: 'gate' }, ctx);
+      await query("UPDATE dev_authorizations SET status='revoked', updated_at=now() WHERE project_id=$1 AND authorization_id=$2", [projectId, r.authorization_id]);
+      return true;
+    }
+    // ④ 首个未完成任务（按批准计划顺序；一 tick 一动作）
+    const taskIds = p.snapshot.taskIds ?? [];
+    const tasks = await query<{ id: string; code: string; col: string; prog: number; asg_type: string; code_rev: number }>(
+      'SELECT id, code, col, prog, asg_type, code_rev FROM dev_tasks WHERE project_id=$1 AND code = ANY($2)', [projectId, taskIds]);
+    const byCode = new Map(tasks.rows.map((t) => [t.code, t]));
+    const next = taskIds.map((c) => byCode.get(c)).find((t) => t && t.col !== 'done');
+    if (next) {
+      if (next.asg_type === 'human') {
+        await this.block(projectId, runId, { code: 'HUMAN_TASK_REQUIRED', message: `任务 ${next.code} 需人工承接`, taskId: next.id, category: 'control' }, ctx);
+        return true;
+      }
+      if (next.col === 'queue') {
+        await this.board.transition(projectId, next.id, 'ing', undefined, autoCtx);
+        await this.board.run(projectId, next.id, autoCtx); // mock 编码完成 prog=100
+      } else if (next.col === 'ing' && next.prog === 100) {
+        await this.board.transition(projectId, next.id, 'review', undefined, autoCtx);
+      } else if (next.col === 'review') {
+        // 质量 → AI 评审 → 合并（证据缺失才补；防空转由证据已存在判定承载）
+        // 证据须匹配当前代码修订（与合并自动门禁同口径；旧 codeRev 证据不算数）
+        const hasUnit = await query(
+          `SELECT 1 FROM evd_records WHERE project_id=$1 AND kind='unit' AND payload->>'taskId'=$2
+           AND payload->>'codeRev'=$3 AND (payload->>'pass')::boolean=true LIMIT 1`,
+          [projectId, next.id, String(next.code_rev)]);
+        if (hasUnit.rows.length === 0) {
+          await this.board.quality(projectId, next.id, autoCtx);
+        } else {
+          const hasReview = await query(
+            `SELECT 1 FROM evd_records WHERE project_id=$1 AND kind='ai-review' AND payload->>'taskId'=$2
+             AND payload->>'codeRev'=$3 LIMIT 1`,
+            [projectId, next.id, String(next.code_rev)]);
+          if (hasReview.rows.length === 0) {
+            await this.board.aiReview(projectId, next.id, autoCtx);
+          } else {
+            await this.board.merge(projectId, next.id, 'autopilot-authorization', undefined, r.authorization_id, autoCtx);
+          }
+        }
+      }
+      await executeCommand('dev.autopilot.advance', { projectId, runId, dispatched: next.code }, autoCtx);
+      return false;
+    }
+    // ⑤ 集成构建（缺则派发，仅一次）
+    const buildCur = (await this.build.current(projectId)) as { build: { planRevision: number } | null };
+    const planRev = await query<{ revision: number }>('SELECT revision FROM dev_plans WHERE id=$1', [r.plan_id]);
+    if (!buildCur.build || buildCur.build.planRevision !== planRev.rows[0]!.revision) {
+      await this.build.run(projectId, autoCtx);
+      return false;
+    }
+    // ⑥ 自测（人工 running 只等待；失败无实质修复不空转）
+    const gate = await this.selftest.gate(projectId);
+    if (gate.ok) {
+      // ⑦ 合格 → awaiting-transfer
+      await executeCommand('dev.autopilot.awaiting-transfer', { projectId, runId }, autoCtx);
+      return true;
+    }
+    const latestReport = (gate as { report: { status: string } | null }).report;
+    const running = gate.issues.some((i) => i.code === 'SELFTEST_RUNNING');
+    if (running) return false; // 人工自测进行中：只等待不认领
+    if (latestReport?.status === 'fail') {
+      // 无实质返工 → 阻断不空转（DISPATCH_NO_PROGRESS 防护由 remediation 核验承载）
+      await this.block(projectId, runId, { code: 'SELFTEST_FAILED', message: '自测未通过，待人工返工', category: 'quality' }, ctx);
+      return true;
+    }
+    if (gate.issues.some((i) => i.code === 'SELFTEST_REQUIRED')) {
+      await this.selftest.start(projectId, autoCtx);
+      return false;
+    }
+    return false;
+  }
+
+  private async block(projectId: string, runId: string, blocker: { code: string; message: string; taskId?: string; category: string }, ctx: CommandContext) {
+    await executeCommand('dev.autopilot.block', { projectId, runId, blocker }, { ...ctx, projectId });
+  }
+}

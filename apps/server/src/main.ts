@@ -8,7 +8,7 @@ import { identityMiddleware } from './modules/api/identity.middleware.js';
 import { idempotencyMiddleware } from './modules/api/idempotency.middleware.js';
 
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { rawBody: true });
   app.use(identityMiddleware);
   app.use(idempotencyMiddleware);
   app.useGlobalFilters(new DomainErrorFilter());
