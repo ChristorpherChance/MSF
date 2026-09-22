@@ -1,0 +1,103 @@
+/* 助手 dock 样式（U02-4；令牌基板） */
+
+.dock-fab {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  border: none;
+  background: #1565c0;
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+  z-index: 200;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+}
+
+.dock-drawer {
+  position: fixed;
+  right: 20px;
+  bottom: 76px;
+  width: 380px;
+  height: 520px;
+  background: var(--msf-card);
+  border: 1px solid var(--msf-line);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  z-index: 200;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.2);
+}
+
+.dock-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--msf-line);
+}
+
+.dock-head select { font-size: 12px; max-width: 110px; }
+.dock-chip {
+  background: #e3f2fd;
+  color: #1565c0;
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.dock-close { margin-left: auto; border: none; background: none; font-size: 16px; cursor: pointer; }
+
+.dock-msgs {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dock-msg { max-width: 88%; font-size: 13px; }
+.dock-msg-user { align-self: flex-end; }
+.dock-msg-body {
+  padding: 7px 10px;
+  border-radius: 8px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.dock-msg-user .dock-msg-body { background: #1565c0; color: #fff; }
+.dock-msg-ai .dock-msg-body { background: #f5f5f5; }
+.dock-msg-meta { font-size: 11px; color: var(--msf-mut); margin-top: 2px; }
+
+.dock-flowctl {
+  display: flex;
+  gap: 8px;
+  padding: 6px 10px;
+  border-top: 1px dashed var(--msf-line);
+}
+
+.dock-err { color: #c0392b; }
+.dock-errbar { padding: 4px 10px; font-size: 12px; }
+
+.dock-foot {
+  display: flex;
+  gap: 8px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--msf-line);
+}
+.dock-foot textarea {
+  flex: 1;
+  resize: none;
+  border: 1px solid var(--msf-line);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 13px;
+}
+
+.dock-usage {
+  padding: 4px 10px 8px;
+  font-size: 11px;
+  color: var(--msf-mut);
+}

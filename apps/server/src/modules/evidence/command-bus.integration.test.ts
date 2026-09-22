@@ -22,8 +22,7 @@ describe('审计哈希链（集成，需 DB）', async () => {
     return;
   }
 
-  beforeAll(async () => {
-    await query('TRUNCATE audit_log');
+  beforeAll(() => {
     resetCommands();
     registerCommand('health.ping', async () => ({ pong: true }));
   });
@@ -33,24 +32,32 @@ describe('审计哈希链（集成，需 DB）', async () => {
   });
 
   it('命令执行 → 审计追加 1 行且链式正确', async () => {
+    // 并发共库下只数本文件独占的 health.ping 行，避免他文件插入干扰
+    const b = await query<{ n: number }>("SELECT count(*)::int AS n FROM audit_log WHERE command='health.ping'");
     await executeCommand('health.ping', {}, { projectId: null, actorKind: 'human', actorId: 't' });
-    await executeCommand('health.ping', {}, { projectId: null, actorKind: 'human', actorId: 't' });
-    const r = await query<{ prev_hash: string | null; hash: string }>(
-      'SELECT prev_hash, hash FROM audit_log ORDER BY seq',
+    const a = await query<{ n: number }>("SELECT count(*)::int AS n FROM audit_log WHERE command='health.ping'");
+    expect(a.rows[0]!.n - b.rows[0]!.n).toBe(1);
+    // 多测试文件并发共库会交错插入，改为验证全局不变量：每行 prev_hash = 前一行 hash
+    const bad = await query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM (
+         SELECT prev_hash, lag(hash) OVER (ORDER BY seq) AS ph FROM audit_log
+       ) t WHERE prev_hash IS DISTINCT FROM ph`,
     );
-    expect(r.rows.length).toBe(2);
-    expect(r.rows[0]!.prev_hash).toBeNull();
-    expect(r.rows[1]!.prev_hash).toBe(r.rows[0]!.hash);
+    expect(bad.rows[0]!.n).toBe(0);
   });
 
   it('处理器抛错 → 整体回滚零写（审计失败零写对称面）', async () => {
     registerCommand('platform.project.create', async () => {
       throw new Error('boom');
     });
+    const marker = `boom-${Date.now()}`;
     await expect(
-      executeCommand('platform.project.create', { name: 'x' }, { projectId: null, actorKind: 'human', actorId: 't' }),
+      executeCommand('platform.project.create', { name: marker }, { projectId: null, actorKind: 'human', actorId: 't' }),
     ).rejects.toThrowError('boom');
-    const r = await query('SELECT count(*)::int AS n FROM audit_log');
-    expect(r.rows[0]!.n).toBe(2); // 仍是前两条，无部分写
+    const r = await query<{ n: number }>(
+      "SELECT count(*)::int AS n FROM audit_log WHERE payload->>'name' = $1",
+      [marker],
+    );
+    expect(r.rows[0]!.n).toBe(0); // 无部分写
   });
 });

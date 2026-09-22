@@ -1,5 +1,7 @@
 import { NavLink, Route, Routes } from 'react-router-dom';
+import { AssistantDock } from './assistant/AssistantDock';
 import { DesignPage } from './pages/design/DesignPage';
+import { DelegatePage } from './pages/delegate/DelegatePage';
 import { DevPage } from './pages/dev/DevPage';
 import { TestPage } from './pages/test/TestPage';
 import { MaterialPage } from './pages/material/MaterialPage';
@@ -11,20 +13,10 @@ const STAGES = [
   { path: '/design', name: '设计', reqs: 'REQ-301~312' },
   { path: '/dev', name: '开发', reqs: 'REQ-401~420' },
   { path: '/test', name: '测试验收', reqs: 'REQ-501~511' },
+  { path: '/delegate', name: '委派', reqs: 'REQ-610' },
 ] as const;
 
-function StagePlaceholder({ name, reqs }: { name: string; reqs: string }) {
-  return (
-    <main style={{ padding: 24 }}>
-      <h1>{name}阶段</h1>
-      <p style={{ color: 'var(--msf-mut)' }}>
-        M0 骨架占位页。本阶段承接 {reqs}，随逐域推进实现（见 doc/dev-plan/开发计划.md）。
-      </p>
-    </main>
-  );
-}
-
-/** 五阶段工作台骨架（LLD-6 §3 各页随 M1~M5 实现） */
+/** 五阶段工作台骨架（LLD-6 §3 各页随 M1~M6 实现；助手 dock 全局挂载，F1 开合） */
 export function App() {
   return (
     <div>
@@ -50,11 +42,10 @@ export function App() {
         <Route path="/design" element={<DesignPage />} />
         <Route path="/dev" element={<DevPage />} />
         <Route path="/test" element={<TestPage />} />
-        {STAGES.filter((s) => !['/material', '/req', '/design', '/dev', '/test'].includes(s.path)).map((s) => (
-          <Route key={s.path} path={s.path} element={<StagePlaceholder {...s} />} />
-        ))}
+        <Route path="/delegate" element={<DelegatePage />} />
         <Route path="*" element={<MaterialPage />} />
       </Routes>
+      <AssistantDock />
     </div>
   );
 }

@@ -1,0 +1,106 @@
+/* 委派页样式（LLD-6 §3.8；令牌沿用基板） */
+
+.dlg-banner {
+  margin: 10px 0;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: #e8f5e9;
+  font-size: 13px;
+}
+
+.dlg-banner-err { background: #fdecea; color: #b71c1c; }
+
+.dlg-targets h3, section h3 { margin: 14px 0 8px; }
+
+.dlg-target-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 10px;
+}
+
+.dlg-target-card {
+  border: 1px solid var(--msf-line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: var(--msf-card);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.dlg-target-card > div:first-child {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.dlg-mut { color: var(--msf-mut); font-size: 12px; }
+
+.dlg-tag {
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  background: var(--msf-line);
+}
+
+.dlg-ts-available, .dlg-ds-succeeded { background: #2e7d32; color: #fff; }
+.dlg-ts-unconfigured, .dlg-ds-queued { background: #b7950b; color: #fff; }
+.dlg-ts-disabled, .dlg-ds-cancelled { background: #90a4ae; color: #fff; }
+.dlg-ds-running { background: #1565c0; color: #fff; }
+.dlg-ds-failed, .dlg-ds-failed_timeout { background: #c0392b; color: #fff; }
+
+.dlg-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  background: var(--msf-card);
+}
+
+.dlg-table th, .dlg-table td {
+  border: 1px solid var(--msf-line);
+  padding: 6px 10px;
+  text-align: left;
+}
+
+.dlg-table tr.sel { background: #e3f2fd; }
+.dlg-table tbody tr { cursor: pointer; }
+.dlg-task { max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.dlg-modal-mask {
+  position: fixed; inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 100;
+}
+
+.dlg-modal {
+  background: var(--msf-card);
+  border-radius: 10px;
+  padding: 18px 20px;
+  width: 480px;
+  max-height: 80vh;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.dlg-field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.dlg-field input, .dlg-field select, .dlg-field textarea {
+  padding: 6px 8px;
+  border: 1px solid var(--msf-line);
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.dlg-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+.dlg-result {
+  background: #f5f5f5;
+  border-radius: 6px;
+  padding: 10px;
+  font-size: 12px;
+  max-height: 240px;
+  overflow: auto;
+}
