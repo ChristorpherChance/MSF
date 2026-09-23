@@ -3,15 +3,20 @@ import { DomainError, fingerprint } from '@msf/shared';
 import { query } from '../../db/pool.js';
 import { executeCommand, registerCommand, type CommandContext } from '../evidence/command-bus.js';
 import { StorageService } from '../platform/storage.service.js';
+import { NotificationsService } from '../platform/notifications.service.js';
 import { assertNotBlocked, lockBatch, nextCode, sha256hex, type BatchRow } from './test-common.js';
 
 /**
  * 批次接收/快照/阻断/恢复（A07-1/2/13/14；F02-8；REQ-501/502）。
  * 接收校验链：交接存在 → 报告 pass → 三指纹（构建/报告/基线）与实时一致 → 幂等接收（handoff_fingerprint UNIQUE）。
+ * 阻断/恢复产通知行+领域事件（M7 回销 M5 差异⑤：替代纯审计承载，BR-10）。
  */
 @Injectable()
 export class TstBatchesService {
-  constructor(@Inject(StorageService) private readonly storage: StorageService) {}
+  constructor(
+    @Inject(StorageService) private readonly storage: StorageService,
+    @Inject(NotificationsService) private readonly notices: NotificationsService,
+  ) {}
 
   onModuleInit(): void {
     // A07-1 批次接收（幂等）
@@ -97,7 +102,7 @@ export class TstBatchesService {
       await client.query(
         "UPDATE tst_batches SET status='blocked', previous_status=$3, blocked_reason=$4 WHERE id=$1 AND project_id=$2",
         [b.id, projectId, b.status, reason]);
-      // 通知（BR-10）：本期审计留痕承载（口径注记⑤），SSE notice.created 随 M6 事件总线
+      // 通知行+领域事件由外层 block() 在命令提交后产（同项目全员通知，SSE notice.created）
       return { batchId, status: 'blocked', previousStatus: b.status, blockedAt: new Date().toISOString() };
     });
 
@@ -140,11 +145,21 @@ export class TstBatchesService {
   }
 
   async block(projectId: string, batchId: string, reason: string, ctx: CommandContext) {
-    return executeCommand('tst.batch.block', { projectId, batchId, reason }, { ...ctx, projectId });
+    const r = await executeCommand('tst.batch.block', { projectId, batchId, reason }, { ...ctx, projectId });
+    await this.notices.emit({ ...ctx, projectId }, {
+      type: 'tst.batch.blocked', eventKind: 'batch.blocked',
+      text: `批次 ${batchId} 已阻断：${reason}`,
+    });
+    return r;
   }
 
   async unblock(projectId: string, batchId: string, reason: string, ctx: CommandContext) {
-    return executeCommand('tst.batch.unblock', { projectId, batchId, reason }, { ...ctx, projectId });
+    const r = (await executeCommand('tst.batch.unblock', { projectId, batchId, reason }, { ...ctx, projectId })) as { status: string };
+    await this.notices.emit({ ...ctx, projectId }, {
+      type: 'tst.batch.unblocked', eventKind: 'batch.unblocked',
+      text: `批次 ${batchId} 已恢复为 ${r.status}：${reason}`,
+    });
+    return r;
   }
 
   // ---------- 查询面 ----------

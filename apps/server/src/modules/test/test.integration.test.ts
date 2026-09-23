@@ -4,6 +4,7 @@ import { pool, query } from '../../db/pool.js';
 import { resetCommands, type CommandContext } from '../evidence/command-bus.js';
 import { PolicyService } from '../policy/policy.service.js';
 import { StorageService } from '../platform/storage.service.js';
+import { NotificationsService } from '../platform/notifications.service.js';
 import { ReqDocsService } from '../req/docs.service.js';
 import { DesignDocsService } from '../design/docs.service.js';
 import { DesignGenerateService, designGenTiming } from '../design/generate.service.js';
@@ -55,6 +56,7 @@ describe('Tst 测试验收域（集成，需 DB+MinIO）', async () => {
   devAutopilotTiming.tickDelayMs = 0;
   const policy = new PolicyService();
   const storage = new StorageService();
+  const notices = new NotificationsService();
   const reqDocs = new ReqDocsService(policy);
   const docs = new DesignDocsService();
   const gen = new DesignGenerateService(docs);
@@ -67,11 +69,11 @@ describe('Tst 测试验收域（集成，需 DB+MinIO）', async () => {
   const selftest = new DevSelftestService(storage);
   const transfer = new DevTransferService(policy, selftest);
   const autopilot = new DevAutopilotService(board, build, selftest);
-  const batches = new TstBatchesService(storage);
+  const batches = new TstBatchesService(storage, notices);
   const plans = new TstPlansService(policy);
   const runs = new TstRunsService();
   const defects = new TstDefectsService();
-  const reports = new TstReportsService(policy, storage);
+  const reports = new TstReportsService(policy, storage, notices);
   resetCommands();
   reqDocs.onModuleInit();
   docs.onModuleInit();
@@ -85,6 +87,7 @@ describe('Tst 测试验收域（集成，需 DB+MinIO）', async () => {
   build.onModuleInit();
   selftest.onModuleInit();
   transfer.onModuleInit();
+  notices.onModuleInit();
   batches.onModuleInit();
   plans.onModuleInit();
   runs.onModuleInit();
@@ -148,6 +151,8 @@ describe('Tst 测试验收域（集成，需 DB+MinIO）', async () => {
     await query('DELETE FROM rtm_health WHERE project_id=$1', [PID]);
     await query('DELETE FROM audit_log WHERE project_id=$1', [PID]);
     await query('DELETE FROM evd_records WHERE project_id=$1', [PID]);
+    await query('DELETE FROM evd_events WHERE project_id=$1', [PID]);
+    await query('DELETE FROM sys_notifications WHERE project_id=$1', [PID]);
     await query('DELETE FROM projects WHERE id=$1', [PID]);
     await pool.end();
   });
@@ -531,5 +536,12 @@ describe('Tst 测试验收域（集成，需 DB+MinIO）', async () => {
     const ub = (await batches.unblock(PID, 'TB-900', '工件复核通过，恢复执行', CTX)) as { status: string; restoredFrom: string };
     expect(ub.status).toBe('executing'); // 恢复阻断前状态
     expect(ub.restoredFrom).toBe('blocked');
+    // M7（T7-13）：阻断/恢复产通知行+领域事件（替代纯审计承载，BR-10）
+    const nn = await query<{ type: string }>(
+      "SELECT type FROM sys_notifications WHERE project_id=$1 AND type LIKE 'tst.batch.%' ORDER BY created_at", [PID]);
+    expect(nn.rows.map((r) => r.type)).toEqual(['tst.batch.blocked', 'tst.batch.unblocked']);
+    const ee = await query<{ kind: string }>(
+      "SELECT kind FROM evd_events WHERE project_id=$1 AND kind LIKE 'batch.%ed' ORDER BY created_at", [PID]);
+    expect(ee.rows.map((r) => r.kind)).toEqual(['batch.blocked', 'batch.unblocked']);
   });
 });

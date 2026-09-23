@@ -4,6 +4,7 @@ import { query } from '../../db/pool.js';
 import { executeCommand, registerCommand, type CommandContext } from '../evidence/command-bus.js';
 import { PolicyService } from '../policy/policy.service.js';
 import { StorageService } from '../platform/storage.service.js';
+import { NotificationsService } from '../platform/notifications.service.js';
 import { assertNotBlocked, computeBasisFingerprint, lockBatch, nextCode, qof, sha256hex } from './test-common.js';
 
 interface ReportRow {
@@ -25,6 +26,7 @@ export class TstReportsService {
   constructor(
     @Inject(PolicyService) private readonly policy: PolicyService,
     @Inject(StorageService) private readonly storage: StorageService,
+    @Inject(NotificationsService) private readonly notices: NotificationsService,
   ) {}
 
   onModuleInit(): void {
@@ -217,7 +219,14 @@ export class TstReportsService {
     body: { type: string; waivers?: Array<{ defectId: string; justification: string }>; confirm: boolean },
     ctx: CommandContext,
   ) {
-    return executeCommand('tst.delivery.authorize', { projectId, reportId, ...body }, { ...ctx, projectId });
+    const r = await executeCommand('tst.delivery.authorize', { projectId, reportId, ...body }, { ...ctx, projectId });
+    // 交付决定产通知行+领域事件（M7 回销 M5 差异⑤；BR-10）
+    const typeName = body.type === 'normal' ? '正常放行' : body.type === 'conditional' ? '条件放行' : '拒收';
+    await this.notices.emit({ ...ctx, projectId }, {
+      type: 'tst.delivery.decided', eventKind: 'delivery.decided',
+      text: `报告 ${reportId} 交付决定：${typeName}`,
+    });
+    return r;
   }
 
   /** A07-12 报告导出（报告+决定打包，含证据引用清单） */
