@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { marked } from 'marked';
+import { mdHtml } from '../../md-html';
 import { ApiError } from '../../api';
 import { materialApi } from './api';
 import { useMaterialView, type ViewMode } from './store';
@@ -45,7 +45,7 @@ export function DetailView() {
   const dirty = activeDraft !== null && activeDraft.text !== activeDraft.base;
 
   const html = useMemo(
-    () => (viewMode === 'preview' && md ? marked.parse(md, { async: false }) : ''),
+    () => (viewMode === 'preview' && md ? mdHtml(md) : ''),
     [viewMode, md],
   );
 

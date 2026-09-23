@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { marked } from 'marked';
+import { mdHtml } from '../../md-html';
 import { ApiError } from '../../api';
 import { reqApi, type DocKind, type HealthView, type PatchItem } from './api';
 import { useReqView, type ViewMode } from './store';
@@ -301,7 +301,7 @@ function Paper({ kind, readonly }: { kind: DocKind; readonly: boolean }) {
           <section key={s.id} id={`sec-${s.id}`} className={`sect${tocFlash === s.id ? ' flash' : ''}`}>
             {s.title && <h2>{s.title}</h2>}
             {viewMode === 'preview' ? (
-              <div className="md" dangerouslySetInnerHTML={{ __html: marked.parse(s.md, { async: false }) }} />
+              <div className="md" dangerouslySetInnerHTML={{ __html: mdHtml(s.md) }} />
             ) : (
               <SectionEditor kind={kind} secId={s.id} md={s.md} readonly={readonly} />
             )}
@@ -311,7 +311,7 @@ function Paper({ kind, readonly }: { kind: DocKind; readonly: boolean }) {
         {appended.map((p) => (
           <section key={p.patchId} className="sect pending-add">
             {p.title && <h2>{p.title} <span className="tag tag-warn">新增章节提案</span></h2>}
-            <div className="md" dangerouslySetInnerHTML={{ __html: marked.parse(p.new ?? '', { async: false }) }} />
+            <div className="md" dangerouslySetInnerHTML={{ __html: mdHtml(p.new ?? '') }} />
             <PendingBar kind={kind} patch={p} />
           </section>
         ))}
