@@ -53,8 +53,11 @@ export class AiUsageService {
     };
   }
 
-  /** 跨项目汇总（A08-10：按项目×模型分组） */
-  async summary() {
+  /** 跨项目汇总（A08-10：按项目×模型分组）；month=current 仅当月（顶栏「本月成本」口径） */
+  async summary(month?: 'current') {
+    const where = month === 'current'
+      ? "WHERE date_trunc('month', u.created_at) = date_trunc('month', now())"
+      : '';
     const r = await query<{
       project_id: string | null; project_name: string | null; model_name: string; purpose: string;
       calls: string; tokens_in: string; tokens_out: string; cost: string;
@@ -65,6 +68,7 @@ export class AiUsageService {
        FROM ai_usage u
        LEFT JOIN projects p ON p.id = u.project_id
        JOIN ai_models m ON m.id = u.model_id
+       ${where}
        GROUP BY u.project_id, p.name, m.name, u.purpose
        ORDER BY cost DESC`, []);
     const totals = await query<{
@@ -72,7 +76,7 @@ export class AiUsageService {
     }>(
       `SELECT count(*) AS calls, coalesce(sum(tokens_in),0) AS tokens_in,
               coalesce(sum(tokens_out),0) AS tokens_out, coalesce(sum(cost),0) AS cost
-       FROM ai_usage`, []);
+       FROM ai_usage u ${where}`, []);
     return { items: r.rows, totals: totals.rows[0] };
   }
 

@@ -147,7 +147,7 @@ export class TstBatchesService {
   async block(projectId: string, batchId: string, reason: string, ctx: CommandContext) {
     const r = await executeCommand('tst.batch.block', { projectId, batchId, reason }, { ...ctx, projectId });
     await this.notices.emit({ ...ctx, projectId }, {
-      type: 'tst.batch.blocked', eventKind: 'batch.blocked',
+      type: 'tst.batch.blocked', eventKind: 'batch.blocked', link: '/test',
       text: `批次 ${batchId} 已阻断：${reason}`,
     });
     return r;
@@ -156,7 +156,7 @@ export class TstBatchesService {
   async unblock(projectId: string, batchId: string, reason: string, ctx: CommandContext) {
     const r = (await executeCommand('tst.batch.unblock', { projectId, batchId, reason }, { ...ctx, projectId })) as { status: string };
     await this.notices.emit({ ...ctx, projectId }, {
-      type: 'tst.batch.unblocked', eventKind: 'batch.unblocked',
+      type: 'tst.batch.unblocked', eventKind: 'batch.unblocked', link: '/test',
       text: `批次 ${batchId} 已恢复为 ${r.status}：${reason}`,
     });
     return r;

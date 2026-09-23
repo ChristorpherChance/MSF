@@ -19,10 +19,10 @@
 }
 
 .dlg-target-card {
-  border: 1px solid var(--msf-line);
+  border: 1px solid var(--line);
   border-radius: 8px;
   padding: 10px 12px;
-  background: var(--msf-card);
+  background: var(--canvas);
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -35,13 +35,13 @@
   align-items: center;
 }
 
-.dlg-mut { color: var(--msf-mut); font-size: 12px; }
+.dlg-mut { color: var(--ink2); font-size: 12px; }
 
 .dlg-tag {
   padding: 2px 8px;
   border-radius: 4px;
   font-size: 12px;
-  background: var(--msf-line);
+  background: var(--line);
 }
 
 .dlg-ts-available, .dlg-ds-succeeded { background: #2e7d32; color: #fff; }
@@ -54,11 +54,11 @@
   width: 100%;
   border-collapse: collapse;
   font-size: 13px;
-  background: var(--msf-card);
+  background: var(--canvas);
 }
 
 .dlg-table th, .dlg-table td {
-  border: 1px solid var(--msf-line);
+  border: 1px solid var(--line);
   padding: 6px 10px;
   text-align: left;
 }
@@ -75,7 +75,7 @@
 }
 
 .dlg-modal {
-  background: var(--msf-card);
+  background: var(--canvas);
   border-radius: 10px;
   padding: 18px 20px;
   width: 480px;
@@ -89,7 +89,7 @@
 .dlg-field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
 .dlg-field input, .dlg-field select, .dlg-field textarea {
   padding: 6px 8px;
-  border: 1px solid var(--msf-line);
+  border: 1px solid var(--line);
   border-radius: 6px;
   font-size: 13px;
 }

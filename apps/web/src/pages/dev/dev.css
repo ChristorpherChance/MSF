@@ -8,8 +8,8 @@
 }
 
 .dev-col {
-  background: var(--msf-card);
-  border: 1px solid var(--msf-line);
+  background: var(--canvas);
+  border: 1px solid var(--line);
   border-radius: 8px;
   min-height: 120px;
   padding: 8px;
@@ -19,21 +19,21 @@
   font-weight: 600;
   font-size: 13px;
   padding: 4px 6px 8px;
-  border-bottom: 1px solid var(--msf-line);
+  border-bottom: 1px solid var(--line);
   margin-bottom: 8px;
 }
 
 .dev-card {
-  border: 1px solid var(--msf-line);
+  border: 1px solid var(--line);
   border-radius: 6px;
   padding: 8px;
   margin-bottom: 8px;
   cursor: pointer;
-  background: var(--msf-bg, #fff);
+  background: var(--soft);
 }
 
-.dev-card:hover { border-color: var(--msf-accent, #4a7dff); }
-.dev-card.sel { border-color: var(--msf-accent, #4a7dff); box-shadow: 0 0 0 1px var(--msf-accent, #4a7dff); }
+.dev-card:hover { border-color: var(--blue); }
+.dev-card.sel { border-color: var(--blue); box-shadow: 0 0 0 1px var(--blue); }
 
 .dev-card-title { font-size: 13px; font-weight: 500; }
 
@@ -51,7 +51,7 @@
   padding: 2px 8px;
   border-radius: 4px;
   font-size: 12px;
-  background: var(--msf-line);
+  background: var(--line);
 }
 
 .dev-run-running { background: #2e7d32; color: #fff; }
@@ -70,13 +70,13 @@
 }
 
 .dev-table th, .dev-table td {
-  border: 1px solid var(--msf-line);
+  border: 1px solid var(--line);
   padding: 6px 8px;
   text-align: left;
   vertical-align: top;
 }
 
-.dev-table th { background: var(--msf-card); font-weight: 600; }
+.dev-table th { background: var(--canvas); font-weight: 600; }
 
 .dev-drawer { margin-top: 12px; }
 

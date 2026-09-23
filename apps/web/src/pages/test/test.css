@@ -6,8 +6,8 @@
   gap: 10px;
   margin: 12px 0;
   padding: 8px 12px;
-  background: var(--msf-card);
-  border: 1px solid var(--msf-line);
+  background: var(--canvas);
+  border: 1px solid var(--line);
   border-radius: 8px;
   font-size: 13px;
 }
@@ -16,7 +16,7 @@
   padding: 2px 8px;
   border-radius: 4px;
   font-size: 12px;
-  background: var(--msf-line);
+  background: var(--line);
 }
 
 .qa-status-released { background: #2e7d32; color: #fff; }
@@ -32,13 +32,13 @@
 }
 
 .qa-facts > div {
-  border: 1px solid var(--msf-line);
+  border: 1px solid var(--line);
   border-radius: 6px;
   padding: 8px;
   font-size: 13px;
 }
 
-.qa-facts span { display: block; color: var(--msf-mut); font-size: 12px; margin-bottom: 4px; }
+.qa-facts span { display: block; color: var(--ink2); font-size: 12px; margin-bottom: 4px; }
 .qa-facts code { font-size: 12px; word-break: break-all; }
 
 .qa-handoff-row {
@@ -47,14 +47,14 @@
   justify-content: space-between;
   gap: 10px;
   padding: 8px 0;
-  border-bottom: 1px solid var(--msf-line);
+  border-bottom: 1px solid var(--line);
   font-size: 13px;
 }
 
 .qa-runs-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 
 .qa-case {
-  border: 1px solid var(--msf-line);
+  border: 1px solid var(--line);
   border-radius: 6px;
   padding: 8px;
   margin-bottom: 8px;
@@ -72,7 +72,7 @@
   padding: 1px 8px;
   border-radius: 4px;
   font-size: 12px;
-  background: var(--msf-line);
+  background: var(--line);
 }
 
 .qa-tag-pass { background: #2e7d32; color: #fff; }
@@ -91,7 +91,7 @@
 .qa-st-pending_regression { background: #1565c0; color: #fff; }
 
 .qa-defect {
-  border: 1px solid var(--msf-line);
+  border: 1px solid var(--line);
   border-radius: 6px;
   padding: 8px;
   margin-bottom: 8px;
@@ -118,7 +118,7 @@
   flex-wrap: wrap;
   margin-top: 10px;
   padding: 10px;
-  border: 1px dashed var(--msf-line);
+  border: 1px dashed var(--line);
   border-radius: 6px;
 }
 
@@ -135,8 +135,8 @@
 }
 
 .qa-modal {
-  background: var(--msf-bg, #fff);
-  border: 1px solid var(--msf-line);
+  background: var(--soft);
+  border: 1px solid var(--line);
   border-radius: 8px;
   padding: 16px;
   width: 480px;

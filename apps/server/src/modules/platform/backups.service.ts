@@ -100,7 +100,7 @@ export class BackupsService {
     // 事务提交后执行导出（产物在 MinIO，非库内状态；失败补失败通知）
     void this.run(operationId, projectId, input.includeEvidence ?? true, ctx).catch(async (e) => {
       await this.notices.emit({ ...ctx, projectId }, {
-        type: 'backup.failed', text: `备份导出失败：${e instanceof Error ? e.message : String(e)}`,
+        type: 'backup.failed', link: '/settings', text: `备份导出失败：${e instanceof Error ? e.message : String(e)}`,
       }).catch(() => undefined);
     });
     return { operationId };
@@ -146,7 +146,7 @@ export class BackupsService {
     await this.storage.putObject(key, body);
     const url = await this.storage.presignedGet(key, 3600);
     await this.notices.emit({ ...ctx, projectId }, {
-      type: 'backup.completed', eventKind: 'backup.completed',
+      type: 'backup.completed', eventKind: 'backup.completed', link: '/settings',
       text: `备份导出完成：${manifest.length} 表 ${manifest.reduce((a, m) => a + m.rows, 0)} 行，下载：${url}`,
     });
   }

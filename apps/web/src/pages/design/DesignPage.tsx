@@ -4,6 +4,7 @@ import { PrototypePanel } from './PrototypePanel';
 import { ReviewPanel } from './ReviewPanel';
 import { useDesignView, type DesignSubTab } from './store';
 import '../req/req.css';
+import { GateBanner } from '../../ui/GateBanner';
 import './design.css';
 
 const DETAIL_KINDS = ['mod', 'alg', 'cls', 'db', 'api', 'ui', 'nfr'] as const;
@@ -22,6 +23,7 @@ export function DesignPage() {
   ];
   return (
     <main>
+      <GateBanner stage="design" />
       <div className="subtabs" role="tablist">
         {tabs.map((t) => (
           <button

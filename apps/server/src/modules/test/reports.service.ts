@@ -223,7 +223,7 @@ export class TstReportsService {
     // 交付决定产通知行+领域事件（M7 回销 M5 差异⑤；BR-10）
     const typeName = body.type === 'normal' ? '正常放行' : body.type === 'conditional' ? '条件放行' : '拒收';
     await this.notices.emit({ ...ctx, projectId }, {
-      type: 'tst.delivery.decided', eventKind: 'delivery.decided',
+      type: 'tst.delivery.decided', eventKind: 'delivery.decided', link: '/test',
       text: `报告 ${reportId} 交付决定：${typeName}`,
     });
     return r;

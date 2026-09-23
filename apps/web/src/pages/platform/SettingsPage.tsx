@@ -132,20 +132,20 @@ export function SettingsPage() {
     } catch (e) { fail(e); }
   };
 
-  const card: React.CSSProperties = { border: '1px solid var(--msf-line, #e2e2e2)', borderRadius: 8, padding: 16, marginBottom: 20 };
+  const card: React.CSSProperties = { border: '1px solid var(--line)', borderRadius: 8, padding: 16, marginBottom: 20 };
 
   return (
     <div style={{ padding: 20, maxWidth: 960 }}>
       <h2>设置</h2>
-      {msg && <p style={{ color: 'var(--msf-ok, #1e8e3e)' }}>{msg}</p>}
-      {err && <p style={{ color: 'var(--msf-danger, #c0392b)' }}>{err}</p>}
+      {msg && <p style={{ color: 'var(--green)' }}>{msg}</p>}
+      {err && <p style={{ color: 'var(--red)' }}>{err}</p>}
 
       {/* T7-07 模型注册表 + 用途路由 */}
       <section style={card}>
         <h3>模型注册表</h3>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <thead>
-            <tr style={{ textAlign: 'left', color: '#888' }}>
+            <tr style={{ textAlign: 'left', color: 'var(--ink2)' }}>
               <th>名称</th><th>提供方</th><th>模型标识</th><th>密钥</th><th>连通</th><th>用途路由</th><th>状态</th><th />
             </tr>
           </thead>
@@ -156,7 +156,7 @@ export function SettingsPage() {
                 <td>{m.provider}</td>
                 <td><code>{m.model_code}</code></td>
                 <td>{m.api_key_hint ?? '—'}</td>
-                <td style={{ color: m.conn_status === 'ok' ? '#1e8e3e' : m.conn_status === 'fail' ? '#c0392b' : '#888' }}>
+                <td style={{ color: m.conn_status === 'ok' ? 'var(--green)' : m.conn_status === 'fail' ? 'var(--red)' : 'var(--ink2)' }}>
                   {m.conn_status === 'ok' ? '正常' : m.conn_status === 'fail' ? '失败' : '未测'}
                 </td>
                 <td>{(m.routes ?? []).map((r) => PURPOSE_NAMES[r] ?? r).join('、') || '—'}</td>
@@ -172,7 +172,7 @@ export function SettingsPage() {
                 </td>
               </tr>
             ))}
-            {models.length === 0 && <tr><td colSpan={8} style={{ color: '#888' }}>暂无模型，先注册一个</td></tr>}
+            {models.length === 0 && <tr><td colSpan={8} style={{ color: 'var(--ink2)' }}>暂无模型，先注册一个</td></tr>}
           </tbody>
         </table>
 
@@ -224,7 +224,7 @@ export function SettingsPage() {
       {/* T7-08 放行策略 */}
       <section style={card}>
         <h3>放行策略（七确认点）</h3>
-        {!projectId && <p style={{ color: '#888' }}>请先在项目页进入一个项目。</p>}
+        {!projectId && <p style={{ color: 'var(--ink2)' }}>请先在项目页进入一个项目。</p>}
         {projectId && (
           <>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
@@ -232,7 +232,7 @@ export function SettingsPage() {
                 {gates.map((g) => (
                   <tr key={g.gateKey} style={{ borderTop: '1px solid #eee' }}>
                     <td><code>{g.gateKey}</code></td>
-                    <td style={{ color: g.mode === 'auto' ? '#b26a00' : '#1e8e3e' }}>
+                    <td style={{ color: g.mode === 'auto' ? 'var(--orange)' : 'var(--green)' }}>
                       {g.mode === 'auto' ? '自动放行' : '人工确认'}
                     </td>
                     <td style={{ textAlign: 'right' }}>
@@ -244,7 +244,7 @@ export function SettingsPage() {
                 ))}
               </tbody>
             </table>
-            <p style={{ fontSize: 12, color: '#888' }}>
+            <p style={{ fontSize: 12, color: 'var(--ink2)' }}>
               切换授权需填写理由并留痕（F10-2）；自动放行后任意人工动作立回阻断态（BR-07）。
             </p>
             {gateEvents.length > 0 && (
@@ -264,7 +264,7 @@ export function SettingsPage() {
       {/* T7-10 备份导出 */}
       <section style={card}>
         <h3>备份导出</h3>
-        <p style={{ fontSize: 13, color: '#666' }}>
+        <p style={{ fontSize: 13, color: 'var(--ink2)' }}>
           项目数据逻辑导出（PG 全量表 + MinIO 工件清单 + 每表 SHA-256 清单），完成后站内通知附签名下载链接（1 小时有效）。密钥类列不导出。
         </p>
         <button onClick={() => void exportBackup()} disabled={!projectId}>导出当前项目备份</button>
@@ -289,7 +289,7 @@ export function SettingsPage() {
                 <td><code>{JSON.stringify(v)}</code></td>
               </tr>
             ))}
-            {Object.keys(settings).length === 0 && <tr><td style={{ color: '#888' }}>暂无设置项</td></tr>}
+            {Object.keys(settings).length === 0 && <tr><td style={{ color: 'var(--ink2)' }}>暂无设置项</td></tr>}
           </tbody>
         </table>
         <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
@@ -297,7 +297,7 @@ export function SettingsPage() {
           <input placeholder='值（JSON 或字符串）' value={setVal} onChange={(e) => setSetVal(e.target.value)} style={{ flex: 1 }} />
           <button onClick={() => void saveSetting()} disabled={!setKey.trim()}>保存</button>
         </div>
-        <p style={{ fontSize: 12, color: '#888' }}>密钥类不落此表（走模型注册表加密存储，REQ-710）。</p>
+        <p style={{ fontSize: 12, color: 'var(--ink2)' }}>密钥类不落此表（走模型注册表加密存储，REQ-710）。</p>
       </section>
     </div>
   );

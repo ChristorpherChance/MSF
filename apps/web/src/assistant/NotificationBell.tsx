@@ -1,19 +1,23 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { platformApi, type Notice } from '../pages/platform/api';
+import '../ui/ui.css';
+import './notice-drawer.css';
 
 /**
- * 通知铃铛（T7-03 前端；A10-2 + A01-6 SSE）：
- * 未读角标 + 下拉列表（单条已读/全部已读）+ notice.created SSE 实时推送
+ * 通知中心（DSG-U02-2/U06-16；A10-2 + A01-6 SSE）：
+ * 顶栏 🔔 未读红点计数；点击开**右侧抽屉**（通知列表 + 全部已读 + 跳转定位）；
+ * notice.created SSE 实时推送；条目点击=已读 + 有 link 时跳回来源页。
  */
 export function NotificationBell() {
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<Notice[]>([]);
   const [unread, setUnread] = useState(0);
-  const esRef = useRef<EventSource | null>(null);
+  const navigate = useNavigate();
 
   const refresh = useCallback(async () => {
     try {
-      const r = await platformApi.notifications('?limit=20');
+      const r = await platformApi.notifications('?limit=30');
       setItems(r.items);
       setUnread(r.unreadCount);
     } catch { /* 服务未就绪时静默 */ }
@@ -22,12 +26,11 @@ export function NotificationBell() {
   useEffect(() => {
     void refresh();
     const es = new EventSource('/api/v1/system/notifications:stream');
-    esRef.current = es;
     es.onmessage = (ev) => {
       try {
         const data = JSON.parse(ev.data as string) as { type: string; notice?: Notice };
         if (data.type === 'notice.created' && data.notice) {
-          setItems((prev) => [data.notice!, ...prev].slice(0, 20));
+          setItems((prev) => [data.notice!, ...prev].slice(0, 30));
           if (data.notice.unread) setUnread((n) => n + 1);
         }
       } catch { /* 忽略坏帧 */ }
@@ -35,11 +38,21 @@ export function NotificationBell() {
     return () => es.close();
   }, [refresh]);
 
-  const readOne = async (n: Notice) => {
-    if (!n.unread) return;
-    await platformApi.readNotice(n.id);
-    setItems((prev) => prev.map((x) => (x.id === n.id ? { ...x, unread: false } : x)));
-    setUnread((c) => Math.max(0, c - 1));
+  // Esc 关闭抽屉（DSG-U02-5 关闭规则）
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open]);
+
+  const clickItem = async (n: Notice) => {
+    if (n.unread) {
+      await platformApi.readNotice(n.id);
+      setItems((prev) => prev.map((x) => (x.id === n.id ? { ...x, unread: false } : x)));
+      setUnread((c) => Math.max(0, c - 1));
+    }
+    if (n.link) { setOpen(false); navigate(n.link); }
   };
 
   const readAll = async () => {
@@ -49,52 +62,38 @@ export function NotificationBell() {
   };
 
   return (
-    <span style={{ position: 'relative', marginLeft: 'auto' }}>
-      <button
-        onClick={() => setOpen((o) => !o)}
-        style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, position: 'relative' }}
-        title="通知"
-      >
+    <>
+      <button className="nb-btn" onClick={() => setOpen((o) => !o)} title="通知中心">
         🔔
-        {unread > 0 && (
-          <span style={{
-            position: 'absolute', top: -4, right: -6, background: '#c0392b', color: '#fff',
-            borderRadius: 8, fontSize: 10, padding: '0 4px', lineHeight: '14px',
-          }}>
-            {unread > 99 ? '99+' : unread}
-          </span>
-        )}
+        {unread > 0 && <span className="nb-badge">{unread > 99 ? '99+' : unread}</span>}
       </button>
       {open && (
-        <div style={{
-          position: 'absolute', right: 0, top: 28, width: 360, maxHeight: 420, overflow: 'auto',
-          background: 'var(--msf-card, #fff)', border: '1px solid var(--msf-line, #e2e2e2)',
-          borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,.12)', zIndex: 100, padding: 8,
-        }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 4px 6px' }}>
-            <strong style={{ fontSize: 13 }}>通知</strong>
-            <button onClick={() => void readAll()} style={{ fontSize: 12 }} disabled={unread === 0}>全部已读</button>
+        <div className="notice-drawer" role="dialog" aria-label="通知中心">
+          <div className="nd-head">
+            <strong>通知中心</strong>
+            <button className="ghost sm" onClick={() => void readAll()} disabled={unread === 0}>全部已读</button>
+            <button className="ghost sm" title="关闭（Esc）" onClick={() => setOpen(false)}>×</button>
           </div>
-          {items.length === 0 && <p style={{ fontSize: 12, color: '#888', padding: 8 }}>暂无通知</p>}
-          {items.map((n) => (
-            <div
-              key={n.id}
-              onClick={() => void readOne(n)}
-              style={{
-                padding: '6px 8px', borderRadius: 6, cursor: n.unread ? 'pointer' : 'default',
-                background: n.unread ? 'var(--msf-accent-bg, #eef4ff)' : 'transparent',
-                fontSize: 12, marginBottom: 2,
-              }}
-            >
-              <div style={{ color: '#666', marginBottom: 2 }}>
-                <code>{n.type}</code> · {n.created_at.slice(0, 19).replace('T', ' ')}
-                {n.unread && <span style={{ color: '#2f6fed', marginLeft: 6 }}>● 未读</span>}
+          <div className="nd-list">
+            {items.length === 0 && <p className="nd-empty">暂无通知</p>}
+            {items.map((n) => (
+              <div
+                key={n.id}
+                className={`nd-item${n.unread ? ' unread' : ''}${n.link ? ' linked' : ''}`}
+                onClick={() => void clickItem(n)}
+                title={n.link ? '点击跳转到来源' : undefined}
+              >
+                <div className="nd-meta">
+                  <code>{n.type}</code> · {n.created_at.slice(0, 19).replace('T', ' ')}
+                  {n.unread && <span className="nd-dot">● 未读</span>}
+                  {n.link && <span className="nd-jump">↗</span>}
+                </div>
+                <div className="nd-text">{n.text}</div>
               </div>
-              <div style={{ wordBreak: 'break-all' }}>{n.text}</div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       )}
-    </span>
+    </>
   );
 }

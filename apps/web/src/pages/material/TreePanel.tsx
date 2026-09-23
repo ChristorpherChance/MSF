@@ -171,7 +171,7 @@ export function TreePanel() {
             </label>
           </h4>
           {original.length === 0 && (
-            <p style={{ color: 'var(--msf-mut)', fontSize: 13 }}>
+            <p style={{ color: 'var(--ink2)', fontSize: 13 }}>
               {onlyPending ? '无待解析文件。' : '尚无文件，先上传。'}
             </p>
           )}
@@ -182,7 +182,7 @@ export function TreePanel() {
       )}
       <h4>{subTab === 'file' ? '📁 解析文件 · Markdown' : '📁 解析文件'}</h4>
       {parsedTree.length === 0 && (
-        <p style={{ color: 'var(--msf-mut)', fontSize: 13 }}>解析产出后在此出现。</p>
+        <p style={{ color: 'var(--ink2)', fontSize: 13 }}>解析产出后在此出现。</p>
       )}
       {parsedTree.map((n) => (
         <TreeNodeRow key={n.id} node={n} depth={0} />

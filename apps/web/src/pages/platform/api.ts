@@ -22,7 +22,13 @@ export interface EventItem { id: string; type: string; text: string; at: string;
 
 export interface Notice {
   id: string; project_id: string | null; type: string; text: string;
+  link: string | null;
   unread: boolean; created_at: string;
+}
+
+export interface UsageSummaryRow {
+  project_id: string | null; project_name: string | null; model_name: string; purpose: string;
+  calls: string; tokens_in: string; tokens_out: string; cost: string;
 }
 
 export interface GateRow { gateKey: string; mode: 'manual' | 'auto'; updatedAt: string | null }
@@ -89,4 +95,10 @@ export const platformApi = {
   routes: () => api.get<Record<string, { modelId: string; modelName: string } | null>>('/api/v1/ai/routes'),
   setRoute: (purpose: string, modelId: string | null) =>
     api.put(`/api/v1/ai/routes/${purpose}`, { modelId }),
+  // 用量汇总（顶栏「本月成本」popover，A08-10）
+  usageSummary: (month?: 'current') =>
+    api.get<{ items: UsageSummaryRow[]; totals: { calls: string; tokens_in: string; tokens_out: string; cost: string } }>(
+      `/api/v1/ai/usage/summary${month ? '?month=current' : ''}`),
+  // 当前用户（顶栏标识，A10-5 本期最简）
+  me: () => api.get<{ id: string; name: string; role: string; source: string }>('/api/v1/system/users/me'),
 };

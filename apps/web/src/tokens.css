@@ -1,26 +1,4 @@
-/* 设计令牌基板（LLD-6 §2 为权威；M0 骨架值，逐域实现时按 LLD-6 补全） */
-:root {
-  --msf-bg: #f6f7f9;
-  --msf-card: #ffffff;
-  --msf-ink: #1f2430;
-  --msf-mut: #6b7280;
-  --msf-line: #e5e7eb;
-  --msf-accent: #2563eb;
-  --msf-ok: #16a34a;
-  --msf-warn: #ca8a04;
-  --msf-danger: #dc2626;
-  --msf-radius: 12px;
-  --msf-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-}
-
-body {
-  margin: 0;
-  background: var(--msf-bg);
-  color: var(--msf-ink);
-  font: 14px/1.75 -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
-}
-
-/* ===== LLD-6 §1 权威设计令牌（DSG-U01-1~3；W1 起新组件一律使用，--msf-* 随 W2 逐步收敛） ===== */
+/* 设计令牌（LLD-6 §1 DSG-U01-1~3 权威值；W2 全站统一，禁写死颜色） */
 :root {
   --ink: #2C2C2B;
   --ink2: #7D7A75;
@@ -43,4 +21,46 @@ body {
   --shadow-fab: 0 4px 16px rgba(39, 131, 222, .4);
   --font-body: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+body {
+  margin: 0;
+  background: var(--soft);
+  color: var(--ink);
+  font: 14px/1.5 var(--font-body);
+}
+
+/* 滚动条统一 8px、滑块 #D8D6D3（DSG-U01-3） */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: #D8D6D3; border-radius: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+
+/* 基础控件（DSG-U01-5：聚焦态 蓝边+蓝晕；disabled 统一 opacity .45） */
+button { font-family: inherit; }
+button:disabled { opacity: .45; cursor: default; }
+input[type='text'], textarea, select {
+  font-family: inherit;
+  font-size: 13px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--canvas);
+  color: var(--ink);
+}
+input[type='text']:focus, textarea:focus, select:focus {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 2px var(--blue-soft);
+  outline: none;
+}
+
+/* 门禁横幅（DSG-U01-5 .banner.gate + .gap-chip） */
+.banner-gate {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  background: var(--orange-soft); color: var(--ink);
+  border-bottom: 1px solid var(--line);
+  padding: 8px 16px; font-size: 12.5px;
+}
+.banner-gate .gate-title { font-weight: 700; color: var(--orange); }
+.gap-chip {
+  background: var(--canvas); border: 1px solid var(--orange);
+  color: var(--ink); border-radius: 999px; padding: 1px 10px; font-size: 12px;
 }

@@ -6,6 +6,7 @@ import { DetailView, ViewModeSwitch } from './DetailView';
 import { TreePanel } from './TreePanel';
 import { UploadZone } from './UploadZone';
 import { useMaterialView, type MaterialSubTab } from './store';
+import { GateBanner } from '../../ui/GateBanner';
 import './material.css';
 
 const SUB_TABS: Array<{ key: MaterialSubTab; label: string }> = [
@@ -71,13 +72,14 @@ export function MaterialPage() {
 
   return (
     <main>
+      <GateBanner stage="material" />
       <SubTabs />
       <div className="mat-layout">
         <aside className="panel-left">
           {subTab === 'file' && <UploadZone />}
           {error && <div className="mat-banner">{error}</div>}
           <TreePanel />
-          {loading && <p style={{ color: 'var(--msf-mut)', fontSize: 12 }}>加载中…</p>}
+          {loading && <p style={{ color: 'var(--ink2)', fontSize: 12 }}>加载中…</p>}
           <BatchBar onFinalize={(ids) => setFinalizeModal(ids)} />
         </aside>
         <section className="doc-area">

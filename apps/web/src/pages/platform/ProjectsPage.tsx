@@ -64,15 +64,15 @@ export function ProjectsPage() {
       <td>
         {p.name}
         {p.is_demo && (
-          <span style={{ marginLeft: 8, fontSize: 12, padding: '1px 6px', borderRadius: 4, background: 'var(--msf-warn-bg, #fff7e0)', color: '#8a6d00' }}>
+          <span style={{ marginLeft: 8, fontSize: 12, padding: '1px 6px', borderRadius: 4, background: 'var(--orange-soft)', color: 'var(--orange)' }}>
             示例数据
           </span>
         )}
         {p.id === currentId && (
-          <span style={{ marginLeft: 8, fontSize: 12, color: 'var(--msf-accent, #2f6fed)' }}>当前</span>
+          <span style={{ marginLeft: 8, fontSize: 12, color: 'var(--blue)' }}>当前</span>
         )}
       </td>
-      <td style={{ fontSize: 12, color: '#888' }}>{p.created_at?.slice(0, 10) ?? ''}</td>
+      <td style={{ fontSize: 12, color: 'var(--ink2)' }}>{p.created_at?.slice(0, 10) ?? ''}</td>
       <td>{p.status === 'archived' ? '已归档' : '活跃'}</td>
       <td style={{ textAlign: 'right' }}>
         {p.status === 'active' && (
@@ -94,7 +94,7 @@ export function ProjectsPage() {
   return (
     <div style={{ padding: 20, maxWidth: 880 }}>
       <h2>项目</h2>
-      {error && <p style={{ color: 'var(--msf-danger, #c0392b)' }}>{error}</p>}
+      {error && <p style={{ color: 'var(--red)' }}>{error}</p>}
 
       <section style={{ marginBottom: 20, display: 'flex', gap: 8, alignItems: 'center' }}>
         <input
@@ -110,11 +110,11 @@ export function ProjectsPage() {
       </section>
 
       <h3>正式项目（{group(false).length}）</h3>
-      {group(false).length ? table(group(false)) : <p style={{ color: '#888' }}>暂无</p>}
+      {group(false).length ? table(group(false)) : <p style={{ color: 'var(--ink2)' }}>暂无</p>}
 
       <h3>示例数据（{group(true).length}）</h3>
-      <p style={{ fontSize: 12, color: '#888', marginTop: -8 }}>示例项目用于体验与演示，与正式数据隔离展示（BR-15）。</p>
-      {group(true).length ? table(group(true)) : <p style={{ color: '#888' }}>暂无</p>}
+      <p style={{ fontSize: 12, color: 'var(--ink2)', marginTop: -8 }}>示例项目用于体验与演示，与正式数据隔离展示（BR-15）。</p>
+      {group(true).length ? table(group(true)) : <p style={{ color: 'var(--ink2)' }}>暂无</p>}
 
       {archived.length > 0 && (
         <>

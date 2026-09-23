@@ -1,5 +1,5 @@
 import {
-  Body, Controller, Get, HttpCode, Inject, Param, Post, Put, Req,
+  Body, Controller, Get, HttpCode, Inject, Param, Post, Put, Query, Req,
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { getActor } from '../api/identity.middleware.js';
@@ -87,8 +87,8 @@ export class AiController {
   // ---- 用量跨项目汇总（A08-10） ----
 
   @Get('usage/summary')
-  usageSummary() {
-    return this.usage.summary();
+  usageSummary(@Query('month') month?: string) {
+    return this.usage.summary(month === 'current' ? 'current' : undefined);
   }
 
   // ---- 委派目标注册（A08-8 注册向导；密钥类 config 字段加密存储） ----

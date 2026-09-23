@@ -166,7 +166,7 @@ export function DetailView() {
               // 渲染本端用户资料 Markdown（单用户本地部署）；外部不可信内容策略见 LLD-7 N02
               <div className="md-view" dangerouslySetInnerHTML={{ __html: html }} />
             ) : (
-              <p style={{ color: 'var(--msf-mut)' }}>
+              <p style={{ color: 'var(--ink2)' }}>
                 {status === 'pending' ? '尚未解析，点击工具栏「开始解析」。' : '暂无内容。'}
               </p>
             ))}

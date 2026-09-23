@@ -52,22 +52,22 @@ export function AuditPage() {
   return (
     <div style={{ padding: 20 }}>
       <h2>审计查询</h2>
-      <p style={{ fontSize: 12, color: '#888', marginTop: -8 }}>
+      <p style={{ fontSize: 12, color: 'var(--ink2)', marginTop: -8 }}>
         哈希链追加存储，只读导出；不提供任何修改/删除端点（REQ-706、BR-04）。
       </p>
-      {err && <p style={{ color: 'var(--msf-danger, #c0392b)' }}>{err}</p>}
+      {err && <p style={{ color: 'var(--red)' }}>{err}</p>}
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center' }}>
         <input placeholder="操作者" value={actor} onChange={(e) => setActor(e.target.value)} />
         <input placeholder="命令（如 doc.finalize）" value={command} onChange={(e) => setCommand(e.target.value)} />
         <button onClick={() => void load(null, [])}>查询</button>
         <button onClick={() => void exportJson()}>导出 JSON</button>
-        <span style={{ fontSize: 12, color: '#888' }}>{projectId ? '范围：当前项目' : '范围：全部（未选项目）'}</span>
+        <span style={{ fontSize: 12, color: 'var(--ink2)' }}>{projectId ? '范围：当前项目' : '范围：全部（未选项目）'}</span>
       </div>
 
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
         <thead>
-          <tr style={{ textAlign: 'left', color: '#888' }}>
+          <tr style={{ textAlign: 'left', color: 'var(--ink2)' }}>
             <th>事件</th><th>时间</th><th>操作者</th><th>命令</th><th>输入指纹</th><th>链上前驱</th>
           </tr>
         </thead>
@@ -82,7 +82,7 @@ export function AuditPage() {
               <td title={r.hashChainPrev ?? ''}><code>{r.hashChainPrev ? `${r.hashChainPrev.slice(0, 20)}…` : '（链首）'}</code></td>
             </tr>
           ))}
-          {items.length === 0 && <tr><td colSpan={6} style={{ color: '#888' }}>无记录</td></tr>}
+          {items.length === 0 && <tr><td colSpan={6} style={{ color: 'var(--ink2)' }}>无记录</td></tr>}
         </tbody>
       </table>
 

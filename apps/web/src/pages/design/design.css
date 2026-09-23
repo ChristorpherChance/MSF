@@ -2,45 +2,45 @@
 
 /* —— 文档面：分册左列表 —— */
 .design-doc-layout { display: flex; align-items: stretch; min-height: calc(100vh - 130px); }
-.book-col { width: 200px; flex: none; border-right: 1px solid var(--msf-line); padding: 12px 8px; display: flex; flex-direction: column; gap: 4px; }
+.book-col { width: 200px; flex: none; border-right: 1px solid var(--line); padding: 12px 8px; display: flex; flex-direction: column; gap: 4px; }
 .book-row {
   display: flex; align-items: center; justify-content: space-between; gap: 6px;
   padding: 8px 10px; border: 1px solid transparent; border-radius: 8px;
   background: none; cursor: pointer; text-align: left; font-size: 13px;
 }
-.book-row:hover { background: var(--msf-bg); }
-.book-row.on { background: #eff6ff; border-color: var(--msf-accent); }
+.book-row:hover { background: var(--soft); }
+.book-row.on { background: #eff6ff; border-color: var(--blue); }
 .book-name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* —— 原型工作台 V19 —— */
 .proto-wrap { padding: 16px 20px; display: flex; flex-direction: column; gap: 12px; }
 .v19-command {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-  padding: 10px 12px; background: var(--msf-card); border: 1px solid var(--msf-line); border-radius: 10px;
+  padding: 10px 12px; background: var(--canvas); border: 1px solid var(--line); border-radius: 10px;
 }
-.v19-command .rsn { flex-basis: 100%; font-size: 12px; color: var(--msf-mut); }
+.v19-command .rsn { flex-basis: 100%; font-size: 12px; color: var(--ink2); }
 .proto-main { display: flex; gap: 12px; min-height: 420px; }
 .proto-pages {
-  width: 240px; flex: none; border: 1px solid var(--msf-line); border-radius: 10px;
-  background: var(--msf-card); padding: 10px 8px; display: flex; flex-direction: column; gap: 4px;
+  width: 240px; flex: none; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--canvas); padding: 10px 8px; display: flex; flex-direction: column; gap: 4px;
   max-height: 560px; overflow-y: auto;
 }
 .proto-preview {
-  flex: 1; border: 1px solid var(--msf-line); border-radius: 10px;
-  background: var(--msf-card); min-height: 420px; display: flex; overflow: hidden;
+  flex: 1; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--canvas); min-height: 420px; display: flex; overflow: hidden;
 }
 .proto-iframe { width: 100%; border: none; min-height: 560px; flex: 1; }
 
 /* —— 问题/评审/目录行 —— */
-.issue-row { display: flex; align-items: center; gap: 8px; padding: 6px 4px; font-size: 13px; border-bottom: 1px dashed var(--msf-line); flex-wrap: wrap; }
+.issue-row { display: flex; align-items: center; gap: 8px; padding: 6px 4px; font-size: 13px; border-bottom: 1px dashed var(--line); flex-wrap: wrap; }
 .issue-row:last-child { border-bottom: none; }
-.issue-row.warn { color: var(--msf-warn); }
+.issue-row.warn { color: var(--orange); }
 .issue-row .act { padding: 2px 8px; font-size: 12px; }
-.review-row { border-bottom: 1px dashed var(--msf-line); padding: 6px 0; }
+.review-row { border-bottom: 1px dashed var(--line); padding: 6px 0; }
 .review-row:last-child { border-bottom: none; }
 .review-ops { display: flex; align-items: center; gap: 8px; padding: 6px 4px 2px 24px; flex-wrap: wrap; }
-.review-ops input { flex: 1; min-width: 220px; padding: 5px 8px; border: 1px solid var(--msf-line); border-radius: 6px; font-size: 12px; }
-.cat-group { border-top: 1px solid var(--msf-line); padding: 6px 0; }
-.cat-group-head { font-size: 12px; color: var(--msf-mut); padding: 2px 4px 6px; display: flex; gap: 8px; align-items: center; }
+.review-ops input { flex: 1; min-width: 220px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; font-size: 12px; }
+.cat-group { border-top: 1px solid var(--line); padding: 6px 0; }
+.cat-group-head { font-size: 12px; color: var(--ink2); padding: 2px 4px 6px; display: flex; gap: 8px; align-items: center; }
 .form-row { display: flex; align-items: center; gap: 10px; margin: 8px 0; font-size: 13px; }
-.form-row input, .form-row select { flex: 1; padding: 6px 8px; border: 1px solid var(--msf-line); border-radius: 6px; font-size: 13px; }
+.form-row input, .form-row select { flex: 1; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; font-size: 13px; }

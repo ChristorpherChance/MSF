@@ -7,6 +7,7 @@ import { useTstStore, type TstSubTab } from './store';
 import '../req/req.css';
 import '../design/design.css';
 import '../dev/dev.css';
+import { GateBanner } from '../../ui/GateBanner';
 import './test.css';
 
 const TABS: Array<{ key: TstSubTab; name: string }> = [
@@ -33,6 +34,7 @@ export function TestPage() {
   const env = s.batchDetail?.snapshot.environment as { os?: string; browser?: string } | undefined;
   return (
     <main className="proto-wrap">
+      <GateBanner stage="test" />
       <div className="doc-toolbar">
         <strong>测试验收</strong>
         {TABS.map((t) => (

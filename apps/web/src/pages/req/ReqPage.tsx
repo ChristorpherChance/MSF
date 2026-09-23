@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { useDockStore } from '../../assistant/dock-store';
+import { GateBanner } from '../../ui/GateBanner';
 import { DocPanel } from './DocPanel';
 import { RtmPanel } from './RtmPanel';
 import { useReqView, type ReqSubTab } from './store';
@@ -17,6 +18,10 @@ export function ReqPage() {
   useEffect(() => {
     void init();
   }, [init]);
+  // 顶栏「🔗 RTM」入口：?tab=rtm 直达（DSG-U02-2）
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('tab') === 'rtm') void setSubTab('rtm');
+  }, [setSubTab]);
   // RTM 页签不内嵌 dock（hasDock L1090-1093）；离页恢复
   useEffect(() => {
     useDockStore.getState().setHidden(subTab === 'rtm');
@@ -24,6 +29,7 @@ export function ReqPage() {
   }, [subTab]);
   return (
     <main>
+      <GateBanner stage="req" />
       <div className="subtabs" role="tablist">
         {SUB_TABS.map((t) => (
           <button

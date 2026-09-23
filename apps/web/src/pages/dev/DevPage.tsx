@@ -6,6 +6,7 @@ import { QualityPanel } from './QualityPanel';
 import { useDevStore, type DevSubTab } from './store';
 import '../req/req.css';
 import '../design/design.css';
+import { GateBanner } from '../../ui/GateBanner';
 import './dev.css';
 
 const TABS: Array<{ key: DevSubTab; name: string }> = [
@@ -26,6 +27,7 @@ export function DevPage() {
   const pendingImpacts = s.impacts.filter((i) => i.status === 'pending-assessment').length;
   return (
     <main className="proto-wrap">
+      <GateBanner stage="dev" />
       <div className="doc-toolbar">
         <strong>开发</strong>
         {TABS.map((t) => (

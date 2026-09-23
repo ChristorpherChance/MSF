@@ -12,6 +12,7 @@ import { executeCommand, registerCommand, type CommandContext } from '../evidenc
 
 export interface NoticeRow {
   id: string; project_id: string | null; user_id: string | null; type: string; text: string;
+  link: string | null;
   unread: boolean; created_at: string;
 }
 
@@ -29,10 +30,10 @@ export class NotificationsService {
       return { emitted: p.kind };
     });
     registerCommand('system.notification.emit', async (client, payload, ctx) => {
-      const p = payload as { type: string; text: string; userId?: string; eventKind?: string };
+      const p = payload as { type: string; text: string; userId?: string; eventKind?: string; link?: string };
       const r = await client.query<NoticeRow>(
-        'INSERT INTO sys_notifications (project_id, user_id, type, text) VALUES ($1,$2,$3,$4) RETURNING *',
-        [ctx.projectId, p.userId ?? null, p.type, p.text]);
+        'INSERT INTO sys_notifications (project_id, user_id, type, text, link) VALUES ($1,$2,$3,$4,$5) RETURNING *',
+        [ctx.projectId, p.userId ?? null, p.type, p.text, p.link ?? null]);
       if (p.eventKind) {
         await client.query(
           'INSERT INTO evd_events (project_id, kind, payload, actor_kind, actor_id) VALUES ($1,$2,$3,$4,$5)',
@@ -54,7 +55,7 @@ export class NotificationsService {
   }
 
   /** 通知产生（命令提交后推 SSE；供各域经命令总线调用，跨域零 import） */
-  async emit(ctx: CommandContext, input: { type: string; text: string; userId?: string; eventKind?: string }): Promise<string> {
+  async emit(ctx: CommandContext, input: { type: string; text: string; userId?: string; eventKind?: string; link?: string }): Promise<string> {
     const r = (await executeCommand('system.notification.emit', input, ctx)) as { noticeId: string };
     const row = await query<NoticeRow>('SELECT * FROM sys_notifications WHERE id=$1', [r.noticeId]);
     if (row.rows[0]) for (const l of listeners) l(row.rows[0]);
