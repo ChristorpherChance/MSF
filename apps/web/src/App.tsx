@@ -11,6 +11,7 @@ import { ReqPage } from './pages/req/ReqPage';
 import { ProjectsPage } from './pages/platform/ProjectsPage';
 import { SettingsPage } from './pages/platform/SettingsPage';
 import { AuditPage } from './pages/platform/AuditPage';
+import { TasksPage } from './pages/platform/TasksPage';
 import { platformApi, STAGE_NAMES, type UsageSummaryRow } from './pages/platform/api';
 import { useSession } from './store';
 import { Popover } from './ui/Popover';
@@ -146,6 +147,7 @@ export function App() {
         )}
         <StageNav />
         <span style={{ flex: 1 }} />
+        <NavLink to="/tasks" className="topbar-link" title="任务中心">⚡ Task</NavLink>
         <NavLink to="/delegate" className="topbar-link">🤝 委派</NavLink>
         <CostChip />
         <NavLink to="/req?tab=rtm" className="topbar-link" title="RTM 健康度">🔗 RTM</NavLink>
@@ -158,6 +160,7 @@ export function App() {
         <div className="app-view">
           <Routes>
             <Route path="/projects" element={<ProjectsPage />} />
+            <Route path="/tasks" element={<TasksPage />} />
             <Route path="/material" element={<MaterialPage />} />
             <Route path="/req" element={<ReqPage />} />
             <Route path="/design" element={<DesignPage />} />

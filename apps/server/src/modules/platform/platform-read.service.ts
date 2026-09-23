@@ -113,7 +113,10 @@ export class PlatformReadService {
     const items = r.rows.slice(0, q.limit ?? 30).map((e) => ({
       id: e.id, type: e.kind, text: JSON.stringify(e.payload), at: e.created_at, actor: e.actor_id,
     }));
-    return { items, nextCursor: r.rows.length > (q.limit ?? 30) ? items[items.length - 1]!.at : null };
+    // 事件总数（任务中心 KPI 行「事件数」）
+    const total = q.cursor ? undefined : (await query<{ n: number }>(
+      'SELECT count(*)::int AS n FROM evd_events WHERE project_id=$1', [projectId])).rows[0]!.n;
+    return { items, nextCursor: r.rows.length > (q.limit ?? 30) ? items[items.length - 1]!.at : null, total };
   }
 
   /** A10-3 审计只读查询（REQ-706：哈希链追加存储，无改删端点） */

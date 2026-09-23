@@ -67,7 +67,7 @@ export const platformApi = {
   // 阶段准入/任务中心/事件流（A02-4/5/6）
   stages: (p: string) => api.get<{ stages: StageGate[] }>(`${pid(p)}/stages`),
   tasks: (p: string, q = '') => api.get<{ items: TaskItem[]; total: number; page: number; pageSize: number }>(`${pid(p)}/tasks${q}`),
-  events: (p: string, q = '') => api.get<{ items: EventItem[]; nextCursor: string | null }>(`${pid(p)}/events${q}`),
+  events: (p: string, q = '') => api.get<{ items: EventItem[]; nextCursor: string | null; total?: number }>(`${pid(p)}/events${q}`),
   // 放行策略（设置页策略组）
   gates: (p: string) => api.get<{ gates: GateRow[]; events: GateEvent[] }>(`${pid(p)}/policy-gates`),
   setGateMode: (p: string, gateKey: string, mode: string, reason: string) =>
