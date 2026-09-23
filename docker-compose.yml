@@ -1,5 +1,5 @@
 # MSF 部署形态（HLD §1/§6）：单节点 Docker Compose 六服务。
-# M0：postgres/minio/redis 实起；app/sandbox-runner/egress-proxy 为骨架（profile=full 才启动）。
+# M0：postgres/minio/redis 实起；app/sandbox-runner 为骨架（profile=full 才启动）；M7：egress-proxy 实起（白名单=模型供应商端点，REQ-803）。
 # 基镜像策略：node:22.19.x-slim，tag 锁补丁版本 + digest 锚定（HLD §6，升级走变更评审）。
 name: msf
 
