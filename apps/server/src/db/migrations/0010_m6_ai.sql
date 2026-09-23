@@ -138,11 +138,19 @@ CREATE TABLE IF NOT EXISTS ai_delegations (
 CREATE INDEX IF NOT EXISTS ai_delegations_project_idx ON ai_delegations (project_id, status);
 
 -- 后置 FK（环引用：messages→prompt_versions/models；usage→delegations）
-ALTER TABLE ai_messages
-  ADD CONSTRAINT ai_messages_prompt_fk FOREIGN KEY (prompt_version_id) REFERENCES ai_prompt_versions(id),
-  ADD CONSTRAINT ai_messages_model_fk FOREIGN KEY (model_id) REFERENCES ai_models(id);
-ALTER TABLE ai_usage
-  ADD CONSTRAINT ai_usage_delegation_fk FOREIGN KEY (delegation_id) REFERENCES ai_delegations(id);
+-- 幂等：迁移执行器无 ledger，重复执行时按 pg_constraint 存在性跳过
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ai_messages_prompt_fk') THEN
+    ALTER TABLE ai_messages
+      ADD CONSTRAINT ai_messages_prompt_fk FOREIGN KEY (prompt_version_id) REFERENCES ai_prompt_versions(id),
+      ADD CONSTRAINT ai_messages_model_fk FOREIGN KEY (model_id) REFERENCES ai_models(id);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ai_usage_delegation_fk') THEN
+    ALTER TABLE ai_usage
+      ADD CONSTRAINT ai_usage_delegation_fk FOREIGN KEY (delegation_id) REFERENCES ai_delegations(id);
+  END IF;
+END $$;
 
 -- 委派目标种子（pi_native 先导；状态 unconfigured 待配置/测试连通后转 available）
 INSERT INTO ai_delegation_targets (key, name, description, adapter_kind, capabilities, status, created_by)

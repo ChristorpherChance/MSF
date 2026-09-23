@@ -7,7 +7,15 @@ export const COMMANDS = [
   'platform.project.create',
   'platform.project.update',
   'platform.project.archive',
+  'platform.stage_gates.snapshot', // 阶段准入求值快照（变化驱动：仅与存量不同才写，D03-1）
   'policy.gate.set_mode',
+  // M7 平台补齐（M13：A02-6/A10-1/2/3/4；REQ-703/705/706/708）
+  'system.settings.set', // 设置变更（D10-4 注：记 audit_log）
+  'system.notification.emit', // 通知产生（写路径副作用；BR-10 失败定位）
+  'system.notification.read',
+  'system.notification.read_all',
+  'evidence.event.emit', // 领域事件流 append（D09-3；与 audit_log 分工）
+  'system.backup.export', // 备份导出（A10-4；含 MinIO 工件清单+SHA-256 清单）
   'health.ping', // M0 冒烟用，无副作用
   // M1 资料域：上传会话（LLD-5 DSG-A03-1/2/3/18）
   'material.upload.create',
