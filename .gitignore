@@ -12,3 +12,4 @@ apps/*/node_modules
 doc.zip
 .claude/
 .superpowers/
+__pycache__/
