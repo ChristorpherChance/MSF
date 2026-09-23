@@ -44,6 +44,13 @@ export class DevBuildService {
       };
       const buildFp = sha256(fingerprint({ projectId, planRevision: p.revision, commitRefs, uiHtml }));
       const uiFp = sha256(uiHtml);
+      // 幂等命中：输入（计划修订+合并提交集+UI 工件）未变时返回既有构建，
+      // 不得撞 build_fingerprint 唯一约束裸 500（实机走查修复 #19；与存储层内容寻址幂等同口径）
+      const dup = await client.query<{ id: string; code: string }>(
+        'SELECT id, code FROM dev_builds WHERE project_id=$1 AND build_fingerprint=$2', [projectId, buildFp]);
+      if (dup.rows[0]) {
+        return { buildId: dup.rows[0].code, id: dup.rows[0].id, buildFingerprint: `sha256:${buildFp}`, uiHtml, idempotent: true };
+      }
       const prev = await client.query<{ id: string }>(
         'SELECT id FROM dev_builds WHERE project_id=$1 ORDER BY created_at DESC LIMIT 1', [projectId]);
       const r = await client.query<{ id: string }>(

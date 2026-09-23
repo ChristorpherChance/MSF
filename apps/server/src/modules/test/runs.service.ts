@@ -33,7 +33,9 @@ export class TstRunsService {
       const cases = await client.query<{ id: string; code: string; mode: string }>(
         'SELECT id, code, mode FROM tst_cases WHERE plan_id=$1 ORDER BY code', [p.rows[0].id]);
       if (cases.rows.length === 0) throw new DomainError('ZERO_CASES_FORBIDDEN', '零用例不得通过', planId);
-      const code = await nextCode(client, 'tst_runs', 'batch_id=$1', [b.id], 'TR');
+      // 运行号按项目唯一发号：按批次发号会让 run code 跨批次重复，
+      // 而人工录入/挂证据按 (project_id, code) 反查，第二批起必撞（实机走查修复 #22）
+      const code = await nextCode(client, 'tst_runs', 'project_id=$1', [projectId], 'TR');
       const prev = await client.query<{ id: string }>(
         'SELECT id FROM tst_runs WHERE batch_id=$1 ORDER BY created_at DESC LIMIT 1', [b.id]);
       const results: string[] = [];
@@ -96,7 +98,8 @@ export class TstRunsService {
         'SELECT id, mode FROM tst_cases WHERE plan_id=$1 AND code=$2', [run.rows[0].plan_id, caseCode]);
       if (!cs.rows[0]) throw new DomainError('NOT_FOUND', '用例不存在', caseCode);
       if (cs.rows[0].mode !== 'manual') throw new DomainError('VALIDATION_FAILED', '人工录入仅适用人工走查用例（自动用例结论不由人工代填）', caseCode);
-      const code = await nextCode(client, 'tst_runs', 'batch_id=$1', [run.rows[0].batch_id], 'TR');
+      // 运行号按项目唯一发号（同 #22）
+      const code = await nextCode(client, 'tst_runs', 'project_id=$1', [projectId], 'TR');
       const newRun = await client.query<{ id: string }>(
         `INSERT INTO tst_runs (project_id, batch_id, plan_id, code, previous_run_id, is_simulated, environment_fingerprint, started_at, finished_at, created_by)
          VALUES ($1,$2,$3,$4,$5,$6,$7,now(),now(),$8) RETURNING id`,

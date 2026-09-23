@@ -18,6 +18,10 @@ export class DevPlansService {
     // A06-6 提交计划（追加修订；新提交使旧 approved 失效 superseded）
     registerCommand('dev.plan.submit', async (client, payload, ctx) => {
       const { projectId, taskIds, note } = payload as { projectId: string; taskIds: string[]; note?: string };
+      // 入参兜底：空/非数组 taskIds 必须 400 VALIDATION_FAILED，不得裸 TypeError 落 500（实机走查修复）
+      if (!Array.isArray(taskIds) || taskIds.length === 0) {
+        throw new DomainError('VALIDATION_FAILED', '任务集为空或缺失（taskIds）', 'taskIds');
+      }
       const bl = await latestBaseline(client, projectId);
       if (!bl) throw new DomainError('GATE_BLOCKED', '尚无设计基线', 'dev.plan', { issues: [{ code: 'BASELINE_REQUIRED', message: '尚无设计基线' }] });
       const tasks = await client.query<{ code: string; batch_no: number | null; deps: string[] }>(
@@ -66,6 +70,13 @@ export class DevPlansService {
         throw new DomainError('POLICY_MANUAL_REQUIRED', '计划批准确认点为人工模式，AI 通道不可调用', 'dev.plan.approve');
       }
       if (!confirm) throw new DomainError('VALIDATION_FAILED', '计划批准须人工确认（confirm:true）', 'confirm');
+      // 入参兜底：缺 revision/fingerprint 不得裸 TypeError 落 500（实机走查修复）
+      if (typeof revision !== 'string' || !revision) {
+        throw new DomainError('VALIDATION_FAILED', '计划修订号缺失（revision）', 'revision');
+      }
+      if (typeof fp !== 'string' || !fp) {
+        throw new DomainError('VALIDATION_FAILED', '计划指纹缺失（fingerprint）', 'fingerprint');
+      }
       const revNo = Number(revision.replace(/^plan-r/, ''));
       const plan = await client.query<{ id: string; state: string; plan_fingerprint: string; baseline_fingerprint: string }>(
         'SELECT * FROM dev_plans WHERE project_id=$1 AND revision=$2 FOR UPDATE', [projectId, revNo]);

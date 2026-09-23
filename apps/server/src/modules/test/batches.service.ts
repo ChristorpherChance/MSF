@@ -27,6 +27,10 @@ export class TstBatchesService {
           selftestReportFingerprint: string; designBaselineFingerprint: string;
           environment: Record<string, unknown>;
         };
+      // 入参兜底：缺交接凭据不得误报「交接不存在」（实机走查修复，同 #16 口径）
+      if (typeof handoffId !== 'string' || !handoffId) {
+        throw new DomainError('VALIDATION_FAILED', '交接标识缺失（handoffId）', 'handoffId');
+      }
       // 交接存在性（跨域 SQL 直读 dev 表，边界纪律允许）
       const ho = await client.query<{
         id: string; build_id: string; build_fingerprint: string; report_id: string; report_fingerprint: string;

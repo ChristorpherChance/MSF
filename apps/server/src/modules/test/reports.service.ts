@@ -56,7 +56,10 @@ export class TstReportsService {
       for (const d of unclosed) issues.push(`${d.code}：未关闭缺陷（${d.status}）`);
       const simulated = (cases.rows as Array<Record<string, unknown>>).some((c) => c.is_simulated) || run.rows[0].is_simulated;
       const verdict = issues.length === 0 ? 'pass' : 'fail';
-      const code = await nextCode(client, 'tst_reports', 'batch_id=$1', [b.id], 'AR');
+      // 报告号按项目唯一发号：按批次发号会让报告码跨批次重复，
+      // 而 finalize/release/export 按 (project_id, code) 反查（实机走查修复，同 #22）
+      const code = await nextCode(
+        client, 'tst_reports', 'batch_id IN (SELECT id FROM tst_batches WHERE project_id=$1)', [projectId], 'AR');
       const prev = await client.query<{ id: string }>(
         'SELECT id FROM tst_reports WHERE batch_id=$1 ORDER BY created_at DESC LIMIT 1', [b.id]);
       const summary = {
@@ -161,7 +164,9 @@ export class TstReportsService {
         });
       }
       const decision = type === 'normal' ? 'release' : type === 'conditional' ? 'conditional_release' : 'reject';
-      const code = await nextCode(client, 'tst_decisions', 'batch_id=$1', [r.batch_id], 'AD');
+      // 决定号同按项目唯一发号（展示层按项目列表，跨批同号误导；同 #22 口径）
+      const code = await nextCode(
+        client, 'tst_decisions', 'batch_id IN (SELECT id FROM tst_batches WHERE project_id=$1)', [projectId], 'AD');
       const reportFp = sha256hex(fingerprint(JSON.parse(JSON.stringify({
         reportId, batchId: b.rows[0]?.code, verdict: r.verdict, basis: r.basis_fingerprint,
       }))));

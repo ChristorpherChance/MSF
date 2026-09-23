@@ -46,6 +46,13 @@ export class DevAutopilotService {
       if (ctx.actorKind !== 'human') {
         throw new DomainError('POLICY_MANUAL_REQUIRED', 'autopilot 批准启动须人工操作', 'dev.autopilot.approve-start');
       }
+      // 入参兜底：缺展示修订/指纹不得裸 TypeError 落 500（实机走查修复，同 #16 口径）
+      if (typeof displayedRevisionId !== 'string' || !displayedRevisionId) {
+        throw new DomainError('VALIDATION_FAILED', '展示的计划修订号缺失（displayedRevisionId）', 'displayedRevisionId');
+      }
+      if (typeof displayedFingerprint !== 'string' || !displayedFingerprint) {
+        throw new DomainError('VALIDATION_FAILED', '展示的计划指纹缺失（displayedFingerprint）', 'displayedFingerprint');
+      }
       const revNo = Number(displayedRevisionId.replace(/^plan-r/, ''));
       const plan = await client.query<{ id: string; state: string; plan_fingerprint: string; baseline_fingerprint: string; snapshot: { taskIds?: string[] } }>(
         'SELECT * FROM dev_plans WHERE project_id=$1 AND revision=$2 FOR UPDATE', [projectId, revNo]);

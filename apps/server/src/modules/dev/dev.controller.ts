@@ -74,7 +74,9 @@ export class DevController {
     return this.tasks.detail(pid, taskId);
   }
 
-  @Post('tasks/:taskId')
+  // 注意：taskId 必须限定 UUID 形态——裸 :taskId 会吞掉同段冒号动作路由
+  // （tasks/:taskId:transition 等，Express :param 匹配含冒号字符；实机走查修复 #17）
+  @Post('tasks/:taskId([0-9a-fA-F-]{36})')
   @HttpCode(200)
   saveTask(@Param('projectId') pid: string, @Param('taskId') taskId: string, @Body() body: Record<string, unknown>, @Req() req: Request) {
     return this.tasks.saveTask(pid, taskId, body, this.actor(req, pid));
