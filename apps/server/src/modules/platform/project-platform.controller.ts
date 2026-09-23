@@ -83,4 +83,18 @@ export class ProjectPlatformController {
       projectId, actorKind: a.kind, actorId: a.id,
     });
   }
+
+  /** §3.9：前置条件编辑（逐条文本） */
+  @Post('policy-gates/:gateKey\\:set-preconditions')
+  setPreconditions(
+    @Param('projectId') projectId: string,
+    @Param('gateKey') gateKey: string,
+    @Body() body: { preconditions: string[] },
+    @Req() req: Request,
+  ) {
+    const a = getActor(req);
+    return this.settings.setPreconditions(projectId, gateKey, body.preconditions ?? [], {
+      projectId, actorKind: a.kind, actorId: a.id,
+    });
+  }
 }

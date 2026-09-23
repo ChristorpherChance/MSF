@@ -52,6 +52,7 @@ describe('M7 平台域（集成，需 DB+MinIO）', async () => {
     await query('DELETE FROM mat_files WHERE project_id=$1', [PID]);
     await query("UPDATE projects SET stage_gates='{}' WHERE id=$1", [PID]);
     await storage.removePrefix(`backups/${PID}/`).catch(() => undefined);
+    await query('DELETE FROM sys_backups WHERE project_id=$1', [PID]);
     await query('DELETE FROM projects WHERE id=$1', [PID]);
     await pool.end();
   });
@@ -140,6 +141,22 @@ describe('M7 平台域（集成，需 DB+MinIO）', async () => {
     expect(ev.rows[0]!.n).toBe(1); // unchanged 不产生留痕
     const g1 = await settings.listGates(PID);
     expect(g1.gates.find((g) => g.gateKey === gk)!.mode).toBe('auto');
+    // W7：切换通知项目成员（sys_notifications 全员行）
+    const nt = await query<{ n: number }>(
+      "SELECT count(*)::int AS n FROM sys_notifications WHERE project_id=$1 AND type='policy.gate.switched'", [PID]);
+    expect(nt.rows[0]!.n).toBe(1); // unchanged 幂等不重复通知
+  });
+
+  it('policy-gates：前置条件编辑（§3.9 放行策略卡）', async () => {
+    const gk = 'dev.transfer';
+    await settings.setPreconditions(PID, gk, ['自测报告通过', ' 单元测试达标 ', ''], CTX);
+    const g = await settings.listGates(PID);
+    expect(g.gates.find((x) => x.gateKey === gk)!.preconditions).toEqual(['自测报告通过', '单元测试达标']);
+    await expect(settings.setPreconditions(PID, 'bad.gate', ['x'], CTX))
+      .rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+    const audit = await query<{ n: number }>(
+      "SELECT count(*)::int AS n FROM audit_log WHERE command='policy.gate.set_preconditions'", []);
+    expect(audit.rows[0]!.n).toBeGreaterThanOrEqual(1);
   });
 
   // ---- T7-05 通知（A10-2） ----
@@ -208,6 +225,12 @@ describe('M7 平台域（集成，需 DB+MinIO）', async () => {
     const ev = await query<{ n: number }>(
       "SELECT count(*)::int AS n FROM evd_events WHERE project_id=$1 AND kind='backup.exported'", [PID]);
     expect(ev.rows[0]!.n).toBeGreaterThanOrEqual(1);
+    // W7：sys_backups 历史行 + list 附签名下载链接（§3.9 备份卡）
+    const hist = await backups.list(PID);
+    const row = hist.items.find((b) => b.operationId === operationId)!;
+    expect(row.status).toBe('completed');
+    expect(row.tableCount).toBeGreaterThan(30);
+    expect(row.downloadUrl).toContain('http');
   }, 20000);
 
   it('backups:export：scope 非 project 拒绝；项目不存在 404', async () => {

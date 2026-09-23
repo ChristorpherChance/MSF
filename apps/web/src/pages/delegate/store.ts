@@ -12,6 +12,8 @@ interface DelegateViewState {
   detail: Delegation | null;
   showRegister: boolean;
   showCreate: boolean;
+  /** 发起委派预选目标（Target 卡「发起委派」按钮带入） */
+  createTarget: string | null;
   loading: boolean;
   error: string | null;
   notice: string | null;
@@ -21,7 +23,7 @@ interface DelegateViewState {
   select: (id: string | null) => Promise<void>;
   act: (fn: () => Promise<unknown>, okMsg?: string) => Promise<void>;
   toggleRegister: (v: boolean) => void;
-  toggleCreate: (v: boolean) => void;
+  toggleCreate: (v: boolean, target?: string) => void;
   clearNotice: () => void;
 }
 
@@ -34,6 +36,7 @@ export const useDelegateStore = create<DelegateViewState>((set, get) => ({
   detail: null,
   showRegister: false,
   showCreate: false,
+  createTarget: null,
   loading: false,
   error: null,
   notice: null,
@@ -79,6 +82,6 @@ export const useDelegateStore = create<DelegateViewState>((set, get) => ({
   },
 
   toggleRegister: (v) => set({ showRegister: v }),
-  toggleCreate: (v) => set({ showCreate: v }),
+  toggleCreate: (v, target) => set({ showCreate: v, ...(target !== undefined ? { createTarget: target } : {}) }),
   clearNotice: () => set({ notice: null, error: null }),
 }));

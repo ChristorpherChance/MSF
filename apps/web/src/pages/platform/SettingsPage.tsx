@@ -1,304 +1,387 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { ApiError } from '../../api';
+import { Modal } from '../../ui/Modal';
+import { toast } from '../../ui/toast';
 import { useSession } from '../../store';
 import {
   platformApi,
-  PURPOSE_NAMES,
-  PURPOSES,
-  type GateRow,
-  type ModelPublic,
-  type Notice,
+  promptsApi,
+  toolsApi,
+  type PromptVersionRow,
 } from './api';
+import { AuditGroup, BackupGroup, ModelsGroup, PolicyGroup, SystemGroup } from './SettingsGroups';
+import './settings.css';
 
-const PROVIDERS = ['gateway', 'anthropic', 'openai'];
+/** 子 Agent 名册（原型 S.agents 口径；系统默认 Prompt 为内置基底文案，只读展示） */
+const AGENTS: Array<{ key: string; group: string; name: string; sysPrompt: string }> = [
+  { key: 'ag-file', group: '资料 Agent', name: '文件解析子 Agent', sysPrompt: '你是文件解析 Agent。职责：将上传的 pdf/docx/xlsx/图片等解析为结构化 Markdown，保留表格与层级；不得臆造原文不存在的内容；解析完成后输出质量自检清单。' },
+  { key: 'ag-content', group: '资料 Agent', name: '内容解析子 Agent', sysPrompt: '你是内容解析 Agent。职责：在文件解析定稿基础上执行用户选择的操作（翻译/索引/脱敏/术语查询），生成结果或附件；修改必须基于定位补丁，禁止重写全文。' },
+  { key: 'ag-crd', group: '需求 Agent', name: '客户需求 CRD 子 Agent', sysPrompt: '你是 CRD Agent。职责：从参考资料提炼客户需求，先出目录大纲再逐章生成；每条 CR 必须标注来源 R-*；修改只输出 edit_patch 补丁，禁止重写全文。' },
+  { key: 'ag-prd', group: '需求 Agent', name: '产品需求 PRD 子 Agent', sysPrompt: '你是 PRD Agent。职责：以 CRD 定稿为唯一默认依据生成产品需求；每条 REQ 必须 refines 到 CR-*；输出验收标准。' },
+  { key: 'ag-rtm', group: '需求 Agent', name: '需求矩阵 RTM 子 Agent', sysPrompt: '你是 RTM Agent。职责：维护 R←CR←REQ refines 图；定稿时校验 L0a≥0.95 / L0b=1.00；未覆盖项必须显式 deferred/dropped。' },
+  { key: 'ag-dev', group: '开发 Agent', name: '开发编排子 Agent', sysPrompt: '你是开发编排 Agent。职责：依概要/详细/原型定稿拆解 T-* 任务卡（REQ 锚点 + 设计锚点 + 验收标准 + DoD），按 capability 路由派单并汇总 delegate 心跳；拆解产出完备性报告交人批准；产出物一律走 PR 回流人审。' },
+];
+const GLOBAL_KEY = 'assistant'; // 全局 AI 助手（元 agent 内核第一实例）
+const GLOBAL_BASE = '你是软件工厂的全局 AI 助手（元 agent 内核第一实例）。内核六件（循环执行器/工具协议与注册表/上下文装配/治理钩子/模型抽象/流式控制）零业务语义；你只携带通用基底 + 工具子集 + 全局 provider 三件配置。';
+
+type NavKey = 'agents' | 'models' | 'policy' | 'audit' | 'backup' | 'system';
+const NAV: Array<[NavKey, string]> = [
+  ['agents', '🤖 Agent 配置'],
+  ['models', '🧩 模型配置'],
+  ['policy', '🛂 放行策略'],
+  ['audit', '🧾 审计'],
+  ['backup', '💾 备份'],
+  ['system', '⚙️ 系统设置'],
+];
 
 /**
- * 设置页（T7-07/08/10；U03-9、U06-17、F10-1/2）：
- * 模型注册表（密钥只写不读，掩码回显）/ 用途路由五槽 / 放行策略七确认点 / 通用设置 / 备份导出
+ * 设置页（LLD-6 §3.9 DSG-U03-9；C1-C8）：
+ * 左 .set-nav 六组 + 右 .set-body；Agent 配置含全局助手与各子 Agent 版本化 Prompt。
  */
 export function SettingsPage() {
-  const projectId = useSession((s) => s.projectId);
-  const [models, setModels] = useState<ModelPublic[]>([]);
-  const [routes, setRoutes] = useState<Record<string, { modelId: string; modelName: string } | null>>({});
-  const [gates, setGates] = useState<GateRow[]>([]);
-  const [gateEvents, setGateEvents] = useState<Array<{ gate_key: string; from_mode: string; to_mode: string; reason: string; created_at: string }>>([]);
-  const [settings, setSettings] = useState<Record<string, unknown>>({});
-  const [lastBackup, setLastBackup] = useState<Notice | null>(null);
-  const [msg, setMsg] = useState<string | null>(null);
-  const [err, setErr] = useState<string | null>(null);
+  const [params, setParams] = useSearchParams();
+  const navParam = params.get('nav') as NavKey | null;
+  const [nav, setNav] = useState<NavKey>(NAV.some(([k]) => k === navParam) ? navParam! : 'agents');
+  const [selAgent, setSelAgent] = useState<string>(AGENTS[0]!.key);
 
-  // 模型表单（新建/编辑共用；apiKey 只写不读，留空=保留）
-  const blank = { id: '', name: '', provider: 'gateway', baseUrl: '', modelCode: '', apiKey: '', contextWindow: 128000, supportsThinking: false, enabled: true };
-  const [form, setForm] = useState({ ...blank });
-  const editing = Boolean(form.id);
-
-  // 通用设置编辑
-  const [setKey, setSetKey] = useState('');
-  const [setVal, setSetVal] = useState('');
-
-  const flash = (m: string) => { setMsg(m); setErr(null); };
-  const fail = (e: unknown) => { setErr(e instanceof ApiError ? `${e.code}: ${e.message}` : String(e)); setMsg(null); };
-
-  const refresh = useCallback(async () => {
-    try {
-      const [m, r, s, n] = await Promise.all([
-        platformApi.models(),
-        platformApi.routes(),
-        platformApi.settings(),
-        platformApi.notifications('?limit=10'),
-      ]);
-      setModels(m);
-      setRoutes(r);
-      setSettings(s);
-      setLastBackup(n.items.find((x) => x.type === 'backup.completed') ?? null);
-      if (projectId) {
-        const g = await platformApi.gates(projectId);
-        setGates(g.gates);
-        setGateEvents(g.events);
-      }
-      setErr(null);
-    } catch (e) { fail(e); }
-  }, [projectId]);
-
-  useEffect(() => { void refresh(); }, [refresh]);
-
-  const saveModel = async () => {
-    try {
-      const body: Record<string, unknown> = {
-        name: form.name, provider: form.provider, baseUrl: form.baseUrl,
-        modelCode: form.modelCode, contextWindow: Number(form.contextWindow),
-        supportsThinking: form.supportsThinking, enabled: form.enabled,
-      };
-      if (form.id) body.id = form.id;
-      if (form.apiKey) body.apiKey = form.apiKey; // 只写不读：留空则保留
-      await platformApi.upsertModel(body);
-      setForm({ ...blank });
-      flash(editing ? '模型已更新' : '模型已注册');
-      await refresh();
-    } catch (e) { fail(e); }
-  };
-
-  const testModel = async (id: string) => {
-    try {
-      const r = await platformApi.testModel(id);
-      flash(r.connStatus === 'ok' ? '连通自检通过' : `连通失败：${r.detail}`);
-      await refresh();
-    } catch (e) { fail(e); }
-  };
-
-  const toggleModel = async (m: ModelPublic) => {
-    try {
-      await platformApi.upsertModel({ id: m.id, enabled: !m.enabled });
-      await refresh();
-    } catch (e) { fail(e); }
-  };
-
-  const setRoute = async (purpose: string, modelId: string) => {
-    try {
-      await platformApi.setRoute(purpose, modelId || null);
-      await refresh();
-    } catch (e) { fail(e); }
-  };
-
-  const switchGate = async (g: GateRow) => {
-    const to = g.mode === 'manual' ? 'auto' : 'manual';
-    const reason = window.prompt(`切换「${g.gateKey}」为 ${to} 的授权理由（必填留痕）：`);
-    if (!reason?.trim()) return;
-    try {
-      await platformApi.setGateMode(projectId!, g.gateKey, to, reason.trim());
-      flash(`「${g.gateKey}」已切换为 ${to}`);
-      await refresh();
-    } catch (e) { fail(e); }
-  };
-
-  const saveSetting = async () => {
-    if (!setKey.trim()) return;
-    let value: unknown = setVal;
-    try { value = JSON.parse(setVal); } catch { /* 纯字符串 */ }
-    try {
-      await platformApi.putSettings({ [setKey.trim()]: value });
-      setSetKey(''); setSetVal('');
-      flash('设置已保存');
-      await refresh();
-    } catch (e) { fail(e); }
-  };
-
-  const exportBackup = async () => {
-    if (!projectId) return;
-    try {
-      const r = await platformApi.backupExport(projectId);
-      flash(`备份导出已受理（${r.operationId}），完成后通知内含签名下载链接`);
-      setTimeout(() => void refresh(), 3000);
-    } catch (e) { fail(e); }
-  };
-
-  const card: React.CSSProperties = { border: '1px solid var(--line)', borderRadius: 8, padding: 16, marginBottom: 20 };
+  const pick = (k: NavKey) => { setNav(k); setParams({ nav: k }, { replace: true }); };
 
   return (
-    <div style={{ padding: 20, maxWidth: 960 }}>
-      <h2>设置</h2>
-      {msg && <p style={{ color: 'var(--green)' }}>{msg}</p>}
-      {err && <p style={{ color: 'var(--red)' }}>{err}</p>}
-
-      {/* T7-07 模型注册表 + 用途路由 */}
-      <section style={card}>
-        <h3>模型注册表</h3>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-          <thead>
-            <tr style={{ textAlign: 'left', color: 'var(--ink2)' }}>
-              <th>名称</th><th>提供方</th><th>模型标识</th><th>密钥</th><th>连通</th><th>用途路由</th><th>状态</th><th />
-            </tr>
-          </thead>
-          <tbody>
-            {models.map((m) => (
-              <tr key={m.id} style={{ borderTop: '1px solid #eee' }}>
-                <td>{m.name}</td>
-                <td>{m.provider}</td>
-                <td><code>{m.model_code}</code></td>
-                <td>{m.api_key_hint ?? '—'}</td>
-                <td style={{ color: m.conn_status === 'ok' ? 'var(--green)' : m.conn_status === 'fail' ? 'var(--red)' : 'var(--ink2)' }}>
-                  {m.conn_status === 'ok' ? '正常' : m.conn_status === 'fail' ? '失败' : '未测'}
-                </td>
-                <td>{(m.routes ?? []).map((r) => PURPOSE_NAMES[r] ?? r).join('、') || '—'}</td>
-                <td>{m.enabled ? '启用' : '停用'}</td>
-                <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                  <button onClick={() => void testModel(m.id)}>自检</button>{' '}
-                  <button onClick={() => setForm({
-                    id: m.id, name: m.name, provider: m.provider, baseUrl: m.base_url,
-                    modelCode: m.model_code, apiKey: '', contextWindow: m.context_window,
-                    supportsThinking: m.supports_thinking, enabled: m.enabled,
-                  })}>编辑</button>{' '}
-                  <button onClick={() => void toggleModel(m)}>{m.enabled ? '停用' : '启用'}</button>
-                </td>
-              </tr>
+    <div className="full-wrap">
+      <div className="full-inner">
+        <h2>设置</h2>
+        <p className="set-note" style={{ marginTop: -6 }}>
+          Agent Prompt 版本化管理 · 多模型接入（pi-ai） · 系统策略
+        </p>
+        <div className="set-layout">
+          <div className="set-nav">
+            {NAV.map(([k, label]) => (
+              <div key={k}>
+                <div className={`sn-item${nav === k ? ' active' : ''}`} onClick={() => pick(k)}>{label}</div>
+                {k === 'agents' && nav === 'agents' && (
+                  <div>
+                    <div
+                      className={`sn-item sub${selAgent === GLOBAL_KEY ? ' active' : ''}`}
+                      onClick={() => setSelAgent(GLOBAL_KEY)}
+                    >🌐 全局 AI 助手</div>
+                    {AGENTS.map((a) => (
+                      <div
+                        key={a.key}
+                        className={`sn-item sub${selAgent === a.key ? ' active' : ''}`}
+                        onClick={() => setSelAgent(a.key)}
+                      >{a.name}</div>
+                    ))}
+                  </div>
+                )}
+              </div>
             ))}
-            {models.length === 0 && <tr><td colSpan={8} style={{ color: 'var(--ink2)' }}>暂无模型，先注册一个</td></tr>}
-          </tbody>
-        </table>
-
-        <h4 style={{ marginTop: 16 }}>{editing ? `编辑模型（密钥留空=保留 ${models.find((m) => m.id === form.id)?.api_key_hint ?? ''}）` : '注册新模型'}</h4>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, maxWidth: 720 }}>
-          <input placeholder="名称（如 gw-gpt-5.5）" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-          <select value={form.provider} onChange={(e) => setForm({ ...form, provider: e.target.value })}>
-            {PROVIDERS.map((p) => <option key={p} value={p}>{p}</option>)}
-          </select>
-          <input placeholder="模型标识（如 gpt-5.5）" value={form.modelCode} onChange={(e) => setForm({ ...form, modelCode: e.target.value })} />
-          <input placeholder="baseUrl（网关地址）" value={form.baseUrl} onChange={(e) => setForm({ ...form, baseUrl: e.target.value })} style={{ gridColumn: 'span 2' }} />
-          <input type="password" placeholder={editing ? 'API Key（只写不读，留空保留）' : 'API Key（只写不读）'} value={form.apiKey} onChange={(e) => setForm({ ...form, apiKey: e.target.value })} />
-          <label style={{ fontSize: 13 }}>
-            上下文窗口 <input type="number" style={{ width: 100 }} value={form.contextWindow} onChange={(e) => setForm({ ...form, contextWindow: Number(e.target.value) })} />
-          </label>
-          <label style={{ fontSize: 13 }}>
-            <input type="checkbox" checked={form.supportsThinking} onChange={(e) => setForm({ ...form, supportsThinking: e.target.checked })} /> 支持思考强度
-          </label>
-          <label style={{ fontSize: 13 }}>
-            <input type="checkbox" checked={form.enabled} onChange={(e) => setForm({ ...form, enabled: e.target.checked })} /> 启用
-          </label>
+          </div>
+          <div className="set-body">
+            {nav === 'agents' && (selAgent === GLOBAL_KEY ? <GlobalAssistantCard /> : <AgentCard key={selAgent} agentKey={selAgent} />)}
+            {nav === 'models' && <ModelsGroup />}
+            {nav === 'policy' && <PolicyGroup />}
+            {nav === 'audit' && <AuditGroup />}
+            {nav === 'backup' && <BackupGroup />}
+            {nav === 'system' && <SystemGroup />}
+          </div>
         </div>
-        <div style={{ marginTop: 8 }}>
-          <button onClick={() => void saveModel()} disabled={!form.name.trim() || !form.modelCode.trim() || (!editing && !form.baseUrl.trim())}>
-            {editing ? '保存修改' : '注册模型'}
-          </button>{' '}
-          {editing && <button onClick={() => setForm({ ...blank })}>取消编辑</button>}
-        </div>
+      </div>
+    </div>
+  );
+}
 
-        <h4 style={{ marginTop: 16 }}>用途路由</h4>
-        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-          {PURPOSES.map((p) => (
-            <label key={p} style={{ fontSize: 13 }}>
-              {PURPOSE_NAMES[p]}{' '}
-              <select
-                value={routes[p]?.modelId ?? ''}
-                onChange={(e) => void setRoute(p, e.target.value)}
-              >
-                <option value="">（未配置）</option>
-                {models.filter((m) => m.enabled).map((m) => (
-                  <option key={m.id} value={m.id}>{m.name}</option>
-                ))}
-              </select>
-            </label>
-          ))}
-        </div>
-      </section>
+/** C2 通用版本列表（.pver-row：设为生效/重命名/删除，生效版不可删）+ 新版本编辑区 */
+function VersionEditor(props: {
+  agentKey: string; agentGroup: string; kind: 'prompt' | 'std';
+  basePrompt: string; placeholder: string; onChanged: () => void;
+}) {
+  const [versions, setVersions] = useState<PromptVersionRow[]>([]);
+  const [draft, setDraft] = useState('');
+  const [renaming, setRenaming] = useState<PromptVersionRow | null>(null);
+  const [renameVal, setRenameVal] = useState('');
 
-      {/* T7-08 放行策略 */}
-      <section style={card}>
-        <h3>放行策略（七确认点）</h3>
-        {!projectId && <p style={{ color: 'var(--ink2)' }}>请先在项目页进入一个项目。</p>}
-        {projectId && (
-          <>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-              <tbody>
-                {gates.map((g) => (
-                  <tr key={g.gateKey} style={{ borderTop: '1px solid #eee' }}>
-                    <td><code>{g.gateKey}</code></td>
-                    <td style={{ color: g.mode === 'auto' ? 'var(--orange)' : 'var(--green)' }}>
-                      {g.mode === 'auto' ? '自动放行' : '人工确认'}
-                    </td>
-                    <td style={{ textAlign: 'right' }}>
-                      <button onClick={() => void switchGate(g)}>
-                        切换为 {g.mode === 'manual' ? '自动放行' : '人工确认'}
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            <p style={{ fontSize: 12, color: 'var(--ink2)' }}>
-              切换授权需填写理由并留痕（F10-2）；自动放行后任意人工动作立回阻断态（BR-07）。
-            </p>
-            {gateEvents.length > 0 && (
-              <details>
-                <summary style={{ fontSize: 13 }}>最近切换记录（{gateEvents.length}）</summary>
-                <ul style={{ fontSize: 12 }}>
-                  {gateEvents.map((e, i) => (
-                    <li key={i}>{e.created_at.slice(0, 19)} {e.gate_key}：{e.from_mode} → {e.to_mode}（{e.reason}）</li>
-                  ))}
-                </ul>
-              </details>
+  const load = useCallback(async () => {
+    const r = await promptsApi.versions(props.agentKey).catch(() => ({ items: [] as PromptVersionRow[] }));
+    setVersions(r.items.filter((v) => v.kind === props.kind));
+  }, [props.agentKey, props.kind]);
+  useEffect(() => { void load(); }, [load]);
+
+  const run = async (fn: () => Promise<unknown>, okMsg: string) => {
+    try { await fn(); toast(okMsg, 'success'); await load(); props.onChanged(); }
+    catch (e) { toast(e instanceof ApiError ? `${e.code}: ${e.message}` : String(e), 'warn'); }
+  };
+
+  return (
+    <>
+      <div className="set-subhead">
+        {props.kind === 'std' ? '自定义叠加版本' : '自定义 Prompt 版本'}{' '}
+        <span className="sub-note">· 执行时必须使用「当前生效」版本，会话启动时快照并落审计</span>
+      </div>
+      {versions.length === 0 && (
+        <div className="empty-tip" style={{ padding: 14 }}>
+          {props.kind === 'std' ? '暂无叠加版本，当前仅使用系统默认规范' : '暂无自定义版本，当前直接使用系统默认 Prompt'}
+        </div>
+      )}
+      {versions.map((v) => (
+        <div key={v.id} className={`pver-row${v.is_current ? ' current' : ''}`}>
+          {v.is_current
+            ? <span className="tag tag-ok">当前生效</span>
+            : (
+              <button className="act mini" onClick={() => void run(
+                () => promptsApi.setCurrent(props.agentKey, v.version_no),
+                '已切换生效版本，下次会话启动生效',
+              )}>设为生效</button>
             )}
+          <b style={{ flex: '0 0 auto' }}>v{v.version_no} {v.name}</b>
+          <span className="pver-text" title={v.overlay_text}>{v.overlay_text}</span>
+          <button className="act mini" title="重命名" onClick={() => { setRenaming(v); setRenameVal(v.name ?? ''); }}>✏</button>
+          <button
+            className="act mini" title={v.is_current ? '当前生效版本不可删除' : '删除'}
+            onClick={() => {
+              if (v.is_current) { toast('当前生效版本不可删除', 'warn'); return; }
+              if (window.confirm(`删除版本 v${v.version_no}「${v.name ?? ''}」？`)) {
+                void run(() => promptsApi.remove(props.agentKey, v.version_no), '已删除');
+              }
+            }}
+          >🗑</button>
+        </div>
+      ))}
+      <div style={{ marginTop: 12 }}>
+        <textarea
+          className="prompt-editor" style={{ minHeight: 90 }}
+          placeholder={props.placeholder}
+          value={draft} onChange={(e) => setDraft(e.target.value)}
+        />
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 8 }}>
+          <button
+            className="act" disabled={!draft.trim()}
+            onClick={() => void run(async () => {
+              await promptsApi.publish({
+                agentKey: props.agentKey, agentGroup: props.agentGroup,
+                basePrompt: props.basePrompt, overlayText: draft.trim(), kind: props.kind, activate: false,
+              });
+              setDraft('');
+            }, '已另存为新版本')}
+          >另存为新版本</button>
+          <button
+            className="act primary" disabled={!draft.trim()}
+            onClick={() => void run(async () => {
+              await promptsApi.publish({
+                agentKey: props.agentKey, agentGroup: props.agentGroup,
+                basePrompt: props.basePrompt, overlayText: draft.trim(), kind: props.kind, activate: true,
+              });
+              setDraft('');
+            }, '已保存并设为生效版本')}
+          >另存并设为生效</button>
+        </div>
+      </div>
+      {renaming && (
+        <Modal
+          title="重命名版本" onClose={() => setRenaming(null)}
+          footer={(
+            <>
+              <button className="act" onClick={() => setRenaming(null)}>取消</button>
+              <button
+                className="act primary" disabled={!renameVal.trim()}
+                onClick={() => void run(async () => {
+                  await promptsApi.rename(props.agentKey, renaming.version_no, renameVal.trim());
+                  setRenaming(null);
+                }, '已重命名')}
+              >保存</button>
+            </>
+          )}
+        >
+          <input style={{ width: '100%' }} value={renameVal} onChange={(e) => setRenameVal(e.target.value)} />
+        </Modal>
+      )}
+    </>
+  );
+}
+
+/** C2 子 Agent 卡：系统默认只读开关 + 版本列表 + 新版本编辑区 +（ag-dev）编码规范叠加区 + 执行自检 */
+function AgentCard({ agentKey }: { agentKey: string }) {
+  const meta = AGENTS.find((a) => a.key === agentKey)!;
+  const [showDefault, setShowDefault] = useState(false);
+  const [current, setCurrent] = useState<PromptVersionRow | null>(null);
+
+  const loadCurrent = useCallback(async () => {
+    const r = await promptsApi.agents().catch(() => ({ items: [] as PromptVersionRow[] }));
+    setCurrent(r.items.find((x) => x.agent_key === agentKey && x.kind === 'prompt') ?? null);
+  }, [agentKey]);
+  useEffect(() => { void loadCurrent(); }, [loadCurrent]);
+
+  const basePrompt = current?.base_prompt || meta.sysPrompt;
+
+  return (
+    <>
+      <div className="set-card">
+        <h3>{meta.group} · {meta.name}</h3>
+        <label className="checkline" style={{ marginBottom: 8 }}>
+          <input type="checkbox" checked={showDefault} onChange={(e) => setShowDefault(e.target.checked)} />
+          查看系统默认 Prompt（只读，不可修改）
+        </label>
+        {showDefault && (
+          <>
+            <textarea className="prompt-editor readonly" readOnly value={basePrompt} />
+            <p className="set-note" style={{ marginTop: 6 }}>
+              系统默认 Prompt 始终作为基底注入；下方自定义版本叠加在其上。
+            </p>
           </>
         )}
-      </section>
-
-      {/* T7-10 备份导出 */}
-      <section style={card}>
-        <h3>备份导出</h3>
-        <p style={{ fontSize: 13, color: 'var(--ink2)' }}>
-          项目数据逻辑导出（PG 全量表 + MinIO 工件清单 + 每表 SHA-256 清单），完成后站内通知附签名下载链接（1 小时有效）。密钥类列不导出。
-        </p>
-        <button onClick={() => void exportBackup()} disabled={!projectId}>导出当前项目备份</button>
-        {lastBackup && (
-          <p style={{ fontSize: 12, marginTop: 8 }}>
-            最近一次：{lastBackup.text.slice(0, 120)}…{' '}
-            {/https?:\/\/\S+/.exec(lastBackup.text) && (
-              <a href={/https?:\/\/\S+/.exec(lastBackup.text)![0]} target="_blank" rel="noreferrer">下载</a>
-            )}
-          </p>
-        )}
-      </section>
-
-      {/* A10-1 通用设置 */}
-      <section style={card}>
-        <h3>通用设置</h3>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-          <tbody>
-            {Object.entries(settings).map(([k, v]) => (
-              <tr key={k} style={{ borderTop: '1px solid #eee' }}>
-                <td><code>{k}</code></td>
-                <td><code>{JSON.stringify(v)}</code></td>
-              </tr>
-            ))}
-            {Object.keys(settings).length === 0 && <tr><td style={{ color: 'var(--ink2)' }}>暂无设置项</td></tr>}
-          </tbody>
-        </table>
-        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-          <input placeholder="键（点分层级，如 zip.limits.maxEntries）" value={setKey} onChange={(e) => setSetKey(e.target.value)} style={{ flex: 1 }} />
-          <input placeholder='值（JSON 或字符串）' value={setVal} onChange={(e) => setSetVal(e.target.value)} style={{ flex: 1 }} />
-          <button onClick={() => void saveSetting()} disabled={!setKey.trim()}>保存</button>
+        <VersionEditor
+          agentKey={agentKey} agentGroup={meta.group} kind="prompt"
+          basePrompt={basePrompt}
+          placeholder="在此编写新的 Prompt 叠加内容，另存为新版本…"
+          onChanged={() => void loadCurrent()}
+        />
+      </div>
+      {agentKey === 'ag-dev' && <StdOverlayCard basePrompt={basePrompt} />}
+      <div className="set-card">
+        <h3>执行自检</h3>
+        <div className="op-result">
+          ✅ 当前生效版本：{meta.name} ·「{current ? `v${current.version_no} ${current.name ?? ''}` : '系统默认'}」
+          · 会话启动时快照生效版本并写入审计日志（修复“配置了但没真执行”缺陷）
         </div>
-        <p style={{ fontSize: 12, color: 'var(--ink2)' }}>密钥类不落此表（走模型注册表加密存储，REQ-710）。</p>
-      </section>
+      </div>
+    </>
+  );
+}
+
+/** 开发 Agent 专属「编码规范」叠加区（v1.6；与开发页 📏 编码规范同源 ai_prompt_versions kind='std'） */
+function StdOverlayCard({ basePrompt }: { basePrompt: string }) {
+  const [tick, setTick] = useState(0);
+  return (
+    <div className="set-card">
+      <h3>📏 编码规范 <span className="tag">开发 Agent 叠加区</span></h3>
+      <p className="set-note" style={{ marginBottom: 10 }}>
+        开发阶段「📏 编码规范」页的编辑落点：系统默认规范只读不可改；自定义叠加版本注入全部 🤖 委派与 PR
+        checklist「编码规范符合」判定，会话启动时快照并落审计。
+      </p>
+      <div className="set-subhead">系统默认（只读）</div>
+      <div className="op-result" style={{ lineHeight: 1.9 }}>
+        · <b>命名</b>：标识符语义化——缩写仅限领域通用词<br />
+        · <b>结构</b>：模块单向依赖——跨域不可 import；共享契约经 packages/shared<br />
+        · <b>错误</b>：错误码闭集——先注册后使用；不得抛出表外码或裸 Error<br />
+        · <b>审计</b>：写路径全审计——所有状态变化经命令总线；审计失败零写<br />
+        · <b>测试</b>：覆盖率门槛——行 80% / 分支 70%，核心模块 90% / 80%，CI 强制<br />
+        · <b>安全</b>：密钥只写不读——密文落库、掩码回显，绝不出现在响应与导出包
+      </div>
+      <VersionEditor
+        key={tick}
+        agentKey="dev-coding-std" agentGroup="dev" kind="std"
+        basePrompt={basePrompt}
+        placeholder="在此编写编码规范叠加内容（如：门户语境附加约束），另存为新版本…"
+        onChanged={() => setTick((x) => x + 1)}
+      />
     </div>
+  );
+}
+
+/** C3 全局 AI 助手卡：基底/叠加版本/工具开关/默认思考强度/上下文叠加提示/执行自检 */
+function GlobalAssistantCard() {
+  const projectId = useSession((s) => s.projectId);
+  const [versions, setVersions] = useState<PromptVersionRow[]>([]);
+  const [tools, setTools] = useState<Array<{ name: string; kind: string; description: string }>>([]);
+  const [toolsEnabled, setToolsEnabled] = useState<Record<string, boolean>>({});
+  const [thinkDefault, setThinkDefault] = useState<string>('mid');
+
+  const load = useCallback(async () => {
+    const [v, s] = await Promise.all([
+      promptsApi.versions(GLOBAL_KEY).catch(() => ({ items: [] as PromptVersionRow[] })),
+      platformApi.settings().catch(() => ({} as Record<string, unknown>)),
+    ]);
+    setVersions(v.items.filter((x) => x.kind === 'prompt'));
+    setToolsEnabled((s['assistant.tools'] as Record<string, boolean> | undefined) ?? {});
+    setThinkDefault((s['assistant.thinkDefault'] as string | undefined) ?? 'mid');
+    if (projectId) {
+      const t = await toolsApi.list(projectId).catch(() => ({ tools: [], denied: [] }));
+      setTools(t.tools);
+    }
+  }, [projectId]);
+  useEffect(() => { void load(); }, [load]);
+
+  const cur = versions.find((v) => v.is_current) ?? null;
+  const basePrompt = cur?.base_prompt || GLOBAL_BASE;
+  const nOn = tools.filter((t) => toolsEnabled[t.name] !== false).length;
+
+  const saveSettings = async (patch: Record<string, unknown>, okMsg: string) => {
+    try { await platformApi.putSettings(patch); toast(okMsg, 'success'); }
+    catch (e) { toast(e instanceof ApiError ? `${e.code}: ${e.message}` : String(e), 'warn'); }
+  };
+
+  return (
+    <>
+      <div className="set-card">
+        <h3>🌐 全局 AI 助手 <span className="tag">元 agent 内核 · 第一实例</span></h3>
+        <p className="set-note" style={{ marginBottom: 12 }}>
+          内核六件（循环执行器 / 工具协议与注册表 / 上下文装配 / 治理钩子 / 模型抽象 / 流式控制）零业务语义；
+          本实例 = 基底 Prompt + 工具子集 + 全局 provider 三件配置。
+        </p>
+        <div className="set-subhead">① 基底 Prompt（系统内置，只读）</div>
+        <textarea className="prompt-editor readonly" readOnly value={basePrompt} />
+        <div className="set-subhead">
+          ② 叠加 Prompt 版本 <span className="sub-note">· 执行时使用「当前生效」版本，会话启动快照落审计</span>
+        </div>
+        <VersionEditor
+          agentKey={GLOBAL_KEY} agentGroup="assistant" kind="prompt"
+          basePrompt={basePrompt}
+          placeholder="在此编写全局助手的叠加 Prompt（另存为新版本）…"
+          onChanged={() => void load()}
+        />
+        <div className="set-subhead">
+          ③ 工具开关清单 <span className="sub-note">· 停用后决策插槽不再派发；命中被禁意图时助手如实告知并给重新启用路径，不静默替代</span>
+        </div>
+        {!projectId && <p className="set-note">进入项目后可查看工具注册表。</p>}
+        {tools.map((t) => (
+          <div key={t.name} className="model-card">
+            <div className="mi">🔧</div>
+            <div className="mmain">
+              <div className="mname">{t.name} <span className="tag">{t.kind}</span></div>
+              <div className="mdesc">{t.description}</div>
+            </div>
+            <button
+              className={`switch${toolsEnabled[t.name] !== false ? ' on' : ''}`}
+              title="启用/停用"
+              onClick={() => {
+                const next = { ...toolsEnabled, [t.name]: toolsEnabled[t.name] === false };
+                setToolsEnabled(next);
+                void saveSettings({ 'assistant.tools': next },
+                  next[t.name] ? `已启用「${t.name}」` : `已停用「${t.name}」（决策插槽不再派发该工具）`);
+              }}
+            />
+          </div>
+        ))}
+        <div className="set-subhead">
+          ④ 默认思考强度 <span className="sub-note">· 新会话初始档；面板内仍可临时切（同模型推理参数，不切模型）</span>
+        </div>
+        <div className="think-seg">
+          {([['low', '低'], ['mid', '中'], ['high', '高']] as const).map(([k, label]) => (
+            <button
+              key={k} className={thinkDefault === k ? 'active' : ''}
+              onClick={() => {
+                setThinkDefault(k);
+                void saveSettings({ 'assistant.thinkDefault': k }, `已设为新会话默认思考强度：${label}`);
+              }}
+            >{label}</button>
+          ))}
+        </div>
+      </div>
+      <div className="set-card">
+        <h3>⑤ 当前上下文叠加提示（只读）</h3>
+        <div className="op-result">
+          阶段页上下文 → 会话启动时叠加对应阶段子 Agent 的 prompt（通用基底 + 阶段子 Agent 叠加）；
+          非阶段页（全局形态）仅使用通用基底 Prompt。<br />
+          <span className="set-note">实例化路由为后续版本：叠加关系先在 UI 上可见可理解，真实叠加路由随阶段子 Agent 实例化一并落地。</span>
+        </div>
+      </div>
+      <div className="set-card">
+        <h3>⑥ 执行自检</h3>
+        <div className="op-result">
+          ✅ 当前生效叠加版本：全局 AI 助手 ·「{cur ? `v${cur.version_no} ${cur.name ?? ''}` : '无（仅基底）'}」
+          · 工具启用 {nOn}/{tools.length} · 会话启动快照与工具调用（agent.tool）均已写入审计日志
+        </div>
+      </div>
+    </>
   );
 }

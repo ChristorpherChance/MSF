@@ -9,6 +9,7 @@ export const COMMANDS = [
   'platform.project.archive',
   'platform.stage_gates.snapshot', // 阶段准入求值快照（变化驱动：仅与存量不同才写，D03-1）
   'policy.gate.set_mode',
+  'policy.gate.set_preconditions', // 前置条件编辑（LLD-6 §3.9 放行策略卡；差异登记）
   // M7 平台补齐（M13：A02-6/A10-1/2/3/4；REQ-703/705/706/708）
   'system.settings.set', // 设置变更（D10-4 注：记 audit_log）
   'system.notification.emit', // 通知产生（写路径副作用；BR-10 失败定位）
@@ -168,6 +169,8 @@ export const COMMANDS = [
   'ai.tool.invoke', // 注册表校验 + 审计（写动作回调对应域命令入口）
   'ai.prompt.publish',
   'ai.prompt.rollback',
+  'ai.prompt.rename', // Prompt 版本重命名（LLD-6 §3.9 pver-row ✏；C10-2(f) 之外补，差异登记）
+  'ai.prompt.delete', // Prompt 历史版本删除（当前生效版拒绝；差异登记）
   'ai.model.upsert',
   'ai.model.test',
   'ai.model.route.set',

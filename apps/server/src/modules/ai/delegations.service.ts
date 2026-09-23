@@ -16,9 +16,19 @@ import { SandboxService } from '../executor/sandbox.service.js';
  * - 不静默降级：目标 unavailable/镜像未配置即失败终态，重跑需人工再次发起（REQ-610）
  */
 
-const MAX_RUNNING = Number(process.env.MSF_DELEGATION_CONCURRENCY ?? 2);
+const DEFAULT_MAX_RUNNING = 2; // 可用 sys_settings「delegation.concurrencyMax」覆盖（LLD-6 §3.8 可配置）
 const TERMINAL = ['succeeded', 'failed', 'failed_timeout', 'cancelled'] as const;
 const DELEGATION_TIMEOUT_MS = Number(process.env.MSF_DELEGATION_TIMEOUT_MS ?? 600_000);
+
+/** 并发上限：sys_settings 优先，环境变量次之，默认 2（E6 可配置入口） */
+async function maxRunning(
+  client: { query: (text: string, params?: unknown[]) => Promise<{ rows: Array<{ value: unknown }> }> },
+): Promise<number> {
+  const r = await client.query(
+    "SELECT value FROM sys_settings WHERE key='delegation.concurrencyMax'", []);
+  const v = Number((r.rows[0]?.value as number | undefined) ?? process.env.MSF_DELEGATION_CONCURRENCY);
+  return Number.isInteger(v) && v >= 1 ? v : DEFAULT_MAX_RUNNING;
+}
 
 export interface DelegationRow {
   id: string; project_id: string; code: string; target: string; task_desc: string;
@@ -91,11 +101,19 @@ export class AiDelegationsService implements OnModuleInit {
     registerCommand('ai.target.upsert', async (client, payload, ctx) => {
       const p = payload as {
         key?: string; name?: string; description?: string; adapterKind?: string;
+        endpoint?: string; credentialRef?: string;
         capabilities?: string[]; config?: Record<string, unknown>; status?: string;
       };
       if (!p.key?.trim()) throw new DomainError('VALIDATION_FAILED', 'key 必填', 'key');
       if (p.adapterKind && !['local-cli', 'remote-agent', 'builtin'].includes(p.adapterKind)) {
         throw new DomainError('VALIDATION_FAILED', 'adapterKind 枚举 local-cli|remote-agent|builtin', 'adapterKind');
+      }
+      // 凭据引用（DSG-U06-18）：引用设置页已存模型凭据（按名称），不内嵌明文
+      if (p.credentialRef !== undefined && p.credentialRef !== null && p.credentialRef !== '') {
+        const m = await client.query('SELECT id FROM ai_models WHERE name=$1', [p.credentialRef]);
+        if (!m.rows[0]) {
+          throw new DomainError('VALIDATION_FAILED', `凭据引用不存在（设置页模型注册表）：${p.credentialRef}`, 'credentialRef');
+        }
       }
       // 密钥类字段加密存储（key/secret/token 命名的 config 值 → v1. 密文串）
       const config = p.config
@@ -110,33 +128,36 @@ export class AiDelegationsService implements OnModuleInit {
         await client.query(
           `UPDATE ai_delegation_targets SET
              name = coalesce($2, name), description = coalesce($3, description),
+             endpoint = coalesce($8, endpoint), credential_ref = coalesce($9, credential_ref),
              capabilities = coalesce($4, capabilities), config = coalesce($5, config),
              status = coalesce($6, status), updated_by = $7, updated_at = now()
            WHERE key = $1`,
           [p.key, p.name ?? null, p.description ?? null,
            p.capabilities ? JSON.stringify(p.capabilities) : null,
-           config ? JSON.stringify(config) : null, p.status ?? null, ctx.actorId]);
+           config ? JSON.stringify(config) : null, p.status ?? null, ctx.actorId,
+           p.endpoint ?? null, p.credentialRef ?? null]);
         return { key: p.key, updated: true };
       }
       if (!p.name || !p.adapterKind) {
         throw new DomainError('VALIDATION_FAILED', '新建目标 name/adapterKind 必填', 'name');
       }
       await client.query(
-        `INSERT INTO ai_delegation_targets (key, name, description, adapter_kind, capabilities, status, config, created_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        `INSERT INTO ai_delegation_targets (key, name, description, adapter_kind, endpoint, credential_ref, capabilities, status, config, created_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
         [p.key, p.name, p.description ?? null, p.adapterKind,
+         p.endpoint ?? null, p.credentialRef ?? null,
          JSON.stringify(p.capabilities ?? []), p.status ?? 'unconfigured',
          JSON.stringify(config ?? {}), ctx.actorId]);
       return { key: p.key, created: true };
     });
 
     registerCommand('ai.target.test', async (client, payload) => {
-      const p = payload as { key: string; ok: boolean; detail?: string };
+      const p = payload as { key: string; ok: boolean; detail?: string; latencyMs?: number };
       const r = await client.query(
-        'UPDATE ai_delegation_targets SET status=$2, updated_at=now() WHERE key=$1 RETURNING key',
-        [p.key, p.ok ? 'available' : 'unconfigured']);
+        'UPDATE ai_delegation_targets SET status=$2, last_latency_ms=$3, updated_at=now() WHERE key=$1 RETURNING key',
+        [p.key, p.ok ? 'available' : 'unconfigured', p.latencyMs ?? null]);
       if (!r.rows[0]) throw new DomainError('NOT_FOUND', '委派目标不存在', p.key);
-      return { key: p.key, status: p.ok ? 'available' : 'unconfigured', detail: p.detail ?? null };
+      return { key: p.key, status: p.ok ? 'available' : 'unconfigured', detail: p.detail ?? null, latencyMs: p.latencyMs ?? null };
     });
 
     registerCommand('ai.delegate.create', async (client, payload, ctx) => {
@@ -152,10 +173,11 @@ export class AiDelegationsService implements OnModuleInit {
       if (t.rows[0].status !== 'available') {
         throw new DomainError('DELEGATION_TARGET_UNAVAILABLE', `目标 ${p.target} 不可用（${t.rows[0].status}）`, p.target);
       }
+      const cap = await maxRunning(client);
       const running = await client.query<{ n: string }>(
         "SELECT count(*) AS n FROM ai_delegations WHERE status IN ('queued','running')", []);
-      if (Number(running.rows[0]!.n) >= MAX_RUNNING) {
-        throw new DomainError('RATE_LIMITED', `委派并发上限 ${MAX_RUNNING} 已满，稍后重试`, 'concurrency');
+      if (Number(running.rows[0]!.n) >= cap) {
+        throw new DomainError('RATE_LIMITED', `委派并发上限 ${cap} 已满，稍后重试（设置 → 系统设置可调）`, 'concurrency');
       }
       const n = await client.query<{ n: string }>(
         'SELECT count(*) AS n FROM ai_delegations WHERE project_id=$1', [ctx.projectId]);
@@ -270,7 +292,7 @@ export class AiDelegationsService implements OnModuleInit {
     if (status) { params.push(status); where += ` AND status=$${params.length}`; }
     const r = await query<DelegationRow>(
       `SELECT * FROM ai_delegations WHERE ${where} ORDER BY created_at DESC LIMIT 100`, params);
-    return { items: r.rows, concurrency: { max: MAX_RUNNING } };
+    return { items: r.rows, concurrency: { max: await maxRunning({ query }) } };
   }
 
   async detail(projectId: string, delegationId: string) {
@@ -284,9 +306,12 @@ export class AiDelegationsService implements OnModuleInit {
   async targets() {
     const r = await query<{
       key: string; name: string; description: string | null; adapter_kind: string;
+      endpoint: string | null; credential_ref: string | null; last_latency_ms: number | null;
       capabilities: string[]; status: string; created_at: string; updated_at: string | null;
     }>(
-      'SELECT key, name, description, adapter_kind, capabilities, status, created_at, updated_at FROM ai_delegation_targets ORDER BY key', []);
+      `SELECT key, name, description, adapter_kind, endpoint, credential_ref, last_latency_ms,
+              capabilities, status, created_at, updated_at
+       FROM ai_delegation_targets ORDER BY key`, []);
     return { items: r.rows };
   }
 
@@ -299,15 +324,44 @@ export class AiDelegationsService implements OnModuleInit {
     const t = await query<{ adapter_kind: string }>(
       'SELECT adapter_kind FROM ai_delegation_targets WHERE key=$1', [key]);
     if (!t.rows[0]) throw new DomainError('NOT_FOUND', '委派目标不存在', key);
-    let ok = t.rows[0].adapter_kind === 'builtin';
-    let detail = ok ? '内建运行时可用' : '';
-    if (t.rows[0].adapter_kind === 'local-cli') {
-      const bin = key === 'claude_code_local' ? 'claude' : key === 'codex_cli' ? 'codex' : key;
-      const { execFile } = await import('node:child_process');
-      ok = await new Promise<boolean>((res) =>
-        execFile(bin, ['--version'], { timeout: 5000 }, (e) => res(!e)));
-      detail = ok ? `${bin} CLI 可用` : `${bin} CLI 不在 PATH`;
-    }
-    return executeCommand('ai.target.test', { key, ok, detail }, ctx);
+    const probe = await probeTarget(t.rows[0].adapter_kind, key);
+    return executeCommand('ai.target.test', { key, ...probe }, ctx);
   }
+
+  /** 注册向导 dry-run：不入册的连通探测（保存前测试，失败即阻止注册） */
+  async testDraft(p: { adapterKind?: string; endpoint?: string }) {
+    if (!p.adapterKind || !['local-cli', 'remote-agent', 'builtin'].includes(p.adapterKind)) {
+      throw new DomainError('VALIDATION_FAILED', 'adapterKind 枚举 local-cli|remote-agent|builtin', 'adapterKind');
+    }
+    // dry-run 以 endpoint 作为 local-cli 的 bin 名（向导未分配 key）
+    return probeTarget(p.adapterKind, p.endpoint?.trim() || '');
+  }
+}
+
+/** 连通探测（事务外纯函数）：返回 ok/detail/latencyMs */
+async function probeTarget(
+  adapterKind: string, keyOrBin: string,
+): Promise<{ ok: boolean; detail: string; latencyMs: number }> {
+  const t0 = Date.now();
+  let ok = adapterKind === 'builtin';
+  let detail = ok ? '内建运行时可用' : '';
+  if (adapterKind === 'local-cli') {
+    const bin = keyOrBin === 'claude_code_local' ? 'claude' : keyOrBin === 'codex_cli' ? 'codex' : keyOrBin;
+    if (!bin) return { ok: false, detail: 'local-cli 需填写端点（可执行名，如 claude）', latencyMs: 0 };
+    const { execFile } = await import('node:child_process');
+    ok = await new Promise<boolean>((res) =>
+      execFile(bin, ['--version'], { timeout: 5000 }, (e) => res(!e)));
+    detail = ok ? `${bin} CLI 可用` : `${bin} CLI 不在 PATH`;
+  } else if (adapterKind === 'remote-agent') {
+    if (!keyOrBin) return { ok: false, detail: 'remote-agent 需填写端点 URL', latencyMs: 0 };
+    try {
+      const ctl = new AbortController();
+      const timer = setTimeout(() => ctl.abort(), 5000);
+      await fetch(keyOrBin, { method: 'HEAD', signal: ctl.signal }).finally(() => clearTimeout(timer));
+      ok = true; detail = '端点可达';
+    } catch (e) {
+      detail = `端点不可达：${e instanceof Error ? e.message : String(e)}`;
+    }
+  }
+  return { ok, detail, latencyMs: Date.now() - t0 };
 }

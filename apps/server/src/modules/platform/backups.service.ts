@@ -71,13 +71,17 @@ export class BackupsService {
   ) {}
 
   onModuleInit(): void {
-    // 登记备份操作（审计留痕；产物写 MinIO 在事务外，完成后通知）
+    // 登记备份操作（审计留痕 + sys_backups 历史行；产物写 MinIO 在事务外，完成后通知）
     registerCommand('system.backup.export', async (client, payload, ctx) => {
       const p = payload as { operationId: string; scope: string; includeEvidence: boolean };
       await client.query(
         `INSERT INTO evd_events (project_id, kind, payload, actor_kind, actor_id)
          VALUES ($1,'backup.exported',$2,$3,$4)`,
         [ctx.projectId, JSON.stringify({ operationId: p.operationId, scope: p.scope, includeEvidence: p.includeEvidence }), ctx.actorKind, ctx.actorId]);
+      await client.query(
+        `INSERT INTO sys_backups (operation_id, project_id, include_evidence, status, created_by)
+         VALUES ($1,$2,$3,'running',$4)`,
+        [p.operationId, ctx.projectId, p.includeEvidence, ctx.actorId]);
       return { operationId: p.operationId };
     });
   }
@@ -97,13 +101,41 @@ export class BackupsService {
     await executeCommand('system.backup.export', {
       operationId, scope: 'project', includeEvidence: input.includeEvidence ?? true,
     }, { ...ctx, projectId });
-    // 事务提交后执行导出（产物在 MinIO，非库内状态；失败补失败通知）
+    // 事务提交后执行导出（产物在 MinIO，非库内状态；失败补失败通知 + 历史行标 failed）
     void this.run(operationId, projectId, input.includeEvidence ?? true, ctx).catch(async (e) => {
+      await query(
+        "UPDATE sys_backups SET status='failed', error=$2, finished_at=now() WHERE operation_id=$1",
+        [operationId, e instanceof Error ? e.message : String(e)]).catch(() => undefined);
       await this.notices.emit({ ...ctx, projectId }, {
         type: 'backup.failed', link: '/settings', text: `备份导出失败：${e instanceof Error ? e.message : String(e)}`,
       }).catch(() => undefined);
     });
     return { operationId };
+  }
+
+  /** §3.9 备份卡历史列表：完成行附 1h 签名下载链接（替代从通知文本正则提取） */
+  async list(projectId: string) {
+    const r = await query<{
+      operation_id: string; object_key: string | null; include_evidence: boolean;
+      table_count: number; row_count: number; status: string; error: string | null;
+      created_by: string; created_at: string; finished_at: string | null;
+    }>(
+      'SELECT * FROM sys_backups WHERE project_id=$1 ORDER BY created_at DESC LIMIT 20', [projectId]);
+    const items = await Promise.all(r.rows.map(async (b) => ({
+      operationId: b.operation_id,
+      status: b.status,
+      includeEvidence: b.include_evidence,
+      tableCount: b.table_count,
+      rowCount: b.row_count,
+      error: b.error,
+      createdBy: b.created_by,
+      createdAt: b.created_at,
+      finishedAt: b.finished_at,
+      downloadUrl: b.status === 'completed' && b.object_key
+        ? await this.storage.presignedGet(b.object_key, 3600)
+        : null,
+    })));
+    return { items };
   }
 
   private async run(operationId: string, projectId: string, includeEvidence: boolean, ctx: CommandContext): Promise<void> {
@@ -145,6 +177,10 @@ export class BackupsService {
     const key = `backups/${projectId}/${operationId}.json`;
     await this.storage.putObject(key, body);
     const url = await this.storage.presignedGet(key, 3600);
+    await query(
+      `UPDATE sys_backups SET status='completed', object_key=$2, table_count=$3, row_count=$4, finished_at=now()
+       WHERE operation_id=$1`,
+      [operationId, key, manifest.length, manifest.reduce((a, m) => a + m.rows, 0)]);
     await this.notices.emit({ ...ctx, projectId }, {
       type: 'backup.completed', eventKind: 'backup.completed', link: '/settings',
       text: `备份导出完成：${manifest.length} 表 ${manifest.reduce((a, m) => a + m.rows, 0)} 行，下载：${url}`,

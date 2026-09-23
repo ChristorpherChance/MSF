@@ -1,106 +1,17 @@
-/* 委派页样式（LLD-6 §3.8；令牌沿用基板） */
+/* 委派页样式（LLD-6 §3.8 E1-E6；卡片/表单/开关类复用 settings.css，tag/gate-box 复用 req.css） */
 
-.dlg-banner {
-  margin: 10px 0;
-  padding: 8px 12px;
-  border-radius: 6px;
-  background: #e8f5e9;
-  font-size: 13px;
-}
+.dlg-sel { background: var(--blue-soft); }
 
-.dlg-banner-err { background: #fdecea; color: #b71c1c; }
-
-.dlg-targets h3, section h3 { margin: 14px 0 8px; }
-
-.dlg-target-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: 10px;
-}
-
-.dlg-target-card {
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 10px 12px;
-  background: var(--canvas);
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  font-size: 13px;
-}
-
-.dlg-target-card > div:first-child {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.dlg-mut { color: var(--ink2); font-size: 12px; }
-
-.dlg-tag {
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-size: 12px;
-  background: var(--line);
-}
-
-.dlg-ts-available, .dlg-ds-succeeded { background: #2e7d32; color: #fff; }
-.dlg-ts-unconfigured, .dlg-ds-queued { background: #b7950b; color: #fff; }
-.dlg-ts-disabled, .dlg-ds-cancelled { background: #90a4ae; color: #fff; }
-.dlg-ds-running { background: #1565c0; color: #fff; }
-.dlg-ds-failed, .dlg-ds-failed_timeout { background: #c0392b; color: #fff; }
-
-.dlg-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-  background: var(--canvas);
-}
-
-.dlg-table th, .dlg-table td {
-  border: 1px solid var(--line);
-  padding: 6px 10px;
-  text-align: left;
-}
-
-.dlg-table tr.sel { background: #e3f2fd; }
-.dlg-table tbody tr { cursor: pointer; }
-.dlg-task { max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-.dlg-modal-mask {
-  position: fixed; inset: 0;
-  background: rgba(0, 0, 0, 0.35);
-  display: flex; align-items: center; justify-content: center;
-  z-index: 100;
-}
-
-.dlg-modal {
-  background: var(--canvas);
-  border-radius: 10px;
-  padding: 18px 20px;
-  width: 480px;
-  max-height: 80vh;
-  overflow: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.dlg-field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
-.dlg-field input, .dlg-field select, .dlg-field textarea {
-  padding: 6px 8px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  font-size: 13px;
-}
-
-.dlg-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.dlg-tag-run { background: var(--blue-soft); color: var(--blue); }
+.dlg-tag-ok { background: var(--green-soft); color: var(--green); }
+.dlg-tag-err { background: var(--red-soft); color: var(--red); }
 
 .dlg-result {
-  background: #f5f5f5;
+  background: var(--soft);
   border-radius: 6px;
   padding: 10px;
   font-size: 12px;
   max-height: 240px;
   overflow: auto;
+  margin-top: 8px;
 }

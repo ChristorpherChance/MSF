@@ -108,6 +108,30 @@ describe('AI 工具桥/提示词/用量（集成，需 DB）', async () => {
       .rejects.toMatchObject({ code: 'PROMPT_VERSION_INVALID' });
   });
 
+  it('W7 提示词版本：name 落库；重命名；当前生效版不可删、切换后可删', async () => {
+    await prompts.publish({ agentKey: 't6_w7p', basePrompt: '基底', overlayText: 'A' }, CTX);
+    await prompts.publish({ agentKey: 't6_w7p', basePrompt: '基底', overlayText: 'B', name: '定制版' }, CTX);
+    let vers = (await prompts.versions('t6_w7p')).items;
+    expect(vers.find((v) => v.version_no === 2)!.name).toBe('定制版');
+    expect(vers.find((v) => v.version_no === 1)!.name).toBe('版本 1'); // 默认命名
+    // 重命名
+    await prompts.rename('t6_w7p', 1, '初版微调', CTX);
+    vers = (await prompts.versions('t6_w7p')).items;
+    expect(vers.find((v) => v.version_no === 1)!.name).toBe('初版微调');
+    // 当前生效版（v2）不可删
+    await expect(prompts.remove('t6_w7p', 2, CTX))
+      .rejects.toMatchObject({ code: 'PROMPT_VERSION_INVALID' });
+    // 切回 v1 后 v2 可删
+    await prompts.rollback('t6_w7p', 1, CTX);
+    await prompts.remove('t6_w7p', 2, CTX);
+    vers = (await prompts.versions('t6_w7p')).items;
+    expect(vers.length).toBe(1);
+    const audit = await query<{ command: string }>(
+      "SELECT command FROM audit_log WHERE command IN ('ai.prompt.rename','ai.prompt.delete')", []);
+    expect(audit.rows.map((r) => r.command)).toEqual(
+      expect.arrayContaining(['ai.prompt.rename', 'ai.prompt.delete']));
+  });
+
   it('用量：项目明细 + 跨项目汇总（price_table 成本已在写入侧落列）', async () => {
     const mid = (await models.upsert({
       name: 't6 用量模型', provider: 'gateway', baseUrl: 'http://127.0.0.1:9', modelCode: 'mu',

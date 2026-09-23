@@ -1,0 +1,97 @@
+/* 设置页样式（LLD-6 §3.9 C1-C8；原型 L244-264 口径，令牌沿用 tokens.css） */
+
+/* 全页容器（同 tasks.css 口径；settings 独立引入避免跨页 css 依赖） */
+.full-wrap { min-height: 100%; overflow-y: auto; }
+.full-inner { max-width: 1080px; margin: 0 auto; padding: 24px 28px 48px; }
+
+/* —— C1 两段式布局 —— */
+.set-layout { display: flex; gap: 20px; align-items: flex-start; }
+.set-nav {
+  width: 200px; flex-shrink: 0; background: var(--canvas);
+  border: 1px solid var(--line); border-radius: 10px; padding: 8px;
+  position: sticky; top: 0;
+}
+.set-nav .sn-group { font-size: 11px; font-weight: 700; color: var(--ink2); padding: 8px 10px 3px; }
+.set-nav .sn-item { padding: 7px 10px; border-radius: 6px; font-size: 13px; cursor: pointer; }
+.set-nav .sn-item:hover { background: var(--soft); }
+.set-nav .sn-item.active { background: var(--blue-soft); color: var(--blue); font-weight: 600; }
+.set-nav .sn-item.sub { padding-left: 24px; font-size: 12.5px; }
+.set-body { flex: 1; min-width: 0; }
+@media (max-width: 1100px) {
+  .set-layout { flex-direction: column; }
+  .set-nav { position: static; width: 100%; }
+}
+
+/* —— 开关（.switch） —— */
+.switch {
+  width: 36px; height: 20px; border-radius: 10px; background: var(--soft2);
+  position: relative; cursor: pointer; flex-shrink: 0; transition: background .2s; border: none;
+}
+.switch.on { background: var(--green); }
+.switch::after {
+  content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px;
+  border-radius: 50%; background: #fff; transition: left .2s;
+}
+.switch.on::after { left: 18px; }
+.switch:disabled { opacity: .45; cursor: not-allowed; }
+
+/* —— C2/C3 Prompt 版本行与编辑器 —— */
+.pver-row {
+  display: flex; align-items: center; gap: 8px; padding: 8px 10px;
+  border: 1px solid var(--line); border-radius: 8px; margin-bottom: 8px;
+  font-size: 13px; background: var(--canvas);
+}
+.pver-row.current { border-color: var(--blue); background: var(--blue-soft); }
+.pver-row .pver-text {
+  flex: 1; color: var(--ink2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+textarea.prompt-editor {
+  width: 100%; min-height: 180px; font-family: var(--font-mono); font-size: 12px; line-height: 1.55;
+  border: 1px solid var(--line); border-radius: 8px; padding: 10px; resize: vertical;
+}
+textarea.prompt-editor.readonly { background: var(--soft); color: var(--ink2); }
+.empty-tip { padding: 30px; text-align: center; color: var(--ink2); font-size: 13px; }
+.checkline { display: flex; align-items: center; gap: 8px; padding: 5px 2px; font-size: 13px; cursor: pointer; }
+.set-subhead { font-weight: 700; font-size: 13px; margin: 14px 0 6px; }
+.set-subhead .sub-note { font-weight: 400; color: var(--ink2); font-size: 12px; }
+
+/* —— C4 模型卡 / 委派 target 卡 —— */
+.model-card {
+  display: flex; align-items: center; gap: 14px; border: 1px solid var(--line);
+  border-radius: 10px; padding: 14px; margin-bottom: 10px; background: var(--canvas);
+}
+.model-card .mi {
+  width: 38px; height: 38px; border-radius: 9px; display: flex;
+  align-items: center; justify-content: center; font-size: 18px; background: var(--soft2); flex: none;
+}
+.model-card .mmain { flex: 1; min-width: 0; }
+.model-card .mname { font-weight: 700; font-size: 13.5px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.model-card .mdesc { font-size: 12px; color: var(--ink2); margin-top: 2px; }
+.model-card .mtags { margin-top: 4px; display: flex; gap: 4px; flex-wrap: wrap; }
+
+/* —— C3 思考强度三档 —— */
+.think-seg { display: inline-flex; background: var(--soft2); border-radius: 6px; padding: 2px; }
+.think-seg button { border: none; background: transparent; padding: 3px 9px; font-size: 11.5px; border-radius: 5px; color: var(--ink2); cursor: pointer; }
+.think-seg button.active { background: var(--canvas); font-weight: 700; color: var(--ink); box-shadow: var(--shadow); }
+
+/* —— E4 委派工具卡 —— */
+.toolcard { border: 1px solid var(--line); border-radius: 8px; margin-top: 8px; font-size: 12px; overflow: hidden; }
+.toolcard .tc-head { background: var(--soft); padding: 6px 10px; display: flex; gap: 8px; align-items: center; font-weight: 600; }
+.toolcard .tc-body { padding: 8px 10px; color: var(--ink2); line-height: 2; }
+
+/* —— 设置页卡与表单 —— */
+.set-card { border: 1px solid var(--line); border-radius: 10px; background: var(--canvas); padding: 14px 16px; margin-bottom: 14px; }
+.set-card h3 { margin: 0 0 8px; font-size: 15px; display: flex; align-items: center; gap: 8px; }
+.set-note { font-size: 12px; color: var(--ink2); }
+.set-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.set-table th, .set-table td { border: 1px solid var(--line); padding: 6px 8px; text-align: left; vertical-align: top; }
+.set-table th { background: var(--soft); font-weight: 600; }
+.set-form-grid { display: grid; grid-template-columns: 220px 1fr; gap: 10px 12px; align-items: center; }
+.set-form-grid label { font-size: 13px; color: var(--ink2); }
+.set-form-grid select, .set-form-grid input {
+  padding: 6px 9px; border: 1px solid var(--line); border-radius: 7px; font-size: 13px; max-width: 360px;
+}
+.op-result {
+  border: 1px solid var(--green); background: var(--green-soft); border-radius: 8px;
+  padding: 8px 10px; font-size: 12.5px;
+}

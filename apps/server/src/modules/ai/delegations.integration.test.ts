@@ -79,6 +79,8 @@ describe('委派执行（集成，需 DB）', async () => {
     await new Promise((r) => setTimeout(r, 300));
     await query('DELETE FROM ai_delegations WHERE project_id IN ($1,$2)', [PID, PID2]);
     await query("DELETE FROM ai_delegation_targets WHERE key LIKE 't6_%'");
+    await query("DELETE FROM ai_models WHERE name='t6_w7_cred'");
+    await query("DELETE FROM sys_settings WHERE key='delegation.concurrencyMax'");
     await pool.end();
   });
 
@@ -149,5 +151,60 @@ describe('委派执行（集成，需 DB）', async () => {
     expect(late).toMatchObject({ applied: false, stale: true });
     const row = await svc.detail(PID, d.id);
     expect(row.status).toBe('succeeded'); // 零写：终态未被覆盖
+  });
+
+  // ---- W7：注册向导（端点/凭据引用/保存前 dry-run 测试）+ 并发上限可配置 ----
+
+  it('W7 注册向导：端点持久化；凭据引用必须指向已存模型；test-draft 不入册', async () => {
+    // 凭据引用不存在 → 拒绝（DSG-U06-18：引用设置中已存凭据）
+    await expect(svc.upsertTarget({
+      key: 't6_w7a', name: 'W7 目标A', adapterKind: 'remote-agent', credentialRef: '不存在的模型',
+    }, CTX)).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+    // 登记一个模型作为凭据源
+    await query(
+      `INSERT INTO ai_models (name, provider, base_url, model_code, created_by)
+       VALUES ('t6_w7_cred','gateway','http://127.0.0.1:9','mw7','t') ON CONFLICT DO NOTHING`, []);
+    await svc.upsertTarget({
+      key: 't6_w7a', name: 'W7 目标A', adapterKind: 'remote-agent',
+      endpoint: 'http://127.0.0.1:9/agent', credentialRef: 't6_w7_cred',
+      capabilities: ['code'], description: 'W7 冒烟',
+    }, CTX);
+    const t = await svc.targets();
+    const row = t.items.find((x) => x.key === 't6_w7a')!;
+    expect(row.endpoint).toBe('http://127.0.0.1:9/agent');
+    expect(row.credential_ref).toBe('t6_w7_cred');
+    // dry-run：builtin 恒可；local-cli 无端点拒绝提示；探测不写入目标表
+    const d1 = await svc.testDraft({ adapterKind: 'builtin' });
+    expect(d1.ok).toBe(true);
+    expect(d1.latencyMs).toBeGreaterThanOrEqual(0);
+    const d2 = await svc.testDraft({ adapterKind: 'local-cli', endpoint: '' });
+    expect(d2.ok).toBe(false);
+    expect(d2.detail).toContain('端点');
+    await expect(svc.testDraft({ adapterKind: 'x' })).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+    // test 记延迟
+    const tr = await svc.testTarget('pi_native', CTX) as { latencyMs: number | null };
+    expect(tr.latencyMs).not.toBeNull();
+    const lat = await query<{ last_latency_ms: number | null }>(
+      "SELECT last_latency_ms FROM ai_delegation_targets WHERE key='pi_native'", []);
+    expect(lat.rows[0]!.last_latency_ms).not.toBeNull();
+  });
+
+  it('W7 并发上限可配置：sys_settings delegation.concurrencyMax=1 → 第二个 RATE_LIMITED', async () => {
+    await query(
+      `INSERT INTO sys_settings (key, value, updated_by, updated_at)
+       VALUES ('delegation.concurrencyMax','1','t',now())
+       ON CONFLICT (key) DO UPDATE SET value='1', updated_at=now()`, []);
+    try {
+      const a = await svc.create(PID, { target: 'pi_native', taskDesc: 'cap-a' }, CTX);
+      await waitFor(async () => (await statusOf(a.id)) === 'running');
+      await expect(svc.create(PID, { target: 'pi_native', taskDesc: 'cap-b' }, CTX))
+        .rejects.toMatchObject({ code: 'RATE_LIMITED' });
+      const lst = await svc.list(PID);
+      expect(lst.concurrency.max).toBe(1);
+      executor.gates.find((g) => g.id === a.id)!.release('failed');
+      await waitFor(async () => (await statusOf(a.id)) === 'failed');
+    } finally {
+      await query("DELETE FROM sys_settings WHERE key='delegation.concurrencyMax'", []);
+    }
   });
 });

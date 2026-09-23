@@ -33,7 +33,7 @@ export interface UsageSummaryRow {
   calls: string; tokens_in: string; tokens_out: string; cost: string;
 }
 
-export interface GateRow { gateKey: string; mode: 'manual' | 'auto'; updatedAt: string | null }
+export interface GateRow { gateKey: string; mode: 'manual' | 'auto'; preconditions: string[]; updatedAt: string | null }
 export interface GateEvent {
   gate_key: string; from_mode: string; to_mode: string; reason: string; actor_id: string; created_at: string;
 }
@@ -77,6 +77,8 @@ export const platformApi = {
   gates: (p: string) => api.get<{ gates: GateRow[]; events: GateEvent[] }>(`${pid(p)}/policy-gates`),
   setGateMode: (p: string, gateKey: string, mode: string, reason: string) =>
     api.post(`${pid(p)}/policy-gates/${gateKey}:set-mode`, { mode, reason }),
+  setGatePreconditions: (p: string, gateKey: string, preconditions: string[]) =>
+    api.post(`${pid(p)}/policy-gates/${gateKey}:set-preconditions`, { preconditions }),
   // 通知（A10-2）
   notifications: (q = '') =>
     api.get<{ items: Notice[]; nextCursor: string | null; unreadCount: number }>(`/api/v1/system/notifications${q}`),
@@ -87,9 +89,11 @@ export const platformApi = {
   auditExport: (projectId?: string) =>
     api.get<{ exportedAt: string; count: number; items: unknown[] }>(
       `/api/v1/system/audit:export${projectId ? `?projectId=${projectId}` : ''}`),
-  // 备份（A10-4）
-  backupExport: (projectId: string) =>
-    api.post<{ operationId: string }>('/api/v1/system/backups:export', { scope: 'project', projectId, includeEvidence: true }),
+  // 备份（A10-4 + §3.9 备份卡历史）
+  backupExport: (projectId: string, includeEvidence = true) =>
+    api.post<{ operationId: string }>('/api/v1/system/backups:export', { scope: 'project', projectId, includeEvidence }),
+  backupList: (projectId: string) =>
+    api.get<{ items: BackupRow[] }>(`/api/v1/system/backups?projectId=${encodeURIComponent(projectId)}`),
   // 设置（A10-1）
   settings: () => api.get<Record<string, unknown>>('/api/v1/system/settings'),
   putSettings: (values: Record<string, unknown>) => api.put<{ updated: string[] }>('/api/v1/system/settings', values),
@@ -106,4 +110,42 @@ export const platformApi = {
       `/api/v1/ai/usage/summary${month ? '?month=current' : ''}`),
   // 当前用户（顶栏标识，A10-5 本期最简）
   me: () => api.get<{ id: string; name: string; role: string; source: string }>('/api/v1/system/users/me'),
+};
+
+/** 备份历史行（§3.9 备份卡） */
+export interface BackupRow {
+  operationId: string; status: 'running' | 'completed' | 'failed';
+  includeEvidence: boolean; tableCount: number; rowCount: number; error: string | null;
+  createdBy: string; createdAt: string; finishedAt: string | null; downloadUrl: string | null;
+}
+
+/** Prompt 版本（A08-7；设置页 Agent 配置区 pver-row；kind=std 即编码规范叠加） */
+export interface PromptVersionRow {
+  id: string; agent_key: string; agent_group: string; version_no: number; name: string | null;
+  base_prompt: string; overlay_text: string; is_current: boolean; kind: 'prompt' | 'std';
+  skill_pack: unknown; created_by: string; created_at: string;
+}
+
+export const promptsApi = {
+  agents: () => api.get<{ items: PromptVersionRow[] }>('/api/v1/ai/prompts'),
+  versions: (agentKey: string) =>
+    api.get<{ items: PromptVersionRow[] }>(`/api/v1/ai/prompts/${agentKey}/versions`),
+  publish: (body: {
+    agentKey: string; agentGroup?: string; basePrompt: string;
+    overlayText?: string; kind?: 'prompt' | 'std'; name?: string; activate?: boolean;
+  }) => api.post<{ id: string; versionNo: number }>('/api/v1/ai/prompts', body),
+  /** 设为生效（后端复用 ai.prompt.rollback 语义） */
+  setCurrent: (agentKey: string, versionNo: number) =>
+    api.post(`/api/v1/ai/prompts/${agentKey}:rollback`, { versionNo }),
+  rename: (agentKey: string, versionNo: number, name: string) =>
+    api.post(`/api/v1/ai/prompts/${agentKey}/versions/${versionNo}:rename`, { name }),
+  remove: (agentKey: string, versionNo: number) =>
+    api.post(`/api/v1/ai/prompts/${agentKey}/versions/${versionNo}:delete`, {}),
+};
+
+/** 助手工具注册表（A08-5；设置页全局助手卡工具开关清单；项目级前缀） */
+export const toolsApi = {
+  list: (projectId: string) =>
+    api.get<{ tools: Array<{ name: string; kind: string; description: string }>; denied: string[] }>(
+      `${pid(projectId)}/ai/tools`),
 };

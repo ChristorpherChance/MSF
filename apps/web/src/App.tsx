@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link, NavLink, Route, Routes } from 'react-router-dom';
+import { Link, Navigate, NavLink, Route, Routes } from 'react-router-dom';
 import { AssistantDock } from './assistant/AssistantDock';
 import { NotificationBell } from './assistant/NotificationBell';
 import { DesignPage } from './pages/design/DesignPage';
@@ -10,7 +10,6 @@ import { MaterialPage } from './pages/material/MaterialPage';
 import { ReqPage } from './pages/req/ReqPage';
 import { ProjectsPage } from './pages/platform/ProjectsPage';
 import { SettingsPage } from './pages/platform/SettingsPage';
-import { AuditPage } from './pages/platform/AuditPage';
 import { TasksPage } from './pages/platform/TasksPage';
 import { platformApi, STAGE_NAMES, type UsageSummaryRow } from './pages/platform/api';
 import { useSession } from './store';
@@ -167,7 +166,8 @@ export function App() {
             <Route path="/dev" element={<DevPage />} />
             <Route path="/test" element={<TestPage />} />
             <Route path="/delegate" element={<DelegatePage />} />
-            <Route path="/audit" element={<AuditPage />} />
+            {/* C8：审计并入设置页一组（DSG-U06-17 信息架构），旧路由重定向 */}
+            <Route path="/audit" element={<Navigate to="/settings?nav=audit" replace />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="*" element={<ProjectsPage />} />
           </Routes>

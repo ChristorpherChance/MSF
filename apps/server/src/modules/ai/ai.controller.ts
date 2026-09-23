@@ -84,6 +84,29 @@ export class AiController {
     return this.prompts.rollback(agentKey, body.versionNo, this.actor(req));
   }
 
+  /** §3.9 pver-row：重命名（name 仅展示用，不影响内容指纹） */
+  @Post('prompts/:agentKey/versions/:versionNo\\:rename')
+  @HttpCode(200)
+  renamePrompt(
+    @Param('agentKey') agentKey: string,
+    @Param('versionNo') versionNo: string,
+    @Body() body: { name: string },
+    @Req() req: Request,
+  ) {
+    return this.prompts.rename(agentKey, Number(versionNo), body.name, this.actor(req));
+  }
+
+  /** §3.9 pver-row：删除历史版本（当前生效版拒绝） */
+  @Post('prompts/:agentKey/versions/:versionNo\\:delete')
+  @HttpCode(200)
+  deletePrompt(
+    @Param('agentKey') agentKey: string,
+    @Param('versionNo') versionNo: string,
+    @Req() req: Request,
+  ) {
+    return this.prompts.remove(agentKey, Number(versionNo), this.actor(req));
+  }
+
   // ---- 用量跨项目汇总（A08-10） ----
 
   @Get('usage/summary')
@@ -103,5 +126,12 @@ export class AiController {
   @HttpCode(200)
   testTarget(@Param('key') key: string, @Req() req: Request) {
     return this.delegations.testTarget(key, this.actor(req));
+  }
+
+  /** §3.8 注册向导：保存前测试连通（dry-run 不入册，失败即阻止注册） */
+  @Post('delegation-targets\\:test-draft')
+  @HttpCode(200)
+  testDraft(@Body() body: { adapterKind?: string; endpoint?: string }) {
+    return this.delegations.testDraft(body);
   }
 }

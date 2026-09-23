@@ -148,6 +148,13 @@ export class SystemController {
     );
   }
 
+  /** §3.9 备份卡：历史记录列表（完成行附 1h 签名下载链接） */
+  @Get('backups')
+  listBackups(@Query('projectId') projectId: string | undefined) {
+    if (!projectId) throw new DomainError('VALIDATION_FAILED', 'projectId 必填', 'projectId');
+    return this.backups.list(projectId);
+  }
+
   // ---- A10-5 用户（本期最简） ----
 
   @Get('users')
