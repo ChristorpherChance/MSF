@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { mdHtml } from '../md-html';
+import { Modal } from '../ui/Modal';
+import type { AiMessageRow, ToolCallRow } from './api';
 import {
   CTX_LABEL,
   ROUTE_TO_CTX,
@@ -116,6 +118,18 @@ function DockInner({ global }: { global: boolean }) {
     if (el) setStick(el.scrollHeight - el.scrollTop - el.clientHeight < 40);
   };
 
+  // D5 拖选引用：dock 展开时，在 dock 之外拖选段落 → 输入区 quote-block chip
+  useEffect(() => {
+    const onUp = (e: MouseEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t?.closest('.chat-dock') || t?.closest('.chat-gwrap') || t?.closest('.modal-overlay')) return;
+      const sel = window.getSelection()?.toString().trim() ?? '';
+      if (sel.length >= 4) useDockStore.getState().setQuote(sel);
+    };
+    document.addEventListener('mouseup', onUp);
+    return () => document.removeEventListener('mouseup', onUp);
+  }, []);
+
   const send = () => void s.send();
 
   return (
@@ -124,7 +138,7 @@ function DockInner({ global }: { global: boolean }) {
         <div className="ch-row">
           <span className="ctx-chip" title={chip.title}>{chip.label}</span>
           <button className="ghost sm" title="新建会话" onClick={() => void s.newSession()}>＋</button>
-          <button className="ghost sm" title="会话操作（重命名/删除：后续波次）" disabled>⋯</button>
+          <SessionMenu />
           <button className="ghost sm" title="收拢（F1）" onClick={s.toggle}>⟶</button>
         </div>
         <div className="ch-row">
@@ -164,11 +178,15 @@ function DockInner({ global }: { global: boolean }) {
           <div key={m.id} className={`msg ${m.role === 'user' ? 'user' : 'ai'}`}>
             <div className="avatar">{m.role === 'user' ? '我' : '🤖'}</div>
             <div className="bubble">
-              {m.role === 'user'
-                ? <div className="md" style={{ whiteSpace: 'pre-wrap' }}>{m.content}</div>
-                : <div className="md" dangerouslySetInnerHTML={{ __html: mdHtml(m.content) }} />}
+              {m.role === 'user' ? <UserContent content={m.content} /> : <AiContent m={m} />}
               {m.status === 'stopped' && <div className="msg-meta">已停止（保留前缀）</div>}
               {m.status === 'failed' && <div className="msg-meta msg-err">生成失败</div>}
+              {m.role === 'ai' && m.durationMs != null && (
+                <div className="timing-line">
+                  ⏱ 耗时 {(m.durationMs / 1000).toFixed(1)}s
+                  {m.cost != null && ` · 成本 $${Number(m.cost).toFixed(4)}`}
+                </div>
+              )}
             </div>
           </div>
         ))}
@@ -200,6 +218,13 @@ function DockInner({ global }: { global: boolean }) {
       )}
 
       <div className="chat-input">
+        {s.quote && (
+          <div className="quote-block" title="拖选正文自动引用；发送时随消息附上">
+            <span className="qb-main">📎 引用</span>
+            <span className="qb-text">{s.quote.text.replace(/\n/g, ' ')}</span>
+            <button className="ghost sm" title="移除引用" onClick={() => s.setQuote(null)}>✕</button>
+          </div>
+        )}
         <textarea
           value={input}
           placeholder={s.ctx === 'req' ? '例：第 4 章补充灾备要求，只改这一处' : '例：重新解析第 3 节表格'}
@@ -224,7 +249,7 @@ function DockInner({ global }: { global: boolean }) {
           <span style={{ flex: 1 }} />
           <button
             className="primary"
-            disabled={!s.currentId || !!s.streaming || !input.trim()}
+            disabled={!s.currentId || !!s.streaming || (!input.trim() && !s.quote)}
             onClick={send}
           >发送 ↵</button>
         </div>
@@ -253,4 +278,200 @@ function Welcome({ ctx }: { ctx: string }) {
       <div className="dz-note" style={{ marginTop: 4 }}>点击示例填入输入框，可编辑后发送</div>
     </div>
   );
+}
+
+/** ⋯ 会话菜单（DSG-U02-4：重命名/删除；W8 启用） */
+function SessionMenu() {
+  const s = useDockStore();
+  const [open, setOpen] = useState(false);
+  const [renaming, setRenaming] = useState(false);
+  const [name, setName] = useState('');
+  const sess = s.sessions.find((x) => x.id === s.currentId);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [open]);
+
+  const onDelete = async () => {
+    setOpen(false);
+    if (!sess) return;
+    if (!window.confirm(`删除会话「${sess.name}」？消息记录随行删除（用量留账不删），不可恢复。`)) return;
+    await s.deleteSession(sess.id);
+  };
+
+  return (
+    <div className="dock-menu-wrap" ref={wrapRef}>
+      <button
+        className="ghost sm"
+        title="会话操作"
+        disabled={!sess}
+        onClick={() => setOpen(!open)}
+      >⋯</button>
+      {open && sess && (
+        <div className="dock-menu">
+          <button onClick={() => { setOpen(false); setName(sess.name); setRenaming(true); }}>✏ 重命名</button>
+          <button className="danger" onClick={() => void onDelete()}>🗑 删除会话</button>
+        </div>
+      )}
+      {renaming && sess && (
+        <Modal
+          title="重命名会话"
+          onClose={() => setRenaming(false)}
+          footer={(
+            <>
+              <button className="act" onClick={() => setRenaming(false)}>取消</button>
+              <button
+                className="act primary"
+                disabled={!name.trim()}
+                onClick={() => { void s.renameSession(sess.id, name.trim()); setRenaming(false); }}
+              >保存</button>
+            </>
+          )}
+        >
+          <input
+            autoFocus
+            value={name}
+            style={{ width: '100%', boxSizing: 'border-box', padding: '6px 8px', fontSize: 13 }}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && name.trim()) {
+                void s.renameSession(sess.id, name.trim());
+                setRenaming(false);
+              }
+            }}
+          />
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+/** 用户消息：首段 `> ` 引用行渲染为 .msg-quote chip（D5），其余按原文 */
+function UserContent({ content }: { content: string }) {
+  const lines = content.split('\n');
+  const quoteLines: string[] = [];
+  let i = 0;
+  while (i < lines.length && lines[i]!.startsWith('> ')) { quoteLines.push(lines[i]!.slice(2)); i += 1; }
+  const rest = lines.slice(i).join('\n').trim();
+  return (
+    <>
+      {quoteLines.length > 0 && (
+        <div className="msg-quote" title="引用段落">📎 {quoteLines.join(' ').slice(0, 80)}</div>
+      )}
+      {rest && <div className="md" style={{ whiteSpace: 'pre-wrap' }}>{rest}</div>}
+    </>
+  );
+}
+
+/** AI 消息富渲染（D4）：<thinking> 段 → .thinkcard 折叠卡；正文 markdown；toolCalls → .toolcard；propose_next_step 建议 → .tasklist 行动钮 */
+function AiContent({ m }: { m: AiMessageRow }) {
+  const segments = splitThinking(m.content);
+  const suggestCall = m.toolCalls.find(
+    (t) => t.toolName === 'propose_next_step' && t.status === 'ok',
+  );
+  const suggestions = readSuggestions(suggestCall);
+  const otherCalls = m.toolCalls.filter((t) => t !== suggestCall);
+  return (
+    <>
+      {segments.map((seg, i) => seg.kind === 'think'
+        ? <ThinkCard key={i} text={seg.text} />
+        : <div key={i} className="md" dangerouslySetInnerHTML={{ __html: mdHtml(seg.text) }} />)}
+      {otherCalls.length > 0 && <ToolCards calls={otherCalls} />}
+      {suggestions.length > 0 && <SuggestList items={suggestions} />}
+    </>
+  );
+}
+
+type Segment = { kind: 'think' | 'md'; text: string };
+
+/** 拆 <thinking>…</thinking> 段（pi 真实 reasoning 落此约定格式；组件就位，产出时生效） */
+function splitThinking(content: string): Segment[] {
+  const out: Segment[] = [];
+  const re = /<thinking>([\s\S]*?)(<\/thinking>|$)/g;
+  let last = 0;
+  for (let m = re.exec(content); m; m = re.exec(content)) {
+    if (m.index > last) out.push({ kind: 'md', text: content.slice(last, m.index) });
+    out.push({ kind: 'think', text: m[1]!.trim() });
+    last = m.index + m[0].length;
+  }
+  if (last < content.length) out.push({ kind: 'md', text: content.slice(last) });
+  return out.filter((x) => x.kind === 'think' || x.text.trim());
+}
+
+/** 可折叠思考卡（原型 thinkcard L1039/L1223：虚线卡 + 头部预览 + 展开体） */
+function ThinkCard({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  const prev = text.replace(/\s+/g, ' ').slice(0, 56);
+  return (
+    <div className={`thinkcard${open ? ' open' : ''}`}>
+      <div className="tc-khead" onClick={() => setOpen(!open)}>
+        <span className="tk-t">🧠 思考过程</span>
+        <span className="tk-caret">{open ? '▾' : '▸'}</span>
+        <span className="tk-prev">{prev}</span>
+      </div>
+      {open && <div className="tc-kbody">{text}</div>}
+    </div>
+  );
+}
+
+/** 工具卡（原型 toolcard L179/L1046：状态图标 + 名称头 + 摘要体；denied 标「已拦截」） */
+function ToolCards({ calls }: { calls: ToolCallRow[] }) {
+  return (
+    <>
+      {calls.map((t, i) => {
+        const icon = t.status === 'ok' ? '✅' : t.status === 'denied' ? '🚫' : '❌';
+        const summary = summarizeTool(t);
+        return (
+          <div key={i} className="toolcard">
+            <div className="tc-head">
+              {icon} {t.toolName}
+              {t.status === 'denied' && <span className="tag red">已拦截</span>}
+            </div>
+            {summary && <div className="tc-body">{summary}</div>}
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
+function summarizeTool(t: ToolCallRow): string {
+  const r = t.resultSummary;
+  if (r && typeof r === 'object') {
+    const o = r as Record<string, unknown>;
+    if (typeof o.reason === 'string') return o.reason;
+    if (typeof o.error === 'string') return o.error;
+    if (typeof o.head === 'string') return o.head;
+    return JSON.stringify(o).slice(0, 200);
+  }
+  return typeof r === 'string' ? r.slice(0, 200) : '';
+}
+
+/** propose_next_step 建议行动钮（原型 tasklist L182/L1048；点击填入输入框） */
+function SuggestList({ items }: { items: string[] }) {
+  const setInput = useDockStore((s) => s.setInput);
+  const ctx = useDockStore((s) => s.ctx);
+  return (
+    <div className="tasklist">
+      <div className="tl-head">下一步建议 · {items.length}</div>
+      {items.map((t) => (
+        <div key={t} className="tl-item actionable" title="点击填入输入框" onClick={() => setInput(ctx, t)}>
+          <span className="st">➡️</span><span style={{ flex: 1 }}>{t}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function readSuggestions(call: ToolCallRow | undefined): string[] {
+  const r = call?.resultSummary;
+  if (!r || typeof r !== 'object') return [];
+  const s = (r as Record<string, unknown>).suggestions;
+  return Array.isArray(s) ? s.filter((x): x is string => typeof x === 'string') : [];
 }

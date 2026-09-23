@@ -165,3 +165,49 @@
 }
 .sg-card:hover { border-color: var(--blue); background: var(--blue-soft); }
 .dz-note { font-size: 11px; color: var(--ink2); }
+
+/* --- W8 富消息卡（D4/D5；视觉值逐条对齐原型 L179-188/L215-220/L1221-1229） --- */
+
+/* 思考卡（虚线折叠；头部预览 + 展开体） */
+.thinkcard { border: 1px dashed var(--line); border-radius: 8px; font-size: 12px; color: var(--ink2); background: var(--soft); overflow: hidden; margin-top: 6px; }
+.thinkcard .tc-khead { display: flex; gap: 8px; align-items: baseline; padding: 5px 10px; cursor: pointer; white-space: nowrap; overflow: hidden; }
+.thinkcard .tk-t { font-weight: 600; color: var(--ink2); flex-shrink: 0; }
+.thinkcard .tk-caret { flex-shrink: 0; color: var(--ink2); }
+.thinkcard .tk-prev { flex: 1; overflow: hidden; text-overflow: ellipsis; opacity: .75; }
+.thinkcard .tc-kbody { padding: 8px 12px; border-top: 1px dashed var(--line); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 240px; overflow-y: auto; font-size: 12px; line-height: 1.7; }
+
+/* 工具卡（实线卡；状态图标 + 名称头 + 摘要体） */
+.toolcard { border: 1px solid var(--line); border-radius: 8px; margin-top: 8px; font-size: 12px; overflow: hidden; }
+.toolcard .tc-head { background: var(--soft); padding: 6px 10px; display: flex; gap: 8px; align-items: center; font-weight: 600; }
+.toolcard .tc-body { padding: 8px 10px; color: var(--ink2); overflow-wrap: anywhere; }
+.toolcard .tag { display: inline-block; border-radius: 4px; padding: 0 6px; font-size: 11px; font-weight: 400; }
+.toolcard .tag.red { background: var(--red-soft, #FDECEC); color: var(--red); }
+
+/* 任务卡/建议行动钮（tl-item 可点击时 hover 高亮） */
+.tasklist { border: 1px solid var(--line); border-radius: 8px; margin-top: 8px; overflow: hidden; }
+.tasklist .tl-head { background: var(--soft); padding: 6px 10px; font-size: 12px; font-weight: 700; }
+.tasklist .tl-item { display: flex; align-items: center; gap: 8px; padding: 6px 10px; font-size: 12px; border-top: 1px solid var(--soft2); }
+.tasklist .tl-item .st { width: 15px; text-align: center; }
+.tasklist .tl-item.actionable { cursor: pointer; }
+.tasklist .tl-item.actionable:hover { background: var(--blue-soft); }
+
+/* 耗时/成本行 */
+.timing-line { margin-top: 6px; padding-top: 5px; border-top: 1px dashed var(--line); color: var(--ink2); font-size: 11.5px; }
+
+/* 引用：消息内引用条 + 输入区引用块 */
+.msg-quote { border-left: 3px solid var(--blue); background: var(--blue-soft); border-radius: 4px; padding: 4px 8px; margin-bottom: 6px; font-size: 11.5px; color: #1A6BBB; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.quote-block { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; padding: 8px 10px; background: var(--blue-soft); border: 1px solid #C9E2F8; border-radius: 8px; font-size: 12px; }
+.quote-block .qb-main { font-weight: 700; white-space: nowrap; flex-shrink: 0; }
+.quote-block .qb-text { flex: 1; min-width: 0; color: var(--ink2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ⋯ 会话菜单 */
+.dock-menu-wrap { position: relative; }
+.dock-menu {
+  position: absolute; top: 26px; right: 0; z-index: 30;
+  background: var(--canvas); border: 1px solid var(--line); border-radius: 8px;
+  box-shadow: var(--shadow-modal); padding: 4px; min-width: 128px;
+  display: flex; flex-direction: column;
+}
+.dock-menu button { border: none; background: none; text-align: left; padding: 7px 10px; font-size: 12.5px; border-radius: 6px; cursor: pointer; color: var(--ink); font-family: inherit; }
+.dock-menu button:hover { background: var(--soft2); }
+.dock-menu button.danger { color: var(--red); }

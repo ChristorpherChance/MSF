@@ -123,6 +123,27 @@ describe('AI 会话/消息/流式管线（集成，需 DB）', async () => {
       .rejects.toMatchObject({ code: 'FORBIDDEN' });
   });
 
+  it('W8 ⋯ 菜单：重命名留痕；删除随消息清空且越域拒绝', async () => {
+    const s = await sessions.create(PID, { ctx: 'req', name: '待改名' }, CTX) as { id: string };
+    await sessions.send(PID, s.id, { content: 'hello' }, CTX);
+    await new Promise((r) => setTimeout(r, 1200)); // mock 流终结
+    await sessions.renameSession(PID, s.id, '改名后', CTX);
+    const d = await sessions.detail(PID, s.id);
+    expect(d.name).toBe('改名后');
+    await expect(sessions.renameSession(PID, s.id, '  ', CTX))
+      .rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+    await expect(sessions.deleteSession(PID2, s.id, { ...CTX, projectId: PID2 }))
+      .rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await sessions.deleteSession(PID, s.id, CTX);
+    await expect(sessions.detail(PID, s.id)).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    const msg = await query<{ n: number }>(
+      'SELECT count(*)::int AS n FROM ai_messages WHERE session_id=$1', [s.id]);
+    expect(msg.rows[0]!.n).toBe(0);
+    const audit = await query<{ n: number }>(
+      "SELECT count(*)::int AS n FROM audit_log WHERE command IN ('ai.session.rename','ai.session.delete')", []);
+    expect(audit.rows[0]!.n).toBeGreaterThanOrEqual(2);
+  });
+
   it('参考门禁：不存在/未定稿/指纹漂移分别拒绝，定稿+指纹一致放行', async () => {
     const ghost = randomUUID();
     await expect(sessions.send(PID, sessionId, { content: 'x', referenceFileIds: [ghost] }, CTX))
@@ -174,6 +195,13 @@ describe('AI 会话/消息/流式管线（集成，需 DB）', async () => {
     expect(usage.rows[0]).toMatchObject({ tokens_in: 10, tokens_out: 6 });
     // 兜底：10/1000*0.002 + 6/1000*0.01 = 0.00008
     expect(Number(usage.rows[0]!.cost)).toBeCloseTo(0.00008, 6);
+    // W8 富消息卡：messages() 附耗时/成本/工具调用摘要（ai_usage + ai_tool_calls 按 message_id 聚合）
+    const rich = msgs.items.find((m) => m.id === messageId)! as unknown as {
+      durationMs: number | null; cost: string | null; toolCalls: unknown[];
+    };
+    expect(rich.durationMs).toBeGreaterThanOrEqual(0);
+    expect(Number(rich.cost)).toBeCloseTo(0.00008, 6);
+    expect(rich.toolCalls).toEqual([]);
     // 重复 finish 拒绝
     await expect(query('SELECT 1', [])).resolves.toBeTruthy();
   });

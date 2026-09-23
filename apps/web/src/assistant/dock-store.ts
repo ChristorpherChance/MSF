@@ -63,6 +63,8 @@ interface DockState {
   /** 断线行内提示（DSG-U02-7） */
   disconnected: boolean;
   width: number;
+  /** 拖选引用 chip（D5 .quote-block；发送时拼 `> 引用` 前缀入 content，服务端不感知） */
+  quote: { text: string } | null;
 
   init: () => Promise<void>;
   toggle: () => void;
@@ -74,6 +76,9 @@ interface DockState {
   newSession: () => Promise<void>;
   selectSession: (id: string) => Promise<void>;
   setModel: (modelId: string | null) => Promise<void>;
+  renameSession: (id: string, name: string) => Promise<void>;
+  deleteSession: (id: string) => Promise<void>;
+  setQuote: (text: string | null) => void;
   send: () => Promise<void>;
   control: (action: 'pause' | 'resume' | 'stop') => Promise<void>;
   refreshUsage: () => Promise<void>;
@@ -98,6 +103,7 @@ export const useDockStore = create<DockState>((set, get) => ({
   error: null,
   disconnected: false,
   width: savedWidth >= 300 && savedWidth <= 620 ? savedWidth : 380,
+  quote: null,
 
   init: async () => {
     const p = await ensureProject();
@@ -153,14 +159,41 @@ export const useDockStore = create<DockState>((set, get) => ({
     set({ sessions: get().sessions.map((x) => (x.id === currentId ? { ...x, model_id: modelId } : x)) });
   },
 
+  renameSession: async (id, name) => {
+    const pid = get().projectId;
+    if (!pid) return;
+    await assistantApi.renameSession(pid, id, name);
+    set({ sessions: get().sessions.map((x) => (x.id === id ? { ...x, name } : x)) });
+  },
+
+  deleteSession: async (id) => {
+    const pid = get().projectId;
+    if (!pid) return;
+    await assistantApi.deleteSession(pid, id);
+    const sessions = get().sessions.filter((x) => x.id !== id);
+    set({ sessions });
+    // 删除当前会话：切到剩余首个；无剩余则自动新建（dock 恒有会话口径）
+    if (get().currentId === id) {
+      if (sessions[0]) await get().selectSession(sessions[0].id);
+      else { set({ currentId: null, messages: [] }); await get().newSession(); }
+    }
+  },
+
+  setQuote: (text) => set({ quote: text ? { text: text.slice(0, 500) } : null }),
+
   send: async () => {
-    const { projectId: pid, currentId, ctx, drafts, thinkLevel } = get();
+    const { projectId: pid, currentId, ctx, drafts, thinkLevel, quote } = get();
     const input = drafts[ctx] ?? '';
-    if (!pid || !currentId || !input.trim() || get().streaming) return;
-    const content = input.trim();
-    set({ drafts: { ...drafts, [ctx]: '' }, error: null, disconnected: false });
+    if (!pid || !currentId || (!input.trim() && !quote) || get().streaming) return;
+    // D5 引用块：拼 `> 引用行` 前缀（每行加 >），服务端按纯文本存
+    const quotePrefix = quote
+      ? quote.text.split('\n').map((l) => `> ${l}`).join('\n') + '\n\n'
+      : '';
+    const content = (quotePrefix + input.trim()).trim();
+    set({ drafts: { ...drafts, [ctx]: '' }, quote: null, error: null, disconnected: false });
     set({ messages: [...get().messages, {
-      id: `local-${Date.now()}`, role: 'user', content, status: 'done', created_at: new Date().toISOString(),
+      id: `local-${Date.now()}`, role: 'user', content, status: 'done',
+      created_at: new Date().toISOString(), durationMs: null, cost: null, toolCalls: [],
     }] });
     let acc = '';
     try {

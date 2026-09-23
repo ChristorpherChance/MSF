@@ -84,6 +84,26 @@ export class AiSessionsService implements OnModuleInit {
       return { sessionId: s.id, code: s.code };
     });
 
+    /** dock ⋯ 菜单：重命名（DSG-U02-4 会话操作） */
+    registerCommand('ai.session.rename', async (client, payload, ctx) => {
+      const p = payload as { sessionId: string; name?: string };
+      if (!p.name?.trim()) throw new DomainError('VALIDATION_FAILED', '会话名不能为空', 'name');
+      const s = await this.lockSession(client, ctx.projectId!, p.sessionId);
+      await client.query('UPDATE ai_sessions SET name=$2, updated_at=now() WHERE id=$1',
+        [s.id, p.name.trim()]);
+      return { sessionId: s.id, name: p.name.trim() };
+    });
+
+    /** dock ⋯ 菜单：删除会话（消息/工具调用随行删除；ai_usage 计量留账不删——审计口径） */
+    registerCommand('ai.session.delete', async (client, payload, ctx) => {
+      const p = payload as { sessionId: string };
+      const s = await this.lockSession(client, ctx.projectId!, p.sessionId);
+      await client.query('DELETE FROM ai_tool_calls WHERE session_id=$1', [s.id]);
+      await client.query('DELETE FROM ai_messages WHERE session_id=$1', [s.id]);
+      await client.query('DELETE FROM ai_sessions WHERE id=$1', [s.id]);
+      return { sessionId: s.id, deleted: true };
+    });
+
     registerCommand('ai.message.send', async (client, payload, ctx) => {
       const p = payload as SendPayload;
       if (!p.content?.trim()) throw new DomainError('VALIDATION_FAILED', '消息内容不能为空', 'content');
@@ -250,7 +270,35 @@ export class AiSessionsService implements OnModuleInit {
     const r = await query<MessageRow>(
       `SELECT * FROM ai_messages WHERE ${where} ORDER BY created_at DESC LIMIT $${params.length}`, params);
     const rows = r.rows.slice(0, limit);
-    return { items: rows, nextCursor: r.rows.length > limit ? rows[rows.length - 1]!.created_at : null };
+    // W8 富消息卡：ai 消息附耗时/成本（ai_usage）与工具调用摘要（ai_tool_calls）
+    const ids = rows.filter((m) => m.role === 'ai').map((m) => m.id);
+    const usageByMsg = new Map<string, { duration_ms: number; cost: string }>();
+    const toolsByMsg = new Map<string, Array<Record<string, unknown>>>();
+    if (ids.length) {
+      const u = await query<{ message_id: string; duration_ms: number; cost: string }>(
+        `SELECT DISTINCT ON (message_id) message_id, duration_ms, cost
+         FROM ai_usage WHERE message_id = ANY($1::uuid[]) ORDER BY message_id, created_at DESC`, [ids]);
+      for (const x of u.rows) usageByMsg.set(x.message_id, { duration_ms: x.duration_ms, cost: x.cost });
+      const t = await query<{
+        message_id: string; tool_name: string; args: unknown; result_summary: unknown; status: string;
+      }>(
+        `SELECT message_id, tool_name, args, result_summary, status
+         FROM ai_tool_calls WHERE message_id = ANY($1::uuid[]) ORDER BY created_at`, [ids]);
+      for (const x of t.rows) {
+        const arr = toolsByMsg.get(x.message_id) ?? [];
+        arr.push({ toolName: x.tool_name, args: x.args, resultSummary: x.result_summary, status: x.status });
+        toolsByMsg.set(x.message_id, arr);
+      }
+    }
+    return {
+      items: rows.map((m) => ({
+        ...m,
+        durationMs: usageByMsg.get(m.id)?.duration_ms ?? null,
+        cost: usageByMsg.get(m.id)?.cost ?? null,
+        toolCalls: toolsByMsg.get(m.id) ?? [],
+      })),
+      nextCursor: r.rows.length > limit ? rows[rows.length - 1]!.created_at : null,
+    };
   }
 
   // ---- 命令门面 ----
@@ -261,6 +309,14 @@ export class AiSessionsService implements OnModuleInit {
 
   switchSession(projectId: string, sessionId: string, ctx: CommandContext) {
     return executeCommand('ai.session.switch', { sessionId }, { ...ctx, projectId });
+  }
+
+  renameSession(projectId: string, sessionId: string, name: string, ctx: CommandContext) {
+    return executeCommand('ai.session.rename', { sessionId, name }, { ...ctx, projectId });
+  }
+
+  deleteSession(projectId: string, sessionId: string, ctx: CommandContext) {
+    return executeCommand('ai.session.delete', { sessionId }, { ...ctx, projectId });
   }
 
   /** 会话级模型切换（DSG-U02-4 #model-sel；null=回落 chat 路由默认） */

@@ -55,6 +55,28 @@ export class AiSessionsController {
     return this.sessions.switchSession(projectId, sessionId, this.actor(req, projectId));
   }
 
+  /** dock ⋯ 菜单：会话重命名/删除（DSG-U02-4 会话操作；删除随消息，用量留账） */
+  @Post('sessions/:sessionId\\:rename')
+  @HttpCode(200)
+  renameSession(
+    @Param('projectId') projectId: string,
+    @Param('sessionId') sessionId: string,
+    @Body() body: { name: string },
+    @Req() req: Request,
+  ) {
+    return this.sessions.renameSession(projectId, sessionId, body.name, this.actor(req, projectId));
+  }
+
+  @Post('sessions/:sessionId\\:delete')
+  @HttpCode(200)
+  deleteSession(
+    @Param('projectId') projectId: string,
+    @Param('sessionId') sessionId: string,
+    @Req() req: Request,
+  ) {
+    return this.sessions.deleteSession(projectId, sessionId, this.actor(req, projectId));
+  }
+
   @Get('sessions/:sessionId/messages')
   messages(
     @Param('projectId') projectId: string,

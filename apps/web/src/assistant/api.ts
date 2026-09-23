@@ -8,8 +8,20 @@ export interface AiSessionRow {
   created_at: string; updated_at: string;
 }
 
+/** 工具调用摘要（ai_tool_calls 按 message_id 聚合；W8 富消息卡 .toolcard 数据源） */
+export interface ToolCallRow {
+  toolName: string;
+  args: unknown;
+  resultSummary: unknown;
+  status: string; // ok / failed / denied
+}
+
 export interface AiMessageRow {
   id: string; role: 'user' | 'ai' | 'system'; content: string; status: string; created_at: string;
+  /** W8 富消息卡：ai 消息附耗时/成本（ai_usage）与工具调用摘要；user 消息为 null/[] */
+  durationMs: number | null;
+  cost: string | null;
+  toolCalls: ToolCallRow[];
 }
 
 export interface StreamFrame {
@@ -32,6 +44,11 @@ export const assistantApi = {
   /** 会话级模型切换（DSG-U02-4 #model-sel） */
   setModel: (pid: string, sessionId: string, modelId: string | null) =>
     api.post(`/api/v1/projects/${pid}/ai/sessions/${sessionId}:set-model`, { modelId }),
+  /** dock ⋯ 菜单：会话重命名/删除（DSG-U02-4；W8 启用） */
+  renameSession: (pid: string, sessionId: string, name: string) =>
+    api.post(`/api/v1/projects/${pid}/ai/sessions/${sessionId}:rename`, { name }),
+  deleteSession: (pid: string, sessionId: string) =>
+    api.post(`/api/v1/projects/${pid}/ai/sessions/${sessionId}:delete`, {}),
   messages: (pid: string, sessionId: string) =>
     api.get<{ items: AiMessageRow[] }>(
       `/api/v1/projects/${pid}/ai/sessions/${sessionId}/messages`).then((r) => r.items.reverse()),
