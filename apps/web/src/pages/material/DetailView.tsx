@@ -5,7 +5,7 @@ import { Popover } from '../../ui/Popover';
 import { toast } from '../../ui/toast';
 import { materialApi } from './api';
 import { useMaterialView, type ViewMode } from './store';
-import { StatusTag } from './TreePanel';
+import { ContentTag, StatusTag } from './TreePanel';
 
 const VIEW_MODES: Array<{ key: ViewMode; label: string }> = [
   { key: 'preview', label: '预览' },
@@ -145,15 +145,28 @@ export function DetailView() {
   };
 
   const status = detail.status;
+  const contentStatus = detail.contentStatus;
+  // 内容定稿：有未保存编辑则以编辑器内容一键「保存+定稿」；否则以现有内容稿/解析稿定稿
+  const finalizeContent = () =>
+    void run((pid) =>
+      dirty && activeDraft
+        ? materialApi.finalizeContent(pid, fileId, activeDraft.text).then(() => setDraft(null))
+        : materialApi.finalizeContent(pid, fileId),
+    );
 
   return (
     <>
       {notice && <div className="mat-banner">{notice}</div>}
       {status === 'failed' && <div className="mat-banner">解析失败，可重试</div>}
       {status === 'parsing' && <div className="mat-banner info">解析中…</div>}
+      {subTab === 'content' && status === 'parsed' && (
+        <div className="mat-banner info">
+          内容稿可编辑保存；内容定稿需先在「文件解析」面完成文件定稿
+        </div>
+      )}
       <div className="doc-toolbar">
-        <StatusTag status={status} />
-        {status === 'pending' && (
+        {subTab === 'content' ? <ContentTag status={contentStatus} /> : <StatusTag status={status} />}
+        {subTab === 'file' && status === 'pending' && (
           <button
             className="act primary"
             disabled={busy}
@@ -191,17 +204,17 @@ export function DetailView() {
             取消定稿
           </button>
         )}
-        {subTab === 'content' && status === 'file_final' && (
+        {subTab === 'content' && status === 'file_final' && contentStatus !== 'final' && (
           <button
             className="act primary"
             disabled={busy}
-            title="内容稿须已保存；定稿后成为需求参考输入（REQ-114）"
-            onClick={() => void run((pid) => materialApi.finalizeContent(pid, fileId))}
+            title={dirty ? '以当前编辑内容保存并定稿（成为需求参考输入，REQ-114）' : '以当前内容稿定稿（成为需求参考输入，REQ-114）'}
+            onClick={finalizeContent}
           >
             ✓ 内容解析定稿
           </button>
         )}
-        {viewMode === 'edit' && dirty && (
+        {viewMode === 'edit' && dirty && contentStatus !== 'final' && (
           <button
             className="act primary"
             disabled={busy || !detail.contentFingerprint}
@@ -221,7 +234,7 @@ export function DetailView() {
             💾 保存草稿
           </button>
         )}
-        {dirty && (
+        {dirty && contentStatus !== 'final' && (
           <button className="act" disabled={busy} onClick={() => setDraft(null)}>
             放弃修改
           </button>
@@ -240,20 +253,23 @@ export function DetailView() {
                 {status === 'pending' ? '尚未解析，点击工具栏「开始解析」。' : '暂无内容。'}
               </p>
             ))}
-          {viewMode === 'edit' && (
-            <textarea
-              className="md-editor"
-              value={activeDraft?.text ?? md ?? ''}
-              placeholder={md ? '' : '解析后可见内容；也可直接起草内容稿'}
-              onChange={(e) =>
-                setDraft({
-                  fileId,
-                  base: md ?? '',
-                  text: e.target.value,
-                })
-              }
-            />
-          )}
+          {viewMode === 'edit' &&
+            (contentStatus === 'final' ? (
+              <p style={{ color: 'var(--ink2)' }}>内容已定稿，不可再编辑（切「预览/源码」查看）。</p>
+            ) : (
+              <textarea
+                className="md-editor"
+                value={activeDraft?.text ?? md ?? ''}
+                placeholder={md ? '' : '解析后可见内容；也可直接起草内容稿'}
+                onChange={(e) =>
+                  setDraft({
+                    fileId,
+                    base: md ?? '',
+                    text: e.target.value,
+                  })
+                }
+              />
+            ))}
           {viewMode === 'source' && <pre className="md-src">{md ?? '（无内容）'}</pre>}
         </div>
         {/* M2：内容面附件列表区（加工产物挂载处；原型 .attach-row） */}

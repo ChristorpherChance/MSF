@@ -6,19 +6,31 @@ import { toast } from '../../ui/toast';
 import { materialApi, type TreeNode } from './api';
 import { useMaterialView } from './store';
 
-/** 解析六态显示（F02-3 权威枚举） */
+/** 解析六态显示（F02-3 权威枚举；文件面口径：content_final 属内容阶段，文件面只显示到文件定稿） */
 export const STATUS_META: Record<MatParseStatus, { label: string; cls: string }> = {
   pending: { label: '待解析', cls: 'st-pending' },
   parsing: { label: '解析中…', cls: 'st-parsing' },
   parsed: { label: '已解析', cls: 'st-parsed' },
   failed: { label: '解析失败', cls: 'st-failed' },
   file_final: { label: '文件已定稿', cls: 'st-file_final' },
-  content_final: { label: '内容已定稿', cls: 'st-content_final' },
+  content_final: { label: '文件已定稿', cls: 'st-file_final' }, // 文件面不泄漏内容阶段（实机走查）
 };
 
 export function StatusTag({ status }: { status?: MatParseStatus | undefined }) {
   if (!status) return null;
   const m = STATUS_META[status];
+  return <span className={`mat-tag ${m.cls}`}>{m.label}</span>;
+}
+
+/** 内容面独立状态（内容稿=独立版本，不显示文件解析阶段；实机走查修复） */
+const CONTENT_META: Record<'draft' | 'final' | 'none', { label: string; cls: string }> = {
+  none: { label: '待整理', cls: 'st-pending' },
+  draft: { label: '内容稿已保存', cls: 'st-parsed' },
+  final: { label: '内容已定稿', cls: 'st-content_final' },
+};
+
+export function ContentTag({ status }: { status?: 'draft' | 'final' | 'none' | null | undefined }) {
+  const m = CONTENT_META[status ?? 'none'];
   return <span className={`mat-tag ${m.cls}`}>{m.label}</span>;
 }
 
@@ -56,7 +68,7 @@ const isEncrypted = (n: TreeNode) => /encrypted|加密/i.test(n.failMsg ?? '');
 function FileRow({ node, showResults }: { node: TreeNode; showResults?: boolean | undefined }) {
   const {
     selectedFileId, guardedSelect, refresh, projectId, checked, toggleCheck,
-    setDeleteTarget, collapsed, toggleFolder,
+    setDeleteTarget, collapsed, toggleFolder, subTab,
   } = useMaterialView();
   const [busy, setBusy] = useState(false);
   const [conflict, setConflict] = useState<string | null>(null);
@@ -141,7 +153,9 @@ function FileRow({ node, showResults }: { node: TreeNode; showResults?: boolean 
             <span className="fail-note">⚠ {node.failMsg ?? '解析失败'}</span>
           )}
         </div>
-        <StatusTag status={node.status} />
+        {subTab === 'content'
+          ? <ContentTag status={node.contentStatus} />
+          : <StatusTag status={node.status} />}
         {node.status === 'failed' && !isEncrypted(node) && (
           <button
             className="mini"
@@ -228,9 +242,27 @@ function FolderRow({
   depth: number;
   showResults?: boolean | undefined;
 }) {
-  const { collapsed, toggleFolder } = useMaterialView();
+  const { collapsed, toggleFolder, projectId, refresh } = useMaterialView();
+  const [busy, setBusy] = useState(false);
   const isCollapsed = collapsed[node.id];
   const fileIds = collectFiles(node).map((f) => f.id);
+
+  // 空目录可删（实机走查：资料里每个地方的节点都应可清理）；非空由服务端拒绝并明示原因
+  const doDelete = async () => {
+    if (!projectId) return;
+    if (!window.confirm(`删除空目录「${node.name}」？（双树镜像一并删除）`)) return;
+    setBusy(true);
+    try {
+      await materialApi.deleteFolder(projectId, node.id);
+      toast('目录已删除', 'success');
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : '目录删除失败', 'warn');
+    } finally {
+      setBusy(false);
+      await refresh();
+    }
+  };
+
   return (
     <div>
       <div className="tree-row" onClick={() => toggleFolder(node.id)}>
@@ -240,6 +272,17 @@ function FolderRow({
         <span className="nm" title={node.name}>
           {node.name}
         </span>
+        <button
+          className="mini"
+          disabled={busy}
+          title="删除空目录（非空目录需先清空）"
+          onClick={(e) => {
+            e.stopPropagation();
+            void doDelete();
+          }}
+        >
+          🗑
+        </button>
       </div>
       {!isCollapsed && (
         <div className="tree-children">
@@ -312,7 +355,7 @@ export function TreePanel() {
           ))}
         </>
       )}
-      <h4>{subTab === 'file' ? '📁 解析文件 · Markdown' : '📁 解析文件（主稿 + ↳ 加工结果）'}</h4>
+      <h4>{subTab === 'file' ? '📁 解析文件 · Markdown' : '📁 内容稿（主稿 + ↳ 加工结果）'}</h4>
       {parsedTree.length === 0 && (
         <p style={{ color: 'var(--ink2)', fontSize: 13 }}>解析产出后在此出现。</p>
       )}

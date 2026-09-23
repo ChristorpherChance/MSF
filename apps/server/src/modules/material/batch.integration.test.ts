@@ -115,10 +115,18 @@ describe('BatchService（集成，需 DB+MinIO）', async () => {
     const r = await svc.batchFinalizeContent(PID, [ok, noDraft, pending], true, CTX);
     const byId = new Map(r.results.map((x) => [x.fileId, x]));
     expect(byId.get(ok)).toEqual({ fileId: ok, ok: true });
-    expect(byId.get(noDraft)).toMatchObject({ ok: false, reason: '内容稿未保存' });
+    // 无内容稿不再失败：自动以最新解析稿落 draft 后定稿（实机走查修复，与单件同口径）
+    expect(byId.get(noDraft)).toEqual({ fileId: noDraft, ok: true });
     expect(byId.get(pending)).toMatchObject({ ok: false });
     const st = await query<{ parse_status: string }>('SELECT parse_status FROM mat_files WHERE id=$1', [ok]);
     expect(st.rows[0]?.parse_status).toBe('content_final');
+    const st2 = await query<{ parse_status: string }>('SELECT parse_status FROM mat_files WHERE id=$1', [noDraft]);
+    expect(st2.rows[0]?.parse_status).toBe('content_final');
+    const autoDraft = await query<{ status: string }>(
+      "SELECT status FROM mat_parsed WHERE file_id=$1 AND kind='content_parse'",
+      [noDraft],
+    );
+    expect(autoDraft.rows[0]?.status).toBe('final');
   });
 
   it('A03-15/16 加工作业五态：idle→confirm(running)→done，行 ops 落账', async () => {

@@ -101,7 +101,7 @@ export function MaterialPage() {
                 <div className="doc-empty">
                   {subTab === 'file'
                     ? '左侧上传并解析文件后，在此查看 Markdown 解析稿（预览/编辑/源码三态）。'
-                    : '文件定稿后进入内容解析面，在此加工并内容定稿。'}
+                    : '左侧选中文件后在此整理内容稿（解析稿自动作底稿）；文件定稿后可内容定稿。'}
                 </div>
               </div>
             </>
@@ -364,8 +364,8 @@ function DeleteFileModal() {
       }
     >
       <p>
-        删除「{deleteTarget.name}」将<b>双向同步</b>：原文件、解析稿、内容解析结果与附件一并删除；
-        被引用时会被守卫拦截。
+        删除「{deleteTarget.name}」将<b>双向同步</b>：原文件、解析稿、内容稿与附件一并删除；
+        批量作业历史保留留痕不受影响；仅当被需求/AI 会话引用时才会被守卫拦截并明示。
       </p>
       <div className="form-row">
         <label>删除理由（必填，留痕审计）</label>

@@ -73,9 +73,12 @@ describe('FilesService（集成，需 DB+MinIO）', async () => {
   const uploads = new UploadsService(storage);
   const extract = new ZipExtractService(storage);
   const svc = new FilesService(storage);
+  const parseSvc = new ParseService(storage);
   resetCommands();
   uploads.onModuleInit();
   extract.onModuleInit();
+  svc.onModuleInit();
+  parseSvc.onModuleInit();
 
   let rootFileId = '';
   let nestedFileId = '';
@@ -108,6 +111,8 @@ describe('FilesService（集成，需 DB+MinIO）', async () => {
     );
   });
   afterAll(async () => {
+    await query('DELETE FROM mat_batch_items WHERE job_id IN (SELECT id FROM mat_batch_jobs WHERE project_id=$1)', [PID]);
+    await query('DELETE FROM mat_batch_jobs WHERE project_id=$1', [PID]);
     await query('DELETE FROM mat_parsed WHERE project_id=$1', [PID]);
     await query('DELETE FROM mat_uploads WHERE project_id=$1', [PID]);
     await query('DELETE FROM mat_files WHERE project_id=$1 AND zip_parent_id IS NOT NULL', [PID]);
@@ -151,8 +156,7 @@ describe('FilesService（集成，需 DB+MinIO）', async () => {
   });
 
   it('W4 文件双向同步删除（material.file.delete）：引用守卫/理由必填/ZIP 子件随行/解析稿 discarded', async () => {
-    const parse = new ParseService(storage);
-    parse.onModuleInit();
+    const parse = parseSvc;
     const CTX = { projectId: PID, actorKind: 'human' as const, actorId: 't' };
 
     // 理由必填
@@ -181,5 +185,62 @@ describe('FilesService（集成，需 DB+MinIO）', async () => {
     expect(rz.children).toBe(1);
     const inner = await query('SELECT id FROM mat_files WHERE id=$1', [nestedFileId]);
     expect(inner.rows).toHaveLength(0);
+  });
+
+  it('实机走查：文件有批量作业留痕仍可删除（mat_batch_items.file_id 解挂置 NULL）', async () => {
+    const parse = parseSvc;
+    const content = Buffer.from('# 待删');
+    const s = await uploads.create(PID, { fileName: 'batched.md', size: content.length, sha256: sha256(content) }, CTX);
+    await uploads.uploadPart(PID, s.uploadId, 1, content);
+    const fileId = ((await uploads.complete(PID, s.uploadId, CTX)) as { file: { id: string } }).file.id;
+    // 直接落一条批量作业留痕（走过批量解析/定稿是主流程，不能成为删除阻塞）
+    const jobId = randomUUID();
+    await query(
+      `INSERT INTO mat_batch_jobs (id, project_id, code, kind, status, basis_start, created_by)
+       VALUES ($1,$2,'BJ-T','parse','done','{}','local')`,
+      [jobId, PID],
+    );
+    await query('INSERT INTO mat_batch_items (id, job_id, file_id) VALUES ($1,$2,$3)', [randomUUID(), jobId, fileId]);
+
+    await parse.deleteFile(PID, fileId, '清理', CTX);
+    const gone = await query('SELECT id FROM mat_files WHERE id=$1', [fileId]);
+    expect(gone.rows).toHaveLength(0);
+    const item = await query<{ file_id: string | null }>('SELECT file_id FROM mat_batch_items WHERE job_id=$1', [jobId]);
+    expect(item.rows[0]!.file_id).toBeNull(); // 留痕行保留，引用解挂
+  });
+
+  it('material.folder.delete：空目录双树镜像同行删除；非空 INVALID_STATE', async () => {
+    // 双树各插一个互指镜像目录
+    const oId = randomUUID();
+    const pId = randomUUID();
+    await query(
+      `INSERT INTO mat_folder_tree (id, project_id, tree, name, created_by) VALUES ($1,$2,'original','空目录','local')`,
+      [oId, PID],
+    );
+    await query(
+      `INSERT INTO mat_folder_tree (id, project_id, tree, name, mirror_id, created_by) VALUES ($1,$2,'parsed','空目录',$3,'local')`,
+      [pId, PID, oId],
+    );
+    await query('UPDATE mat_folder_tree SET mirror_id=$1 WHERE id=$2', [pId, oId]);
+
+    // 非空（含子目录）→ INVALID_STATE
+    const childId = randomUUID();
+    await query(
+      `INSERT INTO mat_folder_tree (id, project_id, tree, parent_id, name, created_by) VALUES ($1,$2,'original',$3,'子目录','local')`,
+      [childId, PID, oId],
+    );
+    await expect(svc.deleteFolder(PID, oId, CTX)).rejects.toMatchObject({ code: 'INVALID_STATE' });
+
+    // 删子目录（空，无镜像）→ 再删父目录：original+parsed 镜像同行删除
+    await svc.deleteFolder(PID, childId, CTX);
+    // 镜像目录下挂一条 discarded 解析稿留痕（file.delete 后的残骸）——不阻塞目录删除
+    await query(
+      `INSERT INTO mat_parsed (id, project_id, file_id, kind, body_md, content_fingerprint, status, folder_id, created_by)
+       VALUES ($1,$2,$3,'file_parse','x',$4,'discarded',$5,'local')`,
+      [randomUUID(), PID, randomUUID(), sha256(Buffer.from('x')), pId],
+    );
+    await svc.deleteFolder(PID, oId, CTX);
+    const left = await query('SELECT id FROM mat_folder_tree WHERE id = ANY($1::uuid[])', [[oId, pId, childId]]);
+    expect(left.rows).toHaveLength(0);
   });
 });

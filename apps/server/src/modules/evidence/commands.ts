@@ -34,6 +34,7 @@ export const COMMANDS = [
   'material.parsed.save_draft',
   'material.parsed.delete_row',
   'material.file.delete', // 文件双向同步删除（原文件+解析稿+ZIP 子件；引用守卫；DSG-U07-2，差异登记）
+  'material.folder.delete', // 空目录删除（双树镜像同行；实机走查补充，差异登记）
   // M1 资料域：批量解析/加工/定稿作业（DSG-A03-9/12/15/16，F02-4）
   'material.file.batch_parse',
   'material.file.batch_finalize_content',

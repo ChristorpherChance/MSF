@@ -94,8 +94,6 @@ describe('ParseService（集成，需 DB+MinIO）', async () => {
     await parseAndWait(id);
     await svc.finalizeFile(PID, id, CTX);
     expect(await statusOf(id)).toBe('file_final');
-    // 内容稿未保存 → 内容定稿拒绝
-    await expect(svc.finalizeContent(PID, id, CTX)).rejects.toMatchObject({ code: 'INVALID_STATE' });
     // 解锁回 parsed，再定稿，存内容稿后内容定稿
     await svc.unfinalizeFile(PID, id, CTX);
     expect(await statusOf(id)).toBe('parsed');
@@ -110,6 +108,37 @@ describe('ParseService（集成，需 DB+MinIO）', async () => {
     expect(saved.contentFingerprint).toMatch(/^sha256:/);
     await svc.finalizeContent(PID, id, CTX);
     expect(await statusOf(id)).toBe('content_final');
+  });
+
+  it('A03-12 一键内容定稿（实机走查）：无内容稿自动以解析稿落稿；带 contentMd 先存后定', async () => {
+    // 无内容稿：file_final 直接定稿 → 自动以最新解析稿落 draft 并定稿（不再报「内容稿未保存」）
+    const a = await uploadFile('auto.md', Buffer.from('# 自动落稿'));
+    await parseAndWait(a);
+    await svc.finalizeFile(PID, a, CTX);
+    await svc.finalizeContent(PID, a, CTX);
+    expect(await statusOf(a)).toBe('content_final');
+    const autoRow = await query<{ body_md: string; status: string }>(
+      "SELECT body_md, status FROM mat_parsed WHERE file_id=$1 AND kind='content_parse'",
+      [a],
+    );
+    expect(autoRow.rows[0]).toMatchObject({ body_md: '# 自动落稿', status: 'final' });
+
+    // 带 contentMd：同事务先存内容稿再定稿（前端「定稿时未保存编辑一键完成」）
+    const b = await uploadFile('onekey.md', Buffer.from('# 原始'));
+    await parseAndWait(b);
+    await svc.finalizeFile(PID, b, CTX);
+    await svc.finalizeContent(PID, b, CTX, '# 编辑后正文');
+    expect(await statusOf(b)).toBe('content_final');
+    const editRow = await query<{ body_md: string; status: string }>(
+      "SELECT body_md, status FROM mat_parsed WHERE file_id=$1 AND kind='content_parse'",
+      [b],
+    );
+    expect(editRow.rows[0]).toMatchObject({ body_md: '# 编辑后正文', status: 'final' });
+
+    // 已定稿后再改写内容稿 → INVALID_STATE
+    await expect(svc.finalizeContent(PID, b, CTX, '再次改写')).rejects.toMatchObject({
+      code: 'INVALID_STATE',
+    });
   });
 
   it('A03-13 编辑乐观锁：baseFingerprint 不符 → VERSION_CONFLICT', async () => {

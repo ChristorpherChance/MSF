@@ -70,6 +70,22 @@ export class MaterialsController {
     return this.files.tree(projectId);
   }
 
+  /** 空目录删除（实机走查：树内目录可清理；非空 INVALID_STATE；双树镜像同行删除） */
+  @Delete('folders/:folderId')
+  @HttpCode(200)
+  deleteFolder(
+    @Param('projectId') projectId: string,
+    @Param('folderId') folderId: string,
+    @Req() req: Request,
+  ) {
+    const actor = getActor(req);
+    return this.files.deleteFolder(projectId, folderId, {
+      projectId,
+      actorKind: actor.kind,
+      actorId: actor.id,
+    });
+  }
+
   /** A03-6 文件列表（状态多值过滤 + 分页默认 20） */
   @Get('files')
   list(
@@ -168,9 +184,14 @@ export class MaterialsController {
   /** A03-12 内容定稿（单件；批量随 T1-15） */
   @Post('files/:fileId\\:finalize-content')
   @HttpCode(200)
-  finalizeContent(@Param('projectId') projectId: string, @Param('fileId') fileId: string, @Req() req: Request) {
+  finalizeContent(
+    @Param('projectId') projectId: string,
+    @Param('fileId') fileId: string,
+    @Body() body: { contentMd?: string },
+    @Req() req: Request,
+  ) {
     const actor = getActor(req);
-    return this.parse.finalizeContent(projectId, fileId, { projectId, actorKind: actor.kind, actorId: actor.id });
+    return this.parse.finalizeContent(projectId, fileId, { projectId, actorKind: actor.kind, actorId: actor.id }, body?.contentMd);
   }
 
   /** A03-13 内容稿编辑保存（baseFingerprint 乐观锁，VERSION_CONFLICT 兜底） */

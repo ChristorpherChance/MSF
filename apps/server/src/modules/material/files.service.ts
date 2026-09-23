@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { DomainError, type MatParseStatus } from '@msf/shared';
 import { query } from '../../db/pool.js';
+import { executeCommand, registerCommand, type CommandContext } from '../evidence/command-bus.js';
 import { StorageService } from '../platform/storage.service.js';
 import type { MatFile, MatFolderNode, MatParsed } from './types.js';
 
@@ -18,6 +19,8 @@ export interface TreeNode {
   failMsg?: string | null;
   /** 内容面 ↳ 加工结果行（最新内容稿的附件名清单，M1 主稿+缩进行结构） */
   results?: string[] | undefined;
+  /** 内容稿状态（draft=已保存编辑中 / final=内容已定稿 / undefined=未起草）——内容面独立显示，不带文件阶段 */
+  contentStatus?: 'draft' | 'final' | null;
   children?: TreeNode[];
 }
 
@@ -40,6 +43,46 @@ export class FilesService {
   // 显式 @Inject：vitest(esbuild) 不产 design:paramtypes 元数据
   constructor(@Inject(StorageService) private readonly storage: StorageService) {}
 
+  onModuleInit(): void {
+    // 空目录删除（实机走查：树内任何节点应可清理；非空目录拒绝；双树镜像同行删除）
+    registerCommand('material.folder.delete', async (client, payload) => {
+      const { projectId, folderId } = payload as { projectId: string; folderId: string };
+      const r = await client.query<MatFolderNode>(
+        'SELECT * FROM mat_folder_tree WHERE id=$1 AND project_id=$2 FOR UPDATE',
+        [folderId, projectId],
+      );
+      const folder = r.rows[0];
+      if (!folder) throw new DomainError('NOT_FOUND', '目录不存在', folderId);
+      const ids = folder.mirror_id ? [folderId, folder.mirror_id] : [folderId];
+      // 非空判定只数「活着的内容」：子目录/文件/未废弃解析稿；
+      // 已 discarded 解析稿与 mat_uploads 上传会话属留痕（与 file.delete 解挂口径一致），不阻塞目录清理
+      const used = await client.query<{ n: string }>(
+        `SELECT (
+           (SELECT count(*) FROM mat_folder_tree WHERE parent_id = ANY($1::uuid[])) +
+           (SELECT count(*) FROM mat_files WHERE folder_id = ANY($1::uuid[])) +
+           (SELECT count(*) FROM mat_parsed WHERE folder_id = ANY($1::uuid[]) AND status != 'discarded')
+         )::int AS n`,
+        [ids],
+      );
+      if (Number(used.rows[0]?.n ?? 0) > 0) {
+        throw new DomainError('INVALID_STATE', '目录非空：请先删除/移出其中内容', folderId);
+      }
+      // 留痕行解挂（folder_id FK 为 NO ACTION）：discarded 解析稿与上传会话留史不随目录删
+      await client.query(
+        "UPDATE mat_parsed SET folder_id=NULL WHERE folder_id = ANY($1::uuid[]) AND status='discarded'",
+        [ids],
+      );
+      await client.query('UPDATE mat_uploads SET folder_id=NULL WHERE folder_id = ANY($1::uuid[])', [ids]);
+      await client.query('DELETE FROM mat_folder_tree WHERE id = ANY($1::uuid[])', [ids]);
+      return { deleted: folderId, mirror: folder.mirror_id };
+    });
+  }
+
+  /** 空目录删除门面 */
+  async deleteFolder(projectId: string, folderId: string, ctx: CommandContext): Promise<unknown> {
+    return executeCommand('material.folder.delete', { projectId, folderId }, { ...ctx, projectId });
+  }
+
   /** A03-5 双目录树：原件树与解析稿树一一对应（mirror_id 互指；原件树只增不改 REQ-105） */
   async tree(projectId: string): Promise<{ originalTree: TreeNode[]; parsedTree: TreeNode[] }> {
     const folders = await query<MatFolderNode>(
@@ -53,19 +96,22 @@ export class FilesService {
        WHERE p.project_id=$1 AND p.kind='file_parse' AND p.status != 'discarded'`,
       [projectId],
     );
-    // 内容稿附件（加工结果 ↳ 缩进行）：每文件取最新一条内容稿
-    const contents = await query<{ file_id: string; attachments: unknown }>(
-      `SELECT DISTINCT ON (file_id) file_id, attachments FROM mat_parsed
+    // 内容稿（加工结果 ↳ 缩进行 + 内容稿状态）：每文件取最新一条内容稿
+    const contents = await query<{ file_id: string; attachments: unknown; status: string }>(
+      `SELECT DISTINCT ON (file_id) file_id, attachments, status FROM mat_parsed
        WHERE project_id=$1 AND kind='content_parse' AND status != 'discarded'
        ORDER BY file_id, created_at DESC`,
       [projectId],
     );
-    const resultsByFile = new Map(
+    const contentByFile = new Map(
       contents.rows.map((r) => [
         r.file_id,
-        (Array.isArray(r.attachments) ? r.attachments : [])
-          .map((a) => (a && typeof a === 'object' ? String((a as { name?: unknown }).name ?? '') : ''))
-          .filter(Boolean),
+        {
+          results: (Array.isArray(r.attachments) ? r.attachments : [])
+            .map((a) => (a && typeof a === 'object' ? String((a as { name?: unknown }).name ?? '') : ''))
+            .filter(Boolean),
+          contentStatus: r.status as 'draft' | 'final',
+        },
       ]),
     );
     return {
@@ -77,7 +123,8 @@ export class FilesService {
           name: p.file_name,
           folder_id: p.folder_id,
           parse_status: p.parse_status,
-          results: resultsByFile.get(p.file_id) ?? [],
+          results: contentByFile.get(p.file_id)?.results ?? [],
+          content_status: contentByFile.get(p.file_id)?.contentStatus ?? null,
         })),
       ),
     };
@@ -193,14 +240,27 @@ export class FilesService {
       [fileId, kind],
     );
     const row = p.rows[0];
+    // 内容面无内容稿时回落最新文件解析稿作编辑底稿（首存 base 即解析稿指纹，与 save_draft 口径一致）
+    let fallback: MatParsed | undefined;
+    if (view === 'content' && !row) {
+      const b = await query<MatParsed>(
+        `SELECT * FROM mat_parsed WHERE file_id=$1 AND kind='file_parse' AND status != 'discarded'
+         ORDER BY created_at DESC LIMIT 1`,
+        [fileId],
+      );
+      fallback = b.rows[0];
+    }
+    const effective = row ?? fallback;
     return {
       id: file.id,
       status: file.parse_status,
       parsedMd: view === 'parsed' ? (row?.body_md ?? null) : undefined,
-      contentMd: view === 'content' ? (row?.body_md ?? null) : undefined,
+      contentMd: view === 'content' ? (effective?.body_md ?? null) : undefined,
+      /** 内容稿状态：none=待整理（底稿=解析稿）/ draft=内容稿已保存 / final=内容已定稿 */
+      contentStatus: view === 'content' ? (row ? row.status : 'none') : undefined,
       attachments: row?.attachments ?? [],
       ops: row?.ops ?? [],
-      contentFingerprint: row ? `sha256:${row.content_fingerprint}` : null,
+      contentFingerprint: effective ? `sha256:${effective.content_fingerprint}` : null,
     };
   }
 }
@@ -215,6 +275,7 @@ function buildTree(
     parse_status: MatParseStatus;
     parse_error?: string | null;
     results?: string[];
+    content_status?: 'draft' | 'final' | null;
   }>,
 ): TreeNode[] {
   const byParent = new Map<string | null, MatFolderNode[]>();
@@ -244,6 +305,7 @@ function buildTree(
         status: file.parse_status,
         failMsg: file.parse_error ?? null,
         results: file.results,
+        contentStatus: file.content_status ?? null,
       });
     }
     return nodes;

@@ -15,6 +15,8 @@ export interface TreeNode {
   failMsg?: string | null;
   /** 内容面 ↳ 加工结果行（内容稿附件名清单） */
   results?: string[];
+  /** 内容稿状态（draft=已保存编辑中 / final=内容已定稿 / null=未起草）——内容面独立显示 */
+  contentStatus?: 'draft' | 'final' | null;
   children?: TreeNode[];
 }
 
@@ -25,6 +27,8 @@ export interface FileDetail {
   url?: string;
   parsedMd?: string | null;
   contentMd?: string | null;
+  /** 内容稿状态：none=待整理（底稿=解析稿）/ draft=内容稿已保存 / final=内容已定稿 */
+  contentStatus?: 'draft' | 'final' | 'none';
   attachments?: Array<{ name?: string; by?: string }>;
   ops?: Array<{ op: string; at?: string }>;
   contentFingerprint?: string | null;
@@ -57,6 +61,9 @@ export const materialApi = {
     ),
   extractZip: (pid: string, fileId: string, onConflict: 'reject' | 'rename' = 'reject') =>
     api.post(`${base(pid)}/files/${fileId}:extract`, { onConflict }),
+  /** 空目录删除（非空目录服务端 INVALID_STATE 拒绝；双树镜像同行） */
+  deleteFolder: (pid: string, folderId: string) =>
+    api.del<{ deleted: string; mirror: string | null }>(`${base(pid)}/folders/${folderId}`),
   parse: (pid: string, fileId: string) => api.post(`${base(pid)}/files/${fileId}:parse`, {}),
   retryParse: (pid: string, fileId: string) =>
     api.post(`${base(pid)}/files/${fileId}:retry-parse`, {}),
@@ -66,8 +73,8 @@ export const materialApi = {
     api.post(`${base(pid)}/files/${fileId}:finalize-file`, {}),
   unfinalizeFile: (pid: string, fileId: string) =>
     api.post(`${base(pid)}/files/${fileId}:unfinalize-file`, {}),
-  finalizeContent: (pid: string, fileId: string) =>
-    api.post(`${base(pid)}/files/${fileId}:finalize-content`, {}),
+  finalizeContent: (pid: string, fileId: string, contentMd?: string) =>
+    api.post(`${base(pid)}/files/${fileId}:finalize-content`, contentMd !== undefined ? { contentMd } : {}),
   batchParse: (pid: string, fileIds: string[], onlyPending = true) =>
     api.post<{ accepted: number; rejected: Array<{ fileId: string; reason: string }>; jobId?: string }>(
       `${base(pid)}/files:batch-parse`,

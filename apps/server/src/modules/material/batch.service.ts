@@ -91,12 +91,31 @@ export class BatchService {
         let reason = '文件不存在';
         if (file && file.parse_status !== 'file_final') reason = '非 file_final 状态';
         if (file && file.parse_status === 'file_final') {
-          const draft = await client.query<{ id: string }>(
+          let draft = await client.query<{ id: string }>(
             "SELECT id FROM mat_parsed WHERE file_id=$1 AND kind='content_parse' AND status='draft' ORDER BY created_at DESC LIMIT 1",
             [fileId],
           );
           if (!draft.rows[0]) {
-            reason = '内容稿未保存';
+            // 实机走查修复：无内容稿时以最新文件解析稿落 draft（原文定稿语义，与单条 finalize_content 同口径）
+            const src = await client.query<{ body_md: string; content_fingerprint: string; folder_id: string | null }>(
+              "SELECT body_md, content_fingerprint, folder_id FROM mat_parsed WHERE file_id=$1 AND kind='file_parse' AND status != 'discarded' ORDER BY created_at DESC LIMIT 1",
+              [fileId],
+            );
+            const base = src.rows[0];
+            if (base) {
+              await client.query(
+                `INSERT INTO mat_parsed (id, project_id, file_id, kind, body_md, content_fingerprint, folder_id, created_by)
+                 VALUES ($1,$2,$3,'content_parse',$4,$5,$6,$7)`,
+                [randomUUID(), projectId, fileId, base.body_md, base.content_fingerprint, base.folder_id, ctx.actorId],
+              );
+              draft = await client.query<{ id: string }>(
+                "SELECT id FROM mat_parsed WHERE file_id=$1 AND kind='content_parse' AND status='draft' ORDER BY created_at DESC LIMIT 1",
+                [fileId],
+              );
+            }
+          }
+          if (!draft.rows[0]) {
+            reason = '无解析稿，无法生成内容稿';
           } else {
             await client.query("UPDATE mat_files SET parse_status='content_final' WHERE id=$1", [fileId]);
             await client.query(

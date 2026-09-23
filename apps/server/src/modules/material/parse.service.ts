@@ -153,13 +153,21 @@ export class ParseService {
     });
 
     // A03-12 内容定稿：file_final → content_final（成为合法参考输入，REQ-114）
+    // 实机走查修复：contentMd 提供时同事务先保存内容稿（一键定稿）；
+    // 无内容稿时自动以最新文件解析稿落 draft（原文定稿语义），「内容稿未保存」不再阻断
     registerCommand('material.file.finalize_content', async (client, payload, ctx) => {
-      const { projectId, fileId } = payload as { projectId: string; fileId: string };
+      const { projectId, fileId, contentMd } = payload as {
+        projectId: string; fileId: string; contentMd?: string;
+      };
       const file = await this.lockFile(client, projectId, fileId);
       if (file.parse_status !== 'file_final') {
         throw new DomainError('INVALID_STATE', '仅 file_final 状态可内容定稿', fileId);
       }
-      await this.requireDraft(client, fileId); // 内容稿须已保存（A03-12 批量响应 reason「内容稿未保存」同源）
+      if (contentMd !== undefined) {
+        await this.upsertContentDraft(client, projectId, file, contentMd, ctx.actorId);
+      } else {
+        await this.ensureContentDraft(client, projectId, file, ctx.actorId);
+      }
       await client.query("UPDATE mat_files SET parse_status='content_final' WHERE id=$1", [fileId]);
       await client.query(
         "UPDATE mat_parsed SET status='final', updated_at=now(), updated_by=$2 WHERE file_id=$1 AND kind='content_parse' AND status='draft'",
@@ -186,15 +194,10 @@ export class ParseService {
         [fileId],
       );
       const row = cur.rows[0];
-      const fingerprint = sha256(contentMd);
       if (row) {
         if (baseFingerprint !== `sha256:${row.content_fingerprint}`) {
           throw new DomainError('VERSION_CONFLICT', '内容稿已被他人修改，请刷新后重试', fileId);
         }
-        await client.query(
-          'UPDATE mat_parsed SET body_md=$2, content_fingerprint=$3, updated_by=$4, updated_at=now() WHERE id=$1',
-          [row.id, contentMd, fingerprint, ctx.actorId],
-        );
       } else {
         // 首存：base 须为当前文件解析稿指纹（无解析稿则须空 base）
         const base = await client.query<MatParsed>(
@@ -205,20 +208,8 @@ export class ParseService {
         if (baseFingerprint !== expected) {
           throw new DomainError('VERSION_CONFLICT', '基线指纹不一致，请刷新后重试', fileId);
         }
-        let parsedFolderId: string | null = null;
-        if (file.folder_id) {
-          const m = await client.query<{ mirror_id: string | null }>(
-            'SELECT mirror_id FROM mat_folder_tree WHERE id=$1',
-            [file.folder_id],
-          );
-          parsedFolderId = m.rows[0]?.mirror_id ?? null;
-        }
-        await client.query(
-          `INSERT INTO mat_parsed (id, project_id, file_id, kind, body_md, content_fingerprint, folder_id, created_by)
-           VALUES ($1,$2,$3,'content_parse',$4,$5,$6,$7)`,
-          [randomUUID(), projectId, fileId, contentMd, fingerprint, parsedFolderId, ctx.actorId],
-        );
       }
+      const fingerprint = await this.upsertContentDraft(client, projectId, file, contentMd, ctx.actorId);
       return { contentFingerprint: `sha256:${fingerprint}` };
     });
 
@@ -296,14 +287,8 @@ export class ParseService {
       if (issues.length > 0) {
         throw new DomainError('GATE_BLOCKED', '删除守卫：存在下游引用，请先解除引用', fileId, { issues });
       }
-      // 批量加工作业留痕（mat_batch_items 行保留不物理删）：有历史作业记录则拒绝删除
-      const jobs = await client.query<{ id: string }>(
-        'SELECT id FROM mat_batch_items WHERE file_id = ANY($1::uuid[]) LIMIT 1', [ids]);
-      if (jobs.rows.length > 0) {
-        throw new DomainError('GATE_BLOCKED', '删除守卫：存在批量加工作业留痕，不允许删除', fileId, {
-          issues: [{ code: 'DEPENDENCY_EXISTS', message: '存在批量加工作业记录', target: fileId }],
-        });
-      }
+      // 批量加工作业留痕（mat_batch_items 行保留不物理删）：file_id 解挂留史，不再拦截删除（实机走查修复）
+      await client.query('UPDATE mat_batch_items SET file_id=NULL WHERE file_id = ANY($1::uuid[])', [ids]);
       const now = new Date().toISOString();
       await client.query(
         "UPDATE mat_parsed SET status='discarded', delete_guard=$2, updated_by=$3, updated_at=now() WHERE file_id = ANY($1::uuid[])",
@@ -366,8 +351,12 @@ export class ParseService {
     return executeCommand('material.file.unfinalize_file', { projectId, fileId }, { ...ctx, projectId });
   }
 
-  async finalizeContent(projectId: string, fileId: string, ctx: CommandContext): Promise<unknown> {
-    return executeCommand('material.file.finalize_content', { projectId, fileId }, { ...ctx, projectId });
+  async finalizeContent(projectId: string, fileId: string, ctx: CommandContext, contentMd?: string): Promise<unknown> {
+    return executeCommand(
+      'material.file.finalize_content',
+      contentMd !== undefined ? { projectId, fileId, contentMd } : { projectId, fileId },
+      { ...ctx, projectId },
+    );
   }
 
   async saveDraft(
@@ -393,12 +382,66 @@ export class ParseService {
     return executeCommand('material.file.delete', { projectId, fileId, reason }, { ...ctx, projectId });
   }
 
-  private async requireDraft(client: PoolClient, fileId: string): Promise<void> {
-    const r = await client.query(
-      "SELECT 1 FROM mat_parsed WHERE file_id=$1 AND kind='content_parse' AND status != 'discarded' LIMIT 1",
-      [fileId],
+  /** 内容稿 upsert（save_draft 与 finalize_content 共用；final 稿不可改写） */
+  private async upsertContentDraft(
+    client: PoolClient, projectId: string, file: MatFile, contentMd: string, actorId: string,
+  ): Promise<string> {
+    const cur = await client.query<MatParsed>(
+      "SELECT * FROM mat_parsed WHERE file_id=$1 AND kind='content_parse' AND status != 'discarded' ORDER BY created_at DESC LIMIT 1",
+      [file.id],
     );
-    if (!r.rows[0]) throw new DomainError('INVALID_STATE', '内容稿未保存', fileId);
+    const row = cur.rows[0];
+    const fingerprint = sha256(contentMd);
+    if (row) {
+      if (row.status === 'final') {
+        throw new DomainError('INVALID_STATE', '内容已定稿，不可再改写内容稿', file.id);
+      }
+      await client.query(
+        'UPDATE mat_parsed SET body_md=$2, content_fingerprint=$3, updated_by=$4, updated_at=now() WHERE id=$1',
+        [row.id, contentMd, fingerprint, actorId],
+      );
+    } else {
+      const folderId = await this.parsedMirrorFolder(client, file);
+      await client.query(
+        `INSERT INTO mat_parsed (id, project_id, file_id, kind, body_md, content_fingerprint, folder_id, created_by)
+         VALUES ($1,$2,$3,'content_parse',$4,$5,$6,$7)`,
+        [randomUUID(), projectId, file.id, contentMd, fingerprint, folderId, actorId],
+      );
+    }
+    return fingerprint;
+  }
+
+  /** 无内容稿时以最新文件解析稿落 draft（原文定稿语义；无解析稿则不可定稿） */
+  private async ensureContentDraft(
+    client: PoolClient, projectId: string, file: MatFile, actorId: string,
+  ): Promise<void> {
+    const cur = await client.query(
+      "SELECT 1 FROM mat_parsed WHERE file_id=$1 AND kind='content_parse' AND status != 'discarded' LIMIT 1",
+      [file.id],
+    );
+    if (cur.rows[0]) return;
+    const src = await client.query<MatParsed>(
+      "SELECT * FROM mat_parsed WHERE file_id=$1 AND kind='file_parse' AND status != 'discarded' ORDER BY created_at DESC LIMIT 1",
+      [file.id],
+    );
+    const base = src.rows[0];
+    if (!base) throw new DomainError('INVALID_STATE', '无解析稿，无法生成内容稿', file.id);
+    const folderId = await this.parsedMirrorFolder(client, file);
+    await client.query(
+      `INSERT INTO mat_parsed (id, project_id, file_id, kind, body_md, content_fingerprint, folder_id, created_by)
+       VALUES ($1,$2,$3,'content_parse',$4,$5,$6,$7)`,
+      [randomUUID(), projectId, file.id, base.body_md, base.content_fingerprint, folderId, actorId],
+    );
+  }
+
+  /** 原件目录 → 解析稿树镜像目录 id */
+  private async parsedMirrorFolder(client: PoolClient, file: MatFile): Promise<string | null> {
+    if (!file.folder_id) return null;
+    const m = await client.query<{ mirror_id: string | null }>(
+      'SELECT mirror_id FROM mat_folder_tree WHERE id=$1',
+      [file.folder_id],
+    );
+    return m.rows[0]?.mirror_id ?? null;
   }
 
   private async lockFile(client: PoolClient, projectId: string, fileId: string): Promise<MatFile> {
