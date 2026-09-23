@@ -13,6 +13,7 @@ import { SettingsPage } from './pages/platform/SettingsPage';
 import { AuditPage } from './pages/platform/AuditPage';
 import { platformApi, STAGE_NAMES, type StageGate } from './pages/platform/api';
 import { useSession } from './store';
+import './app.css';
 
 const STAGES = [
   { path: '/material', key: 'material', name: '资料' },
@@ -58,18 +59,22 @@ function StageNav() {
   );
 }
 
-/** 工作台骨架（LLD-6 §3 各页；助手 dock 全局挂载，F1 开合；顶栏铃铛 + 阶段准入导航） */
+/** 工作台骨架（DSG-U02-1：100vh 纵向 flex = 顶栏 52px + 主区横向 flex[.view + 助手 dock]；
+ *  LLD-6 §3 各页；F1 开合 dock；顶栏铃铛 + 阶段准入导航） */
 export function App() {
   const projectName = useSession((s) => s.projectName);
   return (
-    <div>
+    <div className="app-shell">
       <nav
+        className="app-topbar"
         style={{
           display: 'flex',
           gap: 16,
-          padding: '10px 20px',
-          background: 'var(--msf-card)',
-          borderBottom: '1px solid var(--msf-line)',
+          padding: '0 20px',
+          height: 52,
+          flexShrink: 0,
+          background: 'var(--canvas)',
+          borderBottom: '1px solid var(--line)',
           alignItems: 'center',
         }}
       >
@@ -80,23 +85,27 @@ export function App() {
         <NavLink to="/audit">审计</NavLink>
         <NavLink to="/settings">设置</NavLink>
         {projectName && (
-          <span style={{ fontSize: 12, color: '#888' }}>当前项目：{projectName}</span>
+          <span style={{ fontSize: 12, color: 'var(--ink2)' }}>当前项目：{projectName}</span>
         )}
         <NotificationBell />
       </nav>
-      <Routes>
-        <Route path="/projects" element={<ProjectsPage />} />
-        <Route path="/material" element={<MaterialPage />} />
-        <Route path="/req" element={<ReqPage />} />
-        <Route path="/design" element={<DesignPage />} />
-        <Route path="/dev" element={<DevPage />} />
-        <Route path="/test" element={<TestPage />} />
-        <Route path="/delegate" element={<DelegatePage />} />
-        <Route path="/audit" element={<AuditPage />} />
-        <Route path="/settings" element={<SettingsPage />} />
-        <Route path="*" element={<ProjectsPage />} />
-      </Routes>
-      <AssistantDock />
+      <div className="app-main">
+        <div className="app-view">
+          <Routes>
+            <Route path="/projects" element={<ProjectsPage />} />
+            <Route path="/material" element={<MaterialPage />} />
+            <Route path="/req" element={<ReqPage />} />
+            <Route path="/design" element={<DesignPage />} />
+            <Route path="/dev" element={<DevPage />} />
+            <Route path="/test" element={<TestPage />} />
+            <Route path="/delegate" element={<DelegatePage />} />
+            <Route path="/audit" element={<AuditPage />} />
+            <Route path="/settings" element={<SettingsPage />} />
+            <Route path="*" element={<ProjectsPage />} />
+          </Routes>
+        </div>
+        <AssistantDock />
+      </div>
     </div>
   );
 }

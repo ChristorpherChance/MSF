@@ -178,6 +178,38 @@ describe('AI 会话/消息/流式管线（集成，需 DB）', async () => {
     await expect(query('SELECT 1', [])).resolves.toBeTruthy();
   });
 
+  it('会话级模型：create/set-model 校验，发送按会话绑定模型落戳（优先于 chat 路由）', async () => {
+    // 绑定一个无 chat 路由的模型：会话绑定优先于路由默认
+    const bound = (await models.upsert({
+      name: '会话绑定模型', provider: 'gateway', baseUrl: 'http://127.0.0.1:9', modelCode: 'mb',
+    }, CTX)).id;
+    modelIds.push(bound);
+    const s = await sessions.create(PID, { ctx: 'dev', modelId: bound }, CTX) as { id: string };
+    const row = await query<{ model_id: string }>('SELECT model_id FROM ai_sessions WHERE id=$1', [s.id]);
+    expect(row.rows[0]!.model_id).toBe(bound);
+
+    // 不存在 / 已停用 → VALIDATION_FAILED
+    await expect(sessions.setModel(PID, s.id, randomUUID(), CTX))
+      .rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+    await models.upsert({ id: bound, enabled: false }, CTX);
+    await expect(sessions.setModel(PID, s.id, bound, CTX))
+      .rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+    await models.upsert({ id: bound, enabled: true }, CTX);
+
+    // set-model 正常路径 + 发送落戳为会话绑定模型
+    await sessions.setModel(PID, s.id, bound, CTX);
+    const { messageId } = await sessions.send(PID, s.id, { content: '绑定模型提问' }, CTX);
+    provider.last!.release();
+    const c = await sessions.drive(messageId, () => {}, { ctx: CTX });
+    expect(c.status).toBe('done');
+    const msg = await query<{ model_id: string }>(
+      'SELECT model_id FROM ai_messages WHERE id=$1', [messageId]);
+    expect(msg.rows[0]!.model_id).toBe(bound);
+    // 跨项目拒绝
+    await expect(sessions.setModel(PID2, s.id, bound, { ...CTX, projectId: PID2 }))
+      .rejects.toMatchObject({ code: 'FORBIDDEN' });
+  });
+
   it('pause 缓冲 / resume 冲放（缓冲层口径）', async () => {
     const { messageId } = await sessions.send(PID, sessionId, { content: '流控' }, CTX);
     const frames: Array<{ type: string; text?: string }> = [];

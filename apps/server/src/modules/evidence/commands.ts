@@ -152,6 +152,7 @@ export const COMMANDS = [
   // M6 AI/执行/集成域（C10-2(f)；REQ-601~615/610）
   'ai.session.create',
   'ai.session.switch',
+  'ai.session.set-model', // 会话级模型切换（DSG-U02-4 #model-sel；C10-2(f) 之外补，差异登记）
   'ai.message.send',
   'ai.message.finish', // 消息终态落库（流式结束于事务外，完成写需独立命令；C10-2(f) 之外补，差异登记）
   'ai.message.pause',

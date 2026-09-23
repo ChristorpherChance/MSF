@@ -65,6 +65,18 @@ export class AiSessionsController {
     return this.sessions.messages(projectId, sessionId, cursor, limit ? Number(limit) : 50);
   }
 
+  /** 会话级模型切换（DSG-U02-4 #model-sel；null 回落 chat 路由默认） */
+  @Post('sessions/:sessionId\\:set-model')
+  @HttpCode(200)
+  setModel(
+    @Param('projectId') projectId: string,
+    @Param('sessionId') sessionId: string,
+    @Body() body: { modelId: string | null },
+    @Req() req: Request,
+  ) {
+    return this.sessions.setModel(projectId, sessionId, body.modelId ?? null, this.actor(req, projectId));
+  }
+
   /** A08-3 发送消息（POST-SSE；首帧 stream.start 携带 operationId=messageId 供 pause/resume/stop 寻址） */
   @Post('sessions/:sessionId/messages\\:send')
   async send(

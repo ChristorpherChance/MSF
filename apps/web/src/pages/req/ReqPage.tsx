@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { useDockStore } from '../../assistant/dock-store';
 import { DocPanel } from './DocPanel';
 import { RtmPanel } from './RtmPanel';
 import { useReqView, type ReqSubTab } from './store';
@@ -16,6 +17,11 @@ export function ReqPage() {
   useEffect(() => {
     void init();
   }, [init]);
+  // RTM 页签不内嵌 dock（hasDock L1090-1093）；离页恢复
+  useEffect(() => {
+    useDockStore.getState().setHidden(subTab === 'rtm');
+    return () => useDockStore.getState().setHidden(false);
+  }, [subTab]);
   return (
     <main>
       <div className="subtabs" role="tablist">

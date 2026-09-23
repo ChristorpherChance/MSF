@@ -24,6 +24,7 @@ export interface SessionRow {
   id: string; project_id: string; code: string; ctx: string; name: string;
   refs: Array<{ fileId: string; fingerprint: string }>;
   think_level: string; tree_ref: string | null; created_by: string;
+  model_id: string | null;
   created_at: string; updated_at: string;
 }
 
@@ -50,19 +51,30 @@ export class AiSessionsService implements OnModuleInit {
 
   onModuleInit(): void {
     registerCommand('ai.session.create', async (client, payload, ctx) => {
-      const p = payload as { ctx: string; name?: string; thinkLevel?: string };
+      const p = payload as { ctx: string; name?: string; thinkLevel?: string; modelId?: string };
       if (!(CTX_TABS as readonly string[]).includes(p.ctx)) {
         throw new DomainError('VALIDATION_FAILED', `ctx 枚举 ${CTX_TABS.join('|')}`, 'ctx');
       }
+      if (p.modelId) await this.assertModelUsable(client, p.modelId);
       const n = await client.query<{ n: string }>(
         'SELECT count(*) AS n FROM ai_sessions WHERE project_id=$1', [ctx.projectId]);
       const code = `ss_${Number(n.rows[0]!.n) + 1}`;
       const r = await client.query<{ id: string; code: string }>(
-        `INSERT INTO ai_sessions (project_id, code, ctx, name, think_level, created_by)
-         VALUES ($1,$2,$3,$4,$5,$6) RETURNING id, code`,
+        `INSERT INTO ai_sessions (project_id, code, ctx, name, think_level, model_id, created_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id, code`,
         [ctx.projectId, code, p.ctx, p.name?.trim() || `会话 ${code}`,
-         ['low', 'mid', 'high'].includes(p.thinkLevel ?? '') ? p.thinkLevel! : 'mid', ctx.actorId]);
+         ['low', 'mid', 'high'].includes(p.thinkLevel ?? '') ? p.thinkLevel! : 'mid',
+         p.modelId ?? null, ctx.actorId]);
       return r.rows[0];
+    });
+
+    registerCommand('ai.session.set-model', async (client, payload, ctx) => {
+      const p = payload as { sessionId: string; modelId: string | null };
+      const s = await this.lockSession(client, ctx.projectId!, p.sessionId);
+      if (p.modelId) await this.assertModelUsable(client, p.modelId);
+      await client.query('UPDATE ai_sessions SET model_id=$2, updated_at=now() WHERE id=$1',
+        [s.id, p.modelId ?? null]);
+      return { sessionId: s.id, modelId: p.modelId ?? null };
     });
 
     registerCommand('ai.session.switch', async (client, payload, ctx) => {
@@ -80,9 +92,18 @@ export class AiSessionsService implements OnModuleInit {
       // 当前提示词版本（agent=assistant；无则 null——mock 期允许无注册提示词）
       const pv = await client.query<{ id: string }>(
         'SELECT id FROM ai_prompt_versions WHERE agent_key=$1 AND is_current', ['assistant']);
-      // 模型路由戳：chat 用途有路由则记录 model_id，无路由（mock 期）记 null
-      const model = await client.query<{ id: string }>(
-        'SELECT id FROM ai_models WHERE enabled AND routes ? $1 ORDER BY updated_at DESC LIMIT 1', ['chat']);
+      // 模型戳：会话绑定模型（仍启用）优先，否则 chat 用途路由默认，无路由（mock 期）记 null
+      let modelId: string | null = null;
+      if (s.model_id) {
+        const bound = await client.query<{ id: string }>(
+          'SELECT id FROM ai_models WHERE id=$1 AND enabled', [s.model_id]);
+        modelId = bound.rows[0]?.id ?? null;
+      }
+      if (!modelId) {
+        const routed = await client.query<{ id: string }>(
+          'SELECT id FROM ai_models WHERE enabled AND routes ? $1 ORDER BY updated_at DESC LIMIT 1', ['chat']);
+        modelId = routed.rows[0]?.id ?? null;
+      }
       const refsFp = p.referenceFileIds.map((id) => p.referenceFingerprints[id] ?? '').join(',');
       const inputFingerprint = sha256hex(`${pv.rows[0]?.id ?? '-'}|${refsFp}`);
       await client.query(
@@ -91,7 +112,7 @@ export class AiSessionsService implements OnModuleInit {
       const m = await client.query<{ id: string }>(
         `INSERT INTO ai_messages (session_id, role, content, status, prompt_version_id, model_id, input_fingerprint)
          VALUES ($1,'ai','', 'streaming', $2, $3, $4) RETURNING id`,
-        [s.id, pv.rows[0]?.id ?? null, model.rows[0]?.id ?? null, inputFingerprint]);
+        [s.id, pv.rows[0]?.id ?? null, modelId, inputFingerprint]);
       await client.query('UPDATE ai_sessions SET updated_at=now() WHERE id=$1', [s.id]);
       return { messageId: m.rows[0]!.id, sessionId: s.id };
     });
@@ -162,6 +183,15 @@ export class AiSessionsService implements OnModuleInit {
     return s;
   }
 
+  /** 模型可用性门禁：存在且启用（连通态由 UI 列表过滤，服务端不强制——连通可过期） */
+  private async assertModelUsable(client: { query: typeof query }, modelId: string): Promise<void> {
+    const r = await client.query<{ id: string }>(
+      'SELECT id FROM ai_models WHERE id=$1 AND enabled', [modelId]);
+    if (!r.rows[0]) {
+      throw new DomainError('VALIDATION_FAILED', '模型不存在或已停用', modelId);
+    }
+  }
+
   /** M03 参考门禁（SQL 直读 mat_files；跨域不 import） */
   private async verifyReferences(
     client: { query: typeof query },
@@ -225,12 +255,17 @@ export class AiSessionsService implements OnModuleInit {
 
   // ---- 命令门面 ----
 
-  create(projectId: string, p: { ctx: string; name?: string; thinkLevel?: string }, ctx: CommandContext) {
+  create(projectId: string, p: { ctx: string; name?: string; thinkLevel?: string; modelId?: string }, ctx: CommandContext) {
     return executeCommand('ai.session.create', p, { ...ctx, projectId });
   }
 
   switchSession(projectId: string, sessionId: string, ctx: CommandContext) {
     return executeCommand('ai.session.switch', { sessionId }, { ...ctx, projectId });
+  }
+
+  /** 会话级模型切换（DSG-U02-4 #model-sel；null=回落 chat 路由默认） */
+  setModel(projectId: string, sessionId: string, modelId: string | null, ctx: CommandContext) {
+    return executeCommand('ai.session.set-model', { sessionId, modelId }, { ...ctx, projectId });
   }
 
   /**

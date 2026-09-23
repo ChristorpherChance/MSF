@@ -4,6 +4,7 @@ import { api, ApiError } from '../api';
 
 export interface AiSessionRow {
   id: string; code: string; ctx: string; name: string; think_level: string;
+  model_id: string | null;
   created_at: string; updated_at: string;
 }
 
@@ -24,10 +25,13 @@ export const assistantApi = {
   sessions: (pid: string, ctx?: string) =>
     api.get<{ items: AiSessionRow[] }>(
       `/api/v1/projects/${pid}/ai/sessions${ctx ? `?ctx=${ctx}` : ''}`).then((r) => r.items),
-  create: (pid: string, body: { ctx: string; name?: string; thinkLevel?: string }) =>
+  create: (pid: string, body: { ctx: string; name?: string; thinkLevel?: string; modelId?: string }) =>
     api.post<{ id: string; code: string }>(`/api/v1/projects/${pid}/ai/sessions`, body),
   switchTo: (pid: string, sessionId: string) =>
     api.post(`/api/v1/projects/${pid}/ai/sessions/${sessionId}:switch`, {}),
+  /** 会话级模型切换（DSG-U02-4 #model-sel） */
+  setModel: (pid: string, sessionId: string, modelId: string | null) =>
+    api.post(`/api/v1/projects/${pid}/ai/sessions/${sessionId}:set-model`, { modelId }),
   messages: (pid: string, sessionId: string) =>
     api.get<{ items: AiMessageRow[] }>(
       `/api/v1/projects/${pid}/ai/sessions/${sessionId}/messages`).then((r) => r.items.reverse()),

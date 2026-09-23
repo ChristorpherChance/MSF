@@ -1,0 +1,20 @@
+/* 应用骨架（DSG-U02-1：100vh 纵向 flex；body 不滚动，滚动只发生在 .app-view 与各面板内部） */
+
+.app-shell {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.app-main {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.app-view {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+}
