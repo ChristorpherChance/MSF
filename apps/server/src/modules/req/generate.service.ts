@@ -3,7 +3,7 @@ import { Inject, Injectable, Optional } from '@nestjs/common';
 import { DomainError } from '@msf/shared';
 import { query } from '../../db/pool.js';
 import { executeCommand, registerCommand, type CommandContext } from '../evidence/command-bus.js';
-import { sha256Text, type EditPatch } from '../platform/doc-sections.js';
+import { mdToPatches, sha256Text, type EditPatch } from '../platform/doc-sections.js';
 import { AI_PROVIDER, type AiProvider } from '../ai/ai-provider.interface.js';
 
 /**
@@ -242,7 +242,7 @@ export class GenerateService {
       }
       const res = await result;
       if (op.status === 'stopped') return { status: 'stopped' };
-      const patches = splitSections(res.text);
+      const patches = mdToPatches(res.text);
       if (patches.length === 0) return { status: 'failed', error: 'INTERNAL' };
       if (res.modelId) {
         await executeCommand('ai.usage.record', {
@@ -278,20 +278,6 @@ function buildPrompt(
 }
 
 /** 生成稿按 `## ` 章节切分为补丁（目录/前言段同样成补丁，标题截 80 字符） */
-function splitSections(text: string): EditPatch[] {
-  const patches: EditPatch[] = [];
-  for (const part of text.split(/^## /m)) {
-    const t = part.trim();
-    if (!t) continue;
-    const nl = t.indexOf('\n');
-    const title = (nl < 0 ? t : t.slice(0, nl)).replace(/^#+\s*/, '').trim().slice(0, 80);
-    const body = nl < 0 ? '' : t.slice(nl + 1).trim();
-    if (!title) continue;
-    patches.push({ type: 'add', secId: 's0', title, new: body });
-  }
-  return patches;
-}
-
 /** mock 生成器：目录先行 → 章节补丁（CRD 含 R/CR 锚点，PRD 含 CR/REQ/DSG 锚点，供 RTM 派生演示） */
 function buildMock(
   kind: 'crd' | 'prd',

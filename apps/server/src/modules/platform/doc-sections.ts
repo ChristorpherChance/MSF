@@ -17,6 +17,21 @@ export function sha256Text(s: string): string {
   return createHash('sha256').update(s.normalize('NFC'), 'utf8').digest('hex');
 }
 
+/** AI 真接产出 → 章节补丁（`## ` 切分，标题截 80 字符；需求/设计两域生成共用） */
+export function mdToPatches(text: string): EditPatch[] {
+  const patches: EditPatch[] = [];
+  for (const part of text.split(/^## /m)) {
+    const t = part.trim();
+    if (!t) continue;
+    const nl = t.indexOf('\n');
+    const title = (nl < 0 ? t : t.slice(0, nl)).replace(/^#+\s*/, '').trim().slice(0, 80);
+    const body = nl < 0 ? '' : t.slice(nl + 1).trim();
+    if (!title) continue;
+    patches.push({ type: 'add', secId: 's0', title, new: body });
+  }
+  return patches;
+}
+
 /** 全文 → 章节（## 二级标题切分；文首无标题部分为 s0） */
 export function splitSections(content: string): DocSection[] {
   const lines = content.split('\n');

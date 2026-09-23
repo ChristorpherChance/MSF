@@ -1,14 +1,17 @@
 import { randomBytes } from 'node:crypto';
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import { DomainError } from '@msf/shared';
 import { query } from '../../db/pool.js';
 import { executeCommand, registerCommand, type CommandContext } from '../evidence/command-bus.js';
-import { sha256Text, type EditPatch } from '../platform/doc-sections.js';
+import { mdToPatches, sha256Text, type EditPatch } from '../platform/doc-sections.js';
+import { AI_PROVIDER, type AiProvider } from '../ai/ai-provider.interface.js';
 import { DesignDocsService, DESIGN_BOOKS, type DesignKind } from './docs.service.js';
 
 /**
  * 设计文档 AI 生成（A05-2；REQ-302/114/115）。
  * mock 口径同 M2：目录先行 chunk → 章节补丁；生成门禁链 HLD←PRD 定稿、LLD←HLD 定稿（GATE_BLOCKED）。
+ * M7 真接（差异⑭回销）：注入 AI_PROVIDER（purpose='generation'）时走真实模型流式生成，
+ * 产出按 `## ` 章节切补丁（mdToPatches）；未注入保持 mock 口径不变。
  */
 
 export interface DesignGenInput {
@@ -26,6 +29,8 @@ interface GenOp {
   patches: EditPatch[];
   targetFingerprint: string;
   refs: Array<{ fileId: string; fingerprint: string }>;
+  /** 真接模式：start 时取参考正文，drive 时经 AI_PROVIDER 流式生成后切补丁 */
+  real?: { instruction: string; refTexts: Array<{ name: string; md: string }> };
 }
 
 const ops = new Map<string, GenOp>();
@@ -33,7 +38,10 @@ export const designGenTiming = { chunkDelayMs: 15 };
 
 @Injectable()
 export class DesignGenerateService {
-  constructor(@Inject(DesignDocsService) private readonly docs: DesignDocsService) {}
+  constructor(
+    @Inject(DesignDocsService) private readonly docs: DesignDocsService,
+    @Optional() @Inject(AI_PROVIDER) private readonly ai?: AiProvider,
+  ) {}
 
   onModuleInit(): void {
     registerCommand('design.doc.generate', async (client, payload) => {
@@ -66,6 +74,7 @@ export class DesignGenerateService {
     const running = [...ops.values()].find((o) => o.projectId === projectId && o.kind === kind && (o.status === 'running' || o.status === 'paused'));
     if (running) throw new DomainError('INVALID_STATE', '已有进行中的生成', running.id);
 
+    const refs: Array<{ fileId: string; fingerprint: string }> = [];
     for (const fileId of input.referenceFileIds) {
       const r = await query<{ content_fingerprint: string }>(
         `SELECT p.content_fingerprint FROM mat_parsed p JOIN mat_files f ON f.id=p.file_id
@@ -78,6 +87,7 @@ export class DesignGenerateService {
       if (declared && declared !== r.rows[0].content_fingerprint) {
         throw new DomainError('REFERENCE_STALE', '参考输入指纹与登记不一致', fileId);
       }
+      refs.push({ fileId, fingerprint: r.rows[0].content_fingerprint });
     }
 
     // 生成门禁链（REQ-302/304）：hld 消费 PRD 定稿；七册 LLD 消费 HLD 定稿
@@ -91,12 +101,27 @@ export class DesignGenerateService {
           'SELECT v.content FROM dsg_versions v JOIN dsg_documents d ON d.current_version_id=v.id WHERE d.id=$1', [d.id])
       : { rows: [] as Array<{ content: string }> };
     const operationId = `op_dgen_${randomBytes(6).toString('hex')}`;
-    const { chunks, patches } = buildMock(kind, input.instruction ?? '');
-    ops.set(operationId, {
-      id: operationId, projectId, kind, status: 'running',
-      chunks, patches, targetFingerprint: sha256Text(cur.rows[0]?.content ?? ''),
-      refs: input.referenceFileIds.map((fileId) => ({ fileId, fingerprint: input.referenceFingerprints[fileId] ?? '' })),
-    });
+    if (this.ai?.kind === 'pi') {
+      // 真接：取参考正文（content_final 已校验），drive 时流式生成后切补丁
+      const refTexts: Array<{ name: string; md: string }> = [];
+      for (const ref of refs) {
+        const t = await query<{ name: string; body_md: string }>(
+          `SELECT f.name, p.body_md FROM mat_parsed p JOIN mat_files f ON f.id=p.file_id
+           WHERE f.id=$1 AND p.kind='content_parse' AND p.status='final'`, [ref.fileId]);
+        if (t.rows[0]) refTexts.push({ name: t.rows[0].name, md: t.rows[0].body_md });
+      }
+      ops.set(operationId, {
+        id: operationId, projectId, kind, status: 'running',
+        chunks: [], patches: [], targetFingerprint: sha256Text(cur.rows[0]?.content ?? ''), refs,
+        real: { instruction: input.instruction ?? '', refTexts },
+      });
+    } else {
+      const { chunks, patches } = buildMock(kind, input.instruction ?? '');
+      ops.set(operationId, {
+        id: operationId, projectId, kind, status: 'running',
+        chunks, patches, targetFingerprint: sha256Text(cur.rows[0]?.content ?? ''), refs,
+      });
+    }
     await executeCommand('design.doc.generate', { projectId, kind, operationId }, { ...ctx, projectId });
     return { operationId };
   }
@@ -130,13 +155,25 @@ export class DesignGenerateService {
   ): Promise<{ status: 'done' | 'stopped' | 'failed'; patchIds?: string[]; error?: string }> {
     const op = ops.get(operationId);
     if (!op) throw new DomainError('NOT_FOUND', '生成操作不存在', operationId);
-    for (const chunk of op.chunks) {
-      while (op.status === 'paused') await sleep(30);
+    if (op.real) {
+      const real = await this.driveReal(op, onDelta);
+      if (real.status !== 'done') {
+        ops.delete(operationId);
+        if (real.status === 'failed') {
+          await executeCommand('design.doc.gen_control', { projectId: op.projectId, kind: op.kind, genState: 'failed' }, { ...ctx, projectId: op.projectId });
+        }
+        return real;
+      }
+      op.patches = real.patches!;
+    } else {
+      for (const chunk of op.chunks) {
+        while (op.status === 'paused') await sleep(30);
+        if (op.status === 'stopped') return { status: 'stopped' };
+        onDelta(chunk);
+        if (designGenTiming.chunkDelayMs > 0) await sleep(designGenTiming.chunkDelayMs);
+      }
       if (op.status === 'stopped') return { status: 'stopped' };
-      onDelta(chunk);
-      if (designGenTiming.chunkDelayMs > 0) await sleep(designGenTiming.chunkDelayMs);
     }
-    if (op.status === 'stopped') return { status: 'stopped' };
     for (const ref of op.refs) {
       if (!ref.fingerprint) continue;
       const r = await query<{ content_fingerprint: string }>(
@@ -162,10 +199,68 @@ export class DesignGenerateService {
       return { status: 'failed', error: e instanceof DomainError ? e.code : 'INTERNAL' };
     }
   }
+
+  /**
+   * 真接驱动：经 AI_PROVIDER（purpose='generation'）流式生成；pause 缓冲、stop 中止；
+   * 完成后按章节切补丁，用量经 ai.usage.record 落账（REQ-612）。
+   */
+  private async driveReal(
+    op: GenOp,
+    onDelta: (text: string) => void,
+  ): Promise<{ status: 'done' | 'stopped' | 'failed'; patches?: EditPatch[]; error?: string }> {
+    const real = op.real!;
+    const t0 = Date.now();
+    try {
+      const session = await this.ai!.createSession({ projectId: op.projectId, purpose: 'generation' });
+      const { deltas, result } = session.stream(buildDesignPrompt(op.kind, real.instruction, real.refTexts));
+      let buf: string[] = [];
+      for await (const d of deltas) {
+        if (op.status === 'stopped') {
+          session.stop();
+          return { status: 'stopped' };
+        }
+        if (op.status === 'paused') {
+          buf.push(d);
+          continue;
+        }
+        if (buf.length > 0) {
+          for (const b of buf) onDelta(b);
+          buf = [];
+        }
+        onDelta(d);
+      }
+      const res = await result;
+      if (op.status === 'stopped') return { status: 'stopped' };
+      const patches = mdToPatches(res.text);
+      if (patches.length === 0) return { status: 'failed', error: 'INTERNAL' };
+      if (res.modelId) {
+        await executeCommand('ai.usage.record', {
+          projectId: op.projectId, modelId: res.modelId, purpose: 'generation',
+          tokensIn: res.usage.inputTokens, tokensOut: res.usage.outputTokens,
+          durationMs: Date.now() - t0, cost: res.usage.cost ?? 0,
+        }, { projectId: op.projectId, actorKind: 'assistant', actorId: 'pi' });
+      }
+      return { status: 'done', patches };
+    } catch (e) {
+      return { status: 'failed', error: e instanceof DomainError ? e.code : 'INTERNAL' };
+    }
+  }
 }
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+/** 真接提示词：角色 + 章节口径（`## ` 条目）+ 用户指示 + 参考正文 */
+function buildDesignPrompt(kind: DesignKind, instruction: string, refTexts: Array<{ name: string; md: string }>): string {
+  const book = DESIGN_BOOKS.find((b) => b.kind === kind)!;
+  const refs = refTexts.map((r) => `## 参考资料：${r.name}\n\n${r.md}`).join('\n\n');
+  return [
+    `你是软件工厂的设计助手。请基于上游文档与参考资料，生成《${book.name}》（${book.prefix} 册）初稿。`,
+    '输出为 Markdown 正文，按 `## ` 二级标题分节（章节标题简洁、不超过 30 字），每节给出可执行的设计内容。',
+    instruction ? `用户指示：${instruction}` : '',
+    refs ? `\n${refs}` : '',
+  ].filter(Boolean).join('\n');
 }
 
 /** mock 生成器：按册前缀产章节（h/o/g/k/d/a/u/n 章节体系，REQ-302） */
