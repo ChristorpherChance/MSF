@@ -1,15 +1,15 @@
 import { useState } from 'react';
 import { devApi, type DevTask } from './api';
-import { useDevStore } from './store';
+import { asgIcon, KIND_CLASS, KIND_LABEL, useDevStore } from './store';
 
 const COLS: Array<{ key: DevTask['col']; name: string }> = [
-  { key: 'queue', name: '排队' },
-  { key: 'ing', name: '进行中' },
-  { key: 'review', name: '待评审' },
-  { key: 'done', name: '已完成' },
+  { key: 'queue', name: '📥 排队' },
+  { key: 'ing', name: '⚙️ 进行中' },
+  { key: 'review', name: '👀 待评审' },
+  { key: 'done', name: '✅ 已合并' },
 ];
 
-/** 页签二：开发执行（F02-5 看板四列 + F02-6 autopilot 命令条 + 任务操作抽屉） */
+/** 执行工作区 · 任务看板（V7：卡片全字段 + 行内按钮；F02-5 四列 + F02-6 autopilot 命令条） */
 export function BoardPanel() {
   const s = useDevStore();
   const pid = s.projectId!;
@@ -35,13 +35,14 @@ export function BoardPanel() {
           )}
         </div>
         {run?.blocker && (
-          <div className="gate-box">
+          <div className="gate-box err">
             <div className="issue-row">阻断 {run.blocker.code}：{run.blocker.message}</div>
           </div>
         )}
         <div className="gen-ops">
           {!running && approved && (
             <button
+              className="act primary"
               onClick={() =>
                 window.confirm(`批准并启动 autopilot？\n计划 ${approved.revision} 指纹：${approved.fingerprint}\n授权范围：开发/单测CI/AI评审/合并/集成构建（不含转测试）`) &&
                 s.act(() => devApi.autopilotStart(pid, approved.revision, approved.fingerprint), 'autopilot 已启动')}
@@ -68,31 +69,22 @@ export function BoardPanel() {
             </button>
           )}
           <button className="act" onClick={() => s.refresh()}>刷新状态</button>
+          <span className="spacer" />
+          <span className="dsg-prefix">开始动作实时复核计划、基线、依赖和影响；暂停/停止不会伪造完成。</span>
         </div>
       </div>
 
-      {/* 看板四列（阻塞是标记不是列） */}
-      <div className="dev-board">
-        {COLS.map((c) => (
-          <div key={c.key} className="dev-col">
-            <div className="dev-col-head">{c.name}（{s.tasks.filter((t) => t.col === c.key).length}）</div>
-            {s.tasks.filter((t) => t.col === c.key).map((t) => (
-              <div
-                key={t.id}
-                className={`dev-card${s.selTaskId === t.id ? ' sel' : ''}`}
-                onClick={() => void s.selectTask(t.id)}
-              >
-                <div className="dev-card-title">
-                  {t.code} {t.title}
-                  {t.blocked && <span className="dev-badge-block">阻塞</span>}
-                </div>
-                <div className="dsg-prefix">
-                  {t.kind} · 批次{t.batchNo ?? '-'} · r{t.rev}/c{t.codeRev} · {t.runStatus} · {t.prog}%
-                </div>
-              </div>
-            ))}
-          </div>
-        ))}
+      {/* V7 看板四列（阻塞是标记不是列；卡片含承接图标/依赖/进度/行内按钮/⚠变更徽标） */}
+      <div className="v17-board">
+        {COLS.map((c) => {
+          const colTasks = s.tasks.filter((t) => t.col === c.key);
+          return (
+            <div key={c.key} className="v17-col">
+              <h4>{c.name} · {colTasks.length}</h4>
+              {colTasks.map((t) => <BoardCard key={t.id} t={t} />)}
+            </div>
+          );
+        })}
       </div>
 
       {s.taskDetail && <TaskDrawer />}
@@ -100,7 +92,90 @@ export function BoardPanel() {
   );
 }
 
-/** 任务操作抽屉：门禁提示 + 流转 + PR checklist + 合并依据 */
+/** V7 看板卡（原型 devBoardCardHtml：asgIcon + ⚠变更徽标 + 进度条 + 行内按钮） */
+function BoardCard({ t }: { t: DevTask }) {
+  const s = useDevStore();
+  const pid = s.projectId!;
+  const impacted = s.impacts.some((i) => i.status === 'pending-assessment' && i.affected_tasks.includes(t.code));
+  const gate = s.selTaskId === t.id ? s.startGate : null;
+
+  const act = () => {
+    if (t.col === 'queue') {
+      return (
+        <button
+          className="act mini primary"
+          disabled={gate !== null && !gate.ok}
+          title={gate && !gate.ok ? gate.issues.map((i) => i.message).join('；') : ''}
+          onClick={(e) => { e.stopPropagation(); void s.act(async () => { await devApi.transition(pid, t.id, 'ing'); }, `${t.code} 已开始`); }}
+        >
+          开始
+        </button>
+      );
+    }
+    if (t.col === 'ing') {
+      return (
+        <>
+          {t.runStatus === 'paused' || t.runStatus === 'stopped' ? (
+            <button className="act mini primary" onClick={(e) => { e.stopPropagation(); void s.act(() => devApi.transition(pid, t.id, 'resume'), '已继续'); }}>继续</button>
+          ) : (
+            <>
+              {t.ownerType !== 'human' && (
+                <button className="act mini" onClick={(e) => { e.stopPropagation(); void s.act(() => devApi.runTask(pid, t.id), '编码完成'); }}>执行编码</button>
+              )}
+              <button className="act mini" onClick={(e) => { e.stopPropagation(); void s.act(() => devApi.transition(pid, t.id, 'pause'), '已暂停'); }}>暂停</button>
+            </>
+          )}
+          <button className="act mini" onClick={(e) => { e.stopPropagation(); void s.act(() => devApi.transition(pid, t.id, 'stop'), '已停止并返回排队重排'); }}>停止</button>
+          {t.prog >= 100 && (
+            <button className="act mini primary" onClick={(e) => { e.stopPropagation(); void s.act(() => devApi.transition(pid, t.id, 'review'), '已提交评审'); }}>提交评审</button>
+          )}
+        </>
+      );
+    }
+    if (t.col === 'review') {
+      return (
+        <button className="act mini" onClick={(e) => { e.stopPropagation(); void s.setTopTab('quality'); s.setSide('pr'); }}>查看 PR</button>
+      );
+    }
+    return null;
+  };
+
+  return (
+    <div
+      className={`v17-run${s.selTaskId === t.id ? ' sel' : ''}`}
+      onClick={() => void s.selectTask(t.id)}
+    >
+      <div className="v17-taskline">
+        <b>{t.code}</b>
+        <span className={`tag dev-kind-${KIND_CLASS[t.kind] ?? 'gray'}`}>{KIND_LABEL[t.kind] ?? t.kind}</span>
+        {impacted && <span className="tag tag-warn" title="有未处置/需返工的变更影响">⚠ 变更</span>}
+        {t.blocked && <span className="dev-badge-block">阻塞</span>}
+      </div>
+      <div className="v17-cardtitle">{t.title}</div>
+      <div className="v17-meta">
+        批次 {t.batchNo ? `B${t.batchNo}` : '—'} · {asgIcon(t.ownerType)} {t.owner}
+        <br />依赖：{t.deps.join('、') || '无'}
+        {t.sourceIds.length > 0 && (
+          <>
+            <br />
+            {t.sourceIds.map((sid) => (
+              <span key={sid} className="tag" style={{ marginRight: 4 }} title="来源条目">{sid} 🔗</span>
+            ))}
+          </>
+        )}
+      </div>
+      {t.col === 'ing' && (
+        <>
+          <div className="prog"><i style={{ width: `${t.prog}%` }} /></div>
+          <div className="v17-meta">{t.prog}% · {t.runStatus === 'paused' ? '已暂停' : t.prog >= 100 ? '实现就绪，尚未提交' : t.ownerType === 'human' ? '人工填报' : '执行中'}</div>
+        </>
+      )}
+      <div className="mini-act">{act()}</div>
+    </div>
+  );
+}
+
+/** 任务操作抽屉：门禁提示 + 返工 + PR checklist + 合并依据（卡片行内按钮之外的完整操作面） */
 function TaskDrawer() {
   const s = useDevStore();
   const pid = s.projectId!;
@@ -118,13 +193,14 @@ function TaskDrawer() {
     <div className="dsg-card dev-drawer">
       <div className="gen-head">
         <strong>{t.code} {t.title}</strong>
+        <span className="dsg-prefix">r{t.rev}/c{t.codeRev} · {t.runStatus}</span>
         <button className="act" onClick={() => void s.selectTask(null)}>关闭</button>
       </div>
       <p className="dsg-prefix">
         目标：{t.goal}｜范围：{t.scope}｜边界：{t.boundary}｜写入：{t.writeScopes.join('、') || '-'}
       </p>
       {t.col === 'queue' && s.startGate && !s.startGate.ok && (
-        <div className="gate-box">
+        <div className="gate-box err">
           {s.startGate.issues.map((i) => (
             <div key={i.code + (i.target ?? '')} className="issue-row">{i.code}：{i.message}</div>
           ))}
@@ -132,22 +208,13 @@ function TaskDrawer() {
       )}
       <div className="gen-ops">
         {t.col === 'queue' && (
-          <button disabled={s.startGate ? !s.startGate.ok : false} onClick={() => transition('ing')}>开始</button>
+          <button className="act primary" disabled={s.startGate ? !s.startGate.ok : false} onClick={() => transition('ing')}>开始</button>
         )}
-        {t.col === 'ing' && t.runStatus === 'running' && (
-          <>
-            <button className="act" onClick={() => s.act(async () => { await devApi.runTask(pid, t.id); await s.selectTask(t.id); }, '编码完成（mock）')}>执行编码</button>
-            <button className="act" onClick={() => transition('pause')}>暂停</button>
-          </>
-        )}
-        {t.col === 'ing' && ['paused', 'stopped'].includes(t.runStatus) && (
-          <button className="act" onClick={() => transition('resume')}>继续</button>
-        )}
-        {t.col === 'ing' && t.runStatus === 'running' && (
-          <button className="act" onClick={() => transition('stop')}>停止</button>
+        {t.col === 'ing' && t.runStatus === 'running' && t.ownerType !== 'human' && (
+          <button className="act" onClick={() => s.act(async () => { await devApi.runTask(pid, t.id); await s.selectTask(t.id); }, '编码完成')}>执行编码</button>
         )}
         {t.col === 'ing' && t.prog === 100 && (
-          <button onClick={() => transition('review')}>提交评审</button>
+          <button className="act primary" onClick={() => transition('review')}>提交评审</button>
         )}
         {['ing', 'review'].includes(t.col) && (
           <>
@@ -161,6 +228,13 @@ function TaskDrawer() {
             </button>
           </>
         )}
+        {t.col === 'ing' && t.ownerType === 'human' && (
+          <div className="form-row" style={{ margin: 0 }}>
+            {[10, 25, 50].map((n) => (
+              <button key={n} className="act mini" onClick={() => s.act(async () => { await devApi.progress(pid, t.id, Math.min(100, t.prog + n)); await s.selectTask(t.id); })}>+{n}%</button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* PR 与评审（review 列） */}
@@ -171,10 +245,10 @@ function TaskDrawer() {
             <span className="dsg-prefix">codeRev {pr.code_rev}</span>
           </div>
           <div className="gen-ops">
-            <button className="act" onClick={() => s.act(async () => { await devApi.quality(pid, t.id); await s.selectTask(t.id); }, '单测+CI 证据已落（mock 达标）')}>
+            <button className="act" onClick={() => s.act(async () => { await devApi.quality(pid, t.id); await s.selectTask(t.id); }, '单测+CI 证据已落')}>
               执行单测/CI
             </button>
-            <button className="act" onClick={() => s.act(async () => { await devApi.aiReview(pid, t.id); await s.selectTask(t.id); }, 'AI 独立评审已落')}>
+            <button className="act" onClick={() => s.act(async () => { await devApi.aiReview(pid, t.id); await s.selectTask(t.id); }, 'AI 评审已落')}>
               AI 评审
             </button>
           </div>
@@ -203,13 +277,13 @@ function TaskDrawer() {
             </button>
           </div>
           <div className="gen-ops">
-            <button onClick={() => s.act(async () => { await devApi.merge(pid, t.id, 'manual-checklist'); }, '已合并（manual-checklist）')}>
+            <button className="act primary" onClick={() => s.act(async () => { await devApi.merge(pid, t.id, 'manual-checklist'); await s.selectTask(t.id); }, '已合并（manual-checklist）')}>
               合并（checklist）
             </button>
-            <button className="act" onClick={() => s.act(async () => { await devApi.merge(pid, t.id, 'manual-skip', skipReason || undefined); }, '已合并（manual-skip）')}>
+            <button className="act" onClick={() => s.act(async () => { await devApi.merge(pid, t.id, 'manual-skip', skipReason || undefined); await s.selectTask(t.id); }, '已合并（manual-skip）')}>
               合并（豁免）
             </button>
-            <button className="act" onClick={() => s.act(async () => { await devApi.merge(pid, t.id, 'legacy-manual'); }, '已合并（legacy-manual）')}>
+            <button className="act" onClick={() => s.act(async () => { await devApi.merge(pid, t.id, 'legacy-manual'); await s.selectTask(t.id); }, '已合并（legacy-manual）')}>
               合并（遗留人工）
             </button>
           </div>
@@ -234,7 +308,7 @@ function TaskDrawer() {
       {t.evidence.length > 0 && (
         <div className="dsg-prefix">
           证据：{t.evidence.map((e) => `${e.kind}#${e.seq}`).join('、')}
-          {t.ci.length > 0 && `｜CI：${t.ci.map((c) => `${c.commit_sha.slice(0, 8)}=${c.conclusion}`).join('、')}`}
+          {t.ciReports.length > 0 && `｜CI：${t.ciReports.map((c) => `${c.commit_sha.slice(0, 8)}=${c.conclusion}`).join('、')}`}
         </div>
       )}
     </div>

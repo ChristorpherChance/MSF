@@ -91,6 +91,9 @@ export const COMMANDS = [
   'dev.identify.start',
   'dev.identify.complete',
   'dev.task.save',
+  'dev.task.create', // 人工新建草稿任务（原型 newDevTask/devCreateTask），差异登记
+  'dev.task.improve', // 批量补齐缺失/不可执行规格字段（原型 devImproveTasks），差异登记
+  'dev.plan.schedule', // 依赖拓扑编排批次+写入范围冲突串行（原型 devSchedule/devDependencyPlan），差异登记
   'dev.coverage.confirm',
   'dev.coverage.confirm-all',
   'dev.plan.submit',

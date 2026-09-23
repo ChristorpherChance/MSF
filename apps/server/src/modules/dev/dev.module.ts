@@ -10,6 +10,7 @@ import { DevSelftestService } from './selftest.service.js';
 import { DevTransferService } from './transfer.service.js';
 import { DevImpactService } from './impact.service.js';
 import { DevCiService } from './ci.service.js';
+import { DevRepoService } from './repo.service.js';
 import { DevController } from './dev.controller.js';
 
 /** M06 开发域（M4：任务池/计划/看板/autopilot/构建/自测四门/转测试/变更/CI 回传） */
@@ -18,7 +19,7 @@ import { DevController } from './dev.controller.js';
   controllers: [DevController],
   providers: [
     DevTasksService, DevPlansService, DevBoardService, DevAutopilotService,
-    DevBuildService, DevSelftestService, DevTransferService, DevImpactService, DevCiService,
+    DevBuildService, DevSelftestService, DevTransferService, DevImpactService, DevCiService, DevRepoService,
   ],
 })
 export class DevModule {}

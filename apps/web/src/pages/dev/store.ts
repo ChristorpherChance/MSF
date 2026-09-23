@@ -10,17 +10,32 @@ import {
   type GateResult,
   type ImpactItem,
   type PlanItem,
-  type ReportDetail,
   type ReportItem,
 } from './api';
 
-/** 开发页会话态（LLD-6 §3.5；DSG-D00 会话态不落库） */
+/** 开发页会话态（LLD-6 §3.5 两层导航；DSG-D00 会话态不落库） */
 
-export type DevSubTab = 'plan' | 'board' | 'quality' | 'change';
+export type DevTopTab = 'plan' | 'execute' | 'quality' | 'change';
+/** plan 左栏：all/gap 过滤 + 三视图 */
+export type DevPlanFilter = 'all' | 'gap';
+export type DevPlanView = 'business' | 'division' | 'order';
+/** V4 注意项页签 */
+export type DevAttentionView = 'human' | 'ai' | 'all';
+export type DevExecutePage = 'board' | 'repo' | 'std';
+export type DevQualityPage = 'targets' | 'unit' | 'pr' | 'build' | 'selftest';
+export type DevChangePage = 'impacts' | 'baseline' | 'history';
 
 interface DevViewState {
   projectId: string | null;
-  subTab: DevSubTab;
+  topTab: DevTopTab;
+  planFilter: DevPlanFilter;
+  planQuery: string;
+  planView: DevPlanView;
+  attentionView: DevAttentionView;
+  manualToolsOpen: boolean;
+  executePage: DevExecutePage;
+  qualityPage: DevQualityPage;
+  changePage: DevChangePage;
   tasks: DevTask[];
   selTaskId: string | null;
   taskDetail: DevTaskDetail | null;
@@ -32,7 +47,6 @@ interface DevViewState {
   build: BuildInfo | null;
   selftestGate: (GateResult & { report: ReportItem | null }) | null;
   reports: ReportItem[];
-  reportDetail: ReportDetail | null;
   transferGate: GateResult | null;
   impacts: ImpactItem[];
   ciSecret: { enabled: boolean; secretMasked?: string } | null;
@@ -42,7 +56,13 @@ interface DevViewState {
   notice: string | null;
 
   init: () => Promise<void>;
-  setSubTab: (t: DevSubTab) => Promise<void>;
+  setTopTab: (t: DevTopTab) => Promise<void>;
+  setSide: (key: string) => void;
+  setPlanView: (v: DevPlanView) => void;
+  setPlanFilter: (f: DevPlanFilter) => void;
+  setPlanQuery: (q: string) => void;
+  setAttentionView: (v: DevAttentionView) => void;
+  toggleManualTools: () => void;
   refresh: () => Promise<void>;
   selectTask: (taskId: string | null) => Promise<void>;
   act: (fn: () => Promise<unknown>, okMsg?: string) => Promise<void>;
@@ -51,7 +71,15 @@ interface DevViewState {
 
 export const useDevStore = create<DevViewState>((set, get) => ({
   projectId: null,
-  subTab: 'plan',
+  topTab: 'plan',
+  planFilter: 'all',
+  planQuery: '',
+  planView: 'business',
+  attentionView: 'human',
+  manualToolsOpen: false,
+  executePage: 'board',
+  qualityPage: 'targets',
+  changePage: 'impacts',
   tasks: [],
   selTaskId: null,
   taskDetail: null,
@@ -63,7 +91,6 @@ export const useDevStore = create<DevViewState>((set, get) => ({
   build: null,
   selftestGate: null,
   reports: [],
-  reportDetail: null,
   transferGate: null,
   impacts: [],
   ciSecret: null,
@@ -79,10 +106,26 @@ export const useDevStore = create<DevViewState>((set, get) => ({
     await get().refresh();
   },
 
-  setSubTab: async (t) => {
-    set({ subTab: t, error: null });
+  setTopTab: async (t) => {
+    set({ topTab: t, selTaskId: null, taskDetail: null, startGate: null, error: null });
     await get().refresh();
   },
+
+  /** 左栏切换（按当前顶页签路由到对应工作区键） */
+  setSide: (key) => {
+    const t = get().topTab;
+    if (t === 'plan') set({ planFilter: key === 'gap' ? 'gap' : 'all' });
+    else if (t === 'execute') set({ executePage: key as DevExecutePage });
+    else if (t === 'quality') set({ qualityPage: key as DevQualityPage });
+    else set({ changePage: key as DevChangePage });
+    set({ selTaskId: null, taskDetail: null, startGate: null });
+  },
+
+  setPlanView: (v) => set({ planView: v }),
+  setPlanFilter: (f) => set({ planFilter: f }),
+  setPlanQuery: (q) => set({ planQuery: q }),
+  setAttentionView: (v) => set({ attentionView: v }),
+  toggleManualTools: () => set({ manualToolsOpen: !get().manualToolsOpen }),
 
   refresh: async () => {
     const pid = get().projectId;
@@ -154,3 +197,71 @@ export const useDevStore = create<DevViewState>((set, get) => ({
 
   clearNotice: () => set({ notice: null, error: null }),
 }));
+
+/** 分工标签/色（原型 devKindLabel/devKindClass） */
+export const KIND_LABEL: Record<string, string> = { frontend: '前端', backend: '后端', common: '公共', integration: '联调' };
+export const KIND_CLASS: Record<string, string> = { frontend: 'blue', backend: 'green', common: 'orange', integration: 'red' };
+/** 承接图标（原型 asgIcon：agent→🤖 human→👤） */
+export const asgIcon = (ownerType: string) => (ownerType === 'human' ? '👤' : '🤖');
+
+/** V4 注意项模型（原型 devAttentionModel 同口径，全部由真实数据派生） */
+export interface AttentionRow {
+  key: string; kind: 'task' | 'gap'; taskId: string; sourceId: string; title: string;
+  severity: 'blocking' | 'normal'; assigneeType: 'human' | 'ai'; reasons: string[];
+}
+export function attentionModel(s: Pick<DevViewState, 'tasks' | 'coverage' | 'baseline' | 'impacts' | 'autopilot'>) {
+  const human = new Map<string, AttentionRow>();
+  const ai = new Map<string, AttentionRow>();
+  const add = (bucket: Map<string, AttentionRow>, row: AttentionRow) => {
+    const found = bucket.get(row.key);
+    if (found) { found.reasons.push(...row.reasons); if (row.severity === 'blocking') found.severity = 'blocking'; }
+    else bucket.set(row.key, row);
+  };
+  const base = (t: DevTask): AttentionRow => ({
+    key: `task:${t.code}`, kind: 'task', taskId: t.id, sourceId: '', title: `${t.code} · ${t.title}`,
+    severity: 'normal', assigneeType: t.ownerType === 'human' ? 'human' : 'ai', reasons: [],
+  });
+  const doneCodes = new Set(s.tasks.filter((t) => t.col === 'done').map((t) => t.code));
+  for (const t of s.tasks) {
+    if (t.specIssues.length > 0) {
+      add(human, { ...base(t), severity: 'blocking', reasons: t.specIssues.slice(0, 3) });
+    }
+    if (t.coveragePending > 0) {
+      add(ai, { ...base(t), reasons: [`覆盖核对 ${t.coverageTotal - t.coveragePending}/${t.coverageTotal}，可按当前来源与任务修订核对`] });
+    }
+    if (t.batchNo === null) {
+      add(ai, { ...base(t), reasons: ['依赖与写入范围可自动编排'] });
+    }
+    if (t.unit && !t.unit.pass) {
+      add(human, { ...base(t), severity: 'blocking', reasons: ['单测覆盖率或质量场景未通过'] });
+    }
+    if (t.ci && t.ci.conclusion !== 'pass') {
+      add(human, { ...base(t), severity: 'blocking', reasons: [`当前 PR CI 未通过（${t.ci.conclusion}）`] });
+    }
+    if (t.ownerType === 'human' && t.col !== 'done' && t.deps.every((d) => doneCodes.has(d))) {
+      add(human, { ...base(t), severity: 'blocking', reasons: ['人工承接任务已可处理'] });
+    }
+  }
+  for (const code of s.coverage?.uncoveredDesignItems ?? []) {
+    add(human, {
+      key: `gap:${code}`, kind: 'gap', taskId: '', sourceId: code, title: `设计项 ${code} 尚无承接任务`,
+      severity: 'blocking', assigneeType: 'human', reasons: [`${code} 尚无承接任务`],
+    });
+  }
+  if (s.baseline && !s.baseline.valid) {
+    add(human, {
+      key: 'input:baseline', kind: 'gap', taskId: '', sourceId: 'baseline', title: '开发输入基线已变化',
+      severity: 'blocking', assigneeType: 'human', reasons: ['需要人工核对差异并确认新基线'],
+    });
+  }
+  const blocker = s.autopilot?.run?.blocker;
+  if (blocker) {
+    add(human, {
+      key: 'run:blocker', kind: 'gap', taskId: '', sourceId: 'autopilot', title: '自动执行已挂起',
+      severity: 'blocking', assigneeType: 'human', reasons: [`${blocker.code}：${blocker.message}`],
+    });
+  }
+  const values = (m: Map<string, AttentionRow>) =>
+    [...m.values()].sort((a, b) => (a.severity === 'blocking' ? -1 : 0) - (b.severity === 'blocking' ? -1 : 0) || a.key.localeCompare(b.key));
+  return { needsHuman: values(human), aiActionable: values(ai) };
+}

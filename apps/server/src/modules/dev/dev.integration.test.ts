@@ -524,4 +524,102 @@ describe('Dev 开发域（集成，需 DB+MinIO）', async () => {
     // 停止后不可恢复
     await expect(autopilot.control(PID, 'resume', CTX)).rejects.toMatchObject({ code: 'INVALID_STATE' });
   }, 30000);
+
+  it('T12 W6 任务池扩展：create/improve/save 全字段/schedule（dev.task.create/improve、dev.plan.schedule）', async () => {
+    // 人工新建：缺标题/非法 kind 拒绝；成功入池为 human 草稿
+    await expect(tasks.createTask(PID, '  ', 'frontend', CTX)).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+    await expect(tasks.createTask(PID, 'x', 'middle', CTX)).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+    const created = (await tasks.createTask(PID, '手工任务：验收口径补录', 'common', CTX)) as { id: string; code: string };
+    expect(created.code).toMatch(/^T-\d{3}$/);
+    let det = (await tasks.detail(PID, created.id)) as unknown as {
+      col: string; ownerType: string; specIssuesFull: Array<{ code: string }>;
+    };
+    expect(det.col).toBe('queue');
+    expect(det.ownerType).toBe('human');
+    expect(det.specIssuesFull.length).toBeGreaterThan(0); // 草稿天然缺规格
+
+    // 完善任务：仅补缺不覆盖已有具体标准
+    const imp = (await tasks.improveTasks(PID, CTX)) as { improved: number };
+    expect(imp.improved).toBeGreaterThanOrEqual(1);
+    const det2 = (await tasks.detail(PID, created.id)) as unknown as {
+      specIssuesFull: Array<{ code: string }>; rev: number; quality: { line: number; scenarios: Array<{ type: string }> };
+      goal: string;
+    };
+    expect(det2.rev).toBe(2);
+    expect(det2.quality.line).toBe(80);
+    expect(det2.quality.scenarios.some((s) => s.type === 'normal')).toBe(true);
+    expect(det2.goal).toContain('手工任务');
+    expect(det2.specIssuesFull.filter((i) => i.code.startsWith('SPEC_QUALITY'))).toHaveLength(0);
+
+    // save 全字段：rev++ + 覆盖重置 pending + 来源落 source_ids
+    await tasks.saveTask(PID, created.id, {
+      title: '手工任务：验收口径补录（修订）',
+      kind: 'backend', owner: 'mock-agent', asgType: 'agent', effort: '1d',
+      goal: '补录验收口径', scope: 'src/acceptance', boundary: '不改公共接口',
+      sourceIds: ['SRC-900'], work: ['梳理验收口径'], inputs: ['PRD'], deliverables: ['src/acceptance/spec.ts'],
+      acceptance: [{ item: '口径全覆盖', pass: false }],
+      quality: {
+        object: '验收口径', line: 85, branch: 75,
+        scenarios: [
+          { type: 'normal', applicable: true, case: '正常输入', expected: '口径齐全', pass: '断言通过' },
+          { type: 'boundary', applicable: true, case: '空口径', expected: '明确提示', pass: '无崩溃' },
+          { type: 'exception', applicable: false, notApplicableReason: '异常由公共错误层覆盖' },
+        ],
+      },
+      deps: [], writeScopes: ['src/acceptance'],
+    }, CTX);
+    det = (await tasks.detail(PID, created.id)) as unknown as {
+      col: string; ownerType: string; specIssuesFull: Array<{ code: string }>;
+    };
+    const det3 = det as unknown as {
+      rev: number; kind: string; sourceIds: string[]; coverage: Array<{ item_id: string; status: string; task_rev: number }>;
+      specIssuesFull: Array<{ code: string }>;
+    };
+    expect(det3.rev).toBe(3);
+    expect(det3.kind).toBe('backend');
+    expect(det3.sourceIds).toEqual(['SRC-900']);
+    expect(det3.coverage).toEqual([{ item_id: 'SRC-900', status: 'pending', task_rev: 3 }]);
+    expect(det3.specIssuesFull).toHaveLength(0);
+    // 非 queue 不可编辑
+    await query("UPDATE dev_tasks SET col='ing' WHERE id=$1", [created.id]);
+    await expect(tasks.saveTask(PID, created.id, { title: 'x' }, CTX)).rejects.toMatchObject({ code: 'INVALID_STATE' });
+    await query("UPDATE dev_tasks SET col='queue' WHERE id=$1", [created.id]);
+
+    // schedule：依赖拓扑 + 写范围冲突串行
+    const sch = (await tasks.schedule(PID, CTX)) as { batches: number; changed: number };
+    expect(sch.batches).toBeGreaterThanOrEqual(1);
+    const items = ((await listTasks()) as unknown) as Array<{ code: string; batchNo: number | null; deps: string[] }>;
+    const byCode = new Map(items.map((t) => [t.code, t]));
+    for (const t of items) {
+      for (const d of t.deps) {
+        expect(byCode.get(t.code)!.batchNo!).toBeGreaterThan(byCode.get(d)!.batchNo!);
+      }
+    }
+    // 循环依赖 → GATE_BLOCKED（先造环再解开）
+    await query("UPDATE dev_tasks SET deps=$3 WHERE project_id=$1 AND code=$2", [PID, items[0]!.code, JSON.stringify([items[1]!.code])]);
+    await query("UPDATE dev_tasks SET deps=$3 WHERE project_id=$1 AND code=$2", [PID, items[1]!.code, JSON.stringify([items[0]!.code])]);
+    await expect(tasks.schedule(PID, CTX)).rejects.toMatchObject({ code: 'GATE_BLOCKED' });
+    await query("UPDATE dev_tasks SET deps='[]' WHERE project_id=$1 AND code = ANY($2)", [PID, [items[0]!.code, items[1]!.code]]);
+    await tasks.schedule(PID, CTX);
+
+    // repo tree/changes（A06-9）
+    const { DevRepoService } = await import('./repo.service.js');
+    const repo = new DevRepoService();
+    const tree = (await repo.tree(PID)) as { tree: Array<{ path: string; kind: string }>; file: { path: string; content: string } | null; lint: { ok: boolean } };
+    expect(tree.tree.length).toBeGreaterThan(0);
+    expect(tree.lint.ok).toBe(true);
+    const sel = (await repo.tree(PID, 'src/acceptance/spec.ts')) as { file: { path: string; taskCode: string | null } | null };
+    expect(sel.file?.path).toBe('src/acceptance/spec.ts');
+    expect(sel.file?.taskCode).toBe(created.code);
+    const chg = (await repo.changes(PID)) as { changes: Array<{ taskCode: string; basis: string }> };
+    expect(chg.changes.length).toBeGreaterThan(0); // T4 已合并 PR
+    await expect(repo.changes(PID, 'no-such-id')).rejects.toMatchObject({ code: 'NOT_FOUND' });
+
+    // list 携带证据摘要（T4 合并的任务有 unit/ci；T10 对 pageTasks[0] 晚到 unknown，取结论为 pass 的任务验证）
+    const listed = (await tasks.list(PID)) as { items: Array<{ code: string; unit: { pass: boolean } | null; ci: { conclusion: string } | null; specIssues: string[] }> };
+    const withUnit = listed.items.filter((t) => t.unit !== null);
+    expect(withUnit.length).toBeGreaterThan(0);
+    expect(withUnit.every((t) => t.ci !== null)).toBe(true);
+    expect(withUnit.some((t) => t.ci!.conclusion === 'pass')).toBe(true);
+  });
 });

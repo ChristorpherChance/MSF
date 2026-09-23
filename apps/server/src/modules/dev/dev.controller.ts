@@ -12,6 +12,7 @@ import { DevSelftestService } from './selftest.service.js';
 import { DevTransferService } from './transfer.service.js';
 import { DevImpactService } from './impact.service.js';
 import { DevCiService } from './ci.service.js';
+import { DevRepoService } from './repo.service.js';
 
 /** 开发域端点（LLD-5 DSG-A06-1~22；REQ-401~420） */
 @Controller('api/v1/projects/:projectId/dev')
@@ -26,6 +27,7 @@ export class DevController {
     @Inject(DevTransferService) private readonly transfer: DevTransferService,
     @Inject(DevImpactService) private readonly impact: DevImpactService,
     @Inject(DevCiService) private readonly ci: DevCiService,
+    @Inject(DevRepoService) private readonly repo: DevRepoService,
   ) {}
 
   private actor(req: Request, projectId: string) {
@@ -43,6 +45,23 @@ export class DevController {
   @Get('tasks')
   listTasks(@Param('projectId') pid: string, @Query('col') col?: string) {
     return this.tasks.list(pid, col);
+  }
+
+  @Post('tasks')
+  createTask(@Param('projectId') pid: string, @Body() body: { title: string; kind: string }, @Req() req: Request) {
+    return this.tasks.createTask(pid, body.title, body.kind, this.actor(req, pid));
+  }
+
+  @Post('tasks\\:improve')
+  @HttpCode(200)
+  improveTasks(@Param('projectId') pid: string, @Req() req: Request) {
+    return this.tasks.improveTasks(pid, this.actor(req, pid));
+  }
+
+  @Post('plan\\:schedule')
+  @HttpCode(200)
+  schedulePlan(@Param('projectId') pid: string, @Req() req: Request) {
+    return this.tasks.schedule(pid, this.actor(req, pid));
   }
 
   @Get('tasks/conflicts')
@@ -139,6 +158,18 @@ export class DevController {
   @HttpCode(200)
   approvePlan(@Param('projectId') pid: string, @Body() body: { revision: string; fingerprint: string; confirm: boolean }, @Req() req: Request) {
     return this.plans.approve(pid, body.revision, body.fingerprint, body.confirm, this.actor(req, pid));
+  }
+
+  // ---- 代码仓（A06-9；REQ-406） ----
+
+  @Get('repo/tree')
+  repoTree(@Param('projectId') pid: string, @Query('path') path?: string) {
+    return this.repo.tree(pid, path);
+  }
+
+  @Get('repo/changes')
+  repoChanges(@Param('projectId') pid: string, @Query('taskId') taskId?: string) {
+    return this.repo.changes(pid, taskId);
   }
 
   // ---- autopilot（A06-10~12） ----
