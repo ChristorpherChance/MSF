@@ -71,6 +71,8 @@ function Toolbar({
 }) {
   const { projectId, doc, versions, viewMode, setViewMode, loadDoc, refresh, gen } = useReqView();
   const [refsOpen, setRefsOpen] = useState(false);
+  const [genOpen, setGenOpen] = useState(false);
+  const [instruction, setInstruction] = useState('');
   const [msg, setMsg] = useState<string | null>(null);
   if (!projectId || !doc) return null;
   const generating = gen.running || doc.genState === 'generating';
@@ -116,12 +118,56 @@ function Toolbar({
       <button className="act primary" disabled={readonly || !doc.modified || generating} onClick={onCommit}>⬆ 版本提交</button>
       <button
         className="act"
-        disabled={readonly || generating}
-        title={kind === 'prd' ? 'PRD 生成门禁：CRD 已定稿' : 'AI 生成（参考=已挂接定稿资料）'}
-        onClick={() => void useReqView.getState().startGenerate()}
+        disabled={readonly || gen.running}
+        title={
+          kind === 'prd'
+            ? 'PRD 生成门禁：CRD 已定稿'
+            : doc.genState === 'generating' && !gen.running
+              ? '上次生成可能已中断（后端重启），点击重新发起'
+              : 'AI 生成（参考=已挂接定稿资料）；可填写指令做增量修订'
+        }
+        onClick={() => setGenOpen(true)}
       >
-        {generating ? '⚡ 生成中…' : '🔄 重新生成'}
+        {generating ? '⚡ 生成中…' : '🔄 AI 生成 / 修订'}
       </button>
+      {genOpen && (
+        <Modal
+          title="AI 生成 / 修订"
+          onClose={() => setGenOpen(false)}
+          footer={
+            <>
+              <button className="sm" onClick={() => setGenOpen(false)}>取消</button>
+              <button
+                className="sm primary"
+                onClick={() => {
+                  const text = instruction.trim();
+                  setGenOpen(false);
+                  void useReqView.getState().startGenerate(text || undefined);
+                }}
+              >
+                ⚡ 开始生成
+              </button>
+            </>
+          }
+        >
+          {doc.finalized && (
+            <p className="pop-tip" style={{ color: 'var(--red)' }}>
+              当前文档已定稿：需先在「⋯」菜单解锁后方可生成，否则将被版本锁拦截。
+            </p>
+          )}
+          <p className="pop-tip">
+            留空 = 依据参考整篇重生成；填写指令 = 增量修订（产出待确认补丁，不落稿）。
+            助手 dock 对话的修改结论可直接粘贴到这里。
+          </p>
+          <textarea
+            className="md-editor"
+            style={{ minHeight: 120 }}
+            placeholder={'例：不要重写全文，仅补写承接 CR-001 的需求条目；\n例：把「通知触达」一章补充邮件+企业微信两种通道的验收标准。'}
+            value={instruction}
+            onChange={(e) => setInstruction(e.target.value)}
+          />
+        </Modal>
+      )}
       {doc.finalized ? (
         <button className="act" disabled>✓ 已定稿</button>
       ) : (

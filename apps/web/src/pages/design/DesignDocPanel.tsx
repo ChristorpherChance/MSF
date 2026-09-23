@@ -84,7 +84,12 @@ function Toolbar() {
       <button className="act" disabled={readonly} title="撤销" onClick={() => act(() => designApi.undo(projectId, selKind))}>↩</button>
       <button className="act" disabled={readonly} title="重做" onClick={() => act(() => designApi.redo(projectId, selKind))}>↪</button>
       <button className="act primary" disabled={readonly || !doc.modified || generating || pendCount > 0} onClick={() => setCommitOpen(true)}>⬆ 版本提交</button>
-      <button className="act" disabled={readonly || generating} onClick={() => setGenOpen(true)}>
+      <button
+        className="act"
+        disabled={readonly || gen.running}
+        title={doc.genState === 'generating' && !gen.running ? '上次生成可能已中断（后端重启），点击重新发起' : 'AI 生成设计文档'}
+        onClick={() => setGenOpen(true)}
+      >
         {generating ? '⚡ 生成中…' : '🔄 重新生成'}
       </button>
       {doc.finalized ? (

@@ -30,13 +30,21 @@ export async function extractText(ext: string, content: Buffer): Promise<string 
       return r.value;
     }
     case 'pdf': {
+      // pdf-parse v2：命名导出 PDFParse 类（无 default 函数），getText() 回 TextResult.text
       const mod = await import('pdf-parse');
-      const pdfParse = (mod as unknown as { default: (b: Buffer) => Promise<{ text: string }> }).default;
-      const r = await pdfParse(content);
-      if (!r.text.trim()) {
-        throw new Error('PDF 未抽取到文本（扫描件需 OCR，当前版本不支持）');
+      const PDFParse = (mod as unknown as {
+        PDFParse: new (opts: { data: Buffer }) => { getText(): Promise<{ text: string }>; destroy(): Promise<void> };
+      }).PDFParse;
+      const parser = new PDFParse({ data: content });
+      try {
+        const r = await parser.getText();
+        if (!r.text.trim()) {
+          throw new Error('PDF 未抽取到文本（扫描件需 OCR，当前版本不支持）');
+        }
+        return r.text;
+      } finally {
+        await parser.destroy().catch(() => undefined);
       }
-      return r.text;
     }
     case 'xlsx': {
       const XLSX = await import('xlsx');

@@ -1,5 +1,5 @@
 /** AI 域模型注册/路由与 Pi 网关集成测试（T6-03/04，需 DB；D08-5、A08-9、REQ-611/615/710/803） */
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { pool, query } from '../../db/pool.js';
 import { resetCommands, type CommandContext } from '../evidence/command-bus.js';
 import { decryptText } from '../platform/crypto.service.js';
@@ -28,8 +28,20 @@ describe('AI 模型注册/路由 + Pi 网关（集成，需 DB）', async () => 
   const gateway = new PiAiGateway(models);
 
   const ids: string[] = [];
+  // 路由快照：route.set「先全摘后挂」会摘掉共库真实模型的 generation 路由（实机网关被摘→MODEL_UNAVAILABLE）。
+  // 只快照本套件触碰的用途、跑完补挂回原持有模型（整表快照在并行套件间互相覆盖，已踩坑）。
+  let genHolders: string[] = [];
+  beforeAll(async () => {
+    genHolders = (await query<{ id: string }>("SELECT id FROM ai_models WHERE routes ? 'generation'", [])).rows.map((r) => r.id);
+  });
   afterAll(async () => {
     for (const id of ids) await query('DELETE FROM ai_models WHERE id=$1', [id]);
+    for (const id of genHolders) {
+      await query(
+        "UPDATE ai_models SET routes = routes || '\"generation\"'::jsonb WHERE id=$1 AND NOT (routes ? 'generation')",
+        [id],
+      );
+    }
     await pool.end();
   });
 

@@ -99,12 +99,22 @@ describe('AI 会话/消息/流式管线（集成，需 DB）', async () => {
      ON CONFLICT (id) DO NOTHING`, [PID, PID2]);
 
   const modelIds: string[] = [];
+  // 路由快照：setRoute('chat', …) 全摘语义会摘掉共库真实模型的 chat 路由。
+  // 只快照本套件触碰的用途、跑完补挂回原持有模型（整表快照在并行套件间互相覆盖，已踩坑）。
+  const chatHolders = (await query<{ id: string }>("SELECT id FROM ai_models WHERE routes ? 'chat'", [])).rows.map((r) => r.id);
   afterAll(async () => {
     await query('DELETE FROM ai_usage WHERE project_id=$1', [PID]);
     await query('DELETE FROM ai_messages WHERE session_id IN (SELECT id FROM ai_sessions WHERE project_id IN ($1,$2))', [PID, PID2]);
     await query('DELETE FROM ai_sessions WHERE project_id IN ($1,$2)', [PID, PID2]);
+    await query('DELETE FROM mat_parsed WHERE project_id=$1', [PID]);
     await query('DELETE FROM mat_files WHERE project_id=$1', [PID]);
     for (const id of modelIds) await query('DELETE FROM ai_models WHERE id=$1', [id]);
+    for (const id of chatHolders) {
+      await query(
+        "UPDATE ai_models SET routes = routes || '\"chat\"'::jsonb WHERE id=$1 AND NOT (routes ? 'chat')",
+        [id],
+      );
+    }
     await pipeline.onModuleDestroy();
     await pool.end();
   });
@@ -155,6 +165,12 @@ describe('AI 会话/消息/流式管线（集成，需 DB）', async () => {
     await expect(sessions.send(PID, sessionId, { content: 'x', referenceFileIds: [fid] }, CTX))
       .rejects.toMatchObject({ code: 'REFERENCE_NOT_FINAL' });
     await query('UPDATE mat_files SET parse_status=$2 WHERE id=$1', [fid, 'content_final']);
+    // 内容稿指纹口径=M03 references()：mat_parsed content_parse/final（实机走查修复后的权威来源）
+    await query(
+      `INSERT INTO mat_parsed (id, project_id, file_id, kind, body_md, content_fingerprint, status, created_by)
+       VALUES ($1,$2,$3,'content_parse','x',$4,'final','t')`,
+      [randomUUID(), PID, fid, fp],
+    );
     await expect(sessions.send(PID, sessionId, {
       content: 'x', referenceFileIds: [fid], referenceFingerprints: { [fid]: 'b'.repeat(64) },
     }, CTX)).rejects.toMatchObject({ code: 'REFERENCE_STALE' });

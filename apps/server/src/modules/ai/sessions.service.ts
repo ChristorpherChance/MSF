@@ -212,7 +212,7 @@ export class AiSessionsService implements OnModuleInit {
     }
   }
 
-  /** M03 参考门禁（SQL 直读 mat_files；跨域不 import） */
+  /** M03 参考门禁（SQL 直读 mat_files/mat_parsed；跨域不 import） */
   private async verifyReferences(
     client: { query: typeof query },
     projectId: string,
@@ -220,10 +220,18 @@ export class AiSessionsService implements OnModuleInit {
     fingerprints: Record<string, string>,
   ): Promise<void> {
     if (fileIds.length === 0) return;
-    const r = await client.query<{ id: string; parse_status: string; content_fingerprint: string | null }>(
-      'SELECT id, parse_status, content_fingerprint FROM mat_files WHERE project_id=$1 AND id = ANY($2::uuid[])',
+    const r = await client.query<{ id: string; parse_status: string }>(
+      'SELECT id, parse_status FROM mat_files WHERE project_id=$1 AND id = ANY($2::uuid[])',
       [projectId, fileIds]);
     const byId = new Map(r.rows.map((x) => [x.id, x]));
+    // 内容稿指纹与 M03 references() 同口径：mat_parsed kind='content_parse' status='final'
+    // （此前误读 mat_files.content_fingerprint=原件 sha，与下发指纹永远不符，挂参考必 REFERENCE_STALE——实机走查修复）
+    const fp = await client.query<{ file_id: string; content_fingerprint: string }>(
+      `SELECT file_id, content_fingerprint FROM mat_parsed
+       WHERE project_id=$1 AND file_id = ANY($2::uuid[]) AND kind='content_parse' AND status='final'`,
+      [projectId, fileIds]);
+    const fpById = new Map(fp.rows.map((x) => [x.file_id, x.content_fingerprint]));
+    const norm = (s: string | null | undefined): string => (s ?? '').replace(/^sha256:/, '');
     for (const fid of fileIds) {
       const f = byId.get(fid);
       if (!f) throw new DomainError('NOT_FOUND', '参考文件不存在', fid);
@@ -231,9 +239,10 @@ export class AiSessionsService implements OnModuleInit {
         throw new DomainError('REFERENCE_NOT_FINAL', '参考输入未定稿（须内容定稿后方可引用）', fid);
       }
       const registered = fingerprints[fid];
-      if (registered !== undefined && registered !== f.content_fingerprint) {
+      const current = fpById.get(fid) ?? null;
+      if (registered !== undefined && norm(registered) !== norm(current)) {
         throw new DomainError('REFERENCE_STALE', '参考输入在执行期发生变化，拒绝提交', fid, {
-          registered, current: f.content_fingerprint,
+          registered, current,
         });
       }
     }
@@ -345,10 +354,55 @@ export class AiSessionsService implements OnModuleInit {
       referenceFingerprints: body.referenceFingerprints ?? {},
     }, { ...ctx, projectId }) as { messageId: string; sessionId: string };
     const ai = await this.provider.createSession({ projectId, purpose: 'chat' });
+    // 提示词组装（实机走查修复）：参考全文 + 会话历史注入——否则 AI 看不到挂载资料也说不出前文
+    const prompt = await this.buildPrompt(projectId, sessionId, body.content, body.referenceFileIds ?? []);
     this.pipeline.register({
-      messageId: prep.messageId, sessionId, projectId, ai, prompt: body.content,
+      messageId: prep.messageId, sessionId, projectId, ai, prompt,
     });
     return { messageId: prep.messageId };
+  }
+
+  /** 组装发往模型的提示词：参考全文（内容定稿稿，单份截 12000 字/总截 32000 字）+ 近 6 轮历史 + 本次请求 */
+  private async buildPrompt(
+    projectId: string,
+    sessionId: string,
+    content: string,
+    referenceFileIds: string[],
+  ): Promise<string> {
+    const parts: string[] = [];
+    if (referenceFileIds.length > 0) {
+      const refs = await query<{ name: string; body_md: string }>(
+        `SELECT f.name, p.body_md FROM mat_files f
+         JOIN mat_parsed p ON p.file_id=f.id AND p.kind='content_parse' AND p.status='final'
+         WHERE f.project_id=$1 AND f.id = ANY($2::uuid[])
+         ORDER BY f.code`,
+        [projectId, referenceFileIds]);
+      let budget = 32000;
+      const blocks: string[] = [];
+      for (const r of refs.rows) {
+        if (budget <= 0) break;
+        const body = r.body_md.length > 12000 ? `${r.body_md.slice(0, 12000)}\n…（截断）` : r.body_md;
+        const cut = body.length > budget ? `${body.slice(0, budget)}\n…（截断）` : body;
+        budget -= cut.length;
+        blocks.push(`《${r.name}》\n${cut}`);
+      }
+      if (blocks.length > 0) parts.push(`【参考资料（已内容定稿）】\n${blocks.join('\n\n---\n\n')}`);
+    }
+    const history = await query<{ role: string; content: string }>(
+      `SELECT role, content FROM ai_messages
+       WHERE session_id=$1 AND status='done' AND role IN ('user','ai')
+       ORDER BY created_at DESC, id DESC LIMIT 12`,
+      [sessionId]);
+    const turns = history.rows.reverse();
+    if (turns.length > 0) {
+      const lines = turns.map((m) => {
+        const text = m.content.length > 1500 ? `${m.content.slice(0, 1500)}…` : m.content;
+        return `${m.role === 'user' ? '用户' : '助手'}：${text}`;
+      });
+      parts.push(`【会话历史】\n${lines.join('\n')}`);
+    }
+    parts.push(`【本次请求】\n${content}`);
+    return parts.join('\n\n');
   }
 
   /** 驱动 SSE：订阅管线帧并转发；返终态（终帧由管线广播） */
