@@ -257,3 +257,5 @@ tr.row-flash { animation: rtm-flash 1.2s ease-in-out 2; }
 
 /* R4 目录滚动联动高亮 */
 .toc-item.act-sec { background: var(--blue-soft); color: var(--blue); font-weight: 700; box-shadow: inset 3px 0 0 var(--blue); }
+/* 持久选中态（原型 file-row.sel 口径；flash 是定位动画，不能当选中态用） */
+.toc-item.sel { background: var(--blue-soft); color: var(--blue); font-weight: 700; box-shadow: inset 3px 0 0 var(--blue); }

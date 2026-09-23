@@ -86,7 +86,7 @@ export function PrototypePanel() {
           {pages.map((p) => (
             <button
               key={p.code}
-              className={`toc-item${selPage === p.code ? ' flash' : ''}`}
+              className={`toc-item${selPage === p.code ? ' sel' : ''}`}
               onClick={() => select(p.code, selState)}
             >
               ▦ {(p.payload.title as string) ?? p.code}
@@ -387,7 +387,7 @@ function ProtoModal({ firstPage, onClose }: { firstPage: string; onClose: () => 
             {versions?.map((v) => (
               <button
                 key={v.versionId}
-                className={`toc-item${sel === v.v ? ' flash' : ''}`}
+                className={`toc-item${sel === v.v ? ' sel' : ''}`}
                 onClick={() => setSel(v.v)}
               >
                 v{v.v}{v.finalized ? ' ✅定稿' : ''}

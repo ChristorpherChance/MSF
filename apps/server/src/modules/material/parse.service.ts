@@ -1,22 +1,19 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import type { PoolClient } from 'pg';
 import { DomainError, type MatParseStatus } from '@msf/shared';
 import { query } from '../../db/pool.js';
 import { executeCommand, registerCommand, type CommandContext } from '../evidence/command-bus.js';
 import { StorageService } from '../platform/storage.service.js';
-import type { MatFile, MatParsed } from './types.js';
+import { AiParseEngine } from './parse-engine.js';
+import type { MatFile, MatParsed, ParseEngine } from './types.js';
 
 /**
  * 解析状态机（LLD-2 DSG-F02-3，REQ-107/108/109；LLD-5 DSG-A03-8/10/11/12/13/14）。
  * 全部状态迁移经命令事务；重试/解锁/删除留痕（mat_files.audit_trail 摘要 + audit_log 明细）。
- * 解析执行：M1 为 mock 引擎（AI/真实解析器 M6 接入），202 + operationId 异步完成；
- * SSE parse.* 进度事件随集成里程碑接线（任务板 T1-20 收口）。
+ * 解析执行：AI 引擎实接（AiParseEngine：本地抽取 + 「解析」用途模型整理，未配路由时原文兜底）；
+ * 202 + operationId 异步完成；SSE parse.* 进度事件随集成里程碑接线（任务板 T1-20 收口）。
  */
-
-export interface ParseEngine {
-  parse(file: MatFile, content: Buffer): Promise<string>; // 返回解析 Markdown
-}
 
 /** mock 引擎：md/txt 直通，doc/pdf/xlsx 产桩稿；内容含 PARSE_FAIL 标记即失败（测试注入点） */
 export class MockParseEngine implements ParseEngine {
@@ -32,9 +29,15 @@ const sha256 = (b: Buffer | string): string => createHash('sha256').update(b).di
 @Injectable()
 export class ParseService {
   // 显式 @Inject：vitest(esbuild) 不产 design:paramtypes 元数据
-  constructor(@Inject(StorageService) private readonly storage: StorageService) {}
+  constructor(
+    @Inject(StorageService) private readonly storage: StorageService,
+    @Optional() @Inject(AiParseEngine) aiEngine?: AiParseEngine,
+  ) {
+    // 生产 wiring：AI 引擎优先（module 注册时）；测试 new ParseService(storage) 保持 mock
+    if (aiEngine) this.engine = aiEngine;
+  }
 
-  /** 解析引擎（默认 mock；测试可替换为失败注入桩，M6 换真实解析器） */
+  /** 解析引擎（默认 mock；测试可替换为失败注入桩；生产经 module 注入 AiParseEngine） */
   engine: ParseEngine = new MockParseEngine();
 
   onModuleInit(): void {

@@ -50,9 +50,9 @@ export interface ModelPublic {
   supports_thinking: boolean; context_window: number; routes: string[];
 }
 
-export const PURPOSES = ['planning', 'generation', 'review', 'translation', 'chat'] as const;
+export const PURPOSES = ['planning', 'generation', 'review', 'translation', 'chat', 'parsing'] as const;
 export const PURPOSE_NAMES: Record<string, string> = {
-  planning: '规划', generation: '生成', review: '评审', translation: '翻译', chat: '对话',
+  planning: '规划', generation: '生成', review: '评审', translation: '翻译', chat: '对话', parsing: '解析',
 };
 
 export const STAGE_NAMES: Record<string, string> = {

@@ -5,6 +5,7 @@ import { DomainError, UPLOAD_FORMATS } from '@msf/shared';
 import { query } from '../../db/pool.js';
 import { executeCommand, registerCommand, type CommandContext } from '../evidence/command-bus.js';
 import { validateZipPackage } from './zip-check.js';
+import { normalizeUploadExt } from './ext.js';
 import { StorageService } from '../platform/storage.service.js';
 import type { MatUpload, UploadPart } from './types.js';
 
@@ -188,7 +189,7 @@ export class UploadsService {
   ): Promise<{ uploadId: string; parts: number; expiresAt: string }> {
     const ext = extOf(input.fileName);
     if (!ext || !(UPLOAD_FORMATS as readonly string[]).includes(ext)) {
-      throw new DomainError('UPLOAD_REJECTED', '文件格式不支持（doc/pdf/xlsx/md/txt/zip）', input.fileName);
+      throw new DomainError('UPLOAD_REJECTED', '文件格式不支持（doc/docx/pdf/xlsx/md/txt/zip）', input.fileName);
     }
     if (!Number.isSafeInteger(input.size) || input.size <= 0) {
       throw new DomainError('VALIDATION_FAILED', '声明大小非法', 'size');
@@ -336,6 +337,5 @@ export class UploadsService {
 }
 
 function extOf(fileName: string): string {
-  const i = fileName.lastIndexOf('.');
-  return i < 0 ? '' : fileName.slice(i + 1).toLowerCase();
+  return normalizeUploadExt(fileName);
 }

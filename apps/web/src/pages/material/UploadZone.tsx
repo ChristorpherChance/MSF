@@ -48,13 +48,13 @@ export function UploadZone() {
       role="button"
       aria-label="上传资料文件"
     >
-      点击或拖拽上传（doc/pdf/xlsx/md/txt/zip）
+      点击或拖拽上传（doc/docx/pdf/xlsx/md/txt/zip）
       <input
         ref={inputRef}
         type="file"
         multiple
         hidden
-        accept=".doc,.pdf,.xlsx,.md,.txt,.zip"
+        accept=".doc,.docx,.pdf,.xlsx,.xls,.md,.markdown,.txt,.zip"
         onChange={(e) => {
           if (e.target.files) void doUpload(e.target.files);
           e.target.value = '';

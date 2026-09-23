@@ -12,8 +12,8 @@ import { decryptText, encryptText } from '../platform/crypto.service.js';
  * - 连通自检 conn_status：网络探测在事务外执行，结果经 ai.model.test 命令落库（审计留痕）
  */
 
-/** 用途集合：D08-5 四类 + chat（助手 dock 对话用途，差异登记待 M6 验收） */
-export const PURPOSES = ['planning', 'generation', 'review', 'translation', 'chat'] as const;
+/** 用途集合：D08-5 四类 + chat（助手 dock 对话用途，差异登记待 M6 验收） + parsing（资料解析 AI 整理，差异登记） */
+export const PURPOSES = ['planning', 'generation', 'review', 'translation', 'chat', 'parsing'] as const;
 export type Purpose = (typeof PURPOSES)[number];
 
 const PROVIDERS = ['anthropic', 'openai', 'gateway'] as const;

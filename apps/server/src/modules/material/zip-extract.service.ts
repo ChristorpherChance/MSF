@@ -6,6 +6,7 @@ import { executeCommand, registerCommand, type CommandContext } from '../evidenc
 import { StorageService } from '../platform/storage.service.js';
 import type { MatFile } from './types.js';
 import { inflateEntry, validateZipPackage } from './zip-check.js';
+import { normalizeUploadExt } from './ext.js';
 
 /**
  * ZIP 行内解压（LLD-5 DSG-A03-4，REQ-104；LLD-2 F09 后续动作）。
@@ -109,7 +110,7 @@ export class ZipExtractService {
           continue;
         }
         const name = segs[segs.length - 1] ?? entry.path;
-        const ext = name.includes('.') ? (name.split('.').pop() ?? '').toLowerCase() : '';
+        const ext = normalizeUploadExt(name);
         const code = await this.nextFileCode(client, projectId);
         await client.query(
           `INSERT INTO mat_files

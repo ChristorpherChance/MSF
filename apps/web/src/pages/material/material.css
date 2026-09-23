@@ -211,7 +211,10 @@
   background: var(--soft);
 }
 .tree-row.sel {
-  background: color-mix(in srgb, var(--blue) 12%, transparent);
+  /* 选中态对齐原型 file-row.sel：blue-soft 底 + inset 蓝条（12% 淡色实测看不清） */
+  background: var(--blue-soft);
+  box-shadow: inset 3px 0 0 var(--blue);
+  font-weight: 600;
 }
 .tree-row .nm {
   flex: 1;

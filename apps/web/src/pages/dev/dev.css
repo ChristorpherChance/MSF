@@ -18,7 +18,7 @@
   padding: 7px 10px; border-radius: 7px; cursor: pointer; font-size: 13px;
 }
 .v17-side .file-row:hover { background: var(--soft); }
-.v17-side .file-row.sel { background: var(--blue-soft); color: var(--blue); font-weight: 600; }
+.v17-side .file-row.sel { background: var(--blue-soft); color: var(--blue); font-weight: 600; box-shadow: inset 3px 0 0 var(--blue); }
 .v17-side .file-row .fname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .v17-side .left-foot {
   padding: 10px 12px; font-size: 11px; color: var(--ink2); line-height: 1.6;

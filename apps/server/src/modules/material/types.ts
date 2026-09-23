@@ -77,6 +77,11 @@ export interface UploadPart {
   object_key: string;
 }
 
+/** 解析引擎抽象（mock / AI 实接 AiParseEngine；测试可替换为失败注入桩） */
+export interface ParseEngine {
+  parse(file: MatFile, content: Buffer): Promise<string>; // 返回解析 Markdown
+}
+
 /** DSG-D03-7 mat_uploads：分片上传会话（非 append-only，统稿裁决 M6 显式声明） */
 export interface MatUpload {
   id: string;
