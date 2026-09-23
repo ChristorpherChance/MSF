@@ -33,8 +33,19 @@ export function TestPage() {
   const openDefects = s.defects.filter((d) => d.status !== 'closed').length;
   const env = s.batchDetail?.snapshot.environment as { os?: string; browser?: string } | undefined;
   return (
-    <main className="proto-wrap">
+    <main className="proto-wrap qa-workbench">
       <GateBanner stage="test" />
+      {/* T1 工作台头部：阶段眉标 + 主标题 + 环境 tag 独立区 */}
+      <header className="qa-header">
+        <div>
+          <span className="qa-eyebrow">S4 / 独立测试验收</span>
+          <h1>把交付结论建立在证据上</h1>
+          <p>固定候选 → 确认范围 → 独立验证 → 人工交付</p>
+        </div>
+        <span className="qa-env-tag">
+          {env ? `环境 ${env.os ?? '—'} / ${env.browser ?? '—'}` : '环境 —（接收批次后固定）'}
+        </span>
+      </header>
       <div className="doc-toolbar">
         <strong>测试验收</strong>
         {TABS.map((t) => (
@@ -47,10 +58,7 @@ export function TestPage() {
             {t.key === 'defect' && openDefects > 0 && <span className="dev-badge-block">{openDefects}</span>}
           </button>
         ))}
-        <span className="dsg-prefix">
-          {env ? `环境 ${env.os ?? '—'}/${env.browser ?? '—'}` : ''}
-          {s.loading ? ' · 刷新中…' : ''}
-        </span>
+        <span className="dsg-prefix">{s.loading ? '刷新中…' : ''}</span>
       </div>
 
       {/* 批次条 .qa-batchbar：当前批次下拉 + 环境 + 接收新交接 */}
@@ -80,6 +88,9 @@ export function TestPage() {
       {s.subTab === 'run' && <RunPanel />}
       {s.subTab === 'defect' && <DefectPanel />}
       {s.subTab === 'report' && <ReportPanel />}
+
+      {/* T1 页脚说明 */}
+      <footer className="qa-footer">报告定稿 ≠ 放行 ≠ 生产发布 · 历史批次只读，新构建=新批次</footer>
     </main>
   );
 }

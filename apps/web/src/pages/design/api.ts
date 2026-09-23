@@ -83,6 +83,10 @@ export const designApi = {
   reviews: (pid: string) => api.get<{ items: ReviewItem[] }>(`${base(pid)}/reviews`),
   conclude: (pid: string, drId: string, conclusion: 'pass' | 'fail' | 'na', note: string) =>
     api.post(`${base(pid)}/reviews/${drId}:conclude`, { conclusion, note }),
+  /** S8 🔁 重新自检评审（幂等补齐种子条目） */
+  reseedReviews: (pid: string) => api.post<{ seeded: boolean; count: number }>(`${base(pid)}/reviews:reseed`, {}),
+  /** S8 已解决项重新打开 */
+  reopenReview: (pid: string, drId: string) => api.post(`${base(pid)}/reviews/${drId}:reopen`, {}),
 
   catalog: (pid: string) => api.get<CatalogView>(`${base(pid)}/catalog`),
   addCatalogItem: (pid: string, input: { itemType: string; code: string; title: string; note?: string }) =>
@@ -100,8 +104,17 @@ export const designApi = {
   protoFinalize: (pid: string, prototypeVersionId: string, checkReportId: string) =>
     api.post<{ baselineId: string; code: string }>(`${base(pid)}/prototype:finalize`,
       { prototypeVersionId, checkReportId, confirm: true }),
-  preview: (pid: string, pageId: string) =>
-    api.get<{ previewUrl: string; htmlFingerprint: string }>(`${base(pid)}/prototype/pages/${encodeURIComponent(pageId)}/preview`),
+  preview: (pid: string, pageId: string, v?: number) =>
+    api.get<{ previewUrl: string; htmlFingerprint: string }>(
+      `${base(pid)}/prototype/pages/${encodeURIComponent(pageId)}/preview${v !== undefined ? `?v=${v}` : ''}`),
+  /** S6 上传 HTML 初稿入库（V1.3 上传通道，同一套对应性检查） */
+  uploadPrototype: (pid: string, html: string, note?: string) =>
+    api.post<{ prototypeVersionId: string; v: number }>(
+      `${base(pid)}/prototype:upload`, { html, ...(note ? { note } : {}) }),
+  /** S7 原型版本列表（旧版预览弹窗数据源） */
+  protoVersions: (pid: string) =>
+    api.get<{ items: Array<{ versionId: string; v: number; note: string | null; at: string; finalized: boolean }> }>(
+      `${base(pid)}/prototype/versions`),
   gates: (pid: string, action: 'generate' | 'check' | 'finalize' | 'develop') =>
     api.get<GateResult>(`${base(pid)}/gates/${action}`),
   baselines: (pid: string) => api.get<{ items: BaselineItem[] }>(`${base(pid)}/baselines`),

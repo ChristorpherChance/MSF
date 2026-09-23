@@ -258,11 +258,12 @@ export class TstReportsService {
     };
   }
 
-  /** 批次报告列表 */
+  /** 批次报告列表（T6：basisStale 实时比对——执行/缺陷变化后置灰定稿与放行并提示重新汇总） */
   async reportsOfBatch(projectId: string, batchId: string) {
     const b = await qof(null)<{ id: string }>(
       'SELECT id FROM tst_batches WHERE project_id=$1 AND code=$2', [projectId, batchId]);
     if (!b.rows[0]) throw new DomainError('NOT_FOUND', '批次不存在', batchId);
+    const currentBasis = await computeBasisFingerprint(null, b.rows[0].id);
     const r = await query(
       `SELECT code, verdict, status, basis_fingerprint, summary, finalized_by, finalized_at, created_at
        FROM tst_reports WHERE batch_id=$1 ORDER BY created_at DESC`, [b.rows[0].id]);
@@ -270,6 +271,7 @@ export class TstReportsService {
       items: r.rows.map((x: Record<string, unknown>) => ({
         reportId: x.code, verdict: x.verdict, status: x.status,
         basisFingerprint: `sha256:${String(x.basis_fingerprint)}`,
+        basisStale: String(x.basis_fingerprint) !== currentBasis,
         summary: x.summary, finalizedBy: x.finalized_by ?? null, finalizedAt: x.finalized_at ?? null, createdAt: x.created_at,
       })),
     };

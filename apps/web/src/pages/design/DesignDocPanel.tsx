@@ -4,6 +4,11 @@ import { ApiError } from '../../api';
 import { designApi, generateDesignDoc, type DesignKind, type PatchItem } from './api';
 import { useDesignView, type ViewMode } from './store';
 
+/** S2 分册行图标（📐 概要 / 📋 详细七册） */
+const BOOK_ICONS: Record<DesignKind, string> = {
+  hld: '📐', mod: '📋', alg: '🧮', cls: '🧩', db: '🗄️', api: '🔌', ui: '🎨', nfr: '🛡️',
+};
+
 /**
  * 设计文档面（LLD-6 §3.4：与需求页同构——左分册列表 + 目录栏 + 文档区 + 工具栏/横幅/补丁）。
  * 概要页签=HLD 单册；详细页签=七册左列表平铺。
@@ -16,11 +21,13 @@ export function DesignDocPanel({ kinds }: { kinds: DesignKind[] }) {
         <aside className="book-col">
           {kinds.map((k) => {
             const b = books.find((x) => x.kind === k);
+            const ungenerated = b !== undefined && b.cur === 0;
             return (
               <button key={k} className={`book-row${selKind === k ? ' on' : ''}`} onClick={() => void selectBook(k)}>
+                <span className="book-ico">{BOOK_ICONS[k]}</span>
                 <span className="book-name">{b?.title ?? k}</span>
-                <span className={`tag ${b?.finalized ? 'tag-ok' : b?.modified ? 'tag-warn' : ''}`}>
-                  {b ? (b.finalized ? `已定稿 v${b.finalVer}` : b.modified ? `v${b.cur} 修订中` : `v${b.cur}`) : '…'}
+                <span className={`tag ${ungenerated ? '' : b?.finalized ? 'tag-ok' : b?.modified ? 'tag-warn' : ''}`}>
+                  {b ? (ungenerated ? '未生成' : b.finalized ? `已定稿 v${b.finalVer}` : b.modified ? `v${b.cur} 修订中` : `v${b.cur}`) : '…'}
                 </span>
               </button>
             );
@@ -118,11 +125,17 @@ function Toolbar() {
 }
 
 function Banners() {
-  const { doc, patches, gen } = useDesignView();
+  const { doc, patches, gen, impactNotice, setImpactNotice } = useDesignView();
   if (!doc) return null;
   const pendings = patches.filter((p) => p.status === 'pending');
   return (
     <>
+      {impactNotice && (
+        <div className="req-banner warn impact-banner">
+          ⚡ {impactNotice}
+          <button className="act" style={{ marginLeft: 8 }} onClick={() => setImpactNotice(null)}>知道了</button>
+        </div>
+      )}
       {doc.finalized && <div className="req-banner ok">✓ 已定稿 v{doc.finalVer}：内容冻结；下游（LLD/原型规划）以此指纹为治理输入。</div>}
       {doc.viewing !== null && <div className="req-banner info">ℹ 正在查看历史版本 v{doc.viewing}（只读）。</div>}
       {pendings.length > 0 && <div className="req-banner warn">⚠ {pendings.length} 条待确认补丁：请逐条接受或拒绝。</div>}
@@ -293,16 +306,22 @@ function CommitModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-/** 定稿弹窗：未决评审项二次确认（仍要定稿记审计，LLD-6 §3.4） */
+/** 定稿弹窗：未决评审项二次确认（仍要定稿记审计，LLD-6 §3.4）；S9 再定稿成功后挂影响提示 */
 function FinalizeModal({ onClose }: { onClose: () => void }) {
-  const { projectId, selKind, doc, refresh, openReviews } = useDesignView();
+  const { projectId, selKind, doc, refresh, openReviews, setImpactNotice } = useDesignView();
   const [allow, setAllow] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   if (!projectId || !doc) return null;
   const submit = () => {
     setMsg(null);
     void designApi.finalize(projectId, selKind, doc.cur, doc.cur, allow)
-      .then(() => onClose())
+      .then(() => {
+        onClose();
+        // S9 impactTrigger：同册再定稿/新定稿均形成新的输入身份，下游实时失效
+        setImpactNotice(
+          `${selKind.toUpperCase()} v${doc.cur} 已定稿为新的治理输入——下游（原型规划 / 开发任务输入）按新指纹实时复核，请在开发页「影响处置」确认承接。`,
+        );
+      })
       .catch((e) => setMsg(e instanceof ApiError ? `${e.code}: ${e.message}` : '定稿失败'))
       .finally(() => void refresh());
   };

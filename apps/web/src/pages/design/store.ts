@@ -40,6 +40,8 @@ interface DesignViewState {
   proto: ProtoStatus | null;
   gen: GenState;
   tocFlash: string | null;
+  /** S9 再定稿影响提示（impactTrigger 口径：定稿成功后置，人工关闭） */
+  impactNotice: string | null;
   loading: boolean;
   error: string | null;
 
@@ -52,6 +54,7 @@ interface DesignViewState {
   refreshProto: () => Promise<void>;
   refreshReviews: () => Promise<void>;
   flashToc: (secId: string) => void;
+  setImpactNotice: (msg: string | null) => void;
   gate: (action: 'generate' | 'check' | 'finalize' | 'develop') => Promise<GateResult>;
 }
 
@@ -70,6 +73,7 @@ export const useDesignView = create<DesignViewState>((set, get) => ({
   proto: null,
   gen: { operationId: null, running: false, paused: false, streamText: '', error: null },
   tocFlash: null,
+  impactNotice: null,
   loading: false,
   error: null,
 
@@ -151,4 +155,6 @@ export const useDesignView = create<DesignViewState>((set, get) => ({
   },
 
   gate: (action) => designApi.gates(get().projectId!, action),
+
+  setImpactNotice: (msg) => set({ impactNotice: msg }),
 }));

@@ -149,3 +149,48 @@
   .qa-facts { grid-template-columns: 1fr; }
   .qa-batchbar { flex-wrap: wrap; }
 }
+
+/* —— W5（T1-T7）：原型基准归位 —— */
+
+/* T1 工作台头部（阶段眉标 + 主标题 + 环境 tag 独立区） */
+.qa-header {
+  display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap;
+  padding: 18px 20px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--soft);
+}
+.qa-eyebrow { font-size: 11px; letter-spacing: 0.14em; color: var(--ink2); font-weight: 700; }
+.qa-header h1 { font-size: 22px; letter-spacing: -0.02em; margin: 6px 0; }
+.qa-header p { margin: 0; color: var(--ink2); font-size: 13px; }
+.qa-env-tag {
+  flex: none; padding: 4px 12px; border: 1px solid var(--line); border-radius: 999px;
+  background: var(--canvas); font-size: 12px; color: var(--ink2);
+}
+
+/* T1 页脚说明 */
+.qa-footer {
+  margin-top: 12px; padding: 10px 4px; border-top: 1px solid var(--line);
+  font-size: 11px; color: var(--ink2);
+}
+
+/* T3 六格事实表（dt/dd 语义） */
+.qa-facts dt { display: block; color: var(--ink2); font-size: 12px; margin-bottom: 4px; }
+.qa-facts dd { margin: 0; font-size: 13px; overflow-wrap: anywhere; }
+
+/* T4 证据附件 */
+.qa-evid-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.qa-evid-item {
+  border: 1px solid var(--line); border-radius: 6px; background: var(--canvas);
+  padding: 2px 8px; font-size: 12px; cursor: pointer;
+}
+.qa-evid-item:hover { background: var(--soft); }
+
+/* T6 basis 过期横幅 */
+.qa-banner-stale { background: #fff8eb; border: 1px solid #b7950b; color: #7a5b00; }
+
+/* T7 豁免多选清单 */
+.qa-waiver {
+  margin-top: 10px; padding: 12px; border: 1px dashed var(--line); border-radius: 8px;
+}
+.qa-waiver-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; flex-wrap: wrap; }
+.qa-waiver-row input:not([type='checkbox']) {
+  flex: 1; min-width: 240px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; font-size: 12px;
+}

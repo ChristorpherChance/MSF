@@ -191,6 +191,20 @@ export class DesignController {
     return this.reviews.conclude(projectId, drId, body.conclusion, body.note, this.actor(req, projectId));
   }
 
+  /** S8 重新自检评审（幂等补齐种子条目） */
+  @Post('reviews\\:reseed')
+  @HttpCode(200)
+  reseedReviews(@Param('projectId') projectId: string, @Req() req: Request) {
+    return this.reviews.reseed(projectId, this.actor(req, projectId));
+  }
+
+  /** S8 已解决项重新打开 */
+  @Post('reviews/:drId\\:reopen')
+  @HttpCode(200)
+  reopenReview(@Param('projectId') projectId: string, @Param('drId') drId: string, @Req() req: Request) {
+    return this.reviews.reopen(projectId, drId, this.actor(req, projectId));
+  }
+
   /** A05-4 目录查询 */
   @Get('catalog')
   getCatalog(@Param('projectId') projectId: string) {
@@ -251,8 +265,29 @@ export class DesignController {
 
   /** A05-8 预览地址 */
   @Get('prototype/pages/:pageId/preview')
-  preview(@Param('projectId') projectId: string, @Param('pageId') pageId: string) {
-    return this.proto.preview(projectId, pageId);
+  preview(
+    @Param('projectId') projectId: string,
+    @Param('pageId') pageId: string,
+    @Query('v') v?: string,
+  ) {
+    return this.proto.preview(projectId, pageId, v !== undefined ? Number(v) : undefined);
+  }
+
+  /** S6 人工上传 HTML 初稿入库（V1.3 上传通道；同一套对应性检查） */
+  @Post('prototype\\:upload')
+  @HttpCode(201)
+  uploadPrototype(
+    @Param('projectId') projectId: string,
+    @Body() body: { html: string; note?: string },
+    @Req() req: Request,
+  ) {
+    return this.proto.upload(projectId, body.html, body.note, this.actor(req, projectId));
+  }
+
+  /** S7 原型版本列表（旧版预览弹窗数据源） */
+  @Get('prototype/versions')
+  prototypeVersions(@Param('projectId') projectId: string) {
+    return this.proto.versions(projectId);
   }
 
   /** A05-9 共同定稿（策略确认点 design.prototype.finalize） */

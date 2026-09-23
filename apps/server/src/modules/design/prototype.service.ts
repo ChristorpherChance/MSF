@@ -151,6 +151,34 @@ export class PrototypeService {
       });
       return { baselineId: bl.rows[0]!.id, code, fingerprint: `sha256:${blFp}`, finalizationId };
     });
+
+    // S6（V1.3 上传通道）：人工上传 HTML 初稿入库为新版本（source 记 manual-upload；接受同一套对应性检查）
+    registerCommand('design.prototype.upload', async (client, payload, ctx) => {
+      const { projectId, html, note } = payload as { projectId: string; html: string; note?: string };
+      if (!html?.trim()) throw new DomainError('VALIDATION_FAILED', '上传 HTML 内容为空', 'html');
+      if (Buffer.byteLength(html, 'utf8') > 5 * 1024 * 1024) {
+        throw new DomainError('VALIDATION_FAILED', 'HTML 初稿过大（>5MB）', 'html');
+      }
+      const doc = await this.ensurePrototypeDoc(client, projectId, ctx);
+      const max = await client.query<{ v: number | null }>(
+        'SELECT max(version_no) AS v FROM dsg_versions WHERE document_id=$1', [doc.id]);
+      const vno = (max.rows[0]?.v ?? 0) + 1;
+      const manifestStr = JSON.stringify({ generatedBy: 'manual-upload', note: note ?? null });
+      const objectKey = `prototype/${projectId}/${doc.id}-v${vno}.html`;
+      const contentFp = sha256(`${doc.id}:${sha256(html)}:${sha256(manifestStr)}`);
+      const up = await this.docs.upstreamFingerprint(client, projectId, 'prd');
+      const r = await client.query<{ id: string }>(
+        `INSERT INTO dsg_versions (document_id, version_no, content, content_object_key, content_fingerprint, governing_fingerprint, refs, note, submitted_by)
+         VALUES ($1,$2,$3,$4,$5,$6,'[]',$7,$8) RETURNING id`,
+        [doc.id, vno, manifestStr, objectKey, contentFp, up.fingerprint ?? sha256('none'),
+          `人工上传 HTML 初稿${note ? `：${note}` : ''}`, ctx.actorId],
+      );
+      await client.query(
+        'UPDATE dsg_documents SET current_version_id=$2, modified=false, updated_by=$3, updated_at=now() WHERE id=$1',
+        [doc.id, r.rows[0]!.id, ctx.actorId],
+      );
+      return { prototypeVersionId: r.rows[0]!.id, v: vno, objectKey };
+    });
   }
 
   // ---------- 命令入口薄封装 ----------
@@ -171,6 +199,30 @@ export class PrototypeService {
 
   async finalize(projectId: string, prototypeVersionId: string, checkReportId: string, confirm: boolean, ctx: CommandContext) {
     return executeCommand('design.prototype.finalize', { projectId, prototypeVersionId, checkReportId, confirm }, { ...ctx, projectId });
+  }
+
+  /** S6 上传通道：登记版本（同事务）后写对象（与 generate 同序：先登记后落对象） */
+  async upload(projectId: string, html: string, note: string | undefined, ctx: CommandContext) {
+    const r = (await executeCommand('design.prototype.upload',
+      { projectId, html, note }, { ...ctx, projectId })) as { prototypeVersionId: string; v: number; objectKey: string };
+    await this.storage.putObject(r.objectKey, Buffer.from(html, 'utf8'));
+    return r;
+  }
+
+  /** S7 原型版本列表（旧版预览弹窗数据源；finalized=当前定稿指针命中） */
+  async versions(projectId: string) {
+    const doc = await query<{ id: string; final_version_id: string | null }>(
+      "SELECT id, final_version_id FROM dsg_documents WHERE project_id=$1 AND doc_kind='prototype'", [projectId]);
+    if (!doc.rows[0]) return { items: [] };
+    const r = await query<{ id: string; version_no: number; note: string | null; created_at: string }>(
+      'SELECT id, version_no, note, created_at FROM dsg_versions WHERE document_id=$1 ORDER BY version_no DESC',
+      [doc.rows[0].id]);
+    return {
+      items: r.rows.map((x) => ({
+        versionId: x.id, v: x.version_no, note: x.note, at: x.created_at,
+        finalized: x.id === doc.rows[0]!.final_version_id,
+      })),
+    };
   }
 
   /** 生成命令内部产出 HTML——对象存储写入由命令返回 objectKey 后在此处完成（保证同事务登记先于对象写） */
@@ -227,13 +279,22 @@ export class PrototypeService {
     };
   }
 
-  /** A05-8 预览：签名 URL + 指纹（iframe 隔离由前端 sandbox 属性承载；独立子域为部署项） */
-  async preview(projectId: string, pageId: string): Promise<unknown> {
+  /** A05-8 预览：签名 URL + 指纹（iframe 隔离由前端 sandbox 属性承载；独立子域为部署项）；v 指定版本号（S7 旧版预览） */
+  async preview(projectId: string, pageId: string, v?: number): Promise<unknown> {
     const doc = await query<{ current_version_id: string | null }>(
       "SELECT * FROM dsg_documents WHERE project_id=$1 AND doc_kind='prototype'", [projectId]);
-    if (!doc.rows[0]?.current_version_id) throw new DomainError('NOT_FOUND', '原型尚未生成', pageId);
+    if (!doc.rows[0]) throw new DomainError('NOT_FOUND', '原型尚未生成', pageId);
+    let verId = doc.rows[0].current_version_id;
+    if (v !== undefined) {
+      const vv = await query<{ id: string }>(
+        'SELECT id FROM dsg_versions WHERE document_id=(SELECT id FROM dsg_documents WHERE project_id=$1 AND doc_kind=$2) AND version_no=$3',
+        [projectId, 'prototype', v]);
+      if (!vv.rows[0]) throw new DomainError('NOT_FOUND', '原型版本不存在', `v${v}`);
+      verId = vv.rows[0].id;
+    }
+    if (!verId) throw new DomainError('NOT_FOUND', '原型尚未生成', pageId);
     const ver = await query<{ content_object_key: string | null; content_fingerprint: string }>(
-      'SELECT * FROM dsg_versions WHERE id=$1', [doc.rows[0].current_version_id]);
+      'SELECT * FROM dsg_versions WHERE id=$1', [verId]);
     if (!ver.rows[0]?.content_object_key) throw new DomainError('NOT_FOUND', '原型工件不存在', pageId);
     return {
       previewUrl: `${await this.storage.presignedGet(ver.rows[0].content_object_key)}#${encodeURIComponent(pageId)}`,
@@ -400,10 +461,28 @@ function buildPrototype(items: Array<{ item_type: string; code: string; payload:
     ).join('\n');
     return `  <div data-page-block="${p.code}">\n${statesHtml}\n  </div>`;
   }).join('\n');
-  const html = `<!doctype html><html><head><meta charset="utf-8"><title>客户原型（mock）</title></head>
+  // S3（DSG-U04-2）：选页选态协议——postMessage {type:'v19-prototype-select',pageId,stateId}
+  // 与 location.hash（#pageId/stateId）双通道，切换不重载 iframe
+  const navScript = `<script>
+(function(){
+  function show(pageId,stateId){
+    document.querySelectorAll('[data-page-block]').forEach(function(b){b.style.display=b.getAttribute('data-page-block')===pageId?'':'none';});
+    document.querySelectorAll('section[data-page]').forEach(function(s){
+      s.style.display=(s.getAttribute('data-page')===pageId&&(!stateId||s.getAttribute('data-state')===stateId))?'':'none';
+    });
+  }
+  window.prototypeNavigate=show;
+  window.addEventListener('message',function(e){var d=e.data||{};if(d.type==='v19-prototype-select')show(d.pageId,d.stateId);});
+  var h=(location.hash||'').replace(/^#/,'').split('/');
+  if(h[0])show(decodeURIComponent(h[0]),h[1]?decodeURIComponent(h[1]):null);
+})();
+</script>`;
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>客户原型（mock）</title>
+<style>body{font:14px/1.6 sans-serif;margin:16px}nav{margin-bottom:12px}section{padding:8px 0}</style></head>
 <body data-prototype="msf">
 <nav>${pages.map((p) => `<a href="#${p.code}">${(p.payload.title as string) ?? p.code}</a>`).join(' | ')}</nav>
 ${body}
+${navScript}
 </body></html>`;
   const manifest = {
     pages: pages.map((p) => ({ code: p.code, title: (p.payload.title as string) ?? p.code })),

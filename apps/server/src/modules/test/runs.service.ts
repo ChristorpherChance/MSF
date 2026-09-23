@@ -1,8 +1,10 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { DomainError } from '@msf/shared';
+import { createHash } from 'node:crypto';
 import { query } from '../../db/pool.js';
 import { appendEvidence } from '../evidence/audit.service.js';
 import { executeCommand, registerCommand, type CommandContext } from '../evidence/command-bus.js';
+import { StorageService } from '../platform/storage.service.js';
 import { aggregateConclusion, assertNotBlocked, lockBatch, nextCode } from './test-common.js';
 
 /**
@@ -12,6 +14,8 @@ import { aggregateConclusion, assertNotBlocked, lockBatch, nextCode } from './te
  */
 @Injectable()
 export class TstRunsService {
+  constructor(@Inject(StorageService) private readonly storage: StorageService) {}
+
   onModuleInit(): void {
     // A07-4 创建运行（执行批准计划）
     registerCommand('tst.run.execute', async (client, payload, ctx) => {
@@ -70,8 +74,8 @@ export class TstRunsService {
       const { projectId, runId, caseCode, status, evidence, simulation } = payload as {
         projectId: string; runId: string; caseCode: string; status: string; evidence?: string; simulation?: boolean;
       };
-      if (!['pass', 'fail', 'blocked'].includes(status)) {
-        throw new DomainError('VALIDATION_FAILED', '人工结论枚举 pass|fail|blocked', 'status');
+      if (!['pass', 'fail', 'blocked', 'not-applicable'].includes(status)) {
+        throw new DomainError('VALIDATION_FAILED', '人工结论枚举 pass|fail|blocked|not-applicable（DSG-U06-19 五枚举口径）', 'status');
       }
       if (!evidence?.trim()) throw new DomainError('EVIDENCE_REQUIRED', '人工执行必须附验证证据', 'evidence');
       const run = await client.query<{ id: string; batch_id: string; plan_id: string; code: string }>(
@@ -118,6 +122,36 @@ export class TstRunsService {
       await client.query('UPDATE tst_runs SET conclusion=$2 WHERE id=$1', [newRun.rows[0]!.id, conclusion]);
       return { runId: code, previousRunId: runId, caseId: caseCode, status };
     });
+
+    // T4 证据附件（DSG-U06/D10）：上传字节→MinIO 后登记到最新运行的用例行 evidence_ids
+    // （附件条目 {kind:'attachment',name,objectKey,sha256,by,at} 与证据记录 id 共存）
+    registerCommand('tst.evidence.attach', async (client, payload, ctx) => {
+      const { projectId, runId, caseCode, name, objectKey, size, sha256 } = payload as {
+        projectId: string; runId: string; caseCode: string; name: string;
+        objectKey: string; size: number; sha256: string;
+      };
+      if (!name?.trim()) throw new DomainError('VALIDATION_FAILED', '附件名必填', 'name');
+      const run = await client.query<{ id: string; batch_id: string; plan_id: string }>(
+        'SELECT * FROM tst_runs WHERE project_id=$1 AND code=$2 FOR UPDATE', [projectId, runId]);
+      if (!run.rows[0]) throw new DomainError('NOT_FOUND', '运行不存在', runId);
+      const latest = await client.query<{ code: string }>(
+        'SELECT code FROM tst_runs WHERE batch_id=$1 ORDER BY created_at DESC LIMIT 1', [run.rows[0].batch_id]);
+      if (latest.rows[0]?.code !== runId) {
+        throw new DomainError('STALE_EVIDENCE', '当前运行已变化，请基于最新运行挂接证据', runId);
+      }
+      const cs = await client.query<{ id: string }>(
+        'SELECT id FROM tst_cases WHERE plan_id=$1 AND code=$2', [run.rows[0].plan_id, caseCode]);
+      if (!cs.rows[0]) throw new DomainError('NOT_FOUND', '用例不存在', caseCode);
+      const entry = JSON.stringify([{
+        kind: 'attachment', name: name.trim(), objectKey, size, sha256,
+        by: ctx.actorId, at: new Date().toISOString(),
+      }]);
+      const upd = await client.query(
+        'UPDATE tst_case_runs SET evidence_ids = evidence_ids || $3::jsonb WHERE run_id=$1 AND case_id=$2 RETURNING id',
+        [run.rows[0].id, cs.rows[0].id, entry]);
+      if (!upd.rows[0]) throw new DomainError('NOT_FOUND', '用例执行行不存在', `${runId}/${caseCode}`);
+      return { runId, caseCode, name };
+    });
   }
 
   // ---------- 命令入口 ----------
@@ -133,6 +167,36 @@ export class TstRunsService {
     return executeCommand('tst.run.manual.record',
       { projectId, runId, caseCode, status: body.status, evidence: body.evidence, simulation: body.simulation },
       { ...ctx, projectId });
+  }
+
+  /** T4 证据附件上传：先落对象（孤儿对象可回收）再命令登记引用（引用悬空更糟，故与原型生成的顺序相反） */
+  async attachEvidence(
+    projectId: string, runId: string, caseCode: string, name: string, buf: Buffer, ctx: CommandContext,
+  ) {
+    if (buf.length === 0) throw new DomainError('VALIDATION_FAILED', '附件内容为空', name);
+    if (buf.length > 20 * 1024 * 1024) throw new DomainError('VALIDATION_FAILED', '证据附件过大（>20MB）', name);
+    const sha256 = createHash('sha256').update(buf).digest('hex');
+    const safeName = name.replace(/[^\w.一-鿿-]+/g, '_').slice(-80);
+    const objectKey = `evidence/${projectId}/${runId}/${caseCode}-${Date.now()}-${safeName}`;
+    await this.storage.putObject(objectKey, buf);
+    return executeCommand('tst.evidence.attach',
+      { projectId, runId, caseCode, name, objectKey, size: buf.length, sha256 },
+      { ...ctx, projectId });
+  }
+
+  /** T4 证据附件查看（签名直链 5 分钟） */
+  async evidenceDownload(projectId: string, runId: string, caseCode: string, idx: number) {
+    const r = await query<{ evidence_ids: unknown[] }>(
+      `SELECT cr.evidence_ids FROM tst_case_runs cr
+       JOIN tst_runs ru ON ru.id=cr.run_id JOIN tst_cases c ON c.id=cr.case_id
+       WHERE ru.project_id=$1 AND ru.code=$2 AND c.code=$3`,
+      [projectId, runId, caseCode]);
+    const ids = r.rows[0]?.evidence_ids ?? [];
+    const att = ids[idx] as { kind?: string; name?: string; objectKey?: string } | undefined;
+    if (!att || att.kind !== 'attachment' || !att.objectKey) {
+      throw new DomainError('NOT_FOUND', '证据附件不存在', `${runId}/${caseCode}#${idx}`);
+    }
+    return { name: att.name ?? 'attachment', url: await this.storage.presignedGet(att.objectKey) };
   }
 
   // ---------- 查询面 ----------

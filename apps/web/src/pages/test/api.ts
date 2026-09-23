@@ -60,6 +60,8 @@ export interface TstDefect {
 
 export interface TstReport {
   reportId: string; verdict: string | null; status: string; basisFingerprint: string;
+  /** T6：basis 指纹实时比对——执行/缺陷已变化时为 true（定稿/放行置灰并提示重新汇总） */
+  basisStale: boolean;
   summary: {
     runId?: string; runConclusion?: string | null; unclosedDefects?: string[];
     simulated?: boolean; simulationNote?: string | null;
@@ -104,10 +106,18 @@ export const tstApi = {
   // 执行
   executeRun: (pid: string, batchId: string, planId: string) =>
     api.post<{ runId: string; conclusion: string }>(`${base(pid)}/batches/${batchId}/runs:execute`, { planId }),
-  manualRecord: (pid: string, runId: string, caseId: string, body: { status: string; evidence: string; simulation?: boolean }) =>
+  manualRecord: (pid: string, runId: string, caseId: string, body: { status: string; evidence: string }) =>
     api.put<{ runId: string; previousRunId: string }>(`${base(pid)}/runs/${runId}/results/${caseId}`, body),
   runsOfBatch: (pid: string, batchId: string) =>
     api.get<{ items: TstRunItem[]; latestRunId: string | null; cases: TstCaseRun[] }>(`${base(pid)}/batches/${batchId}/runs`),
+
+  // T4 证据附件（DSG-U06/D10：原始字节 PUT + 签名直链查看）
+  attachEvidence: (pid: string, runId: string, caseId: string, name: string, blob: Blob) =>
+    api.putRaw<{ runId: string; caseCode: string; name: string }>(
+      `${base(pid)}/runs/${runId}/results/${caseId}/evidence?name=${encodeURIComponent(name)}`, blob),
+  evidenceDownload: (pid: string, runId: string, caseId: string, idx: number) =>
+    api.get<{ name: string; url: string }>(
+      `${base(pid)}/runs/${runId}/results/${caseId}/evidence/${idx}/download`),
 
   // 缺陷
   listDefects: (pid: string, batchId?: string) =>

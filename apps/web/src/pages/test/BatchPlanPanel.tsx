@@ -2,6 +2,12 @@ import { useState } from 'react';
 import { tstApi } from './api';
 import { useTstStore } from './store';
 
+/** 环境对象 → 可读文本 */
+function envText(env: Record<string, unknown>): string {
+  const parts = [env.os, env.browser].filter((x) => typeof x === 'string' && x);
+  return parts.length > 0 ? parts.join(' / ') : JSON.stringify(env);
+}
+
 /** 页签一：提测与计划（接收新交接 + 批次事实表 .qa-facts + 计划起草/批准 + 阻断/恢复） */
 export function BatchPlanPanel() {
   const s = useTstStore();
@@ -67,12 +73,15 @@ export function BatchPlanPanel() {
               window.open(e.downloadUrl, '_blank');
             }}>导出交接快照</button>
           </div>
-          <div className="qa-facts">
-            <div><span>候选构建</span><code>{det.snapshot.build.build_fingerprint.slice(0, 19)}…</code></div>
-            <div><span>开发自测</span><code>{det.snapshot.devReport.report_fingerprint.slice(0, 19)}…（{det.snapshot.devReport.status}）</code></div>
-            <div><span>设计基线</span><code>{det.snapshot.designBaseline.baseline_fingerprint.slice(0, 19)}…</code></div>
-            <div><span>环境指纹</span><code>{det.snapshot.environmentFingerprint.slice(0, 26)}…</code></div>
-          </div>
+          {/* T3 .qa-facts 六格：候选构建/开发自测/设计基线/环境/接收人/接收时间 */}
+          <dl className="qa-facts">
+            <div><dt>候选构建</dt><dd><code>{det.snapshot.build.build_id}</code></dd></div>
+            <div><dt>开发自测</dt><dd><code>{det.snapshot.devReport.report_id}</code> · {det.snapshot.devReport.status === 'pass' ? '通过' : det.snapshot.devReport.status}</dd></div>
+            <div><dt>设计基线</dt><dd><code>{det.snapshot.designBaseline.baseline_id}</code></dd></div>
+            <div><dt>环境</dt><dd>{envText(det.snapshot.environment)}</dd></div>
+            <div><dt>接收人</dt><dd>{det.receivedBy}</dd></div>
+            <div><dt>接收时间</dt><dd>{new Date(det.receivedAt).toLocaleString()}</dd></div>
+          </dl>
           {/* 阻断/恢复（A07-13/14） */}
           {!['received', 'released', 'blocked'].includes(det.status) && (
             <div className="form-row">

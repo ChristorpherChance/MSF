@@ -16,10 +16,10 @@ export function DesignPage() {
     void init();
   }, [init]);
   const tabs: Array<{ key: DesignSubTab; label: string }> = [
-    { key: 'hld', label: '📐 概要设计' },
-    { key: 'detail', label: '📚 详细设计' },
-    { key: 'prototype', label: '🖥 原型 UI' },
-    { key: 'review', label: `🔍 自检评审${openReviews > 0 ? `（${openReviews}）` : ''}` },
+    { key: 'hld', label: '📐 概要' },
+    { key: 'detail', label: '📋 详细' },
+    { key: 'prototype', label: '🖼️ 原型 UI' },
+    { key: 'review', label: `🧪 自检评审${openReviews > 0 ? `（${openReviews}）` : ''}` },
   ];
   return (
     <main>

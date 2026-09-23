@@ -18,16 +18,36 @@ const SEED: Array<{ code: string; severity: '高' | '中' | '低'; docKind: stri
 export class ReviewService {
   onModuleInit(): void {
     registerCommand('design.review.seed', async (client, payload, ctx) => {
-      const { projectId } = payload as { projectId: string };
+      const { projectId, force } = payload as { projectId: string; force?: boolean };
       const existing = await client.query('SELECT 1 FROM dsg_reviews WHERE project_id=$1 LIMIT 1', [projectId]);
-      if (existing.rows[0]) return { seeded: false };
+      if (existing.rows[0] && !force) return { seeded: false };
+      // 重新自检评审（S8 🔁）：幂等补齐缺失条目（按 code 去重，不动已有结论）
+      let added = 0;
       for (const s of SEED) {
-        await client.query(
-          'INSERT INTO dsg_reviews (project_id, code, severity, doc_kind, text, created_by) VALUES ($1,$2,$3,$4,$5,$6)',
+        const r = await client.query(
+          `INSERT INTO dsg_reviews (project_id, code, severity, doc_kind, text, created_by)
+           SELECT $1,$2,$3,$4,$5,$6
+           WHERE NOT EXISTS (SELECT 1 FROM dsg_reviews WHERE project_id=$1 AND code=$2)
+           RETURNING id`,
           [projectId, s.code, s.severity, s.docKind, s.text, ctx.actorId],
         );
+        added += r.rows.length;
       }
-      return { seeded: true, count: SEED.length };
+      return { seeded: true, count: added };
+    });
+
+    // S8：已解决项重新打开（结论清空，回到未决）
+    registerCommand('design.review.reopen', async (client, payload, ctx) => {
+      const { projectId, drId } = payload as { projectId: string; drId: string };
+      const r = await client.query<{ id: string; status: string }>(
+        'SELECT id, status FROM dsg_reviews WHERE project_id=$1 AND code=$2 FOR UPDATE', [projectId, drId]);
+      if (!r.rows[0]) throw new DomainError('NOT_FOUND', '评审项不存在', drId);
+      if (r.rows[0].status !== 'done') throw new DomainError('INVALID_STATE', '仅已解决项可重新打开', drId);
+      await client.query(
+        "UPDATE dsg_reviews SET status='open', resolution=NULL, updated_by=$3, updated_at=now() WHERE id=$1 AND project_id=$2",
+        [r.rows[0].id, projectId, ctx.actorId],
+      );
+      return { id: drId, status: 'open' };
     });
 
     registerCommand('design.review.conclude', async (client, payload, ctx) => {
@@ -68,5 +88,14 @@ export class ReviewService {
 
   async conclude(projectId: string, drId: string, conclusion: 'pass' | 'fail' | 'na', note: string | undefined, ctx: CommandContext) {
     return executeCommand('design.review.conclude', { projectId, drId, conclusion, note }, { ...ctx, projectId });
+  }
+
+  /** 重新自检评审（幂等补齐种子条目；S8 🔁 按钮） */
+  async reseed(projectId: string, ctx: CommandContext) {
+    return executeCommand('design.review.seed', { projectId, force: true }, { ...ctx, projectId });
+  }
+
+  async reopen(projectId: string, drId: string, ctx: CommandContext) {
+    return executeCommand('design.review.reopen', { projectId, drId }, { ...ctx, projectId });
   }
 }

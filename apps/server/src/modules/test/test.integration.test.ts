@@ -71,7 +71,7 @@ describe('Tst 测试验收域（集成，需 DB+MinIO）', async () => {
   const autopilot = new DevAutopilotService(board, build, selftest);
   const batches = new TstBatchesService(storage, notices);
   const plans = new TstPlansService(policy);
-  const runs = new TstRunsService();
+  const runs = new TstRunsService(storage);
   const defects = new TstDefectsService();
   const reports = new TstReportsService(policy, storage, notices);
   resetCommands();

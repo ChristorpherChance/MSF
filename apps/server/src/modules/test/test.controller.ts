@@ -111,6 +111,26 @@ export class TestController {
     return this.runs.manualRecord(pid, runId, caseId, body, this.actor(req, pid));
   }
 
+  /** T4 证据附件上传（原始字节流，?name= 文件名；DSG-U06/D10） */
+  @Put('runs/:runId/results/:caseId/evidence')
+  async attachEvidence(
+    @Param('projectId') pid: string, @Param('runId') runId: string, @Param('caseId') caseId: string,
+    @Query('name') name: string, @Req() req: Request,
+  ) {
+    const chunks: Buffer[] = [];
+    for await (const chunk of req as AsyncIterable<Buffer>) chunks.push(chunk);
+    return this.runs.attachEvidence(pid, runId, caseId, name ?? '', Buffer.concat(chunks), this.actor(req, pid));
+  }
+
+  /** T4 证据附件查看（签名直链） */
+  @Get('runs/:runId/results/:caseId/evidence/:idx/download')
+  evidenceDownload(
+    @Param('projectId') pid: string, @Param('runId') runId: string,
+    @Param('caseId') caseId: string, @Param('idx') idx: string,
+  ) {
+    return this.runs.evidenceDownload(pid, runId, caseId, Number(idx));
+  }
+
   @Get('batches/:batchId/runs')
   runsOfBatch(@Param('projectId') pid: string, @Param('batchId') batchId: string) {
     return this.runs.runsOfBatch(pid, batchId);
