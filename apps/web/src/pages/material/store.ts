@@ -19,8 +19,12 @@ interface MaterialState {
   viewMode: ViewMode;
   selectedFileId: string | null;
   collapsed: Record<string, boolean>;
-  /** 编辑草稿（v11Guard 未保存守卫：text≠base 时切换文件需确认） */
+  /** 编辑草稿（v11Guard 未保存守卫：text≠base 时离开编辑需三选确认） */
   draft: { fileId: string; base: string; text: string } | null;
+  /** v11Guard 三选 modal（DSG-U02-7）：草稿脏时挂起的动作；null=无守卫 */
+  guardNext: (() => void) | null;
+  /** 删除双向同步确认 modal 目标（DSG-U07-2；TreePanel 行 🗑 触发，MaterialPage 渲染） */
+  deleteTarget: { id: string; name: string } | null;
   /** 批量勾选（会话态；批量解析/批量定稿/批量加工的选集） */
   checked: Record<string, boolean>;
   /** 仅待解析过滤（REQ-106/108：文件面原件树过滤开关，会话态） */
@@ -42,7 +46,11 @@ interface MaterialState {
   setChecked: (ids: string[], v: boolean) => void;
   clearChecked: () => void;
   setOnlyPending: (v: boolean) => void;
-  guardedSelect: (id: string | null) => boolean;
+  /** v11Guard：草稿脏则挂起动作弹三选 modal，否则立即执行 */
+  requestGuard: (next: () => void) => void;
+  setGuardNext: (fn: (() => void) | null) => void;
+  setDeleteTarget: (t: { id: string; name: string } | null) => void;
+  guardedSelect: (id: string | null) => void;
   init: () => Promise<void>;
   refresh: () => Promise<void>;
 }
@@ -53,6 +61,8 @@ export const useMaterialView = create<MaterialState>((set, get) => ({
   selectedFileId: null,
   collapsed: {},
   draft: null,
+  guardNext: null,
+  deleteTarget: null,
   checked: {},
   onlyPending: false,
   projectId: null,
@@ -78,16 +88,23 @@ export const useMaterialView = create<MaterialState>((set, get) => ({
   clearChecked: () => set({ checked: {} }),
   setOnlyPending: (onlyPending) => set({ onlyPending }),
 
-  /** 带未保存守卫的文件选择（v11Guard：编辑脏内容切文件需确认，确认则弃稿） */
-  guardedSelect: (id: string | null): boolean => {
+  /** v11Guard（DSG-U02-7）：编辑脏内容时，切文件/切页签/切出编辑态统一挂起为三选 modal */
+  requestGuard: (next) => {
     const { draft, selectedFileId } = get();
-    if (draft && draft.fileId === selectedFileId && draft.text !== draft.base && id !== selectedFileId) {
-      if (!window.confirm('当前编辑未保存，确定放弃修改？')) return false;
-    }
-    if (id !== selectedFileId) set({ draft: null });
-    set({ selectedFileId: id });
-    void get().refresh();
-    return true;
+    const dirty = !!draft && draft.fileId === selectedFileId && draft.text !== draft.base;
+    if (dirty) set({ guardNext: next });
+    else next();
+  },
+  setGuardNext: (guardNext) => set({ guardNext }),
+  setDeleteTarget: (deleteTarget) => set({ deleteTarget }),
+
+  /** 带未保存守卫的文件选择（v11Guard 三选 modal 由 MaterialPage 渲染承接） */
+  guardedSelect: (id: string | null): void => {
+    get().requestGuard(() => {
+      if (id !== get().selectedFileId) set({ draft: null });
+      set({ selectedFileId: id });
+      void get().refresh();
+    });
   },
 
   /** 首次进入：定位项目（M1 期取首个/建示例，项目页 M7 实现）并拉双树 */

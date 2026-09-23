@@ -260,6 +260,58 @@ export class ParseService {
       });
       return { deleted: true };
     });
+
+    // 文件双向同步删除（LLD-6 §3.2 delFile L2263：原文件+解析稿+ZIP 子件一并移除；
+    // 引用守卫：解析稿被需求/会话引用 → GATE_BLOCKED 明示；理由必填；解析稿业务态 discarded、原件行删除）
+    registerCommand('material.file.delete', async (client, payload, ctx) => {
+      const { projectId, fileId, reason } = payload as { projectId: string; fileId: string; reason: string };
+      if (!reason?.trim()) throw new DomainError('VALIDATION_FAILED', '删除理由必填', 'reason');
+      await this.lockFile(client, projectId, fileId); // 行锁 + 存在性校验（NOT_FOUND）
+      // ZIP 子件随行
+      const children = await client.query<{ id: string }>(
+        'SELECT id FROM mat_files WHERE zip_parent_id=$1', [fileId]);
+      const ids = [fileId, ...children.rows.map((c) => c.id)];
+      // 引用守卫：解析稿 referenced_by 或 ai_sessions.refs 命中（跨域 SQL 直读，不 import）
+      const parsed = await client.query<{ id: string; referenced_by: unknown }>(
+        'SELECT id, referenced_by FROM mat_parsed WHERE file_id = ANY($1::uuid[])', [ids]);
+      const issues: Array<{ code: 'DEPENDENCY_EXISTS'; message: string; target: string }> = [];
+      for (const p of parsed.rows) {
+        if (Array.isArray(p.referenced_by) && p.referenced_by.length > 0) {
+          issues.push({ code: 'DEPENDENCY_EXISTS', message: '解析稿存在需求引用依赖', target: p.id });
+        }
+      }
+      const parsedIds = parsed.rows.map((p) => p.id);
+      if (parsedIds.length > 0) {
+        const refs = await client.query<{ id: string }>(
+          `SELECT id FROM ai_sessions WHERE project_id=$1
+             AND EXISTS (SELECT 1 FROM jsonb_array_elements(refs) e WHERE e->>'parsed_id' = ANY($2::text[]))`,
+          [projectId, parsedIds]);
+        for (const r of refs.rows) {
+          issues.push({ code: 'DEPENDENCY_EXISTS', message: 'AI 会话引用依赖', target: r.id });
+        }
+      }
+      if (issues.length > 0) {
+        throw new DomainError('GATE_BLOCKED', '删除守卫：存在下游引用，请先解除引用', fileId, { issues });
+      }
+      // 批量加工作业留痕（mat_batch_items 行保留不物理删）：有历史作业记录则拒绝删除
+      const jobs = await client.query<{ id: string }>(
+        'SELECT id FROM mat_batch_items WHERE file_id = ANY($1::uuid[]) LIMIT 1', [ids]);
+      if (jobs.rows.length > 0) {
+        throw new DomainError('GATE_BLOCKED', '删除守卫：存在批量加工作业留痕，不允许删除', fileId, {
+          issues: [{ code: 'DEPENDENCY_EXISTS', message: '存在批量加工作业记录', target: fileId }],
+        });
+      }
+      const now = new Date().toISOString();
+      await client.query(
+        "UPDATE mat_parsed SET status='discarded', delete_guard=$2, updated_by=$3, updated_at=now() WHERE file_id = ANY($1::uuid[])",
+        [ids, JSON.stringify({ reason, deletedBy: ctx.actorId, at: now, withFile: true }), ctx.actorId],
+      );
+      // 上传会话留痕（行保留不物理删）：file_id 解挂
+      await client.query('UPDATE mat_uploads SET file_id=NULL WHERE file_id = ANY($1::uuid[])', [ids]);
+      await client.query('DELETE FROM mat_files WHERE zip_parent_id=$1', [fileId]);
+      await client.query('DELETE FROM mat_files WHERE id=$1', [fileId]);
+      return { deleted: fileId, children: children.rows.length, parsedDiscarded: parsed.rows.length };
+    });
   }
 
   /** A03-8 单个解析：202 + operationId；mock 引擎异步完成（SSE parse.* 随集成里程碑接线） */
@@ -331,6 +383,11 @@ export class ParseService {
 
   async deleteRow(projectId: string, rowId: string, reason: string, ctx: CommandContext): Promise<unknown> {
     return executeCommand('material.parsed.delete_row', { projectId, rowId, reason }, { ...ctx, projectId });
+  }
+
+  /** 文件双向同步删除（LLD-6 §3.2 delFile；引用守卫 GATE_BLOCKED） */
+  async deleteFile(projectId: string, fileId: string, reason: string, ctx: CommandContext): Promise<unknown> {
+    return executeCommand('material.file.delete', { projectId, fileId, reason }, { ...ctx, projectId });
   }
 
   private async requireDraft(client: PoolClient, fileId: string): Promise<void> {

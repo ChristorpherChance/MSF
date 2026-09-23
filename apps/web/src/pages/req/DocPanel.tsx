@@ -1,6 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { mdHtml } from '../../md-html';
 import { ApiError } from '../../api';
+import { Modal } from '../../ui/Modal';
+import { toast } from '../../ui/toast';
 import { reqApi, type DocKind, type HealthView, type PatchItem } from './api';
 import { useReqView, type ViewMode } from './store';
 
@@ -10,6 +13,7 @@ export function DocPanel({ kind }: { kind: DocKind }) {
   const [finalizeOpen, setFinalizeOpen] = useState(false);
   const [commitOpen, setCommitOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [timelineOpen, setTimelineOpen] = useState(false);
 
   if (!doc) return <div className="doc-empty">{loading ? '加载中…' : (error ?? '文档初始化中…')}</div>;
 
@@ -33,6 +37,7 @@ export function DocPanel({ kind }: { kind: DocKind }) {
         onCommit={() => setCommitOpen(true)}
         moreOpen={moreOpen}
         setMoreOpen={setMoreOpen}
+        onTimeline={() => setTimelineOpen(true)}
       />
       {error && <div className="req-banner err">{error}</div>}
       {doc.finalized && <div className="req-banner ok">✓ 已定稿 v{doc.finalVer}：内容字节冻结，修改需先在 ⋯ 菜单解除定稿（留审计）。</div>}
@@ -51,16 +56,18 @@ export function DocPanel({ kind }: { kind: DocKind }) {
       </div>
       {finalizeOpen && <FinalizeModal kind={kind} onClose={() => setFinalizeOpen(false)} />}
       {commitOpen && <CommitModal kind={kind} onClose={() => setCommitOpen(false)} />}
+      {timelineOpen && <VersionTimelineModal onClose={() => setTimelineOpen(false)} />}
     </div>
   );
 }
 
 function Toolbar({
-  kind, readonly, statusTag, onFinalize, onCommit, moreOpen, setMoreOpen,
+  kind, readonly, statusTag, onFinalize, onCommit, moreOpen, setMoreOpen, onTimeline,
 }: {
   kind: DocKind; readonly: boolean; statusTag: string;
   onFinalize: () => void; onCommit: () => void;
   moreOpen: boolean; setMoreOpen: (b: boolean) => void;
+  onTimeline: () => void;
 }) {
   const { projectId, doc, versions, viewMode, setViewMode, loadDoc, refresh, gen } = useReqView();
   const [refsOpen, setRefsOpen] = useState(false);
@@ -131,6 +138,23 @@ function Toolbar({
         <button className="act" onClick={() => setMoreOpen(!moreOpen)}>⋯</button>
         {moreOpen && (
           <div className="popover menu">
+            {/* R1：版本时间线 / 分享（原型 docMenu 项） */}
+            <button className="act" onClick={() => { setMoreOpen(false); onTimeline(); }}>
+              🕘 版本时间线
+            </button>
+            <button
+              className="act"
+              onClick={() => {
+                setMoreOpen(false);
+                const url = `${window.location.origin}/req?tab=${kind}&v=${doc.viewing ?? doc.cur}`;
+                void navigator.clipboard
+                  .writeText(url)
+                  .then(() => toast('分享链接已复制到剪贴板', 'success'))
+                  .catch(() => toast(url));
+              }}
+            >
+              🔗 分享
+            </button>
             {doc.finalized && (
               <button className="act" onClick={() => { setMoreOpen(false); if (window.confirm('解除定稿将留审计记录，下游基线失效传播随 M3 接入。继续？')) act(() => reqApi.unlock(projectId, kind), '已解除定稿'); }}>
                 🔓 解除定稿
@@ -159,6 +183,7 @@ function Toolbar({
 /** 参考资料 popover：仅内容已定稿（content_final）资料可挂接（REQ-114，无旁路） */
 function RefsPopover({ kind, onClose }: { kind: DocKind; onClose: () => void }) {
   const { projectId, doc, candidates, refresh } = useReqView();
+  const navigate = useNavigate();
   const [msg, setMsg] = useState<string | null>(null);
   if (!projectId || !doc) return null;
   const attached = new Set(doc.refs.map((r) => r.fileId));
@@ -198,6 +223,18 @@ function RefsPopover({ kind, onClose }: { kind: DocKind; onClose: () => void }) 
         <p className="pop-tip">暂无可挂接资料——上传件须先在资料页完成解析与内容定稿。</p>
       )}
       {msg && <p className="pop-tip err">{msg}</p>}
+      {/* R2：上传补充 .md 入口（REQ-114 无旁路：经资料库解析定稿后引用） */}
+      <button
+        className="act"
+        style={{ width: '100%', marginTop: 8 }}
+        onClick={() => {
+          onClose();
+          toast('上传件须先在资料库完成解析与内容定稿，之后自动出现在本清单（REQ-114 无旁路）');
+          void navigate('/material');
+        }}
+      >
+        ⬆ 上传补充 .md（经资料库解析定稿后引用）
+      </button>
     </div>
   );
 }
@@ -229,9 +266,17 @@ function HistoryBanner({ kind, v }: { kind: DocKind; v: number }) {
   );
 }
 
-/** 生成流式卡：目录先行 → 章节增量（A04-4/5，mock 驱动） */
+/**
+ * R3 生成卡（原型：目录先行 → 章节 Task 实时卡）。
+ * 流文本按 `## ` 章节标题增量切分：已越过标题的章节=✅ 完成，当前写入章节=🔄 进行中。
+ */
 function GenCard() {
   const { gen, controlGenerate } = useReqView();
+  const sections = useMemo(() => {
+    const heads = [...gen.streamText.matchAll(/^##\s+(.+)$/gm)].map((m) => m[1]!.trim());
+    return heads;
+  }, [gen.streamText]);
+  const runningIdx = gen.running ? sections.length - 1 : -1;
   return (
     <div className="gen-card" role="status">
       <div className="gen-head">
@@ -247,7 +292,26 @@ function GenCard() {
           </span>
         )}
       </div>
-      <pre className="gen-stream">{gen.streamText || '等待模型输出…'}</pre>
+      {sections.length > 0 && (
+        <div className="tasklist">
+          <div className="tl-head">章节 Task（实时）· {sections.length}</div>
+          {sections.map((s, i) => (
+            <div key={`${i}-${s}`} className={`tl-item${i === runningIdx ? ' tl-enter' : ''}`}>
+              <span className="st">{i === runningIdx ? '🔄' : '✅'}</span>
+              <span style={{ flex: 1 }}>{s} · 生成</span>
+              {i === runningIdx && (
+                <div className="prog" style={{ width: 80 }}>
+                  <i className="indet" />
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      <details className="gen-raw">
+        <summary>查看原始输出流</summary>
+        <pre className="gen-stream">{gen.streamText || '等待模型输出…'}</pre>
+      </details>
       {!gen.running && !gen.error && (
         <p className="pop-tip">生成结果为待确认补丁（不落稿），请在下方逐条接受/拒绝后提交版本。</p>
       )}
@@ -255,13 +319,32 @@ function GenCard() {
   );
 }
 
-/** 目录栏（216px 固定）：点击跳转 + 闪高亮 */
+/** R4 目录栏（216px 固定）：点击跳转 + 闪高亮 + 滚动联动高亮当前章节（bindTocSync） */
 function TocCol() {
   const { doc, tocFlash, flashToc } = useReqView();
+  const [activeSec, setActiveSec] = useState<string | null>(null);
+
+  // 滚动联动：IntersectionObserver 跟踪纸面章节，视口上部命中的章节为当前
+  useEffect(() => {
+    const secs = Array.from(document.querySelectorAll<HTMLElement>('section.sect[id^="sec-"]'));
+    if (secs.length === 0) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) {
+          if (e.isIntersecting) setActiveSec(e.target.id.replace(/^sec-/, ''));
+        }
+      },
+      { rootMargin: '-10% 0px -75% 0px' },
+    );
+    for (const s of secs) io.observe(s);
+    return () => io.disconnect();
+  }, [doc?.secs, doc?.cur]);
+
   if (!doc) return null;
   const jump = (secId: string) => {
     document.getElementById(`sec-${secId}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     flashToc(secId);
+    setActiveSec(secId);
   };
   return (
     <aside className="toc-col">
@@ -269,7 +352,7 @@ function TocCol() {
       {doc.secs.filter((s) => s.title).map((s) => (
         <button
           key={s.id}
-          className={`toc-item${tocFlash === s.id ? ' flash' : ''}${s.pending ? ' has-pend' : ''}`}
+          className={`toc-item${tocFlash === s.id ? ' flash' : ''}${s.pending ? ' has-pend' : ''}${activeSec === s.id ? ' act-sec' : ''}`}
           onClick={() => jump(s.id)}
         >
           {s.title}
@@ -325,18 +408,40 @@ function Paper({ kind, readonly }: { kind: DocKind; readonly: boolean }) {
   );
 }
 
-/** 编辑态：逐节 textarea + 保存（save-draft 乐观锁：baseVersion+baseFingerprint） */
+/** 编辑态：逐节 textarea + 保存（save-draft 乐观锁：baseVersion+baseFingerprint；R7 冲突 toast+modal） */
 function SectionEditor({ kind, secId, md, readonly }: { kind: DocKind; secId: string; md: string; readonly: boolean }) {
   const { projectId, doc, refresh } = useReqView();
   const [text, setText] = useState(md);
   const [msg, setMsg] = useState<string | null>(null);
+  const [conflict, setConflict] = useState(false);
   const dirty = text !== md;
   if (!projectId || !doc) return null;
   const save = () => {
     setMsg(null);
     void reqApi.saveDraft(projectId, kind, secId, text, doc.cur, doc.contentFingerprint)
-      .catch((e) => setMsg(e instanceof ApiError ? `${e.code}: ${e.message}` : '保存失败'))
+      .then(() => toast('已保存本节', 'success'))
+      .catch((e) => {
+        // R7（DSG-U06-14）：并发冲突 toast + 弹窗（查看最新 / 基于最新重新编辑）
+        if (e instanceof ApiError && e.code === 'VERSION_CONFLICT') {
+          setConflict(true);
+          toast('内容已被他人更新', 'warn');
+        } else {
+          setMsg(e instanceof ApiError ? `${e.code}: ${e.message}` : '保存失败');
+        }
+      })
       .finally(() => void refresh());
+  };
+  /** 基于最新重新编辑：刷新后保留本地文本，基线随 store 更新 */
+  const rebaseAndKeep = async () => {
+    await refresh();
+    setConflict(false);
+    toast('已切换到最新基线，当前编辑内容保留，可再次保存', 'success');
+  };
+  /** 查看最新：丢弃本地修改 */
+  const viewLatest = async () => {
+    await refresh();
+    setText(useReqView.getState().doc?.secs.find((s) => s.id === secId)?.md ?? md);
+    setConflict(false);
   };
   return (
     <div className="sec-editor">
@@ -352,6 +457,24 @@ function SectionEditor({ kind, secId, md, readonly }: { kind: DocKind; secId: st
           {dirty && <button className="act" onClick={() => setText(md)}>放弃</button>}
           {msg && <span className="rsn err">{msg}</span>}
         </div>
+      )}
+      {conflict && (
+        <Modal
+          title="内容已被他人更新"
+          onClose={() => setConflict(false)}
+          footer={
+            <>
+              <button className="sm" onClick={() => void viewLatest()}>
+                查看最新
+              </button>
+              <button className="sm primary" onClick={() => void rebaseAndKeep()}>
+                基于最新重新编辑
+              </button>
+            </>
+          }
+        >
+          <p>本节内容在你编辑期间已被他人更新（版本/指纹不一致）。可查看最新版本，或保留你的修改基于最新版本重新保存。</p>
+        </Modal>
       )}
     </div>
   );
@@ -378,6 +501,45 @@ function PendingBar({ kind, patch }: { kind: DocKind; patch: PatchItem }) {
       <button className="act" onClick={() => act(() => reqApi.rejectPatch(projectId, kind, patch.patchId))}>✕ 拒绝</button>
       {msg && <span className="rsn err">{msg}</span>}
     </div>
+  );
+}
+
+/** R1 版本时间线（原型 docMenu「🕘 版本时间线」）：版本倒序列出，可跳看历史（只读） */
+function VersionTimelineModal({ onClose }: { onClose: () => void }) {
+  const { versions, doc, loadDoc } = useReqView();
+  if (!doc) return null;
+  return (
+    <Modal title={`🕘 版本时间线（${doc.kind}）`} onClose={onClose}>
+      <ul className="v-timeline">
+        {[...versions].sort((a, b) => b.v - a.v).map((v) => (
+          <li key={v.v} className={`v-tl-item${v.v === doc.cur ? ' cur' : ''}`}>
+            <span className="v-tl-dot" />
+            <div className="v-tl-main">
+              <strong>
+                v{v.v}
+                {v.finalized && <span className="tag tag-ok">定稿</span>}
+                {v.v === doc.cur && <span className="tag">当前</span>}
+              </strong>
+              <span className="mut">
+                {v.at} · {v.by}
+                {v.note ? ` · ${v.note}` : ''}
+              </span>
+            </div>
+            {v.v !== doc.cur && (
+              <button
+                className="act"
+                onClick={() => {
+                  onClose();
+                  void loadDoc(v.v);
+                }}
+              >
+                查看
+              </button>
+            )}
+          </li>
+        ))}
+      </ul>
+    </Modal>
   );
 }
 

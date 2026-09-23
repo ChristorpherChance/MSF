@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { pool, query } from '../../db/pool.js';
 import { resetCommands } from '../evidence/command-bus.js';
 import { FilesService, type TreeNode } from './files.service.js';
+import { ParseService } from './parse.service.js';
 import { StorageService } from '../platform/storage.service.js';
 import { UploadsService } from './uploads.service.js';
 import { ZipExtractService } from './zip-extract.service.js';
@@ -147,5 +148,38 @@ describe('FilesService（集成，需 DB+MinIO）', async () => {
     expect(none.parsedMd).toBeNull();
     const source = (await svc.detail(PID, rootFileId, 'source')) as { url: string };
     expect(source.url).toContain('sha256/');
+  });
+
+  it('W4 文件双向同步删除（material.file.delete）：引用守卫/理由必填/ZIP 子件随行/解析稿 discarded', async () => {
+    const parse = new ParseService(storage);
+    parse.onModuleInit();
+    const CTX = { projectId: PID, actorKind: 'human' as const, actorId: 't' };
+
+    // 理由必填
+    await expect(parse.deleteFile(PID, rootFileId, '', CTX))
+      .rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+
+    // 引用守卫：解析稿 referenced_by 非空 → GATE_BLOCKED
+    await query('UPDATE mat_parsed SET referenced_by=$2 WHERE file_id=$1',
+      [rootFileId, JSON.stringify([{ kind: 'req', id: 'x' }])]);
+    await expect(parse.deleteFile(PID, rootFileId, '清理', CTX))
+      .rejects.toMatchObject({ code: 'GATE_BLOCKED' });
+    await query('UPDATE mat_parsed SET referenced_by=$2 WHERE file_id=$1', [rootFileId, '[]']);
+
+    // 正常删除 root.md：解析稿 discarded、文件行删除
+    const r = await parse.deleteFile(PID, rootFileId, '重复资料清理', CTX) as { parsedDiscarded: number };
+    expect(r.parsedDiscarded).toBe(1);
+    const gone = await query('SELECT id FROM mat_files WHERE id=$1', [rootFileId]);
+    expect(gone.rows).toHaveLength(0);
+    const discarded = await query<{ status: string }>('SELECT status FROM mat_parsed WHERE file_id=$1', [rootFileId]);
+    expect(discarded.rows[0]!.status).toBe('discarded');
+
+    // ZIP 双向同步：删 pack.zip → 子件 inner.md 随行
+    const zip = await query<{ id: string }>(
+      "SELECT id FROM mat_files WHERE project_id=$1 AND name='pack.zip'", [PID]);
+    const rz = await parse.deleteFile(PID, zip.rows[0]!.id, '压缩包清理', CTX) as { children: number };
+    expect(rz.children).toBe(1);
+    const inner = await query('SELECT id FROM mat_files WHERE id=$1', [nestedFileId]);
+    expect(inner.rows).toHaveLength(0);
   });
 });

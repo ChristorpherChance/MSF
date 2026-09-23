@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { mdHtml } from '../../md-html';
 import { ApiError } from '../../api';
+import { Popover } from '../../ui/Popover';
+import { toast } from '../../ui/toast';
 import { materialApi } from './api';
 import { useMaterialView, type ViewMode } from './store';
 import { StatusTag } from './TreePanel';
@@ -11,21 +13,88 @@ const VIEW_MODES: Array<{ key: ViewMode; label: string }> = [
   { key: 'source', label: '源码' },
 ];
 
-/** 三态切换（预览/编辑/源码），置于工具栏末尾（§3.2 .viewmode） */
+/** 三态切换（预览/编辑/源码），置于工具栏末尾（§3.2 .viewmode）；切出编辑态走 v11Guard */
 export function ViewModeSwitch() {
-  const { viewMode, setViewMode } = useMaterialView();
+  const { viewMode, setViewMode, requestGuard } = useMaterialView();
   return (
     <span className="viewmode" role="group" aria-label="视图三态">
       {VIEW_MODES.map((m) => (
         <button
           key={m.key}
           className={viewMode === m.key ? 'on' : ''}
-          onClick={() => setViewMode(m.key)}
+          onClick={() => {
+            if (viewMode === 'edit' && m.key !== 'edit') {
+              requestGuard(() => setViewMode(m.key));
+            } else {
+              setViewMode(m.key);
+            }
+          }}
         >
           {m.label}
         </button>
       ))}
     </span>
+  );
+}
+
+/** ⬇ 下载 ▾（§3.2 工具栏）：解析稿 Markdown（本端落盘）/ 原文件（签名直链 5 分钟） */
+function DownloadButton({ md, fileName }: { md: string | null; fileName: string }) {
+  const { projectId, selectedFileId } = useMaterialView();
+  const [anchor, setAnchor] = useState<DOMRect | null>(null);
+
+  const downloadMd = () => {
+    if (!md) return;
+    const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = fileName.replace(/\.[^.]+$/, '') + '.md';
+    a.click();
+    URL.revokeObjectURL(a.href);
+    toast('已下载解析稿 Markdown', 'success');
+  };
+  const downloadOriginal = async () => {
+    if (!projectId || !selectedFileId) return;
+    try {
+      const r = await materialApi.download(projectId, selectedFileId);
+      window.open(r.url, '_blank', 'noopener');
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : '获取下载链接失败', 'warn');
+    }
+  };
+
+  return (
+    <>
+      <button
+        className="act"
+        onClick={(e) => setAnchor((e.target as HTMLElement).getBoundingClientRect())}
+      >
+        ⬇ 下载 ▾
+      </button>
+      {anchor && (
+        <Popover anchor={anchor} onClose={() => setAnchor(null)}>
+          <div className="po-head">下载</div>
+          <button
+            className="po-item"
+            disabled={!md}
+            onClick={() => {
+              setAnchor(null);
+              downloadMd();
+            }}
+          >
+            ⬇ 解析稿 Markdown (.md)
+          </button>
+          <button
+            className="po-item"
+            onClick={() => {
+              setAnchor(null);
+              void downloadOriginal();
+            }}
+          >
+            ⬇ 原文件
+          </button>
+        </Popover>
+      )}
+    </>
   );
 }
 
@@ -157,6 +226,7 @@ export function DetailView() {
             放弃修改
           </button>
         )}
+        <DownloadButton md={md} fileName={detail.name ?? 'document'} />
         <ViewModeSwitch />
       </div>
       <div className="doc-scroll">
@@ -186,6 +256,27 @@ export function DetailView() {
           )}
           {viewMode === 'source' && <pre className="md-src">{md ?? '（无内容）'}</pre>}
         </div>
+        {/* M2：内容面附件列表区（加工产物挂载处；原型 .attach-row） */}
+        {subTab === 'content' && (detail.attachments ?? []).length > 0 && (
+          <div className="attach-area">
+            <div className="attach-head">附件（{detail.attachments!.length}）</div>
+            {detail.attachments!.map((a, i) => (
+              <div key={`${a.name ?? i}`} className="attach-row">
+                <span>📎</span>
+                <span className="nm" style={{ flex: 1 }} title={a.name}>
+                  {a.name ?? `附件 ${i + 1}`}
+                  {a.by ? `（${a.by}）` : ''}
+                </span>
+                <button
+                  className="act"
+                  onClick={() => toast('附件产物下载随 M6 沙箱存储接入', 'warn')}
+                >
+                  下载
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </>
   );

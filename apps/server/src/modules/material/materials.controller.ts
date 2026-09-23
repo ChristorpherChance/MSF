@@ -97,6 +97,26 @@ export class MaterialsController {
     return this.files.detail(projectId, fileId, view ?? 'parsed');
   }
 
+  /** 原件下载（⬇ 工具栏；签名 URL，MinIO 承载） */
+  @Get('files/:fileId/download')
+  download(@Param('projectId') projectId: string, @Param('fileId') fileId: string) {
+    return this.files.download(projectId, fileId);
+  }
+
+  /** 文件双向同步删除（LLD-6 §3.2 delFile；原文件+解析稿+ZIP 子件；引用守卫；理由必填） */
+  @Delete('files/:fileId')
+  deleteFile(
+    @Param('projectId') projectId: string,
+    @Param('fileId') fileId: string,
+    @Body() body: { reason?: string },
+    @Req() req: Request,
+  ) {
+    const actor = getActor(req);
+    return this.parse.deleteFile(projectId, fileId, body?.reason ?? '', {
+      projectId, actorKind: actor.kind, actorId: actor.id,
+    });
+  }
+
   /** A03-4 ZIP 行内解压（同名冲突默认拒绝，rename 自动追加序号；REQ-104） */
   @Post('files/:fileId\\:extract')
   @HttpCode(200)

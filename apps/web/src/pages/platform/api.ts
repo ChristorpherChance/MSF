@@ -5,8 +5,10 @@ import { api } from '../../api';
 export interface ProjectRow {
   id: string;
   name: string;
+  description: string;
   status: 'active' | 'archived';
   is_demo: boolean;
+  stage_gates: Array<{ stage: string; ok: boolean }>;
   created_at: string;
 }
 
@@ -62,7 +64,10 @@ const pid = (p: string) => `/api/v1/projects/${p}`;
 export const platformApi = {
   // 项目（A02-1~3）
   listProjects: () => api.get<ProjectRow[]>('/api/projects'),
-  createProject: (name: string, isDemo = false) => api.post<{ id: string }>('/api/projects', { name, isDemo }),
+  createProject: (name: string, isDemo = false, description = '') =>
+    api.post<{ id: string }>('/api/projects', { name, isDemo, description }),
+  updateProject: (id: string, body: { name?: string; description?: string }) =>
+    api.put(`/api/projects/${id}`, body),
   archiveProject: (id: string) => api.post(`/api/projects/${id}/archive`, {}),
   // 阶段准入/任务中心/事件流（A02-4/5/6）
   stages: (p: string) => api.get<{ stages: StageGate[] }>(`${pid(p)}/stages`),

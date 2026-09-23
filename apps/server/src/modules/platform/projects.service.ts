@@ -7,8 +7,10 @@ import { executeCommand, registerCommand } from '../evidence/command-bus.js';
 export interface Project {
   id: string;
   name: string;
+  description: string;
   status: 'active' | 'archived';
   is_demo: boolean;
+  stage_gates: Record<string, unknown>;
   created_at: string;
   created_by: string;
 }
@@ -18,10 +20,22 @@ export interface Project {
 export class ProjectsService {
   onModuleInit(): void {
     registerCommand('platform.project.create', async (client, payload) => {
-      const { name, isDemo } = payload as { name: string; isDemo?: boolean };
+      const { name, isDemo, description } = payload as { name: string; isDemo?: boolean; description?: string };
       if (!name) throw new DomainError('VALIDATION_FAILED', '项目名必填', 'name');
       const id = randomUUID();
-      await client.query('INSERT INTO projects (id, name, is_demo) VALUES ($1, $2, $3)', [id, name, isDemo ?? false]);
+      await client.query('INSERT INTO projects (id, name, is_demo, description) VALUES ($1, $2, $3, $4)',
+        [id, name, isDemo ?? false, description ?? '']);
+      return { id };
+    });
+    registerCommand('platform.project.update', async (client, payload) => {
+      const { id, name, description } = payload as { id: string; name?: string; description?: string };
+      if (name !== undefined && !name.trim()) throw new DomainError('VALIDATION_FAILED', '项目名不能为空', 'name');
+      const r = await client.query(
+        `UPDATE projects SET name = coalesce($2, name), description = coalesce($3, description)
+         WHERE id=$1 AND status='active'`,
+        [id, name?.trim() ?? null, description ?? null],
+      );
+      if (r.rowCount === 0) throw new DomainError('NOT_FOUND', '项目不存在或已归档', id);
       return { id };
     });
     registerCommand('platform.project.archive', async (client, payload) => {
@@ -35,12 +49,20 @@ export class ProjectsService {
     });
   }
 
-  async create(name: string, isDemo = false): Promise<{ id: string }> {
+  async create(name: string, isDemo = false, description = ''): Promise<{ id: string }> {
     return (await executeCommand(
       'platform.project.create',
-      { name, isDemo },
+      { name, isDemo, description },
       { projectId: null, actorKind: 'human', actorId: 'local' },
     )) as { id: string };
+  }
+
+  async update(id: string, p: { name?: string; description?: string }): Promise<unknown> {
+    return executeCommand(
+      'platform.project.update',
+      { id, ...p },
+      { projectId: id, actorKind: 'human', actorId: 'local' },
+    );
   }
 
   async archive(id: string): Promise<unknown> {

@@ -14,6 +14,10 @@ export interface TreeNode {
   type: 'folder' | 'file';
   name: string;
   status?: MatParseStatus;
+  /** 失败原因细化（needsOcr 带页码 / encrypted 拦截提示，DSG-U03-2 行内展示） */
+  failMsg?: string | null;
+  /** 内容面 ↳ 加工结果行（最新内容稿的附件名清单，M1 主稿+缩进行结构） */
+  results?: string[] | undefined;
   children?: TreeNode[];
 }
 
@@ -49,6 +53,21 @@ export class FilesService {
        WHERE p.project_id=$1 AND p.kind='file_parse' AND p.status != 'discarded'`,
       [projectId],
     );
+    // 内容稿附件（加工结果 ↳ 缩进行）：每文件取最新一条内容稿
+    const contents = await query<{ file_id: string; attachments: unknown }>(
+      `SELECT DISTINCT ON (file_id) file_id, attachments FROM mat_parsed
+       WHERE project_id=$1 AND kind='content_parse' AND status != 'discarded'
+       ORDER BY file_id, created_at DESC`,
+      [projectId],
+    );
+    const resultsByFile = new Map(
+      contents.rows.map((r) => [
+        r.file_id,
+        (Array.isArray(r.attachments) ? r.attachments : [])
+          .map((a) => (a && typeof a === 'object' ? String((a as { name?: unknown }).name ?? '') : ''))
+          .filter(Boolean),
+      ]),
+    );
     return {
       originalTree: buildTree(folders.rows.filter((f) => f.tree === 'original'), files.rows),
       parsedTree: buildTree(
@@ -58,6 +77,7 @@ export class FilesService {
           name: p.file_name,
           folder_id: p.folder_id,
           parse_status: p.parse_status,
+          results: resultsByFile.get(p.file_id) ?? [],
         })),
       ),
     };
@@ -144,6 +164,14 @@ export class FilesService {
   }
 
   /** A03-7 文件详情：parsed=文件解析稿 / content=内容整理稿 / source=MinIO 短时签名直链 */
+  /** 原件下载（⬇ 工具栏；签名 URL 5 分钟） */
+  async download(projectId: string, fileId: string): Promise<{ name: string; url: string }> {
+    const r = await query<MatFile>('SELECT * FROM mat_files WHERE id=$1 AND project_id=$2', [fileId, projectId]);
+    const file = r.rows[0];
+    if (!file) throw new DomainError('NOT_FOUND', '文件不存在', fileId);
+    return { name: file.name, url: await this.storage.presignedGet(file.object_key) };
+  }
+
   async detail(
     projectId: string,
     fileId: string,
@@ -180,7 +208,14 @@ export class FilesService {
 /** 目录节点 + 文件行装配为嵌套树（parent_id/folder_id 为 NULL 即根层） */
 function buildTree(
   folders: MatFolderNode[],
-  files: Array<{ id: string; name: string; folder_id: string | null; parse_status: MatParseStatus }>,
+  files: Array<{
+    id: string;
+    name: string;
+    folder_id: string | null;
+    parse_status: MatParseStatus;
+    parse_error?: string | null;
+    results?: string[];
+  }>,
 ): TreeNode[] {
   const byParent = new Map<string | null, MatFolderNode[]>();
   for (const f of folders) {
@@ -202,7 +237,14 @@ function buildTree(
       children: assemble(f.id),
     }));
     for (const file of filesByFolder.get(parentId) ?? []) {
-      nodes.push({ id: file.id, type: 'file', name: file.name, status: file.parse_status });
+      nodes.push({
+        id: file.id,
+        type: 'file',
+        name: file.name,
+        status: file.parse_status,
+        failMsg: file.parse_error ?? null,
+        results: file.results,
+      });
     }
     return nodes;
   };

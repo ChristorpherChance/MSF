@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ApiError } from '../../api';
+import { Modal } from '../../ui/Modal';
 import { reqApi, type RtmRow } from './api';
 import { useReqView } from './store';
 
@@ -26,6 +27,22 @@ const STATE_LABEL: Record<RtmRow['state'], string> = {
 export function RtmPanel() {
   const { rtm, health, loading, error, refreshRtm } = useReqView();
   const [deferTarget, setDeferTarget] = useState<{ kind: 'cr' | 'req'; code: string } | null>(null);
+  const [trace, setTrace] = useState<{ row: RtmRow; node: string } | null>(null);
+  const [flash, setFlash] = useState<string | null>(null);
+
+  // R5：任务卡 REQ 锚点跳入承接（devJumpRtm → /req?tab=rtm#REQ-xxx），定位行并闪高亮
+  useEffect(() => {
+    if (!rtm) return;
+    const hash = window.location.hash.replace(/^#/, '');
+    if (!hash) return;
+    const row = rtm.rows.find((r) => [r.r, ...r.cr, ...r.req, ...r.dsg].includes(hash));
+    if (!row) return;
+    const el = document.getElementById(`rtm-${row.r}`);
+    el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setFlash(row.r);
+    const t = setTimeout(() => setFlash(null), 2400);
+    return () => clearTimeout(t);
+  }, [rtm]);
 
   if (error) return <div className="req-banner err">{error}</div>;
   if (!rtm || !health) return <div className="doc-empty">{loading ? '加载中…' : 'RTM 数据初始化中…'}</div>;
@@ -72,7 +89,14 @@ export function RtmPanel() {
           </thead>
           <tbody>
             {rtm.rows.map((row) => (
-              <RtmRowView key={row.r} row={row} deferred={new Set(rtm.deferred)} onDefer={setDeferTarget} />
+              <RtmRowView
+                key={row.r}
+                row={row}
+                deferred={new Set(rtm.deferred)}
+                flash={flash === row.r}
+                onDefer={setDeferTarget}
+                onTrace={(node) => setTrace({ row, node })}
+              />
             ))}
             {rtm.rows.length === 0 && (
               <tr><td colSpan={6} className="mut">暂无 R 节点——CRD 中书写 R-xxx 锚点并提交版本后自动派生。</td></tr>
@@ -109,16 +133,67 @@ export function RtmPanel() {
       </div>
 
       {deferTarget && <DeferModal target={deferTarget} onClose={() => setDeferTarget(null)} />}
+      {trace && <TraceModal row={trace.row} node={trace.node} deferred={new Set(rtm.deferred)} onClose={() => setTrace(null)} />}
     </div>
   );
 }
 
+/** R5 追溯弹窗：节点点击 → 该 R 行全链追溯视图（R→CR→REQ→DSG 四色链） */
+function TraceModal({
+  row, node, deferred, onClose,
+}: {
+  row: RtmRow; node: string; deferred: Set<string>; onClose: () => void;
+}) {
+  return (
+    <Modal title={`🔗 追溯：${node}`} onClose={onClose}>
+      <div className="trace-chain">
+        <div className="trace-col">
+          <div className="trace-head">R 客户需求</div>
+          <span className={`rtm-node n-r${node === row.r ? ' hit' : ''}`}>{row.r}</span>
+        </div>
+        <div className="trace-arrow">→</div>
+        <div className="trace-col">
+          <div className="trace-head">CR 承接条目</div>
+          {row.cr.length > 0
+            ? row.cr.map((c) => (
+                <span key={c} className={`rtm-node n-cr${node === c ? ' hit' : ''}${deferred.has(c) ? ' deferred' : ''}`}>{c}</span>
+              ))
+            : <span className="mut">未承接</span>}
+        </div>
+        <div className="trace-arrow">→</div>
+        <div className="trace-col">
+          <div className="trace-head">REQ 产品需求</div>
+          {row.req.length > 0
+            ? row.req.map((r) => (
+                <span key={r} className={`rtm-node n-req${node === r ? ' hit' : ''}${deferred.has(r) ? ' deferred' : ''}`}>{r}</span>
+              ))
+            : <span className="mut">未拆解</span>}
+        </div>
+        <div className="trace-arrow">→</div>
+        <div className="trace-col">
+          <div className="trace-head">DSG 设计锚点</div>
+          {row.dsg.length > 0
+            ? row.dsg.map((d) => (
+                <span key={d} className={`rtm-node n-dsg${node === d ? ' hit' : ''}`}>{d}</span>
+              ))
+            : <span className="mut">未登记</span>}
+        </div>
+      </div>
+      <p className="pop-tip" style={{ marginTop: 10 }}>
+        行状态：{STATE_LABEL[row.state]}；deferred 条目不进入 L0a/L0b/L0c 分母。
+      </p>
+    </Modal>
+  );
+}
+
 function RtmRowView({
-  row, deferred, onDefer,
+  row, deferred, flash, onDefer, onTrace,
 }: {
   row: RtmRow;
   deferred: Set<string>;
+  flash: boolean;
   onDefer: (t: { kind: 'cr' | 'req'; code: string }) => void;
+  onTrace: (node: string) => void;
 }) {
   const { projectId, refreshRtm } = useReqView();
   const [msg, setMsg] = useState<string | null>(null);
@@ -136,21 +211,23 @@ function RtmRowView({
       <button className="act mini" title="标记暂缓（理由必填，记审计；不进 L0a/L0b/L0c 分母）" onClick={() => onDefer({ kind, code })}>标记 deferred</button>
     );
   return (
-    <tr className={`state-${row.state}`}>
-      <td><span className="rtm-node n-r">{row.r}</span></td>
+    <tr id={`rtm-${row.r}`} className={`state-${row.state}${flash ? ' row-flash' : ''}`}>
+      <td>
+        <button className="rtm-node n-r" title="点击追溯全链" onClick={() => onTrace(row.r)}>{row.r}</button>
+      </td>
       <td>
         {row.cr.map((c) => (
-          <span key={c} className={`rtm-node n-cr${deferred.has(c) ? ' deferred' : ''}`}>{c}</span>
+          <button key={c} className={`rtm-node n-cr${deferred.has(c) ? ' deferred' : ''}`} title="点击追溯全链" onClick={() => onTrace(c)}>{c}</button>
         ))}
         {row.cr.map((c) => <span key={`${c}-op`} className="node-op">{nodeOps('cr', c)}</span>)}
       </td>
       <td>
         {row.req.map((r) => (
-          <span key={r} className={`rtm-node n-req${deferred.has(r) ? ' deferred' : ''}`}>{r}</span>
+          <button key={r} className={`rtm-node n-req${deferred.has(r) ? ' deferred' : ''}`} title="点击追溯全链" onClick={() => onTrace(r)}>{r}</button>
         ))}
         {row.req.map((r) => <span key={`${r}-op`} className="node-op">{nodeOps('req', r)}</span>)}
       </td>
-      <td>{row.dsg.map((d) => <span key={d} className="rtm-node n-dsg">{d}</span>)}</td>
+      <td>{row.dsg.map((d) => <button key={d} className="rtm-node n-dsg" title="点击追溯全链" onClick={() => onTrace(d)}>{d}</button>)}</td>
       <td><span className={`tag st-${row.state}`}>{STATE_LABEL[row.state]}</span>{msg && <div className="rsn err">{msg}</div>}</td>
       <td className="mut">{row.state === 'uncovered' ? '需在 CRD 增加 CR 承接条目' : ''}</td>
     </tr>

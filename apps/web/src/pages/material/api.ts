@@ -11,6 +11,10 @@ export interface TreeNode {
   type: 'folder' | 'file';
   name: string;
   status?: MatParseStatus;
+  /** 失败原因细化（needsOcr 带页码 / encrypted 提示） */
+  failMsg?: string | null;
+  /** 内容面 ↳ 加工结果行（内容稿附件名清单） */
+  results?: string[];
   children?: TreeNode[];
 }
 
@@ -21,7 +25,7 @@ export interface FileDetail {
   url?: string;
   parsedMd?: string | null;
   contentMd?: string | null;
-  attachments?: unknown[];
+  attachments?: Array<{ name?: string; by?: string }>;
   ops?: Array<{ op: string; at?: string }>;
   contentFingerprint?: string | null;
 }
@@ -42,6 +46,15 @@ export const materialApi = {
     api.get<{ originalTree: TreeNode[]; parsedTree: TreeNode[] }>(`${base(pid)}/tree`),
   detail: (pid: string, fileId: string, view: 'parsed' | 'content' | 'source') =>
     api.get<FileDetail>(`${base(pid)}/files/${fileId}?view=${view}`),
+  /** 原文件下载（⬇ 工具栏；签名 URL 5 分钟） */
+  download: (pid: string, fileId: string) =>
+    api.get<{ name: string; url: string }>(`${base(pid)}/files/${fileId}/download`),
+  /** 文件双向同步删除（LLD-6 §3.2 delFile；理由必填；引用守卫 GATE_BLOCKED） */
+  deleteFile: (pid: string, fileId: string, reason: string) =>
+    api.del<{ deleted: string; children: number; parsedDiscarded: number }>(
+      `${base(pid)}/files/${fileId}`,
+      { reason },
+    ),
   extractZip: (pid: string, fileId: string, onConflict: 'reject' | 'rename' = 'reject') =>
     api.post(`${base(pid)}/files/${fileId}:extract`, { onConflict }),
   parse: (pid: string, fileId: string) => api.post(`${base(pid)}/files/${fileId}:parse`, {}),

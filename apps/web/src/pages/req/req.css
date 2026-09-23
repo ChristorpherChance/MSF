@@ -183,12 +183,27 @@ tr.state-deferred { opacity: 0.72; }
   display: inline-block; margin: 1px 4px 1px 0; padding: 1px 8px; border-radius: 6px;
   font-family: var(--font-mono); font-size: 12px;
 }
-.n-r { background: #eef2ff; color: #4338ca; }
-.n-cr { background: #ecfeff; color: #0e7490; }
-.n-req { background: #f0fdf4; color: #15803d; }
-.n-dsg { background: #fdf4ff; color: #a21caf; }
+/* R6（DSG-U01-5）：RTM 节点四色 = R 蓝 / CR 绿 / REQ 橙 / DSG 紫 */
+.rtm-node:is(button) { border: none; cursor: pointer; font: inherit; font-family: var(--font-mono); font-size: 12px; }
+.rtm-node:is(button):hover { outline: 1px solid currentColor; }
+.rtm-node.hit { outline: 2px solid currentColor; font-weight: 700; }
+.n-r { background: var(--blue-soft); color: var(--blue); }
+.n-cr { background: var(--green-soft); color: var(--green); }
+.n-req { background: var(--orange-soft); color: var(--orange); }
+.n-dsg { background: #f1ebfa; color: #6b4fa3; }
 .rtm-node.deferred { text-decoration: line-through; opacity: 0.6; }
 .node-op { display: inline-block; margin-right: 6px; }
+tr.row-flash { animation: rtm-flash 1.2s ease-in-out 2; }
+@keyframes rtm-flash {
+  0%, 100% { background: transparent; }
+  50% { background: var(--blue-soft); }
+}
+
+/* R5 追溯弹窗四色链 */
+.trace-chain { display: flex; align-items: flex-start; gap: 10px; }
+.trace-col { display: flex; flex-direction: column; gap: 6px; min-width: 90px; }
+.trace-head { font-size: 12px; color: var(--ink2); font-weight: 600; }
+.trace-arrow { color: var(--ink2); padding-top: 22px; }
 
 .st-covered { background: #ecfdf5; color: var(--green); border-color: #bbf7d0; }
 .st-partial { background: #fffbeb; color: var(--orange); border-color: #fde68a; }
@@ -211,3 +226,34 @@ tr.state-deferred { opacity: 0.72; }
   .kpi-row { grid-template-columns: repeat(3, 1fr); }
   .dsg-grid { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* ===== W4：需求页符合度补齐（R1/R3/R4） ===== */
+
+/* R1 版本时间线 */
+.v-timeline { list-style: none; margin: 0; padding: 0; }
+.v-tl-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 0; border-bottom: 1px solid var(--line);
+}
+.v-tl-item:last-child { border-bottom: none; }
+.v-tl-item.cur .v-tl-dot { background: var(--blue); }
+.v-tl-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--soft2); flex: none; }
+.v-tl-main { flex: 1; display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+.v-tl-main .tag { margin-left: 6px; }
+
+/* R3 章节 Task 实时卡（原型 .tasklist） */
+.tasklist { margin: 8px 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.tl-head { font-size: 12px; font-weight: 700; color: var(--ink2); padding: 6px 10px; background: var(--soft); }
+.tl-item { display: flex; align-items: center; gap: 8px; padding: 6px 10px; font-size: 12.5px; border-top: 1px solid var(--line); }
+.tl-item .st { flex: none; }
+.tl-item.tl-enter { animation: tl-enter .3s ease; }
+@keyframes tl-enter { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; } }
+.tl-item .prog { height: 4px; border-radius: 2px; background: var(--soft2); overflow: hidden; }
+.tl-item .prog i { display: block; height: 100%; background: var(--blue); }
+.tl-item .prog i.indet { width: 40%; animation: req-prog-indet 1.2s ease-in-out infinite; }
+@keyframes req-prog-indet { 0% { margin-left: -40%; } 100% { margin-left: 100%; } }
+.gen-raw { margin-top: 6px; font-size: 12px; color: var(--ink2); }
+.gen-raw summary { cursor: pointer; }
+
+/* R4 目录滚动联动高亮 */
+.toc-item.act-sec { background: var(--blue-soft); color: var(--blue); font-weight: 700; box-shadow: inset 3px 0 0 var(--blue); }
