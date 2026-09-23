@@ -29,6 +29,9 @@ export interface FileDetail {
 export interface ProjectRow {
   id: string;
   name: string;
+  status?: 'active' | 'archived';
+  is_demo?: boolean;
+  created_at?: string;
   stage?: number;
 }
 
@@ -118,9 +121,20 @@ export async function uploadFile(
   return { fileId: done.file.id };
 }
 
-/** M1 期项目来源：项目页属 M7，先取首个项目，无则建一个示例项目 */
+/** 项目来源：会话已选项目优先（项目页「进入」写入），否则首个活跃项目，无则建示例项目 */
 export async function ensureProject(): Promise<ProjectRow> {
+  const { useSession } = await import('../../store');
+  const sid = useSession.getState().projectId;
   const list = await api.get<ProjectRow[]>('/api/projects');
-  if (list[0]) return list[0];
-  return api.post<ProjectRow>('/api/projects', { name: '示例项目' });
+  const active = list.filter((p) => p.status !== 'archived');
+  if (sid) {
+    const hit = active.find((p) => p.id === sid);
+    if (hit) return hit;
+    useSession.getState().setProject(null); // 已归档/不存在，清会话
+  }
+  if (active[0]) {
+    useSession.getState().setProject(active[0].id, active[0].name);
+    return active[0];
+  }
+  return api.post<ProjectRow>('/api/projects', { name: '示例项目', isDemo: true });
 }

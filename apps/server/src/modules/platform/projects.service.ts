@@ -8,6 +8,7 @@ export interface Project {
   id: string;
   name: string;
   status: 'active' | 'archived';
+  is_demo: boolean;
   created_at: string;
   created_by: string;
 }
@@ -17,10 +18,10 @@ export interface Project {
 export class ProjectsService {
   onModuleInit(): void {
     registerCommand('platform.project.create', async (client, payload) => {
-      const { name } = payload as { name: string };
+      const { name, isDemo } = payload as { name: string; isDemo?: boolean };
       if (!name) throw new DomainError('VALIDATION_FAILED', '项目名必填', 'name');
       const id = randomUUID();
-      await client.query('INSERT INTO projects (id, name) VALUES ($1, $2)', [id, name]);
+      await client.query('INSERT INTO projects (id, name, is_demo) VALUES ($1, $2, $3)', [id, name, isDemo ?? false]);
       return { id };
     });
     registerCommand('platform.project.archive', async (client, payload) => {
@@ -34,10 +35,10 @@ export class ProjectsService {
     });
   }
 
-  async create(name: string): Promise<{ id: string }> {
+  async create(name: string, isDemo = false): Promise<{ id: string }> {
     return (await executeCommand(
       'platform.project.create',
-      { name },
+      { name, isDemo },
       { projectId: null, actorKind: 'human', actorId: 'local' },
     )) as { id: string };
   }

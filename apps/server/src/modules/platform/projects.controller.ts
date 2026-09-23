@@ -17,8 +17,8 @@ export class ProjectsController {
   }
 
   @Post()
-  create(@Body() body: { name: string }) {
-    return this.projects.create(body.name);
+  create(@Body() body: { name: string; isDemo?: boolean }) {
+    return this.projects.create(body.name, body.isDemo ?? false);
   }
 
   @Post(':id/archive')
