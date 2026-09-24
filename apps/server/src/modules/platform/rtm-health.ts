@@ -8,6 +8,9 @@ import { splitSections } from './doc-sections.js';
  * - R 集合 = CRD 全文出现的全部 R-\d+；
  * - CRD 中标题含 CR-\d+ 的章节，其正文内的 R-x 建 R→CR refines；
  * - PRD 中标题含 REQ-\d+ 的章节，正文内 CR-x 建 CR→REQ refines、DSG-* 锚点建 REQ→DSG implements；
+ * - 设计册反向派生（#15 立项：自然承接方向认定）——章节回引 REQ-nnn 时：
+ *   同章节含 DSG-* 锚点建精确 REQ→DSG-* implements；无锚点建 REQ→DSG-<册> 册级粗粒度链
+ *   （册级链只解锁门禁，精确锚仍鼓励在 PRD 该 REQ 章节正文预埋）；
  * - deferred/dropped 为人工标记行（from==to 自指），派生重建不动人工标记。
  */
 
@@ -37,10 +40,11 @@ const scanCodes = (text: string, re: RegExp): string[] => {
   return [...out].sort();
 };
 
-/** 从 CRD/PRD 当前版本全文派生追踪链与节点集（无文档侧按空集计） */
+/** 从 CRD/PRD 当前版本全文（可选加设计各册正文，#15 反向派生）派生追踪链与节点集（无文档侧按空集计） */
 export function deriveLinks(
   crdContent: string,
   prdContent: string,
+  designDocs: Array<{ book: string; content: string }> = [],
 ): { links: DerivedLink[]; nodes: RtmNodeSets } {
   const links: DerivedLink[] = [];
   const dsgSet = new Set<string>();
@@ -70,6 +74,27 @@ export function deriveLinks(
       for (const dsg of scanCodes(sec.md, RE_DSG)) {
         dsgSet.add(dsg);
         links.push({ fromKind: 'req', fromCode: req, toKind: 'dsg', toCode: dsg, relation: 'implements' });
+      }
+    }
+  }
+
+  // #15 反向派生：设计册章节回引 REQ 编号即认定承接（REQ 节点集仍以 PRD 为权威，不回灌）
+  for (const { book, content } of designDocs) {
+    const bookAnchor = `DSG-${book.toUpperCase()}`;
+    for (const sec of splitSections(content)) {
+      const reqs = scanCodes(`${sec.title}\n${sec.md}`, RE_REQ);
+      if (reqs.length === 0) continue;
+      const dsgs = scanCodes(`${sec.title}\n${sec.md}`, RE_DSG).filter((d) => d !== bookAnchor);
+      for (const req of reqs) {
+        if (dsgs.length > 0) {
+          for (const dsg of dsgs) {
+            dsgSet.add(dsg);
+            links.push({ fromKind: 'req', fromCode: req, toKind: 'dsg', toCode: dsg, relation: 'implements' });
+          }
+        } else {
+          dsgSet.add(bookAnchor);
+          links.push({ fromKind: 'req', fromCode: req, toKind: 'dsg', toCode: bookAnchor, relation: 'implements' });
+        }
       }
     }
   }
@@ -143,7 +168,10 @@ export function computeHealth(
   if (actReq.length === 0) warnings.push('无 REQ 可核对');
   const l0c = actReq.length === 0 ? 1 : reqCovered.length / actReq.length;
   for (const c of actReq.filter((c) => !covered.has(`req:${c}`))) {
-    gaps.push({ code: 'L0C_BELOW', target: c, message: 'REQ→DSG 无承接锚点' });
+    gaps.push({
+      code: 'L0C_BELOW', target: c,
+      message: `REQ→DSG 无承接锚点：${c}（修复：在 PRD 该 REQ 章节正文补「设计承接：DSG-*」锚点，或在设计册对应章节标题/正文回引 ${c}，然后提交版本）`,
+    });
   }
 
   const deferredItems = [...deferred].sort().map((nodeId) => ({ nodeId }));

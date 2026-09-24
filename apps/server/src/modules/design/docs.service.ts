@@ -432,7 +432,10 @@ export class DesignDocsService {
     return executeCommand('design.doc.redo', { projectId, kind }, { ...ctx, projectId });
   }
   async commit(projectId: string, kind: DesignKind, note: string, baseVersion: number, ctx: CommandContext) {
-    return executeCommand('design.doc.commit-version', { projectId, kind, note, baseVersion }, { ...ctx, projectId });
+    const r = await executeCommand('design.doc.commit-version', { projectId, kind, note, baseVersion }, { ...ctx, projectId });
+    // #15：设计册正文是 RTM 反向派生输入，提交后冪等重建派生链（独立事务；失败仅致门禁保守拦截，可重试自愈）
+    await executeCommand('rtm.rebuild', { projectId }, { ...ctx, projectId });
+    return r;
   }
   async switchVersion(projectId: string, kind: DesignKind, v: number, ctx: CommandContext) {
     return executeCommand('design.doc.switch-version', { projectId, kind, v }, { ...ctx, projectId });

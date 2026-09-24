@@ -7,6 +7,7 @@ import { appendEvidence } from '../evidence/audit.service.js';
 import { PolicyService } from '../policy/policy.service.js';
 import { applyPatch, joinSections, sha256Text, splitSections, type EditPatch } from '../platform/doc-sections.js';
 import { deriveLinks, computeHealth } from '../platform/rtm-health.js';
+import { designContents } from '../platform/doc-contents.js';
 
 /**
  * 需求文档生命周期核（LLD-2 DSG-F02-1 权威状态机；REQ-203/204/205/209/210、BR-05/12）。
@@ -57,6 +58,12 @@ export class ReqDocsService {
   constructor(@Inject(PolicyService) private readonly policy: PolicyService) {}
 
   onModuleInit(): void {
+    // #15：反向派生后设计册提交也是派生输入——开放冪等重建命令供设计域经命令总线调用（跨域禁令下不走 import）
+    registerCommand('rtm.rebuild', async (client, payload, ctx) => {
+      const { projectId } = payload as { projectId: string };
+      await this.rebuildRtmLinks(client, projectId, ctx);
+      return { rebuilt: true };
+    });
     registerCommand('doc.import-draft', async (client, payload, ctx) => {
       const { projectId, kind, content, note } = payload as {
         projectId: string; kind: 'crd' | 'prd'; content: string; note?: string;
@@ -636,7 +643,7 @@ export class ReqDocsService {
        LEFT JOIN req_versions v ON v.id=d.current_version_id WHERE d.project_id=$1`, [projectId]);
     const crd = docs.rows.find((d) => d.doc_kind === 'crd')?.content ?? '';
     const prd = docs.rows.find((d) => d.doc_kind === 'prd')?.content ?? '';
-    const { links } = deriveLinks(crd, prd);
+    const { links } = deriveLinks(crd, prd, await designContents(client, projectId));
     await client.query(
       "DELETE FROM rtm_links WHERE project_id=$1 AND relation IN ('refines','implements')", [projectId]);
     for (const l of links) {
@@ -679,7 +686,7 @@ export class ReqDocsService {
    */
   async computeLiveHealth(client: PoolClient | null, projectId: string) {
     const { crd, prd } = await this.currentContents(client, projectId);
-    const { nodes } = deriveLinks(crd, prd);
+    const { nodes } = deriveLinks(crd, prd, await designContents(client, projectId));
     const q = client ? client.query.bind(client) : query;
     const links = await q<{ from_kind: string; from_code: string; to_kind: string; to_code: string; relation: string }>(
       'SELECT from_kind, from_code, to_kind, to_code, relation FROM rtm_links WHERE project_id=$1', [projectId]);

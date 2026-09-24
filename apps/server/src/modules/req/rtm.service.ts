@@ -4,6 +4,7 @@ import { query } from '../../db/pool.js';
 import { executeCommand, registerCommand, type CommandContext } from '../evidence/command-bus.js';
 import { ReqDocsService } from './docs.service.js';
 import { deriveLinks } from '../platform/rtm-health.js';
+import { designContents } from '../platform/doc-contents.js';
 
 /**
  * RTM 查询与健康度门禁（A04-11/12，REQ-207/208/310）+ deferred 人工标记。
@@ -52,7 +53,7 @@ export class RtmService {
     const links = await query<{ from_kind: string; from_code: string; to_kind: string; to_code: string; relation: string }>(
       'SELECT from_kind, from_code, to_kind, to_code, relation FROM rtm_links WHERE project_id=$1', [projectId]);
     const { crd, prd } = await this.docs.currentContents(null, projectId);
-    const { nodes } = deriveLinks(crd, prd);
+    const { nodes } = deriveLinks(crd, prd, await designContents(null, projectId));
     const deferredSet = new Set(
       links.rows.filter((l) => l.relation === 'deferred' || l.relation === 'dropped').map((l) => l.from_code),
     );

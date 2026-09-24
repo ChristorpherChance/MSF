@@ -259,4 +259,40 @@ describe('Design 设计域（集成，需 DB+MinIO）', async () => {
     const dev2 = (await proto.gates(PID, 'develop')) as { ok: boolean };
     expect(dev2.ok).toBe(true);
   });
+
+  it('RTM 反向派生（#15）：PRD 去锚 → L0C 缺口带引导；设计册回引 REQ 提交后冪等重建解锁', async () => {
+    // ① PRD 摘掉 REQ-002 的 DSG 锚点 → 缺口出现，报错带两条修复路径引导
+    await reqDocs.unlock(PID, 'prd', CTX);
+    const rp = (await reqDocs.getDoc(PID, 'prd')) as unknown as DocView;
+    const sec = rp.secs.find((s) => s.title.includes('REQ-002'))!;
+    await reqDocs.saveDraft(PID, 'prd', {
+      secId: sec.id, md: sec.md.replace('设计锚点：DSG-U03-2', ''),
+      baseVersion: rp.cur, baseFingerprint: rp.contentFingerprint,
+    }, CTX);
+    const rp2 = (await reqDocs.getDoc(PID, 'prd')) as unknown as DocView;
+    await reqDocs.commit(PID, 'prd', 'REQ-002 去锚', rp2.cur, CTX);
+    const g1 = (await proto.gates(PID, 'develop')) as { issues: Array<{ code: string; message: string; target?: string }> };
+    const gap = g1.issues.find((i) => i.code === 'L0C_BELOW' && i.target === 'REQ-002');
+    expect(gap).toBeTruthy();
+    expect(gap!.message).toContain('设计承接：DSG-*');
+    expect(gap!.message).toContain('设计册');
+
+    // ② HLD 章节回引 REQ-002（无 DSG 锚点）→ commit 触发 rtm.rebuild → 册级链 DSG-HLD 解锁
+    await docs.unlock(PID, 'hld', CTX);
+    const hd = await view('hld');
+    const hsec = hd.secs[0]!;
+    await docs.saveDraft(PID, 'hld', {
+      secId: hsec.id, md: `${hsec.md}\n\n本章承接 REQ-002 的检索链路设计。`,
+      baseVersion: hd.cur, baseFingerprint: hd.contentFingerprint,
+    }, CTX);
+    const hd2 = await view('hld');
+    await docs.commit(PID, 'hld', 'REQ-002 回引', hd2.cur, CTX);
+
+    const link = await query(
+      `SELECT 1 FROM rtm_links WHERE project_id=$1 AND from_kind='req' AND from_code='REQ-002'
+       AND to_kind='dsg' AND to_code='DSG-HLD' AND relation='implements'`, [PID]);
+    expect(link.rowCount).toBe(1);
+    const g2 = (await proto.gates(PID, 'develop')) as { issues: Array<{ code: string; target?: string }> };
+    expect(g2.issues.filter((i) => i.code === 'L0C_BELOW')).toEqual([]);
+  });
 });

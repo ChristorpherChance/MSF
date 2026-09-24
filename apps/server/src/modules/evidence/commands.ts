@@ -63,6 +63,7 @@ export const COMMANDS = [
   'req.doc.export',
   'rtm.deferred.mark',
   'rtm.deferred.unmark',
+  'rtm.rebuild', // #15：设计册提交版本后重建派生链（反向派生输入变了；冪等重扫重插）
   // M3 设计域：设计文档八册生命周期（F02-1 同构复用，REQ-301/302）
   'design.doc.import-draft',
   'design.doc.save-html',

@@ -8,6 +8,7 @@ import { appendEvidence } from '../evidence/audit.service.js';
 import { PolicyService } from '../policy/policy.service.js';
 import { StorageService } from '../platform/storage.service.js';
 import { deriveLinks, computeHealth } from '../platform/rtm-health.js';
+import { designContents } from '../platform/doc-contents.js';
 import { DesignDocsService } from './docs.service.js';
 import { CatalogService } from './catalog.service.js';
 
@@ -389,13 +390,13 @@ export class PrototypeService {
          LEFT JOIN req_versions v ON v.id=d.current_version_id WHERE d.project_id=$1`, [projectId]);
       const crd = docsR.rows.find((x) => x.doc_kind === 'crd')?.content ?? '';
       const prd = docsR.rows.find((x) => x.doc_kind === 'prd')?.content ?? '';
-      const { nodes } = deriveLinks(crd, prd);
+      const { nodes } = deriveLinks(crd, prd, await designContents(null, projectId));
       const links = await q<{ from_kind: string; from_code: string; to_kind: string; to_code: string; relation: string }>(
         'SELECT from_kind, from_code, to_kind, to_code, relation FROM rtm_links WHERE project_id=$1', [projectId]);
       const h = computeHealth(nodes, links.rows);
       if (h.l0c < 1) {
         for (const g of h.gaps.filter((x) => x.code === 'L0C_BELOW')) {
-          issues.push({ code: 'L0C_BELOW', message: `REQ→DSG 无承接锚点：${g.target}`, target: g.target });
+          issues.push({ code: 'L0C_BELOW', message: g.message, target: g.target });
         }
         if (h.gaps.every((x) => x.code !== 'L0C_BELOW')) {
           issues.push({ code: 'RTM_HEALTH', message: `L0c=${(h.l0c * 100).toFixed(1)}% < 100%` });

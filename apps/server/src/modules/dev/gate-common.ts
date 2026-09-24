@@ -3,6 +3,7 @@ import { fingerprint } from '@msf/shared';
 import type { PoolClient } from 'pg';
 import { query } from '../../db/pool.js';
 import { deriveLinks, computeHealth } from '../platform/rtm-health.js';
+import { designContents } from '../platform/doc-contents.js';
 
 /** 开发域门禁公共件（跨域禁令：不 import design/req 服务，经 SQL 直读他域表 + platform 纯函数） */
 
@@ -64,13 +65,13 @@ export async function developGateIssues(client: PoolClient | null, projectId: st
      LEFT JOIN req_versions v ON v.id=d.current_version_id WHERE d.project_id=$1`, [projectId]);
   const crd = docs.rows.find((x) => x.doc_kind === 'crd')?.content ?? '';
   const prd = docs.rows.find((x) => x.doc_kind === 'prd')?.content ?? '';
-  const { nodes } = deriveLinks(crd, prd);
+  const { nodes } = deriveLinks(crd, prd, await designContents(client, projectId));
   const links = await q<{ from_kind: string; from_code: string; to_kind: string; to_code: string; relation: string }>(
     'SELECT from_kind, from_code, to_kind, to_code, relation FROM rtm_links WHERE project_id=$1', [projectId]);
   const h = computeHealth(nodes, links.rows);
   if (h.l0c < 1) {
     for (const g of h.gaps.filter((x) => x.code === 'L0C_BELOW')) {
-      issues.push({ code: 'L0C_BELOW', message: `REQ→DSG 无承接锚点：${g.target}`, target: g.target });
+      issues.push({ code: 'L0C_BELOW', message: g.message, target: g.target });
     }
     if (h.gaps.every((x) => x.code !== 'L0C_BELOW')) {
       issues.push({ code: 'RTM_HEALTH', message: `L0c=${(h.l0c * 100).toFixed(1)}% < 100%` });
