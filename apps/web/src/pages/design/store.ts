@@ -23,6 +23,8 @@ interface GenState {
   paused: boolean;
   streamText: string;
   error: string | null;
+  /** #5 生成来源（stream.start 首帧携带）：model=真模型 / mock=桩 */
+  source: 'model' | 'mock' | null;
 }
 
 interface DesignViewState {
@@ -71,7 +73,7 @@ export const useDesignView = create<DesignViewState>((set, get) => ({
   reviews: [],
   catalog: null,
   proto: null,
-  gen: { operationId: null, running: false, paused: false, streamText: '', error: null },
+  gen: { operationId: null, running: false, paused: false, streamText: '', error: null, source: null },
   tocFlash: null,
   impactNotice: null,
   loading: false,

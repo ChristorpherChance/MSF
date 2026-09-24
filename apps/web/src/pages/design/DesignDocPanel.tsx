@@ -166,6 +166,13 @@ function GenStreamCard() {
     <div className="gen-card" role="status">
       <div className="gen-head">
         <strong>{gen.running ? (gen.paused ? '⏸ 已暂停' : '⚡ AI 生成中…') : '✓ 生成完成'}</strong>
+        {/* #5 生成来源可辨识：mock 桩产出勿直接定稿 */}
+        {gen.source === 'mock' && (
+          <span className="tag tag-warn" title="未接真模型（MSF_AI_PROVIDER 未配置或 generation 用途路由缺失），产出为桩内容，勿直接定稿">mock 桩</span>
+        )}
+        {gen.source === 'model' && (
+          <span className="tag tag-ok" title="真实模型生成（generation 用途路由）">真模型</span>
+        )}
         {gen.running && (
           <span className="gen-ops">
             {gen.paused
@@ -379,11 +386,11 @@ function GenerateModal({ onClose }: { onClose: () => void }) {
   if (!projectId) return null;
   const submit = () => {
     setMsg(null);
-    useDesignView.setState({ gen: { operationId: null, running: true, paused: false, streamText: '', error: null } });
+    useDesignView.setState({ gen: { operationId: null, running: true, paused: false, streamText: '', error: null, source: null } });
     onClose();
     void generateDesignDoc(projectId, selKind, { referenceFileIds: [], referenceFingerprints: {}, ...(instruction ? { instruction } : {}) }, (f) => {
       const g = useDesignView.getState().gen;
-      if (f.type === 'stream.start') useDesignView.setState({ gen: { ...g, operationId: f.operationId ?? null } });
+      if (f.type === 'stream.start') useDesignView.setState({ gen: { ...g, operationId: f.operationId ?? null, source: f.source === 'model' ? 'model' : f.source === 'mock' ? 'mock' : null } });
       else if (f.type === 'stream.delta') useDesignView.setState({ gen: { ...g, streamText: g.streamText + (f.text ?? '') } });
       else if (f.type === 'stream.done') useDesignView.setState({ gen: { ...g, running: false } });
       else useDesignView.setState({ gen: { ...g, running: false, error: f.code ?? '生成失败' } });

@@ -155,6 +155,8 @@ export interface GenFrame {
   type: 'stream.start' | 'stream.delta' | 'stream.done' | 'stream.error';
   text?: string;
   operationId?: string;
+  /** #5 生成来源：model=真模型 / mock=桩（未配 MSF_AI_PROVIDER 或路由缺失时） */
+  source?: string;
   proposedPatchIds?: string[];
   code?: string;
 }

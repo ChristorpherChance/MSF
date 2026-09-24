@@ -76,7 +76,7 @@ export class ReqController {
     @Res() res: Response,
   ) {
     const ctx = this.actor(req, projectId);
-    const { operationId } = await this.gen.start(
+    const { operationId, source } = await this.gen.start(
       projectId,
       this.assertKind(kind),
       { referenceFileIds: body.referenceFileIds ?? [], referenceFingerprints: body.referenceFingerprints ?? {}, ...(body.instruction !== undefined ? { instruction: body.instruction } : {}) },
@@ -87,8 +87,8 @@ export class ReqController {
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
     const send = (data: unknown) => res.write(`data: ${JSON.stringify(data)}\n\n`);
-    // 首帧携带 operationId：pause/resume/stop（A04-5）需在流式进行中寻址本次生成
-    send({ type: 'stream.start', operationId });
+    // 首帧携带 operationId：pause/resume/stop（A04-5）需在流式进行中寻址本次生成；source=#5 生成来源可辨识
+    send({ type: 'stream.start', operationId, source });
     const result = await this.gen.drive(operationId, ctx, (text) => send({ type: 'stream.delta', text }));
     if (result.status === 'done') {
       send({ type: 'stream.done', operationId, proposedPatchIds: result.patchIds });

@@ -305,7 +305,7 @@ export class ReqDocsService {
     // 参考关联（REQ-114）：仅 content_final 资料的 content_parse final 行可挂接
     registerCommand('doc.add-reference', async (client, payload, ctx) => {
       const { projectId, kind, fileId } = payload as { projectId: string; kind: 'crd' | 'prd'; fileId: string };
-      const doc = await this.lockDoc(client, projectId, kind);
+      const doc = await this.lockOrCreateDoc(client, projectId, kind, ctx); // #3：未打开过文档也可挂参考
       const ref = await client.query<{ id: string; content_fingerprint: string }>(
         `SELECT p.id, p.content_fingerprint FROM mat_parsed p
          JOIN mat_files f ON f.id = p.file_id
@@ -508,6 +508,15 @@ export class ReqDocsService {
       'SELECT * FROM req_documents WHERE project_id=$1 AND doc_kind=$2 FOR UPDATE', [projectId, kind]);
     if (!r.rows[0]) throw new DomainError('NOT_FOUND', '文档不存在', kind);
     return r.rows[0];
+  }
+
+  /** #3：写路径不依赖 GET 懒建——无文档行先冪等 provisioning 再锁（D04-1 UNIQUE(project_id, doc_kind)） */
+  private async lockOrCreateDoc(client: PoolClient, projectId: string, kind: string, ctx: CommandContext): Promise<DocRow> {
+    await client.query(
+      'INSERT INTO req_documents (project_id, doc_kind, created_by) VALUES ($1,$2,$3) ON CONFLICT (project_id, doc_kind) DO NOTHING',
+      [projectId, kind, ctx.actorId],
+    );
+    return this.lockDoc(client, projectId, kind);
   }
 
   private async getDocRow(projectId: string, kind: string): Promise<DocRow> {

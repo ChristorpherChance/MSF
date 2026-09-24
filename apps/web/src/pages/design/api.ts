@@ -126,6 +126,8 @@ export const designApi = {
 export interface GenFrame {
   type: 'stream.start' | 'stream.delta' | 'stream.done' | 'stream.error';
   text?: string; operationId?: string; code?: string;
+  /** #5 生成来源：model=真模型 / mock=桩 */
+  source?: string;
 }
 
 /** A05-2 POST-SSE 生成（同 A04-4 消费口径） */

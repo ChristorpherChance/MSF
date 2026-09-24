@@ -301,6 +301,13 @@ function GenCard() {
     <div className="gen-card" role="status">
       <div className="gen-head">
         <strong>{gen.running ? (gen.paused ? '⏸ 已暂停' : '⚡ AI 生成中…') : '✓ 生成完成'}</strong>
+        {/* #5 生成来源可辨识：mock 桩产出勿直接定稿 */}
+        {gen.source === 'mock' && (
+          <span className="tag tag-warn" title="未接真模型（MSF_AI_PROVIDER 未配置或 generation 用途路由缺失），产出为桩内容，勿直接定稿">mock 桩</span>
+        )}
+        {gen.source === 'model' && (
+          <span className="tag tag-ok" title="真实模型生成（generation 用途路由）">真模型</span>
+        )}
         {gen.running && (
           <span className="gen-ops">
             {gen.paused ? (

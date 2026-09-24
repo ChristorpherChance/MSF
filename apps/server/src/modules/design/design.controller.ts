@@ -66,7 +66,7 @@ export class DesignController {
     @Req() req: Request, @Res() res: Response,
   ) {
     const ctx = this.actor(req, projectId);
-    const { operationId } = await this.gen.start(
+    const { operationId, source } = await this.gen.start(
       projectId, this.assertKind(kind),
       {
         referenceFileIds: body.referenceFileIds ?? [],
@@ -80,7 +80,7 @@ export class DesignController {
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
     const send = (data: unknown) => res.write(`data: ${JSON.stringify(data)}\n\n`);
-    send({ type: 'stream.start', operationId });
+    send({ type: 'stream.start', operationId, source }); // source=#5 生成来源可辨识
     const result = await this.gen.drive(operationId, ctx, (text) => send({ type: 'stream.delta', text }));
     if (result.status === 'done') {
       send({ type: 'stream.done', operationId, proposedPatchIds: result.patchIds });

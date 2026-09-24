@@ -26,6 +26,8 @@ interface GenState {
   paused: boolean;
   streamText: string;
   error: string | null;
+  /** #5 生成来源（stream.start 首帧携带）：model=真模型 / mock=桩 */
+  source: 'model' | 'mock' | null;
 }
 
 interface ReqViewState {
@@ -68,7 +70,7 @@ export const useReqView = create<ReqViewState>((set, get) => ({
   health: null,
   loading: false,
   error: null,
-  gen: { operationId: null, running: false, paused: false, streamText: '', error: null },
+  gen: { operationId: null, running: false, paused: false, streamText: '', error: null, source: null },
   tocFlash: null,
 
   init: async () => {
@@ -132,7 +134,7 @@ export const useReqView = create<ReqViewState>((set, get) => ({
     if (!projectId || subTab === 'rtm' || !doc) return;
     const kind = subTab;
     set({
-      gen: { operationId: null, running: true, paused: false, streamText: '', error: null },
+      gen: { operationId: null, running: true, paused: false, streamText: '', error: null, source: null },
       error: null,
     });
     try {
@@ -147,7 +149,7 @@ export const useReqView = create<ReqViewState>((set, get) => ({
         (f) => {
           const g = get().gen;
           if (f.type === 'stream.start') {
-            set({ gen: { ...g, operationId: f.operationId ?? null } });
+            set({ gen: { ...g, operationId: f.operationId ?? null, source: f.source === 'model' ? 'model' : f.source === 'mock' ? 'mock' : null } });
           } else if (f.type === 'stream.delta') {
             set({ gen: { ...g, streamText: g.streamText + (f.text ?? '') } });
           } else if (f.type === 'stream.done') {
@@ -172,7 +174,7 @@ export const useReqView = create<ReqViewState>((set, get) => ({
     const op = gen.operationId;
     await reqApi.genControl(projectId, kind, op, action);
     if (action === 'stop') {
-      set({ gen: { operationId: null, running: false, paused: false, streamText: '', error: null } });
+      set({ gen: { operationId: null, running: false, paused: false, streamText: '', error: null, source: null } });
       await get().refresh();
     } else {
       set((s) => ({ gen: { ...s.gen, paused: action === 'pause' } }));
