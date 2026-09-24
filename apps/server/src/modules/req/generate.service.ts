@@ -32,7 +32,12 @@ interface GenOp {
   targetFingerprint: string;
   refs: Array<{ fileId: string; fingerprint: string }>;
   /** 真接模式：start 时取参考正文，drive 时经 AI_PROVIDER 流式生成后切补丁 */
-  real?: { instruction: string; refTexts: Array<{ name: string; md: string }> };
+  real?: {
+    instruction: string;
+    refTexts: Array<{ name: string; md: string }>;
+    /** 当前文档已占用条目编号（增量修订顺延，#10 撞车防控） */
+    existingCodes: string[];
+  };
 }
 
 const ops = new Map<string, GenOp>();
@@ -67,7 +72,7 @@ export class GenerateService {
   }
 
   /** A04-4 启动生成：校验参考输入 + PRD 门禁（CRD 已定稿），返回 operationId */
-  async start(projectId: string, kind: 'crd' | 'prd', input: GenStartInput, ctx: CommandContext): Promise<{ operationId: string }> {
+  async start(projectId: string, kind: 'crd' | 'prd', input: GenStartInput, ctx: CommandContext): Promise<{ operationId: string; source: 'model' | 'mock' }> {
     const doc = await query<{ id: string; final_version_id: string | null; current_version_id: string | null; modified: boolean }>(
       'SELECT * FROM req_documents WHERE project_id=$1 AND doc_kind=$2', [projectId, kind]);
     const d = doc.rows[0];
@@ -121,7 +126,10 @@ export class GenerateService {
       ops.set(operationId, {
         id: operationId, projectId, kind, status: 'running',
         chunks: [], patches: [], targetFingerprint: sha256Text(effective), refs,
-        real: { instruction: input.instruction ?? '', refTexts },
+        real: {
+          instruction: input.instruction ?? '', refTexts,
+          existingCodes: [...new Set(effective.match(kind === 'crd' ? /\bCR-\d{3}\b/g : /\bREQ-\d{3}\b/g) ?? [])].sort(),
+        },
       });
     } else {
       const { chunks, patches } = buildMock(kind, input.instruction ?? '', refs);
@@ -131,7 +139,8 @@ export class GenerateService {
       });
     }
     await executeCommand('req.doc.generate', { projectId, kind, operationId }, { ...ctx, projectId });
-    return { operationId };
+    // #5：生成来源随流首帧透出（mock 桩 vs 真模型），前端可辨识
+    return { operationId, source: this.ai?.kind === 'pi' ? ('model' as const) : ('mock' as const) };
   }
 
   /** A04-5 过程控制：pause/resume（缓冲层）/stop（中止作废，不产生版本与补丁） */
@@ -223,7 +232,7 @@ export class GenerateService {
     const t0 = Date.now();
     try {
       const session = await this.ai!.createSession({ projectId: op.projectId, purpose: 'generation' });
-      const { deltas, result } = session.stream(buildPrompt(op.kind, real.instruction, real.refTexts));
+      const { deltas, result } = session.stream(buildPrompt(op.kind, real.instruction, real.refTexts, real.existingCodes));
       let buf: string[] = [];
       for await (const d of deltas) {
         if (op.status === 'stopped') {
@@ -262,16 +271,21 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-/** 真接提示词：角色 + 章节口径（`## ` 条目）+ 用户指示 + 参考正文 */
+/** 真接提示词：角色 + 章节口径（`## ` 条目）+ 编号顺延 + 用户指示 + 参考正文 */
 function buildPrompt(
   kind: 'crd' | 'prd',
   instruction: string,
   refTexts: Array<{ name: string; md: string }>,
+  existingCodes: string[] = [],
 ): string {
   const refs = refTexts.map((r) => `## 参考资料：${r.name}\n\n${r.md}`).join('\n\n');
   return [
     `你是软件工厂的需求分析助手。请基于参考资料生成一份${kind === 'crd' ? '客户需求文档（CRD）' : '产品需求文档（PRD）'}初稿。`,
     `要求：中文 markdown；每条需求单独一个 \`## \` 章节，标题形如 \`${kind === 'crd' ? 'CR' : 'REQ'}-001 简明标题\`；条目正文含承接来源与需求描述、验收要点。`,
+    // #11：整篇漏承接尾部条目 + 锚点错位的防控
+    `逐条核对参考资料中的全部功能/需求条目并逐一承接，不得遗漏（尤其参考资料文末的条目）；每条正文「承接」锚点（${kind === 'crd' ? 'R-nnn' : 'CR-nnn'}）须与该条实际出处一致，不得张冠李戴。`,
+    // #10：增量修订编号撞车防控
+    existingCodes.length ? `本文档已占用编号：${existingCodes.join('、')}；新增条目必须使用未占用编号（在最大编号后顺延），不得复用。` : '',
     ...(instruction ? [`用户指示：${instruction}`] : []),
     refs,
   ].filter(Boolean).join('\n\n');

@@ -30,7 +30,14 @@ interface GenOp {
   targetFingerprint: string;
   refs: Array<{ fileId: string; fingerprint: string }>;
   /** 真接模式：start 时取参考正文，drive 时经 AI_PROVIDER 流式生成后切补丁 */
-  real?: { instruction: string; refTexts: Array<{ name: string; md: string }> };
+  real?: {
+    instruction: string;
+    refTexts: Array<{ name: string; md: string }>;
+    /** 上游定稿全文（#11 立项：承接锚点必须 grounded，模型看不到上游只能猜编号） */
+    upstream: Array<{ name: string; md: string }>;
+    /** 当前文档已占用章节编号（增量修订顺延，#10） */
+    existingCodes: string[];
+  };
 }
 
 const ops = new Map<string, GenOp>();
@@ -63,7 +70,7 @@ export class DesignGenerateService {
   }
 
   /** A05-2 启动生成：参考校验（REQ-114）+ 上游定稿门禁（HLD←PRD、LLD←HLD） */
-  async start(projectId: string, kind: DesignKind, input: DesignGenInput, ctx: CommandContext): Promise<{ operationId: string }> {
+  async start(projectId: string, kind: DesignKind, input: DesignGenInput, ctx: CommandContext): Promise<{ operationId: string; source: 'model' | 'mock' }> {
     const doc = await query<{ id: string; final_version_id: string | null; current_version_id: string | null }>(
       'SELECT * FROM dsg_documents WHERE project_id=$1 AND doc_kind=$2', [projectId, kind]);
     const d = doc.rows[0];
@@ -110,10 +117,23 @@ export class DesignGenerateService {
            WHERE f.id=$1 AND p.kind='content_parse' AND p.status='final'`, [ref.fileId]);
         if (t.rows[0]) refTexts.push({ name: t.rows[0].name, md: t.rows[0].body_md });
       }
+      // #11：上游定稿全文注入（HLD←PRD；其余七册←PRD+HLD），承接锚点 grounded
+      const upstream: Array<{ name: string; md: string }> = [];
+      const upKinds = kind === 'hld' ? (['prd'] as const) : (['prd', 'hld'] as const);
+      for (const uk of upKinds) {
+        const table = uk === 'prd' ? 'req_documents' : 'dsg_documents';
+        const vtable = uk === 'prd' ? 'req_versions' : 'dsg_versions';
+        const r = await query<{ content: string }>(
+          `SELECT v.content FROM ${table} d JOIN ${vtable} v ON v.id=d.final_version_id
+           WHERE d.project_id=$1 AND d.doc_kind=$2`, [projectId, uk]);
+        const md = r.rows[0]?.content ?? '';
+        if (md) upstream.push({ name: uk.toUpperCase(), md: capText(md) });
+      }
+      const currentContent = cur.rows[0]?.content ?? '';
       ops.set(operationId, {
         id: operationId, projectId, kind, status: 'running',
-        chunks: [], patches: [], targetFingerprint: sha256Text(cur.rows[0]?.content ?? ''), refs,
-        real: { instruction: input.instruction ?? '', refTexts },
+        chunks: [], patches: [], targetFingerprint: sha256Text(currentContent), refs,
+        real: { instruction: input.instruction ?? '', refTexts, upstream, existingCodes: chapterCodes(currentContent, kind) },
       });
     } else {
       const { chunks, patches } = buildMock(kind, input.instruction ?? '');
@@ -123,7 +143,8 @@ export class DesignGenerateService {
       });
     }
     await executeCommand('design.doc.generate', { projectId, kind, operationId }, { ...ctx, projectId });
-    return { operationId };
+    // #5：生成来源随流首帧透出（mock 桩 vs 真模型），前端可辨识
+    return { operationId, source: this.ai?.kind === 'pi' ? ('model' as const) : ('mock' as const) };
   }
 
   async control(projectId: string, operationId: string, action: 'pause' | 'resume' | 'stop', ctx: CommandContext) {
@@ -212,7 +233,7 @@ export class DesignGenerateService {
     const t0 = Date.now();
     try {
       const session = await this.ai!.createSession({ projectId: op.projectId, purpose: 'generation' });
-      const { deltas, result } = session.stream(buildDesignPrompt(op.kind, real.instruction, real.refTexts));
+      const { deltas, result } = session.stream(buildDesignPrompt(op.kind, real.instruction, real.refTexts, real.upstream, real.existingCodes));
       let buf: string[] = [];
       for await (const d of deltas) {
         if (op.status === 'stopped') {
@@ -251,16 +272,41 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-/** 真接提示词：角色 + 章节口径（`## ` 条目）+ 用户指示 + 参考正文 */
-function buildDesignPrompt(kind: DesignKind, instruction: string, refTexts: Array<{ name: string; md: string }>): string {
+/** 真接提示词：角色 + 章节口径（`## ` 条目）+ 上游定稿全文 + 用户指示 + 参考正文 */
+function buildDesignPrompt(
+  kind: DesignKind,
+  instruction: string,
+  refTexts: Array<{ name: string; md: string }>,
+  upstream: Array<{ name: string; md: string }> = [],
+  existingCodes: string[] = [],
+): string {
   const book = DESIGN_BOOKS.find((b) => b.kind === kind)!;
   const refs = refTexts.map((r) => `## 参考资料：${r.name}\n\n${r.md}`).join('\n\n');
+  const ups = upstream.map((u) => `## 上游定稿：${u.name}\n\n${u.md}`).join('\n\n');
   return [
-    `你是软件工厂的设计助手。请基于上游文档与参考资料，生成《${book.name}》（${book.prefix} 册）初稿。`,
+    `你是软件工厂的设计助手。请基于上游定稿文档（全文附后）与参考资料，生成《${book.name}》（${book.prefix} 册）初稿。`,
     '输出为 Markdown 正文，按 `## ` 二级标题分节（章节标题简洁、不超过 30 字），每节给出可执行的设计内容。',
+    // #15 反向派生依赖回引；#11 全量承接
+    '逐条承接上游 PRD 的全部 REQ 条目：每个承接章节在标题或正文显式回引 REQ-nnn 编号（追溯链按此派生），不得遗漏尾部条目。',
+    // #10 增量修订编号顺延
+    existingCodes.length ? `本文档已占用章节编号：${existingCodes.join('、')}；新增章节必须使用未占用编号（顺延），不得复用。` : '',
     instruction ? `用户指示：${instruction}` : '',
+    ups ? `\n${ups}` : '',
     refs ? `\n${refs}` : '',
   ].filter(Boolean).join('\n');
+}
+
+/** 喂给模型的单文档上限（字符）；超出截断并注明（与解析引擎 AI_INPUT_CAP 同口径） */
+const GEN_INPUT_CAP = 24000;
+function capText(md: string): string {
+  return md.length > GEN_INPUT_CAP ? `${md.slice(0, GEN_INPUT_CAP)}\n\n[原文过长，已截断]` : md;
+}
+
+/** 当前文档已占用的本册章节编号（前缀-数字；#10 增量顺延依据） */
+function chapterCodes(content: string, kind: DesignKind): string[] {
+  const prefix = DESIGN_BOOKS.find((b) => b.kind === kind)!.prefix;
+  const re = new RegExp(`\\b${prefix}-\\d+(?:\\.\\d+)?\\b`, 'g');
+  return [...new Set(content.match(re) ?? [])].sort();
 }
 
 /** mock 生成器：按册前缀产章节（h/o/g/k/d/a/u/n 章节体系，REQ-302） */
