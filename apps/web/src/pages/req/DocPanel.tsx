@@ -19,45 +19,13 @@ export function DocPanel({ kind }: { kind: DocKind }) {
   if (!doc) return <div className="doc-empty">{loading ? '加载中…' : (error ?? '文档初始化中…')}</div>;
 
   const readonly = doc.finalized || doc.viewing !== null;
-  const pendings = useReqView.getState().patches.filter((p) => p.status === 'pending');
-  const statusTag = doc.viewing !== null
-    ? `历史版本 v${doc.viewing}（只读）`
-    : doc.finalized
-      ? `已定稿 v${doc.finalVer}`
-      : doc.modified
-        ? `v${doc.cur} 修订中`
-        : `v${doc.cur}`;
 
-  // 状态 chip（横幅收编：工具栏 chip + 点开看详情，固定区保持清爽）
-  const chips: StatusChipItem[] = [];
-  if (error) chips.push({ key: 'error', tone: 'err', label: '⛔ 错误', detail: error });
-  if (doc.finalized) {
-    chips.push({
-      key: 'fin', tone: 'ok', label: `已定稿 v${doc.finalVer}`,
-      detail: '内容字节冻结。修改请先在 ⋯ 菜单「解除定稿」（留审计），解锁后用 AI 生成/修订或直接编辑。',
-    });
-  }
-  if (doc.viewing !== null) {
-    chips.push({
-      key: 'hist', tone: 'info', label: `🕘 历史 v${doc.viewing}`,
-      detail: <HistoryDetail kind={kind} v={doc.viewing} />,
-    });
-  }
-  if (pendings.length > 0) {
-    chips.push({
-      key: 'pend', tone: 'warn', label: `⚠ 补丁 ×${pendings.length}`,
-      detail: `${pendings.length} 条待确认补丁：AI 提案不直接落稿，请在正文各章节行内逐条接受或拒绝（REQ-205）。`,
-    });
-  }
-  if (!doc.finalized && doc.modified && doc.viewing === null) {
-    chips.push({
-      key: 'mod', tone: 'info', label: '● 未提交',
-      detail: `已修改未提交：点击工具栏「⬆ 版本提交」生成新版本 v${doc.cur + 1}（编号不复用）。`,
-    });
-  }
+  // 瞬时异常 → 工具栏 ⛔ 图标点开看详情；文档状态一律在正文 H1 呈现（原型口径，工具栏只留操作）
+  const errItems: StatusChipItem[] = [];
+  if (error) errItems.push({ key: 'error', tone: 'err', label: '⛔', detail: error });
   if (gen.error) {
-    chips.push({
-      key: 'generr', tone: 'err', label: '⛔ 生成失败',
+    errItems.push({
+      key: 'generr', tone: 'err', label: '⛔',
       detail: `生成失败（${gen.error}），草稿与版本未受影响，可重新发起。`,
     });
   }
@@ -67,8 +35,7 @@ export function DocPanel({ kind }: { kind: DocKind }) {
       <Toolbar
         kind={kind}
         readonly={readonly}
-        statusTag={statusTag}
-        chips={chips}
+        errors={errItems}
         onFinalize={() => setFinalizeOpen(true)}
         onCommit={() => setCommitOpen(true)}
         moreOpen={moreOpen}
@@ -88,15 +55,16 @@ export function DocPanel({ kind }: { kind: DocKind }) {
 }
 
 function Toolbar({
-  kind, readonly, statusTag, chips, onFinalize, onCommit, moreOpen, setMoreOpen, onTimeline,
+  kind, readonly, errors, onFinalize, onCommit, moreOpen, setMoreOpen, onTimeline,
 }: {
-  kind: DocKind; readonly: boolean; statusTag: string; chips: StatusChipItem[];
+  kind: DocKind; readonly: boolean; errors: StatusChipItem[];
   onFinalize: () => void; onCommit: () => void;
   moreOpen: boolean; setMoreOpen: (b: boolean) => void;
   onTimeline: () => void;
 }) {
   const { projectId, doc, versions, viewMode, setViewMode, loadDoc, refresh, gen } = useReqView();
   const [refsOpen, setRefsOpen] = useState(false);
+  const [dlOpen, setDlOpen] = useState(false);
   const [genOpen, setGenOpen] = useState(false);
   const [instruction, setInstruction] = useState('');
   const [msg, setMsg] = useState<string | null>(null);
@@ -119,8 +87,6 @@ function Toolbar({
 
   return (
     <div className="doc-toolbar req-toolbar">
-      <span className={`tag ${doc.finalized ? 'tag-ok' : 'tag-warn'}`}>{statusTag}</span>
-      <StatusChips items={chips} />
       <select
         className="ver-select"
         value={doc.viewing ?? doc.cur}
@@ -134,28 +100,35 @@ function Toolbar({
         ))}
       </select>
       <div className="pop-wrap">
-        <button className="act" onClick={() => setRefsOpen(!refsOpen)}>📚 参考资料（{doc.refs.length}）</button>
+        <button className="act" title="挂接/管理生成参考（仅内容已定稿资料）" onClick={() => setRefsOpen(!refsOpen)}>📚 参考资料（{doc.refs.length}）</button>
         {refsOpen && <RefsPopover kind={kind} onClose={() => setRefsOpen(false)} />}
       </div>
       <span className="sep" />
       <button className="act" disabled={readonly} title="撤销" onClick={() => act(() => reqApi.undo(projectId, kind))}>↩</button>
       <button className="act" disabled={readonly} title="重做" onClick={() => act(() => reqApi.redo(projectId, kind))}>↪</button>
-      <button className="act" title="下载当前查看版本" onClick={() => doExport('md')}>⬇ md</button>
-      <button className="act" onClick={() => doExport('html')}>⬇ html</button>
-      <button className="act primary" disabled={readonly || !doc.modified || generating} onClick={onCommit}>⬆ 版本提交</button>
+      <div className="pop-wrap">
+        <button className="act" title="下载当前查看版本" onClick={() => setDlOpen(!dlOpen)}>⬇ ▾</button>
+        {dlOpen && (
+          <div className="popover menu">
+            <button className="act" onClick={() => { setDlOpen(false); doExport('md'); }}>Markdown（.md）</button>
+            <button className="act" onClick={() => { setDlOpen(false); doExport('html'); }}>HTML（.html）</button>
+          </div>
+        )}
+      </div>
+      <button className="act primary" disabled={readonly || !doc.modified || generating} title="提交为新版本（编号不复用）" onClick={onCommit}>⬆ 提交</button>
       <button
         className="act"
         disabled={readonly || gen.running}
         title={
           kind === 'prd'
-            ? 'PRD 生成门禁：CRD 已定稿'
+            ? 'AI 生成 / 增量修订（生成门禁：CRD 已定稿）'
             : doc.genState === 'generating' && !gen.running
               ? '上次生成可能已中断（后端重启），点击重新发起'
-              : 'AI 生成（参考=已挂接定稿资料）；可填写指令做增量修订'
+              : 'AI 生成 / 增量修订（参考=已挂接定稿资料；留空=整篇重生成，填指令=增量修订）'
         }
         onClick={() => setGenOpen(true)}
       >
-        {generating ? '⚡ 生成中…' : '🔄 AI 生成 / 修订'}
+        {generating ? '⚡ 生成中…' : '🔄 生成'}
       </button>
       {genOpen && (
         <Modal
@@ -248,6 +221,7 @@ function Toolbar({
           <button key={m} className={viewMode === m ? 'on' : ''} onClick={() => setViewMode(m)}>{label}</button>
         ))}
       </span>
+      <StatusChips items={errors} />
       {msg && <span className="rsn">{msg}</span>}
     </div>
   );
@@ -309,34 +283,6 @@ function RefsPopover({ kind, onClose }: { kind: DocKind; onClose: () => void }) 
         ⬆ 上传补充 .md（经资料库解析定稿后引用）
       </button>
     </div>
-  );
-}
-
-/** 历史版本 chip 详情：只读说明 + 回切当前/设为当前（原 HistoryBanner 收编） */
-function HistoryDetail({ kind, v }: { kind: DocKind; v: number }) {
-  const { projectId, doc, loadDoc, refresh } = useReqView();
-  const [msg, setMsg] = useState<string | null>(null);
-  if (!projectId || !doc) return null;
-  return (
-    <>
-      正在查看历史版本 v{v}（只读），编辑/生成均不可用。
-      <br />
-      <button className="act" onClick={() => void loadDoc()}>返回当前 v{doc.cur}</button>
-      <button
-        className="act"
-        disabled={doc.modified}
-        title={doc.modified ? '有未提交修改，须先提交' : '将当前指针切到该版本'}
-        onClick={() => {
-          setMsg(null);
-          void reqApi.switchVersion(projectId, kind, v)
-            .then(() => refresh())
-            .catch((e) => setMsg(e instanceof ApiError ? e.message : '切换失败'));
-        }}
-      >
-        ⤺ 设为当前版本
-      </button>
-      {msg && <span className="rsn err">{msg}</span>}
-    </>
   );
 }
 
@@ -442,6 +388,7 @@ function Paper({ kind, readonly }: { kind: DocKind; readonly: boolean }) {
   if (!doc) return null;
   const pendBySec = new Map(patches.filter((p) => p.status === 'pending').map((p) => [p.secId, p]));
   const appended = patches.filter((p) => p.status === 'pending' && p.type === 'add');
+  const pendCount = pendBySec.size + appended.length;
 
   if (viewMode === 'source') {
     const full = doc.secs.map((s) => (s.title ? `## ${s.title}\n\n${s.md}` : s.md)).join('\n\n');
@@ -453,7 +400,22 @@ function Paper({ kind, readonly }: { kind: DocKind; readonly: boolean }) {
   return (
     <div className="doc-scroll">
       <div className="paper">
-        <h1>{doc.kind} <span className="tag">{doc.viewing !== null ? `v${doc.viewing}` : `v${doc.cur}`}</span></h1>
+        {/* 文档状态在正文标题呈现（原型口径：tag 随版本号，不占工具栏） */}
+        <h1>
+          {doc.kind.toUpperCase()} <span className="tag">{doc.viewing !== null ? `v${doc.viewing}` : `v${doc.cur}`}</span>
+          {doc.finalized && (
+            <span className="tag tag-ok" title="内容字节冻结；修改请先在 ⋯ 菜单「解除定稿」（留审计）">已定稿 v{doc.finalVer}</span>
+          )}
+          {doc.viewing !== null && (
+            <span className="tag tag-warn" title="历史版本只读；⋯ 菜单可「设为当前版本」，版本下拉可切回当前">历史只读</span>
+          )}
+          {!doc.finalized && doc.modified && doc.viewing === null && (
+            <span className="tag tag-warn" title="已修改未提交；工具栏「⬆ 提交」生成新版本">未提交</span>
+          )}
+          {pendCount > 0 && (
+            <span className="tag tag-warn" title="待确认补丁：在下方各章节行内逐条接受或拒绝（REQ-205）">补丁 ×{pendCount}</span>
+          )}
+        </h1>
         {doc.secs.map((s) => (
           <section key={s.id} id={`sec-${s.id}`} className={`sect${tocFlash === s.id ? ' flash' : ''}`}>
             {s.title && <h2>{s.title}</h2>}
