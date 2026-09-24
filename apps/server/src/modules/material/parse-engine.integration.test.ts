@@ -169,4 +169,32 @@ describe('AiParseEngine（集成，需 DB+MinIO）', async () => {
     expect(await extractText('md', Buffer.from('# 标题'))).toBe('# 标题');
     expect(await extractText('pptx', Buffer.from('x'))).toBeNull();
   });
+
+  it('extractText：pdf 真实抽取（#1 回归：pdf-parse v2 为 PDFParse 类命名导出）', async () => {
+    const text = await extractText('pdf', pdfBuffer('Hello MSF'));
+    expect(text).toContain('Hello MSF');
+  });
 });
+
+/** 程序化构造最小合法单页 PDF（含 xref 偏移表），避免引入二进制夹具 */
+function pdfBuffer(text: string): Buffer {
+  const stream = `BT /F1 24 Tf 72 720 Td (${text}) Tj ET`;
+  const objs = [
+    '<</Type/Catalog/Pages 2 0 R>>',
+    '<</Type/Pages/Kids[3 0 R]/Count 1>>',
+    '<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>>>',
+    `<</Length ${Buffer.byteLength(stream)}>>\nstream\n${stream}\nendstream`,
+    '<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>',
+  ];
+  let out = '%PDF-1.4\n';
+  const offsets: number[] = [];
+  objs.forEach((body, i) => {
+    offsets.push(Buffer.byteLength(out, 'latin1'));
+    out += `${i + 1} 0 obj\n${body}\nendobj\n`;
+  });
+  const xrefPos = Buffer.byteLength(out, 'latin1');
+  out += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n`;
+  out += offsets.map((o) => `${String(o).padStart(10, '0')} 00000 n \n`).join('');
+  out += `trailer\n<</Size ${objs.length + 1}/Root 1 0 R>>\nstartxref\n${xrefPos}\n%%EOF`;
+  return Buffer.from(out, 'latin1');
+}

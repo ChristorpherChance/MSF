@@ -37,7 +37,8 @@ export class ReqController {
   }
 
   private assertKind(kind: string): 'crd' | 'prd' {
-    if (kind !== 'crd' && kind !== 'prd') throw new DomainError('NOT_FOUND', '文档类型不存在', kind);
+    // #2：类型非法（400）与文档不存在（404）必须可区分，否则用户无从自查
+    if (kind !== 'crd' && kind !== 'prd') throw new DomainError('VALIDATION_FAILED', '文档类型非法（仅支持 crd|prd）', 'kind');
     return kind;
   }
 

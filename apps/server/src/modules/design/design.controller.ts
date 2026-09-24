@@ -30,8 +30,9 @@ export class DesignController {
   }
 
   private assertKind(kind: string): DesignKind {
+    // #2：类型非法（400）与文档不存在（404）必须可区分，否则用户无从自查
     if (!DESIGN_BOOKS.some((b) => b.kind === kind)) {
-      throw new DomainError('NOT_FOUND', '设计册不存在', kind);
+      throw new DomainError('VALIDATION_FAILED', `设计册类型非法（支持：${DESIGN_BOOKS.map((b) => b.kind).join('/')}）`, 'kind');
     }
     return kind as DesignKind;
   }

@@ -102,33 +102,34 @@ export class TestController {
     return this.runs.execute(pid, batchId, body.planId, this.actor(req, pid));
   }
 
-  @Put('runs/:runId/results/:caseId')
+  // 结果定位参数是用例 code（AT-xxx），不是 UUID——占位名即语义（#21）
+  @Put('runs/:runId/results/:caseCode')
   @HttpCode(200)
   manualRecord(
-    @Param('projectId') pid: string, @Param('runId') runId: string, @Param('caseId') caseId: string,
+    @Param('projectId') pid: string, @Param('runId') runId: string, @Param('caseCode') caseCode: string,
     @Body() body: { status: string; evidence: string; simulation?: boolean }, @Req() req: Request,
   ) {
-    return this.runs.manualRecord(pid, runId, caseId, body, this.actor(req, pid));
+    return this.runs.manualRecord(pid, runId, caseCode, body, this.actor(req, pid));
   }
 
   /** T4 证据附件上传（原始字节流，?name= 文件名；DSG-U06/D10） */
-  @Put('runs/:runId/results/:caseId/evidence')
+  @Put('runs/:runId/results/:caseCode/evidence')
   async attachEvidence(
-    @Param('projectId') pid: string, @Param('runId') runId: string, @Param('caseId') caseId: string,
+    @Param('projectId') pid: string, @Param('runId') runId: string, @Param('caseCode') caseCode: string,
     @Query('name') name: string, @Req() req: Request,
   ) {
     const chunks: Buffer[] = [];
     for await (const chunk of req as AsyncIterable<Buffer>) chunks.push(chunk);
-    return this.runs.attachEvidence(pid, runId, caseId, name ?? '', Buffer.concat(chunks), this.actor(req, pid));
+    return this.runs.attachEvidence(pid, runId, caseCode, name ?? '', Buffer.concat(chunks), this.actor(req, pid));
   }
 
   /** T4 证据附件查看（签名直链） */
-  @Get('runs/:runId/results/:caseId/evidence/:idx/download')
+  @Get('runs/:runId/results/:caseCode/evidence/:idx/download')
   evidenceDownload(
     @Param('projectId') pid: string, @Param('runId') runId: string,
-    @Param('caseId') caseId: string, @Param('idx') idx: string,
+    @Param('caseCode') caseCode: string, @Param('idx') idx: string,
   ) {
-    return this.runs.evidenceDownload(pid, runId, caseId, Number(idx));
+    return this.runs.evidenceDownload(pid, runId, caseCode, Number(idx));
   }
 
   @Get('batches/:batchId/runs')
