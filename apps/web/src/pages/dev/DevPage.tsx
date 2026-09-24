@@ -10,6 +10,7 @@ import { attentionModel, useDevStore, type DevTopTab } from './store';
 import '../req/req.css';
 import '../design/design.css';
 import { GateBanner } from '../../ui/GateBanner';
+import { StatusChips, type StatusChipItem } from '../../ui/StatusChips';
 import './dev.css';
 
 const TABS: Array<{ key: DevTopTab; name: string; testid: string }> = [
@@ -32,6 +33,24 @@ export function DevPage() {
   const empty = s.tasks.length === 0 && s.plans.length === 0;
   const model = attentionModel(s);
 
+  // 瞬时异常/回执收为图标点（与需求/设计页同口径：固定区只留操作，点开看详情）
+  const flashItems: StatusChipItem[] = [];
+  if (s.error) {
+    flashItems.push({ key: 'error', tone: 'err', label: '⛔', detail: s.error });
+  }
+  if (s.notice) {
+    flashItems.push({
+      key: 'notice', tone: 'ok', label: '✓',
+      detail: (
+        <>
+          {s.notice}
+          <br />
+          <button className="act" onClick={s.clearNotice}>知道了</button>
+        </>
+      ),
+    });
+  }
+
   return (
     <main className="proto-wrap">
       <GateBanner stage="dev" />
@@ -50,6 +69,7 @@ export function DevPage() {
             {t.key === 'plan' && model.needsHuman.length > 0 && <span className="dev-badge-block">{model.needsHuman.length}</span>}
           </button>
         ))}
+        <StatusChips items={flashItems} />
         <span className="dsg-prefix">
           任务 {s.tasks.length} · 完成 {s.tasks.filter((t) => t.col === 'done').length}
           {s.autopilot?.run ? ` · ${s.autopilot.run.runId} ${s.autopilot.run.status}` : ''}
@@ -57,7 +77,7 @@ export function DevPage() {
         </span>
       </div>
 
-      {/* V11 变更影响常驻红色横幅（原型 devImpactReminderHtml；随门禁横幅之下） */}
+      {/* V11 变更影响常驻红色横幅（原型 devImpactReminderHtml 权威口径，保留；随门禁横幅之下） */}
       {pendingImpacts.length > 0 && (
         <div className="dsg-card dev-impact-reminder">
           <span>
@@ -67,9 +87,6 @@ export function DevPage() {
           <button className="act mini" onClick={() => { void s.setTopTab('change'); s.setSide('impacts'); }}>前往处置 →</button>
         </div>
       )}
-
-      {s.error && <div className="gate-box err"><div className="issue-row">{s.error}</div></div>}
-      {s.notice && <div className="dsg-card dev-ok" onClick={s.clearNotice}>{s.notice}</div>}
 
       {empty ? (
         /* V2 整页空态（原型 devProjectOk 空态口径） */

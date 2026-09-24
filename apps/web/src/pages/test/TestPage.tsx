@@ -8,6 +8,7 @@ import '../req/req.css';
 import '../design/design.css';
 import '../dev/dev.css';
 import { GateBanner } from '../../ui/GateBanner';
+import { StatusChips, type StatusChipItem } from '../../ui/StatusChips';
 import './test.css';
 
 const TABS: Array<{ key: TstSubTab; name: string }> = [
@@ -32,6 +33,25 @@ export function TestPage() {
 
   const openDefects = s.defects.filter((d) => d.status !== 'closed').length;
   const env = s.batchDetail?.snapshot.environment as { os?: string; browser?: string } | undefined;
+
+  // 瞬时异常/回执收为图标点（与需求/设计页同口径：固定区只留操作，点开看详情）
+  const flashItems: StatusChipItem[] = [];
+  if (s.error) {
+    flashItems.push({ key: 'error', tone: 'err', label: '⛔', detail: s.error });
+  }
+  if (s.notice) {
+    flashItems.push({
+      key: 'notice', tone: 'ok', label: '✓',
+      detail: (
+        <>
+          {s.notice}
+          <br />
+          <button className="act" onClick={s.clearNotice}>知道了</button>
+        </>
+      ),
+    });
+  }
+
   return (
     <main className="proto-wrap qa-workbench">
       <GateBanner stage="test" />
@@ -58,6 +78,7 @@ export function TestPage() {
             {t.key === 'defect' && openDefects > 0 && <span className="dev-badge-block">{openDefects}</span>}
           </button>
         ))}
+        <StatusChips items={flashItems} />
         <span className="dsg-prefix">{s.loading ? '刷新中…' : ''}</span>
       </div>
 
@@ -80,9 +101,6 @@ export function TestPage() {
         {s.batchDetail?.blockedReason && <span className="dev-bad">阻断：{s.batchDetail.blockedReason}</span>}
         <span className="dsg-prefix">历史批次只读；新构建=新批次</span>
       </div>
-
-      {s.error && <div className="gate-box"><div className="issue-row">{s.error}</div></div>}
-      {s.notice && <div className="dsg-card dev-ok" onClick={s.clearNotice}>{s.notice}</div>}
 
       {/* 面板区独立滚动：头部/页签/批次条固定不动（对齐 material 页固定骨架口径） */}
       <div className="qa-panels">
