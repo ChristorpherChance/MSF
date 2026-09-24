@@ -261,3 +261,18 @@ tr.row-flash { animation: rtm-flash 1.2s ease-in-out 2; }
 .toc-item.act-sec { background: var(--blue-soft); color: var(--blue); font-weight: 700; box-shadow: inset 3px 0 0 var(--blue); }
 /* 持久选中态（原型 file-row.sel 口径；flash 是定位动画，不能当选中态用） */
 .toc-item.sel { background: var(--blue-soft); color: var(--blue); font-weight: 700; box-shadow: inset 3px 0 0 var(--blue); }
+
+/* ===== 状态 chip（横幅收编进工具栏，点开看详情；实机走查反馈） ===== */
+.status-chips { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.status-chip {
+  border: 1px solid var(--line); background: var(--canvas); border-radius: 999px;
+  padding: 1px 10px; font-size: 12px; cursor: pointer; color: var(--ink); white-space: nowrap;
+}
+.status-chip.ok { background: #ecfdf5; color: var(--green); border-color: #bbf7d0; }
+.status-chip.warn { background: #fffbeb; color: var(--orange); border-color: #fde68a; }
+.status-chip.info { background: #eff6ff; color: var(--blue); border-color: #dbe3ff; }
+.status-chip.err { background: #fef2f2; color: var(--red); border-color: #fecaca; }
+.status-chip.on { outline: 1px solid currentColor; }
+.chip-detail { min-width: 340px; max-width: 460px; font-size: 12.5px; line-height: 1.7; display: block; }
+.chip-detail-body { display: block; margin-top: 6px; }
+.chip-detail-body .act { margin: 6px 8px 0 0; }

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { mdHtml } from '../../md-html';
 import { ApiError } from '../../api';
 import { Modal } from '../../ui/Modal';
+import { StatusChips, type StatusChipItem } from '../../ui/StatusChips';
 import { toast } from '../../ui/toast';
 import { reqApi, type DocKind, type HealthView, type PatchItem } from './api';
 import { useReqView, type ViewMode } from './store';
@@ -27,28 +28,53 @@ export function DocPanel({ kind }: { kind: DocKind }) {
         ? `v${doc.cur} 修订中`
         : `v${doc.cur}`;
 
+  // 状态 chip（横幅收编：工具栏 chip + 点开看详情，固定区保持清爽）
+  const chips: StatusChipItem[] = [];
+  if (error) chips.push({ key: 'error', tone: 'err', label: '⛔ 错误', detail: error });
+  if (doc.finalized) {
+    chips.push({
+      key: 'fin', tone: 'ok', label: `已定稿 v${doc.finalVer}`,
+      detail: '内容字节冻结。修改请先在 ⋯ 菜单「解除定稿」（留审计），解锁后用 AI 生成/修订或直接编辑。',
+    });
+  }
+  if (doc.viewing !== null) {
+    chips.push({
+      key: 'hist', tone: 'info', label: `🕘 历史 v${doc.viewing}`,
+      detail: <HistoryDetail kind={kind} v={doc.viewing} />,
+    });
+  }
+  if (pendings.length > 0) {
+    chips.push({
+      key: 'pend', tone: 'warn', label: `⚠ 补丁 ×${pendings.length}`,
+      detail: `${pendings.length} 条待确认补丁：AI 提案不直接落稿，请在正文各章节行内逐条接受或拒绝（REQ-205）。`,
+    });
+  }
+  if (!doc.finalized && doc.modified && doc.viewing === null) {
+    chips.push({
+      key: 'mod', tone: 'info', label: '● 未提交',
+      detail: `已修改未提交：点击工具栏「⬆ 版本提交」生成新版本 v${doc.cur + 1}（编号不复用）。`,
+    });
+  }
+  if (gen.error) {
+    chips.push({
+      key: 'generr', tone: 'err', label: '⛔ 生成失败',
+      detail: `生成失败（${gen.error}），草稿与版本未受影响，可重新发起。`,
+    });
+  }
+
   return (
     <div className="req-doc">
       <Toolbar
         kind={kind}
         readonly={readonly}
         statusTag={statusTag}
+        chips={chips}
         onFinalize={() => setFinalizeOpen(true)}
         onCommit={() => setCommitOpen(true)}
         moreOpen={moreOpen}
         setMoreOpen={setMoreOpen}
         onTimeline={() => setTimelineOpen(true)}
       />
-      {error && <div className="req-banner err">{error}</div>}
-      {doc.finalized && <div className="req-banner ok">✓ 已定稿 v{doc.finalVer}：内容字节冻结，修改需先在 ⋯ 菜单解除定稿（留审计）。</div>}
-      {doc.viewing !== null && <HistoryBanner kind={kind} v={doc.viewing} />}
-      {pendings.length > 0 && (
-        <div className="req-banner warn">⚠ {pendings.length} 条待确认补丁：AI 提案不直接落稿，请逐条接受或拒绝（REQ-205）。</div>
-      )}
-      {!doc.finalized && doc.modified && doc.viewing === null && (
-        <div className="req-banner info">ℹ 已修改未提交：提交后生成新版本 v{doc.cur + 1}（编号不复用）。</div>
-      )}
-      {gen.error && <div className="req-banner err">生成失败（{gen.error}），草稿与版本未受影响。</div>}
       {(gen.running || gen.streamText) && <GenCard />}
       <div className="req-body">
         <TocCol />
@@ -62,9 +88,9 @@ export function DocPanel({ kind }: { kind: DocKind }) {
 }
 
 function Toolbar({
-  kind, readonly, statusTag, onFinalize, onCommit, moreOpen, setMoreOpen, onTimeline,
+  kind, readonly, statusTag, chips, onFinalize, onCommit, moreOpen, setMoreOpen, onTimeline,
 }: {
-  kind: DocKind; readonly: boolean; statusTag: string;
+  kind: DocKind; readonly: boolean; statusTag: string; chips: StatusChipItem[];
   onFinalize: () => void; onCommit: () => void;
   moreOpen: boolean; setMoreOpen: (b: boolean) => void;
   onTimeline: () => void;
@@ -94,6 +120,7 @@ function Toolbar({
   return (
     <div className="doc-toolbar req-toolbar">
       <span className={`tag ${doc.finalized ? 'tag-ok' : 'tag-warn'}`}>{statusTag}</span>
+      <StatusChips items={chips} />
       <select
         className="ver-select"
         value={doc.viewing ?? doc.cur}
@@ -285,14 +312,15 @@ function RefsPopover({ kind, onClose }: { kind: DocKind; onClose: () => void }) 
   );
 }
 
-/** 历史版本横幅：只读 + 回切当前 */
-function HistoryBanner({ kind, v }: { kind: DocKind; v: number }) {
+/** 历史版本 chip 详情：只读说明 + 回切当前/设为当前（原 HistoryBanner 收编） */
+function HistoryDetail({ kind, v }: { kind: DocKind; v: number }) {
   const { projectId, doc, loadDoc, refresh } = useReqView();
   const [msg, setMsg] = useState<string | null>(null);
   if (!projectId || !doc) return null;
   return (
-    <div className="req-banner info">
-      ℹ 正在查看历史版本 v{v}（只读）。
+    <>
+      正在查看历史版本 v{v}（只读），编辑/生成均不可用。
+      <br />
       <button className="act" onClick={() => void loadDoc()}>返回当前 v{doc.cur}</button>
       <button
         className="act"
@@ -307,8 +335,8 @@ function HistoryBanner({ kind, v }: { kind: DocKind; v: number }) {
       >
         ⤺ 设为当前版本
       </button>
-      {msg && <span className="rsn">{msg}</span>}
-    </div>
+      {msg && <span className="rsn err">{msg}</span>}
+    </>
   );
 }
 

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { mdHtml } from '../../md-html';
 import { ApiError } from '../../api';
+import { StatusChips, type StatusChipItem } from '../../ui/StatusChips';
 import { designApi, generateDesignDoc, type DesignKind, type PatchItem } from './api';
 import { useDesignView, type ViewMode } from './store';
 
@@ -47,7 +48,7 @@ export function DesignDocPanel({ kinds }: { kinds: DesignKind[] }) {
 }
 
 function Toolbar() {
-  const { projectId, doc, versions, viewMode, setViewMode, loadDoc, refresh, selKind, gen } = useDesignView();
+  const { projectId, doc, versions, viewMode, setViewMode, loadDoc, refresh, selKind, gen, impactNotice, setImpactNotice } = useDesignView();
   const [moreOpen, setMoreOpen] = useState(false);
   const [commitOpen, setCommitOpen] = useState(false);
   const [finOpen, setFinOpen] = useState(false);
@@ -57,6 +58,51 @@ function Toolbar() {
   const readonly = doc.finalized || doc.viewing !== null;
   const generating = gen.running || doc.genState === 'generating';
   const pendCount = useDesignView.getState().patches.filter((p) => p.status === 'pending').length;
+
+  // 状态 chip（横幅收编：工具栏 chip + 点开看详情，固定区保持清爽）
+  const chips: StatusChipItem[] = [];
+  if (impactNotice) {
+    chips.push({
+      key: 'impact', tone: 'warn', label: '⚡ 变更影响',
+      detail: (
+        <>
+          {impactNotice}
+          <br />
+          <button className="act" onClick={() => setImpactNotice(null)}>知道了</button>
+        </>
+      ),
+    });
+  }
+  if (doc.finalized) {
+    chips.push({
+      key: 'fin', tone: 'ok', label: `已定稿 v${doc.finalVer}`,
+      detail: '内容冻结；下游（LLD/原型规划）以此指纹为治理输入。修改请先在 ⋯ 菜单「解除定稿」。',
+    });
+  }
+  if (doc.viewing !== null) {
+    chips.push({
+      key: 'hist', tone: 'info', label: `🕘 历史 v${doc.viewing}`,
+      detail: `正在查看历史版本 v${doc.viewing}（只读），编辑/生成均不可用；左上角版本下拉可切回当前版本。`,
+    });
+  }
+  if (pendCount > 0) {
+    chips.push({
+      key: 'pend', tone: 'warn', label: `⚠ 补丁 ×${pendCount}`,
+      detail: `${pendCount} 条待确认补丁：请在正文各章节行内逐条接受或拒绝，然后提交版本。`,
+    });
+  }
+  if (!doc.finalized && doc.modified && doc.viewing === null) {
+    chips.push({
+      key: 'mod', tone: 'info', label: '● 未提交',
+      detail: '已修改未提交：点击工具栏「⬆ 版本提交」生成新版本。',
+    });
+  }
+  if (gen.error) {
+    chips.push({
+      key: 'generr', tone: 'err', label: '⛔ 生成失败',
+      detail: `生成失败（${gen.error}），草稿与版本未受影响，可重新发起。`,
+    });
+  }
 
   const act = (fn: () => Promise<unknown>, ok?: string) => {
     setMsg(null);
@@ -71,6 +117,7 @@ function Toolbar() {
       <span className={`tag ${doc.finalized ? 'tag-ok' : 'tag-warn'}`}>
         {doc.viewing !== null ? `历史版本 v${doc.viewing}（只读）` : doc.finalized ? `已定稿 v${doc.finalVer}` : doc.modified ? `v${doc.cur} 修订中` : `v${doc.cur}`}
       </span>
+      <StatusChips items={chips} />
       <select
         className="ver-select"
         value={doc.viewing ?? doc.cur}
@@ -130,25 +177,9 @@ function Toolbar() {
 }
 
 function Banners() {
-  const { doc, patches, gen, impactNotice, setImpactNotice } = useDesignView();
-  if (!doc) return null;
-  const pendings = patches.filter((p) => p.status === 'pending');
-  return (
-    <>
-      {impactNotice && (
-        <div className="req-banner warn impact-banner">
-          ⚡ {impactNotice}
-          <button className="act" style={{ marginLeft: 8 }} onClick={() => setImpactNotice(null)}>知道了</button>
-        </div>
-      )}
-      {doc.finalized && <div className="req-banner ok">✓ 已定稿 v{doc.finalVer}：内容冻结；下游（LLD/原型规划）以此指纹为治理输入。</div>}
-      {doc.viewing !== null && <div className="req-banner info">ℹ 正在查看历史版本 v{doc.viewing}（只读）。</div>}
-      {pendings.length > 0 && <div className="req-banner warn">⚠ {pendings.length} 条待确认补丁：请逐条接受或拒绝。</div>}
-      {!doc.finalized && doc.modified && doc.viewing === null && <div className="req-banner info">ℹ 已修改未提交。</div>}
-      {gen.error && <div className="req-banner err">生成失败（{gen.error}）。</div>}
-      {(gen.running || gen.streamText) && <GenStreamCard />}
-    </>
-  );
+  // 状态横幅已收编为工具栏 StatusChips；此处只保留生成活动卡（进行中的实时进度，非状态提示）
+  const { gen } = useDesignView();
+  return <>{(gen.running || gen.streamText) && <GenStreamCard />}</>;
 }
 
 function GenStreamCard() {
