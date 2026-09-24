@@ -44,6 +44,10 @@ export class PrototypeService {
       const plan = await client.query<{ id: string; plan_fingerprint: string; catalog_version: string }>(
         'SELECT * FROM dsg_plans WHERE id=$1 AND project_id=$2', [planId, projectId]);
       if (!plan.rows[0]) throw new DomainError('NOT_FOUND', '规划不存在', planId);
+      // #16：body 缺字段 → 400 而非 500
+      if (typeof planFingerprint !== 'string' || !planFingerprint.trim()) {
+        throw new DomainError('VALIDATION_FAILED', '规划指纹必填', 'planFingerprint');
+      }
       if (plan.rows[0].plan_fingerprint !== planFingerprint.replace(/^sha256:/, '')) {
         throw new DomainError('VERSION_CONFLICT', '规划指纹不一致（存在并发变更）', planId);
       }

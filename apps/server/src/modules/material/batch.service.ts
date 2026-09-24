@@ -144,7 +144,10 @@ export class BatchService {
         basis: BasisEntry[];
         filter?: Record<string, unknown>;
       };
-      if (fileIds.length === 0) throw new DomainError('VALIDATION_FAILED', '至少一项加工', 'fileIds');
+      // #16：body 缺字段 → 400 而非 500（undefined.length 曾是 500 来源）
+      if (!Array.isArray(fileIds) || fileIds.length === 0) {
+        throw new DomainError('VALIDATION_FAILED', '至少一项加工', 'fileIds');
+      }
       const code = await this.nextJobCode(client, projectId);
       const jobId = randomUUID();
       await client.query(

@@ -211,6 +211,10 @@ export class AiDelegationsService implements OnModuleInit {
         'SELECT * FROM ai_delegations WHERE id=$1 FOR UPDATE', [p.delegationId]);
       if (!d.rows[0]) throw new DomainError('NOT_FOUND', '委派不存在', p.delegationId);
       const row = d.rows[0];
+      // #16：body 缺字段 → 400 而非 500（晚到回调零写语义只覆盖前态不符，不覆盖畸形载荷）
+      if (!Array.isArray(p.from) || p.from.length === 0) {
+        throw new DomainError('VALIDATION_FAILED', 'from 前态列表必填（数组）', 'from');
+      }
       // 晚到回调零写：前态不符（已终结/已迁移）不抛错不落库
       if (!p.from.includes(row.status)) {
         return { applied: false, stale: true, current: row.status };
