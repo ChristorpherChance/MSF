@@ -84,10 +84,13 @@ export function TestPage() {
       {s.error && <div className="gate-box"><div className="issue-row">{s.error}</div></div>}
       {s.notice && <div className="dsg-card dev-ok" onClick={s.clearNotice}>{s.notice}</div>}
 
-      {s.subTab === 'plan' && <BatchPlanPanel />}
-      {s.subTab === 'run' && <RunPanel />}
-      {s.subTab === 'defect' && <DefectPanel />}
-      {s.subTab === 'report' && <ReportPanel />}
+      {/* 面板区独立滚动：头部/页签/批次条固定不动（对齐 material 页固定骨架口径） */}
+      <div className="qa-panels">
+        {s.subTab === 'plan' && <BatchPlanPanel />}
+        {s.subTab === 'run' && <RunPanel />}
+        {s.subTab === 'defect' && <DefectPanel />}
+        {s.subTab === 'report' && <ReportPanel />}
+      </div>
 
       {/* T1 页脚说明 */}
       <footer className="qa-footer">报告定稿 ≠ 放行 ≠ 生产发布 · 历史批次只读，新构建=新批次</footer>

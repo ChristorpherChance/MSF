@@ -194,3 +194,8 @@
 .qa-waiver-row input:not([type='checkbox']) {
   flex: 1; min-width: 240px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; font-size: 12px;
 }
+
+/* 固定骨架：工作台头/页签/批次条不动，面板区内部滚动（对齐 material 页口径） */
+.qa-workbench { display: flex; flex-direction: column; height: calc(100vh - 68px); overflow: hidden; }
+.qa-panels { flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 16px; }
+.qa-workbench .qa-footer { flex: none; }
