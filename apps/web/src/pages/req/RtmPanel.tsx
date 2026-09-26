@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { ApiError } from '../../api';
 import { Modal } from '../../ui/Modal';
 import { reqApi, type RtmRow } from './api';
 import { useReqView } from './store';
 
-/** DSG 设计层八册节点卡（§3.3：h/o/g/k/d/a/u/n + 登记状态；登记=RTM 中出现该册前缀锚点） */
+/** DSG 设计层八册节点卡（§3.3 + DSG-U06-23：h/o/g/k/d/a/u/n 共 8 类 + 登记状态；登记=RTM 中出现该册前缀锚点） */
 const DSG_VOLUMES = [
   { prefix: 'DSG-H', name: 'HLD 概要设计' },
   { prefix: 'DSG-O', name: 'LLD-1 模块设计' },
@@ -20,13 +20,14 @@ const STATE_LABEL: Record<RtmRow['state'], string> = {
   covered: '已覆盖',
   partial: '部分覆盖',
   uncovered: '未覆盖',
-  deferred: '已暂缓',
+  deferred: 'deferred',
 };
 
-/** RTM 工作面（LLD-6 §3.3：六 KPI 卡 + 明细表四色节点 + DSG 八册卡 + 门禁规则卡） */
+/** RTM 工作面（LLD-6 §3.3：标题说明 + 六 KPI 卡 + 明细表四色节点 + DSG 八册卡 + 门禁规则卡） */
 export function RtmPanel() {
   const { rtm, health, loading, error, refreshRtm } = useReqView();
   const [deferTarget, setDeferTarget] = useState<{ kind: 'cr' | 'req'; code: string } | null>(null);
+  const [undeferTarget, setUndeferTarget] = useState<{ kind: 'cr' | 'req'; code: string } | null>(null);
   const [trace, setTrace] = useState<{ row: RtmRow; node: string } | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
 
@@ -47,27 +48,58 @@ export function RtmPanel() {
   if (error) return <div className="req-banner err">{error}</div>;
   if (!rtm || !health) return <div className="doc-empty">{loading ? '加载中…' : 'RTM 数据初始化中…'}</div>;
 
-  const nodes = new Set(rtm.rows.flatMap((r) => [r.r, ...r.cr, ...r.req, ...r.dsg]));
+  const deferredSet = new Set(rtm.deferred);
+  const countBy = (pick: (r: RtmRow) => string[]) => new Set(rtm.rows.flatMap(pick)).size;
+  const registeredDsg = DSG_VOLUMES.filter((v) =>
+    rtm.rows.some((r) => r.dsg.some((d) => d.startsWith(v.prefix))),
+  ).length;
   const uncovered = rtm.rows.filter((r) => r.state === 'uncovered').length;
+  const l0cGaps = health.gaps.filter((g) => g.code === 'L0C_BELOW').map((g) => g.target);
   const pct = (x: number) => `${(x * 100).toFixed(1)}%`;
 
-  const kpis = [
-    { key: 'L0a', label: 'L0a R→CR 承接率', value: pct(health.l0a), ok: health.l0a >= 0.95, note: '门槛 ≥95%（PRD 定稿门禁）' },
-    { key: 'L0b', label: 'L0b CR→REQ 承接率', value: pct(health.l0b), ok: health.l0b === 1, note: '门槛 =100%（PRD 定稿门禁）' },
-    { key: 'L0c', label: 'L0c REQ→DSG 锚点覆盖', value: pct(health.l0c), ok: health.l0c === 1, note: '门槛 =100%（开发入口门禁）' },
-    { key: 'L0d', label: 'L0d deferred 计数', value: String(health.l0d), ok: true, note: '信息性指标，不进任何门禁公式' },
-    { key: 'nodes', label: '节点统计', value: String(nodes.size), ok: true, note: 'R/CR/REQ/DSG 去重合计' },
-    { key: 'gap', label: '未覆盖计数', value: String(uncovered), ok: uncovered === 0, note: 'R 维度未承接行数' },
+  const kpis: Array<{ key: string; label: string; value: string; ok: boolean; note: string; ops?: ReactNode }> = [
+    { key: 'L0a', label: 'L0a 承接率（R→CR）', value: pct(health.l0a), ok: health.l0a >= health.thresholds.l0a, note: `门禁 ≥ 95% · ${health.l0a >= health.thresholds.l0a ? '通过' : '未达标'}` },
+    { key: 'L0b', label: 'L0b 承接率（CR→REQ）', value: pct(health.l0b), ok: health.l0b >= health.thresholds.l0b, note: `门禁 = 100% · ${health.l0b >= health.thresholds.l0b ? '通过' : '未达标'}` },
+    {
+      key: 'L0c', label: 'L0c REQ→DSG 锚点覆盖率 · 开发入口门禁', value: pct(health.l0c), ok: health.l0c >= health.thresholds.l0c,
+      note: health.l0c >= health.thresholds.l0c
+        ? `全部承接${health.l0d > 0 ? `（${health.l0d} 个节点已 deferred 排除出分母）` : ''} · 通过`
+        : `${l0cGaps.join('、') || '—'} 缺设计承接`,
+      // §3.3：缺口 REQ 行内带「标记 deferred」操作钮，已 deferred 的带撤销钮
+      ops: l0cGaps.length > 0 || health.l0d > 0 ? (
+        <div className="kpi-ops">
+          {l0cGaps.map((c) => (
+            <button key={c} className="act mini" title="显式标记暂缓（记审计，排除出分母）" onClick={() => setDeferTarget({ kind: 'req', code: c })}>
+              ⏸ 标记 {c} deferred
+            </button>
+          ))}
+          {rtm.deferred.filter((c) => c.startsWith('REQ-')).map((c) => (
+            <button key={c} className="act mini" title="撤销后重新计入分母（记审计）" onClick={() => setUndeferTarget({ kind: 'req', code: c })}>
+              ↩ 撤销 {c} deferred
+            </button>
+          ))}
+        </div>
+      ) : undefined,
+    },
+    { key: 'L0d', label: 'L0d deferred 计数', value: String(health.l0d), ok: true, note: '信息性指标，不进入任何门禁公式' },
+    { key: 'nodes', label: '节点', value: `${countBy((r) => [r.r])} R / ${countBy((r) => r.cr)} CR / ${countBy((r) => r.req)} REQ`, ok: true, note: `DSG ${registeredDsg}/8 册已登记` },
+    { key: 'gap', label: '未覆盖（需显式标记）', value: String(uncovered), ok: uncovered === 0, note: uncovered === 0 ? '均已承接或显式 deferred' : 'R 维度未承接行数' },
   ];
 
   return (
     <div className="rtm-wrap">
+      <h2 className="pgt">🔗 需求矩阵 RTM</h2>
+      <p className="pgd">
+        R（原始诉求）← CR（客户需求）← REQ（产品需求）refines 链 + DSG（设计工件）implements 层 · 定稿时门禁校验
+      </p>
+
       <div className="kpi-row">
         {kpis.map((k) => (
           <div key={k.key} className={`kpi-card${k.ok ? '' : ' bad'}`}>
             <div className="kpi-label">{k.label}</div>
             <div className="kpi-value">{k.value}</div>
             <div className="kpi-note">{k.note}</div>
+            {k.ops}
           </div>
         ))}
       </div>
@@ -80,21 +112,22 @@ export function RtmPanel() {
 
       <div className="rtm-card">
         <div className="rtm-card-head">
-          <strong>追溯链明细（R 维度）</strong>
+          <strong>追溯链明细</strong>
           <button className="act" onClick={() => void refreshRtm()}>↻ 刷新</button>
         </div>
         <table className="rtm-table">
           <thead>
-            <tr><th>R 客户需求</th><th>CR 承接条目</th><th>REQ 产品需求</th><th>DSG 设计锚点</th><th>状态</th><th>操作</th></tr>
+            <tr><th>原始诉求 R</th><th>客户需求 CR</th><th>产品需求 REQ</th><th>设计 DSG（implements）</th><th>状态</th><th>操作</th></tr>
           </thead>
           <tbody>
             {rtm.rows.map((row) => (
               <RtmRowView
                 key={row.r}
                 row={row}
-                deferred={new Set(rtm.deferred)}
+                deferred={deferredSet}
                 flash={flash === row.r}
                 onDefer={setDeferTarget}
+                onUndefer={setUndeferTarget}
                 onTrace={(node) => setTrace({ row, node })}
               />
             ))}
@@ -106,15 +139,15 @@ export function RtmPanel() {
       </div>
 
       <div className="rtm-card">
-        <div className="rtm-card-head"><strong>DSG 设计层节点（八册）</strong></div>
+        <div className="rtm-card-head"><strong>设计层节点 DSG-*（每份定稿工件各登记一个）</strong></div>
         <div className="dsg-grid">
           {DSG_VOLUMES.map((v) => {
-            const registered = [...nodes].some((n) => n.startsWith(v.prefix));
+            const registered = rtm.rows.some((r) => r.dsg.some((d) => d.startsWith(v.prefix)));
             return (
               <div key={v.prefix} className={`dsg-card${registered ? ' reg' : ''}`}>
                 <div className="dsg-prefix">{v.prefix}-*</div>
                 <div className="dsg-name">{v.name}</div>
-                <span className={`tag ${registered ? 'tag-ok' : ''}`}>{registered ? '已登记锚点' : '未登记'}</span>
+                <span className={`tag ${registered ? 'tag-ok' : ''}`}>{registered ? '已登记' : '未定稿'}</span>
               </div>
             );
           })}
@@ -124,16 +157,17 @@ export function RtmPanel() {
       <div className="rtm-card">
         <div className="rtm-card-head"><strong>门禁规则</strong></div>
         <ul className="gate-rules">
-          <li>PRD 定稿门禁：L0a ≥ 95% 且 L0b = 100%（定稿时实时重算，不用缓存值放行）</li>
-          <li>开发入口门禁：L0c = 100%（M4 开发域启用，本期信息展示）</li>
-          <li>L0d 为信息性计数：deferred 条目不进入 L0a/L0b/L0c 分母，不允许借 deferred 藏缺口</li>
+          <li>进入设计阶段：L0a（R→CR）≥ 0.95 且 L0b（CR→REQ）= 1.00，定稿时实时重算（REQ-208）</li>
+          <li>开发入口门禁（REQ-310）：PRD + 概要 + 详细七册全部定稿，且 L0c（REQ→DSG）= 100%</li>
+          <li>未覆盖项必须显式标记 deferred 或 dropped，不允许静默丢失；deferred 以 L0d 单独计数，不进入 L0a/L0b/L0c 分母</li>
           <li>空分母记 100% 并告警；指纹基线随每次度量留痕（rtm_health append-only）</li>
         </ul>
         {health.warnings.length > 0 && <p className="pop-tip err">告警：{health.warnings.join('；')}</p>}
       </div>
 
       {deferTarget && <DeferModal target={deferTarget} onClose={() => setDeferTarget(null)} />}
-      {trace && <TraceModal row={trace.row} node={trace.node} deferred={new Set(rtm.deferred)} onClose={() => setTrace(null)} />}
+      {undeferTarget && <UndeferModal target={undeferTarget} onClose={() => setUndeferTarget(null)} />}
+      {trace && <TraceModal row={trace.row} node={trace.node} deferred={deferredSet} onClose={() => setTrace(null)} />}
     </div>
   );
 }
@@ -148,12 +182,12 @@ function TraceModal({
     <Modal title={`🔗 追溯：${node}`} onClose={onClose}>
       <div className="trace-chain">
         <div className="trace-col">
-          <div className="trace-head">R 客户需求</div>
+          <div className="trace-head">原始诉求 R</div>
           <span className={`rtm-node n-r${node === row.r ? ' hit' : ''}`}>{row.r}</span>
         </div>
         <div className="trace-arrow">→</div>
         <div className="trace-col">
-          <div className="trace-head">CR 承接条目</div>
+          <div className="trace-head">客户需求 CR</div>
           {row.cr.length > 0
             ? row.cr.map((c) => (
                 <span key={c} className={`rtm-node n-cr${node === c ? ' hit' : ''}${deferred.has(c) ? ' deferred' : ''}`}>{c}</span>
@@ -162,7 +196,7 @@ function TraceModal({
         </div>
         <div className="trace-arrow">→</div>
         <div className="trace-col">
-          <div className="trace-head">REQ 产品需求</div>
+          <div className="trace-head">产品需求 REQ</div>
           {row.req.length > 0
             ? row.req.map((r) => (
                 <span key={r} className={`rtm-node n-req${node === r ? ' hit' : ''}${deferred.has(r) ? ' deferred' : ''}`}>{r}</span>
@@ -171,7 +205,7 @@ function TraceModal({
         </div>
         <div className="trace-arrow">→</div>
         <div className="trace-col">
-          <div className="trace-head">DSG 设计锚点</div>
+          <div className="trace-head">设计 DSG（implements）</div>
           {row.dsg.length > 0
             ? row.dsg.map((d) => (
                 <span key={d} className={`rtm-node n-dsg${node === d ? ' hit' : ''}`}>{d}</span>
@@ -187,26 +221,18 @@ function TraceModal({
 }
 
 function RtmRowView({
-  row, deferred, flash, onDefer, onTrace,
+  row, deferred, flash, onDefer, onUndefer, onTrace,
 }: {
   row: RtmRow;
   deferred: Set<string>;
   flash: boolean;
   onDefer: (t: { kind: 'cr' | 'req'; code: string }) => void;
+  onUndefer: (t: { kind: 'cr' | 'req'; code: string }) => void;
   onTrace: (node: string) => void;
 }) {
-  const { projectId, refreshRtm } = useReqView();
-  const [msg, setMsg] = useState<string | null>(null);
-  const undefer = (kind: 'cr' | 'req', code: string) => {
-    if (!projectId) return;
-    setMsg(null);
-    void reqApi.undefer(projectId, kind, code)
-      .catch((e) => setMsg(e instanceof ApiError ? e.message : '操作失败'))
-      .finally(() => void refreshRtm());
-  };
   const nodeOps = (kind: 'cr' | 'req', code: string) =>
     deferred.has(code) ? (
-      <button className="act mini" onClick={() => undefer(kind, code)}>撤销 deferred</button>
+      <button className="act mini" title="撤销后重新计入分母（记审计）" onClick={() => onUndefer({ kind, code })}>撤销 deferred</button>
     ) : (
       <button className="act mini" title="标记暂缓（理由必填，记审计；不进 L0a/L0b/L0c 分母）" onClick={() => onDefer({ kind, code })}>标记 deferred</button>
     );
@@ -228,7 +254,7 @@ function RtmRowView({
         {row.req.map((r) => <span key={`${r}-op`} className="node-op">{nodeOps('req', r)}</span>)}
       </td>
       <td>{row.dsg.map((d) => <button key={d} className="rtm-node n-dsg" title="点击追溯全链" onClick={() => onTrace(d)}>{d}</button>)}</td>
-      <td><span className={`tag st-${row.state}`}>{STATE_LABEL[row.state]}</span>{msg && <div className="rsn err">{msg}</div>}</td>
+      <td><span className={`tag st-${row.state}`}>{STATE_LABEL[row.state]}</span></td>
       <td className="mut">{row.state === 'uncovered' ? '需在 CRD 增加 CR 承接条目' : ''}</td>
     </tr>
   );
@@ -259,6 +285,35 @@ function DeferModal({ target, onClose }: { target: { kind: 'cr' | 'req'; code: s
         <div className="modal-ops">
           <button className="act" onClick={onClose}>取消</button>
           <button className="act primary" disabled={!reason.trim()} onClick={submit}>确认标记</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** 撤销 deferred 二次确认（LLD-6 §3.3：撤销记审计、modal 确认；明示重新计入分母的后果） */
+function UndeferModal({ target, onClose }: { target: { kind: 'cr' | 'req'; code: string }; onClose: () => void }) {
+  const { projectId, refreshRtm } = useReqView();
+  const [msg, setMsg] = useState<string | null>(null);
+  if (!projectId) return null;
+  const submit = () => {
+    setMsg(null);
+    void reqApi.undefer(projectId, target.kind, target.code)
+      .then(() => { onClose(); })
+      .catch((e) => setMsg(e instanceof ApiError ? `${e.code}: ${e.message}` : '操作失败'))
+      .finally(() => void refreshRtm());
+  };
+  return (
+    <div className="modal-mask" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <h3>撤销 {target.code} 的 deferred</h3>
+        <p className="pop-tip">
+          撤销后该条目重新计入 L0a/L0b/L0c 分母：若仍未被承接，对应覆盖率将下降、相关门禁转为未达标。撤销留审计。
+        </p>
+        {msg && <p className="pop-tip err">{msg}</p>}
+        <div className="modal-ops">
+          <button className="act" onClick={onClose}>取消</button>
+          <button className="act primary" onClick={submit}>确认撤销</button>
         </div>
       </div>
     </div>

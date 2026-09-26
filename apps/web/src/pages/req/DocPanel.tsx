@@ -66,6 +66,7 @@ function Toolbar({
   const [refsOpen, setRefsOpen] = useState(false);
   const [dlOpen, setDlOpen] = useState(false);
   const [genOpen, setGenOpen] = useState(false);
+  const [unlockOpen, setUnlockOpen] = useState(false);
   const [instruction, setInstruction] = useState('');
   const [msg, setMsg] = useState<string | null>(null);
   if (!projectId || !doc) return null;
@@ -107,15 +108,21 @@ function Toolbar({
       <button className="act" disabled={readonly} title="撤销" onClick={() => act(() => reqApi.undo(projectId, kind))}>↩</button>
       <button className="act" disabled={readonly} title="重做" onClick={() => act(() => reqApi.redo(projectId, kind))}>↪</button>
       <div className="pop-wrap">
-        <button className="act" title="下载当前查看版本" onClick={() => setDlOpen(!dlOpen)}>⬇ ▾</button>
+        <button className="act" title="下载当前查看版本" onClick={() => setDlOpen(!dlOpen)}>⬇ 下载 ▾</button>
         {dlOpen && (
           <div className="popover menu">
-            <button className="act" onClick={() => { setDlOpen(false); doExport('md'); }}>Markdown（.md）</button>
-            <button className="act" onClick={() => { setDlOpen(false); doExport('html'); }}>HTML（.html）</button>
+            <div className="pop-tip" style={{ padding: '4px 10px' }}>下载当前文档 v{doc.viewing ?? doc.cur}</div>
+            <button className="act" onClick={() => { setDlOpen(false); doExport('md'); }}>⬇ Markdown (.md)</button>
+            <button className="act" onClick={() => { setDlOpen(false); doExport('html'); }}>⬇ HTML (.html)</button>
           </div>
         )}
       </div>
-      <button className="act primary" disabled={readonly || !doc.modified || generating} title="提交为新版本（编号不复用）" onClick={onCommit}>⬆ 提交</button>
+      <button
+        className="act primary"
+        disabled={readonly || !doc.modified || generating}
+        title={doc.modified ? `提交为 v${Math.max(...versions.map((v) => v.v), doc.cur) + 1}` : '当前版本未修改，无可提交内容'}
+        onClick={onCommit}
+      >⬆ 版本提交</button>
       <button
         className="act"
         disabled={readonly || gen.running}
@@ -128,7 +135,7 @@ function Toolbar({
         }
         onClick={() => setGenOpen(true)}
       >
-        {generating ? '⚡ 生成中…' : '🔄 生成'}
+        {generating ? '⚡ 生成中…' : '🔄 重新生成'}
       </button>
       {genOpen && (
         <Modal
@@ -186,7 +193,7 @@ function Toolbar({
           <div className="popover menu">
             {/* R1：版本时间线 / 分享（原型 docMenu 项） */}
             <button className="act" onClick={() => { setMoreOpen(false); onTimeline(); }}>
-              🕘 版本时间线
+              🕒 版本时间线
             </button>
             <button
               className="act"
@@ -199,11 +206,11 @@ function Toolbar({
                   .catch(() => toast(url));
               }}
             >
-              🔗 分享
+              🔗 复制分享链接
             </button>
             {doc.finalized && (
-              <button className="act" onClick={() => { setMoreOpen(false); if (window.confirm('解除定稿将留审计记录，下游基线失效传播随 M3 接入。继续？')) act(() => reqApi.unlock(projectId, kind), '已解除定稿'); }}>
-                🔓 解除定稿
+              <button className="act" onClick={() => { setMoreOpen(false); setUnlockOpen(true); }}>
+                🔓 解锁定稿
               </button>
             )}
             {doc.viewing !== null && (
@@ -223,6 +230,17 @@ function Toolbar({
       </span>
       <StatusChips items={errors} />
       {msg && <span className="rsn">{msg}</span>}
+      {unlockOpen && (
+        <Modal title="🔓 解锁定稿" onClose={() => setUnlockOpen(false)} footer={
+          <>
+            <button className="sm" onClick={() => setUnlockOpen(false)}>取消</button>
+            <button className="sm primary" onClick={() => { setUnlockOpen(false); act(() => reqApi.unlock(projectId, kind), '已解锁定稿'); }}>确认解锁</button>
+          </>
+        }>
+          <p>解除 {kind.toUpperCase()} v{doc.finalVer} 的定稿锁定，文档回到可编辑状态。</p>
+          <p className="pop-tip">影响面：解锁记审计；下游（设计/开发）若已消费本定稿，其输入基线将标记失效需重确认。</p>
+        </Modal>
+      )}
     </div>
   );
 }
@@ -373,10 +391,11 @@ function TocCol() {
     flashToc(secId);
     setActiveSec(secId);
   };
+  const tocSecs = doc.secs.filter((s) => s.title);
   return (
     <aside className="toc-col">
-      <div className="toc-title">目录</div>
-      {doc.secs.filter((s) => s.title).map((s) => (
+      <div className="toc-title">目录 <span className="dz-note">{tocSecs.length} 章</span></div>
+      {tocSecs.map((s) => (
         <button
           key={s.id}
           className={`toc-item${tocFlash === s.id ? ' flash' : ''}${s.pending ? ' has-pend' : ''}${activeSec === s.id ? ' act-sec' : ''}`}
@@ -409,15 +428,15 @@ function Paper({ kind, readonly }: { kind: DocKind; readonly: boolean }) {
       <div className="paper">
         {/* 文档状态在正文标题呈现（原型口径：tag 随版本号，不占工具栏） */}
         <h1>
-          {doc.kind.toUpperCase()} <span className="tag">{doc.viewing !== null ? `v${doc.viewing}` : `v${doc.cur}`}</span>
+          {doc.kind === 'crd' ? '客户需求文档（CRD）' : '产品需求规格书（PRD）'} · v{doc.viewing ?? doc.cur}
           {doc.finalized && (
-            <span className="tag tag-ok" title="内容字节冻结；修改请先在 ⋯ 菜单「解除定稿」（留审计）">已定稿 v{doc.finalVer}</span>
+            <span className="tag tag-ok" title="内容字节冻结；修改请先在 ⋯ 菜单「解锁定稿」（留审计）">已定稿 v{doc.finalVer}</span>
           )}
           {doc.viewing !== null && (
             <span className="tag tag-warn" title="历史版本只读；⋯ 菜单可「设为当前版本」，版本下拉可切回当前">历史只读</span>
           )}
           {!doc.finalized && doc.modified && doc.viewing === null && (
-            <span className="tag tag-warn" title="已修改未提交；工具栏「⬆ 提交」生成新版本">未提交</span>
+            <span className="tag tag-warn" title="工作区有未提交修改；工具栏「⬆ 版本提交」生成新版本">已修改未提交</span>
           )}
           {pendCount > 0 && (
             <span className="tag tag-warn" title="待确认补丁：在下方各章节行内逐条接受或拒绝（REQ-205）">补丁 ×{pendCount}</span>
@@ -425,25 +444,28 @@ function Paper({ kind, readonly }: { kind: DocKind; readonly: boolean }) {
         </h1>
         {doc.secs.map((s) => (
           <section key={s.id} id={`sec-${s.id}`} className={`sect${tocFlash === s.id ? ' flash' : ''}`}>
+            {/* 补丁条在章节标题之前（原型口径：pending-bar → h2 → 正文） */}
+            {s.pending && pendBySec.get(s.id) && <PendingBar kind={kind} patch={pendBySec.get(s.id)!} />}
             {s.title && <h2>{s.title}</h2>}
             {viewMode === 'preview' ? (
               <div className="md" dangerouslySetInnerHTML={{ __html: mdHtml(s.md) }} />
             ) : (
               <SectionEditor kind={kind} secId={s.id} md={s.md} readonly={readonly} />
             )}
-            {s.pending && pendBySec.get(s.id) && <PendingBar kind={kind} patch={pendBySec.get(s.id)!} />}
           </section>
         ))}
         {appended.map((p) => (
           <section key={p.patchId} className="sect pending-add">
-            {p.title && <h2>{p.title} <span className="tag tag-warn">新增章节提案</span></h2>}
-            <div className="md" dangerouslySetInnerHTML={{ __html: mdHtml(p.new ?? '') }} />
             <PendingBar kind={kind} patch={p} />
+            {p.title && <h2>{p.title}</h2>}
+            <div className="md" dangerouslySetInnerHTML={{ __html: mdHtml(p.new ?? '') }} />
           </section>
         ))}
         {doc.secs.length <= 1 && !doc.secs[0]?.md && (
           <div className="doc-empty">
-            {kind === 'prd' ? 'PRD 空态：CRD 定稿后可 AI 生成初稿，或直接编辑。' : 'CRD 空态：挂接定稿资料后 AI 生成初稿，或直接编辑。'}
+            {kind === 'prd'
+              ? 'PRD 以 CRD 定稿稿为默认参考。CRD 定稿后，挂接参考并点击工具栏「🔄 重新生成」开始；将先生成目录大纲，再逐章生成。'
+              : '勾选参考资料后点击工具栏「🔄 重新生成」，将先生成目录大纲，再逐章生成；也可直接编辑。'}
           </div>
         )}
       </div>
@@ -536,8 +558,11 @@ function PendingBar({ kind, patch }: { kind: DocKind; patch: PatchItem }) {
   };
   return (
     <div className={`pending-bar pending-${patch.type === 'modify' ? 'mod' : patch.type === 'del' ? 'del' : 'add'}`}>
+      <span className={`plabel ${patch.type === 'modify' ? 'mod' : patch.type}`}>
+        ● 待确认·{patch.type === 'add' ? '新增' : patch.type === 'del' ? '删除' : '修改'}
+      </span>
       <span className="pend-desc">
-        {patch.type === 'add' ? `＋新增「${patch.title ?? '章节'}」` : patch.type === 'del' ? `－删除「${patch.old ?? ''}」` : `✎ ${patch.old ?? ''} → ${patch.new ?? ''}`}
+        {patch.type === 'add' ? `「${patch.title ?? '章节'}」` : patch.type === 'del' ? `「${patch.old ?? ''}」` : `${patch.old ?? ''} → ${patch.new ?? ''}`}
         <em>（{patch.source === 'ai' ? 'AI 提案' : patch.source}）</em>
       </span>
       <button className="act primary" onClick={() => act(() => reqApi.acceptPatch(projectId, kind, patch.patchId))}>✓ 接受</button>
@@ -552,7 +577,7 @@ function VersionTimelineModal({ onClose }: { onClose: () => void }) {
   const { versions, doc, loadDoc } = useReqView();
   if (!doc) return null;
   return (
-    <Modal title={`🕘 版本时间线（${doc.kind}）`} onClose={onClose}>
+    <Modal title={`${doc.kind.toUpperCase()} 版本时间线`} onClose={onClose}>
       <ul className="v-timeline">
         {[...versions].sort((a, b) => b.v - a.v).map((v) => (
           <li key={v.v} className={`v-tl-item${v.v === doc.cur ? ' cur' : ''}`}>
@@ -636,16 +661,17 @@ function FinalizeModal({ kind, onClose }: { kind: DocKind; onClose: () => void }
   return (
     <div className="modal-mask" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h3>✓ 定稿 {doc.kind} v{doc.cur}</h3>
-        <p className="pop-tip">定稿为只读基线（人工确认点 req.doc.finalize），登记定稿证据与内容指纹。</p>
+        <h3>{doc.kind.toUpperCase()} 定稿确认</h3>
+        <p className="pop-tip">将 v{doc.cur} 标记为定稿稿：内容字节冻结，登记定稿证据与内容指纹（人工确认点 req.doc.finalize）。</p>
         {kind === 'prd' && (
           <div className={`gate-box ${gateOk ? 'ok' : 'err'}`}>
-            <strong>RTM 健康度门禁（实时重算）</strong>
+            <strong>RTM 门禁校验（实时重算，不用缓存值放行）</strong>
             {health ? (
               <ul>
                 <li>L0a R→CR 承接率 {(health.l0a * 100).toFixed(1)}%（门槛 ≥95%）{health.l0a >= 0.95 ? ' ✓' : ' ✗'}</li>
                 <li>L0b CR→REQ 承接率 {(health.l0b * 100).toFixed(1)}%（门槛 =100%）{health.l0b === 1 ? ' ✓' : ' ✗'}</li>
                 <li className="mut">L0c REQ→DSG {(health.l0c * 100).toFixed(1)}%（开发门禁，本期信息展示）；L0d deferred {health.l0d} 项</li>
+                {health.l0d > 0 && <li>✅ 未覆盖项 {health.l0d} 项均已显式标记 deferred（排除出分母）</li>}
                 {health.gaps.map((g) => <li key={`${g.code}-${g.target}`} className="err">✗ {g.target}：{g.message}</li>)}
               </ul>
             ) : <p>健康度加载中…</p>}
