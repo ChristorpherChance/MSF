@@ -1,6 +1,7 @@
 import { useState } from 'react';
+import { ConfirmModal } from '../../ui/ConfirmModal';
 import { devApi, type DevTask } from './api';
-import { asgIcon, KIND_CLASS, KIND_LABEL, useDevStore } from './store';
+import { asgIcon, KIND_CLASS, KIND_LABEL, RUN_STATUS_LABEL, useDevStore } from './store';
 
 const COLS: Array<{ key: DevTask['col']; name: string }> = [
   { key: 'queue', name: '📥 排队' },
@@ -13,20 +14,24 @@ const COLS: Array<{ key: DevTask['col']; name: string }> = [
 export function BoardPanel() {
   const s = useDevStore();
   const pid = s.projectId!;
+  const [confirm, setConfirm] = useState<null | 'start' | 'stop'>(null);
   const run = s.autopilot?.run ?? null;
   const approved = s.plans.find((p) => p.state === 'approved');
+  const latest = s.plans[0];
   const running = run && !['stopped', 'transferred'].includes(run.status);
 
   return (
     <div>
-      {/* autopilot 命令条（F07：批准启动/暂停/恢复/接管/停止；永不含转测试） */}
+      {/* autopilot 命令条（F07：批准启动/暂停/继续/人工接管/停止；永不含转测试） */}
       <div className="dsg-card">
         <div className="gen-head">
           <strong>Autopilot</strong>
-          {run && (
+          {run ? (
             <span className={`dev-run dev-run-${run.status}`}>
-              {run.runId} · {{ running: '运行中', paused: '已暂停', blocked: '已阻断', 'taken-over': '人工接管', stopped: '已停止', 'awaiting-transfer': '待转测试', transferred: '已交接' }[run.status] ?? run.status}
+              {run.runId} · {RUN_STATUS_LABEL[run.status] ?? run.status}
             </span>
+          ) : (
+            <span className="dsg-prefix">尚未启动 · 准备并批准后开始</span>
           )}
           {s.autopilot?.authorization && (
             <span className="dsg-prefix">
@@ -41,12 +46,7 @@ export function BoardPanel() {
         )}
         <div className="gen-ops">
           {!running && approved && (
-            <button
-              className="act primary"
-              onClick={() =>
-                window.confirm(`批准并启动 autopilot？\n计划 ${approved.revision} 指纹：${approved.fingerprint}\n授权范围：开发/单测CI/AI评审/合并/集成构建（不含转测试）`) &&
-                s.act(() => devApi.autopilotStart(pid, approved.revision, approved.fingerprint), 'autopilot 已启动')}
-            >
+            <button className="act primary" onClick={() => setConfirm('start')}>
               批准并启动
             </button>
           )}
@@ -54,24 +54,45 @@ export function BoardPanel() {
             <button className="act" onClick={() => s.act(() => devApi.autopilotControl(pid, 'pause'), '已暂停')}>暂停</button>
           )}
           {run && ['paused', 'blocked', 'taken-over'].includes(run.status) && (
-            <button className="act" onClick={() => s.act(() => devApi.autopilotControl(pid, 'resume'), '已恢复')}>恢复</button>
+            <button className="act" onClick={() => s.act(() => devApi.autopilotControl(pid, 'resume'), '已继续')}>继续</button>
           )}
           {run && ['running', 'paused', 'blocked'].includes(run.status) && (
-            <button className="act" onClick={() => s.act(() => devApi.autopilotControl(pid, 'takeover'), '已人工接管')}>接管</button>
+            <button className="act" onClick={() => s.act(() => devApi.autopilotControl(pid, 'takeover'), '已人工接管')}>人工接管</button>
           )}
           {running && (
-            <button
-              className="act"
-              onClick={() => window.confirm('停止将撤销本次授权，确认？') &&
-                s.act(() => devApi.autopilotControl(pid, 'stop'), '已停止并撤销授权')}
-            >
-              停止
-            </button>
+            <button className="act" onClick={() => setConfirm('stop')}>停止</button>
           )}
           <button className="act" onClick={() => s.refresh()}>刷新状态</button>
-          <span className="spacer" />
-          <span className="dsg-prefix">开始动作实时复核计划、基线、依赖和影响；暂停/停止不会伪造完成。</span>
         </div>
+      </div>
+      {confirm === 'start' && approved && (
+        <ConfirmModal
+          title="批准并启动 autopilot"
+          confirmLabel="批准并启动"
+          body={`计划 ${approved.revision} 指纹：${approved.fingerprint}\n授权范围：开发/单测CI/AI评审/合并/集成构建（不含转测试）`}
+          onClose={() => setConfirm(null)}
+          onConfirm={() => s.act(() => devApi.autopilotStart(pid, approved.revision, approved.fingerprint), 'autopilot 已启动')}
+        />
+      )}
+      {confirm === 'stop' && (
+        <ConfirmModal
+          title="停止 autopilot"
+          confirmLabel="停止并撤销授权"
+          body="停止将撤销本次授权，确认？"
+          onClose={() => setConfirm(null)}
+          onConfirm={() => s.act(() => devApi.autopilotControl(pid, 'stop'), '已停止并撤销授权')}
+        />
+      )}
+
+      {/* 看板工具栏（原型 devBoardHtml@5175 口径：标题 + 计划状态 tag + 查看计划） */}
+      <div className="doc-toolbar">
+        <strong>🗂 开发执行</strong>
+        <span className={`tag ${latest?.state === 'approved' ? 'tag-ok' : 'tag-warn'}`}>
+          {latest ? `计划 ${latest.revision} · ${{ submitted: '待批准', approved: '已批准', invalidated: '已失效' }[latest.state]}` : '尚无计划'}
+        </span>
+        <span className="dsg-prefix">开始动作实时复核计划、基线、依赖和影响；暂停/停止不会伪造完成。</span>
+        <span className="spacer" />
+        <button className="act" onClick={() => void s.setTopTab('plan')}>查看计划</button>
       </div>
 
       {/* V7 看板四列（阻塞是标记不是列；卡片含承接图标/依赖/进度/行内按钮/⚠变更徽标） */}
@@ -153,7 +174,7 @@ function BoardCard({ t }: { t: DevTask }) {
       </div>
       <div className="v17-cardtitle">{t.title}</div>
       <div className="v17-meta">
-        批次 {t.batchNo ? `B${t.batchNo}` : '—'} · {asgIcon(t.ownerType)} {t.owner}
+        批次 {t.batchNo ?? '—'} · {asgIcon(t.ownerType)} {t.owner}
         <br />依赖：{t.deps.join('、') || '无'}
         {t.sourceIds.length > 0 && (
           <>

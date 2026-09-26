@@ -3,7 +3,7 @@ import { api } from '../../api';
 /** 测试验收域 API 封装（LLD-5 A07-1~14；路径前缀 /api/v1/projects/:pid/acceptance） */
 
 export interface TstBatch {
-  batchId: string; status: string; current: boolean;
+  batchId: string; status: string; current: boolean; buildId: string | null;
   environment: Record<string, unknown>; environmentFingerprint: string;
   receivedBy: string; receivedAt: string;
   blockedReason: string | null; previousStatus: string | null;

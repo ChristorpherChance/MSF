@@ -1,5 +1,7 @@
 import { useState } from 'react';
+import { ConfirmModal } from '../../ui/ConfirmModal';
 import { tstApi } from './api';
+import { NeedBatch } from './NeedBatch';
 import { useTstStore } from './store';
 
 /** 页签四：报告与交付（汇总报告 + 结论横幅 + basis 过期置灰 T6 + 定稿/放行/导出按钮组 + 豁免多选清单 T7 + 决定历史） */
@@ -8,8 +10,9 @@ export function ReportPanel() {
   const pid = s.projectId!;
   /** T7 豁免多选：defectId → 豁免理由（逐项列举，须覆盖全部未关闭缺陷） */
   const [waiver, setWaiver] = useState<{ reportId: string; items: Record<string, string> } | null>(null);
+  const [confirm, setConfirm] = useState<null | 'finalize' | 'release' | 'reject' | 'waiver'>(null);
   const det = s.batchDetail;
-  if (!det) return <p className="dsg-prefix qa-empty">请先接收批次</p>;
+  if (!det) return <NeedBatch />;
 
   const latest = s.reports[0] ?? null;
   const canGenerate = ['executing', 'reported'].includes(det.status) && s.runs.length > 0;
@@ -68,9 +71,7 @@ export function ReportPanel() {
                 <button className="act"
                   disabled={stale}
                   title={stale ? 'basis 指纹已过期，请重新汇总' : ''}
-                  onClick={() =>
-                    window.confirm(`人工定稿报告 ${latest.reportId}（结论：${latest.verdict === 'pass' ? '通过' : '不通过'}）？\n（策略确认点 test.report.finalize；可定稿不通过；定稿≠放行）`) &&
-                    s.act(() => tstApi.finalizeReport(pid, latest.reportId), '报告已定稿')}>
+                  onClick={() => setConfirm('finalize')}>
                   人工定稿报告
                 </button>
               )}
@@ -78,9 +79,7 @@ export function ReportPanel() {
                 <>
                   <button className="act" disabled={stale || latest.verdict !== 'pass' || unclosed.length > 0}
                     title={stale ? 'basis 指纹已过期，请重新汇总' : latest.verdict !== 'pass' || unclosed.length > 0 ? '正常放行需结论 pass 且无未关闭缺陷' : ''}
-                    onClick={() =>
-                      window.confirm('确认本批交付（正常放行）？\n（策略确认点 test.release，决定不可变）') &&
-                      s.act(() => tstApi.release(pid, latest.reportId, { type: 'normal' }), '已放行（批次 released）')}>
+                    onClick={() => setConfirm('release')}>
                     确认本批交付
                   </button>
                   <button className="act" disabled={stale || waiverBlocked.length > 0}
@@ -91,9 +90,7 @@ export function ReportPanel() {
                   <button
                     disabled={stale}
                     title={stale ? 'basis 指纹已过期，请重新汇总' : ''}
-                    onClick={() =>
-                      window.confirm('确认本批不予交付（reject）？\n（决定不可变，随报告与批次身份保存）') &&
-                      s.act(() => tstApi.release(pid, latest.reportId, { type: 'reject' }), '已登记不予交付')}>
+                    onClick={() => setConfirm('reject')}>
                     不予交付
                   </button>
                 </>
@@ -154,15 +151,7 @@ export function ReportPanel() {
             )}
             <div className="gen-ops">
               <button className="act" disabled={!waiverReady}
-                onClick={() =>
-                  window.confirm(`条件放行：豁免 ${Object.keys(waiver.items).join('、')}？\n（服务端复核：P0/P1/必测未执行/证据失真不可豁免；须覆盖全部未关闭缺陷）`) &&
-                  s.act(async () => {
-                    await tstApi.release(pid, waiver.reportId, {
-                      type: 'conditional',
-                      waivers: Object.entries(waiver.items).map(([defectId, justification]) => ({ defectId, justification })),
-                    });
-                    setWaiver(null);
-                  }, '已条件放行（豁免清单落库）')}>
+                onClick={() => setConfirm('waiver')}>
                 提交豁免并放行
               </button>
               <button onClick={() => setWaiver(null)}>取消</button>
@@ -213,6 +202,51 @@ export function ReportPanel() {
             </tbody>
           </table>
         </div>
+      )}
+
+      {/* 定稿/放行/不予交付/豁免 二次确认（DSG-U07-2：禁原生 confirm） */}
+      {confirm === 'finalize' && latest && (
+        <ConfirmModal
+          title={`人工定稿报告 ${latest.reportId}`}
+          confirmLabel="人工定稿报告"
+          body={`结论：${latest.verdict === 'pass' ? '通过' : '不通过'}\n策略确认点 test.report.finalize；可定稿不通过；定稿≠放行。`}
+          onClose={() => setConfirm(null)}
+          onConfirm={() => s.act(() => tstApi.finalizeReport(pid, latest.reportId), '报告已定稿')}
+        />
+      )}
+      {confirm === 'release' && latest && (
+        <ConfirmModal
+          title="确认本批交付（正常放行）"
+          confirmLabel="确认本批交付"
+          body={'策略确认点 test.release，决定不可变。'}
+          onClose={() => setConfirm(null)}
+          onConfirm={() => s.act(() => tstApi.release(pid, latest.reportId, { type: 'normal' }), '已放行（批次 released）')}
+        />
+      )}
+      {confirm === 'reject' && latest && (
+        <ConfirmModal
+          title="确认本批不予交付（reject）"
+          confirmLabel="不予交付"
+          body={'决定不可变，随报告与批次身份保存。'}
+          onClose={() => setConfirm(null)}
+          onConfirm={() => s.act(() => tstApi.release(pid, latest.reportId, { type: 'reject' }), '已登记不予交付')}
+        />
+      )}
+      {confirm === 'waiver' && waiver && (
+        <ConfirmModal
+          title="条件放行（豁免）"
+          confirmLabel="提交豁免并放行"
+          body={`豁免：${Object.keys(waiver.items).join('、')}\n服务端复核：P0/P1/必测未执行/证据失真不可豁免；须覆盖全部未关闭缺陷。`}
+          onClose={() => setConfirm(null)}
+          onConfirm={() =>
+            s.act(async () => {
+              await tstApi.release(pid, waiver.reportId, {
+                type: 'conditional',
+                waivers: Object.entries(waiver.items).map(([defectId, justification]) => ({ defectId, justification })),
+              });
+              setWaiver(null);
+            }, '已条件放行（豁免清单落库）')}
+        />
       )}
     </div>
   );

@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { ConfirmModal } from '../../ui/ConfirmModal';
 import { devApi, type DevScenario, type DevTask, type DevTaskDetail } from './api';
 import { attentionModel, asgIcon, KIND_CLASS, KIND_LABEL, useDevStore } from './store';
 
@@ -9,6 +10,7 @@ const PLAN_STATE_LABEL: Record<string, string> = {
 /** 计划页（V3 命令条+批准摘要、V4 注意项页签、V5 手动操作条+三视图、V6 任务详情表单） */
 export function PlanPanel() {
   const s = useDevStore();
+  const [approveOpen, setApproveOpen] = useState(false);
   const model = useMemo(() => attentionModel(s), [s.tasks, s.coverage, s.baseline, s.impacts, s.autopilot]);
   if (s.selTaskId && s.taskDetail) return <TaskDetailForm />;
 
@@ -54,9 +56,7 @@ export function PlanPanel() {
             <button
               className="act primary"
               title={`指纹 ${submitted.fingerprint}`}
-              onClick={() =>
-                window.confirm(`批准 ${submitted.revision}？\n指纹：${submitted.fingerprint}\n（批准后版本固定，AI 不可代批）`) &&
-                s.act(() => devApi.approvePlan(s.projectId!, submitted.revision, submitted.fingerprint), `${submitted.revision} 已批准`)}
+              onClick={() => setApproveOpen(true)}
             >
               批准计划
             </button>
@@ -69,6 +69,15 @@ export function PlanPanel() {
           </button>
         </div>
       </div>
+      {approveOpen && submitted && (
+        <ConfirmModal
+          title={`批准 ${submitted.revision}`}
+          confirmLabel="批准计划"
+          body={`指纹：${submitted.fingerprint}\n批准后版本固定，AI 不可代批。`}
+          onClose={() => setApproveOpen(false)}
+          onConfirm={() => s.act(() => devApi.approvePlan(s.projectId!, submitted.revision, submitted.fingerprint), `${submitted.revision} 已批准`)}
+        />
+      )}
 
       {/* V3 .v18-prep 批准摘要（六指标 + 范围 tag + stale 标记；真实数据驱动） */}
       {(approved ?? submitted) && <PrepSummary />}
@@ -141,9 +150,7 @@ export function PlanPanel() {
               <button
                 className="act"
                 title={`指纹 ${submitted.fingerprint}`}
-                onClick={() =>
-                  window.confirm(`批准 ${submitted.revision}？\n指纹：${submitted.fingerprint}\n（批准后版本固定，AI 不可代批）`) &&
-                  s.act(() => devApi.approvePlan(s.projectId!, submitted.revision, submitted.fingerprint), `${submitted.revision} 已批准`)}
+                onClick={() => setApproveOpen(true)}
               >
                 批准计划
               </button>
@@ -456,6 +463,7 @@ function TaskDetailForm() {
   const editable = t.col === 'queue';
   const [draft, setDraft] = useState(() => cloneDraft(t));
   const [reworkReason, setReworkReason] = useState('');
+  const [reworkOpen, setReworkOpen] = useState(false);
   const issues = t.specIssuesFull ?? [];
 
   const set = (k: keyof Draft, v: string) => setDraft({ ...draft, [k]: v });
@@ -511,14 +519,21 @@ function TaskDetailForm() {
             <button
               className="act"
               disabled={!reworkReason.trim()}
-              onClick={() =>
-                window.confirm(`${t.code} 返工：rev/codeRev+1 并回排队、已批准计划失效，确认？`) &&
-                s.act(async () => { await devApi.transition(s.projectId!, t.id, 'rework', reworkReason); await s.selectTask(t.id); }, '已返回排队，可编辑新规格')}
+              onClick={() => setReworkOpen(true)}
             >
               返工后编辑
             </button>
           </div>
         </div>
+      )}
+      {reworkOpen && (
+        <ConfirmModal
+          title={`${t.code} 返工`}
+          confirmLabel="确认返工"
+          body={'rev/codeRev +1 并回排队、已批准计划失效。\n返工理由：' + reworkReason.trim()}
+          onClose={() => setReworkOpen(false)}
+          onConfirm={() => s.act(async () => { await devApi.transition(s.projectId!, t.id, 'rework', reworkReason); await s.selectTask(t.id); }, '已返回排队，可编辑新规格')}
+        />
       )}
 
       <div className="dsg-card v17-detail">

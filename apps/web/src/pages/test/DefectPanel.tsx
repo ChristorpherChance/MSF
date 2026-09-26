@@ -1,9 +1,11 @@
 import { useState } from 'react';
+import { ConfirmModal } from '../../ui/ConfirmModal';
 import { tstApi } from './api';
+import { NeedBatch } from './NeedBatch';
 import { useTstStore } from './store';
 
 const ST_NAME: Record<string, string> = {
-  new: '新登记', confirmed: '已确认', fixing: '修复中', pending_regression: '待回归', closed: '已关闭',
+  new: '新建', confirmed: '已确认', fixing: '修复中', pending_regression: '待回归', closed: '已关闭',
 };
 
 /** 页签三：缺陷与回归（失败登记行 + 缺陷卡五态流转；reopened 是事件不是状态） */
@@ -15,12 +17,18 @@ export function DefectPanel() {
   const [fixed, setFixed] = useState<{ defectId: string; fp: string; note: string } | null>(null);
   const [link, setLink] = useState<{ defectId: string; batchId: string; runId: string; caseId: string } | null>(null);
   const [reopen, setReopen] = useState<{ defectId: string; reason: string } | null>(null);
+  const [closeTarget, setCloseTarget] = useState<string | null>(null);
   const det = s.batchDetail;
-  if (!det) return <p className="dsg-prefix qa-empty">请先接收批次</p>;
+  if (!det) return <NeedBatch />;
 
   const failedCases = s.caseRuns.filter((c) => c.result === 'fail');
   return (
     <div>
+      {/* 原型 defectsHtml 口径：h2 + 注记（开发修复不能直接关闭缺陷） */}
+      <div className="dsg-card">
+        <h2 style={{ margin: '2px 0 4px' }}>失败必须有去向，修复必须有回归</h2>
+        <p className="dsg-prefix">开发修复不能直接关闭缺陷；失败原始记录保留，关闭须服务端复核回归证据指纹。</p>
+      </div>
       {/* 失败登记行（缺陷只能从本批实际失败记录创建） */}
       <div className="dsg-card">
         <div className="gen-head">
@@ -31,7 +39,7 @@ export function DefectPanel() {
         {failedCases.map((c) => (
           <div key={c.code} className="qa-handoff-row">
             <span>{c.code} {c.title} <span className="dsg-prefix">（{s.latestRunId}）</span></span>
-            <button className="act" onClick={() => setReg({ caseId: c.code, title: '', evidence: '' })}>登记缺陷</button>
+            <button className="act" onClick={() => setReg({ caseId: c.code, title: '', evidence: '' })}>登记失败缺陷</button>
           </div>
         ))}
         {reg && s.latestRunId && (
@@ -54,7 +62,7 @@ export function DefectPanel() {
       {/* 缺陷卡（五态流转按钮按状态机启停） */}
       <div className="dsg-card">
         <div className="gen-head"><strong>缺陷</strong><span className="dsg-prefix">{s.defects.length} 项 · 重开是事件不是状态</span></div>
-        {s.defects.length === 0 && <p className="dsg-prefix qa-empty">暂无缺陷</p>}
+        {s.defects.length === 0 && <p className="dsg-prefix qa-empty">本批暂无登记缺陷。尚未执行不等于没有缺陷。</p>}
         {s.defects.map((d) => (
           <div key={d.defectId} className="qa-defect">
             <div className="qa-case-head">
@@ -78,18 +86,15 @@ export function DefectPanel() {
                 <button className="act" onClick={() => setFixed({ defectId: d.defectId, fp: '', note: '' })}>标记待回归（开发侧）</button>
               )}
               {d.status === 'pending_regression' && !d.regression && (
-                <button className="act" onClick={() => setLink({ defectId: d.defectId, batchId: '', runId: '', caseId: '' })}>关联回归证据</button>
+                <button className="act" onClick={() => setLink({ defectId: d.defectId, batchId: '', runId: '', caseId: '' })}>关联本批回归证据</button>
               )}
               {d.status === 'pending_regression' && d.regression && (
-                <button className="act"
-                  onClick={() =>
-                    window.confirm(`测试侧人工确认关闭 ${d.defectId}？\n（服务端复核回归证据指纹，不一致拒绝；AI 不可代关闭）`) &&
-                    s.act(() => tstApi.closeDefect(pid, d.defectId), '缺陷已关闭')}>
-                  人工确认关闭
+                <button className="act" onClick={() => setCloseTarget(d.defectId)}>
+                  确认关闭缺陷
                 </button>
               )}
               {['pending_regression', 'closed'].includes(d.status) && (
-                <button onClick={() => setReopen({ defectId: d.defectId, reason: '' })}>重开（回归失败）</button>
+                <button onClick={() => setReopen({ defectId: d.defectId, reason: '' })}>重新打开</button>
               )}
             </div>
           </div>
@@ -163,6 +168,15 @@ export function DefectPanel() {
           </div>
         )}
       </div>
+      {closeTarget && (
+        <ConfirmModal
+          title={`确认关闭缺陷 ${closeTarget}`}
+          confirmLabel="确认关闭缺陷"
+          body={'测试侧人工确认关闭；服务端复核回归证据指纹，不一致拒绝；AI 不可代关闭。'}
+          onClose={() => setCloseTarget(null)}
+          onConfirm={() => s.act(() => tstApi.closeDefect(pid, closeTarget), '缺陷已关闭')}
+        />
+      )}
     </div>
   );
 }

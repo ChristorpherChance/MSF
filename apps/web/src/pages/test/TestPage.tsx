@@ -82,14 +82,14 @@ export function TestPage() {
         <span className="dsg-prefix">{s.loading ? '刷新中…' : ''}</span>
       </div>
 
-      {/* 批次条 .qa-batchbar：当前批次下拉 + 环境 + 接收新交接 */}
+      {/* 批次条 .qa-batchbar：当前批次下拉（TB-xxx · buildId）+ 环境 + 接收新交接 */}
       <div className="qa-batchbar">
         <label>当前批次</label>
         <select value={s.selBatchId ?? ''} onChange={(e) => void s.selectBatch(e.target.value || null)}>
-          {s.batches.length === 0 && <option value="">（无批次）</option>}
+          {s.batches.length === 0 && <option value="">尚未接收</option>}
           {s.batches.map((b) => (
             <option key={b.batchId} value={b.batchId}>
-              {b.batchId} · {STATUS_NAME[b.status] ?? b.status}{b.current ? '（最新）' : ''}
+              {b.batchId} · {b.buildId ?? '—'}{b.current ? '（最新）' : ''}
             </option>
           ))}
         </select>
@@ -98,7 +98,13 @@ export function TestPage() {
             {STATUS_NAME[s.batchDetail.status] ?? s.batchDetail.status}
           </span>
         )}
+        <span className="dsg-prefix">
+          {env ? `环境 ${env.os ?? '—'} / ${env.browser ?? '—'}` : '等待开发人工确认转测试'}
+        </span>
         {s.batchDetail?.blockedReason && <span className="dev-bad">阻断：{s.batchDetail.blockedReason}</span>}
+        {s.pendingHandoffs.length > 0 && (
+          <button className="act" onClick={() => void s.setSubTab('plan')}>接收新交接</button>
+        )}
         <span className="dsg-prefix">历史批次只读；新构建=新批次</span>
       </div>
 

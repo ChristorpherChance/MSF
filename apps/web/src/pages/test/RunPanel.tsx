@@ -1,10 +1,11 @@
 import { useRef, useState } from 'react';
 import { ApiError } from '../../api';
 import { tstApi } from './api';
+import { NeedBatch } from './NeedBatch';
 import { useTstStore } from './store';
 
 const RESULT_NAME: Record<string, string> = {
-  pass: '通过', fail: '失败', blocked: '受阻', 'not-run': '未执行', 'not-applicable': '不适用',
+  pass: '通过', fail: '失败', blocked: '阻塞', 'not-run': '未执行', 'not-applicable': '不适用',
 };
 
 /** 证据附件条目（tst.evidence.attach 登记的 evidence_ids 元素） */
@@ -28,7 +29,7 @@ export function RunPanel() {
   const pid = s.projectId!;
   const [manual, setManual] = useState<{ caseId: string; status: string; evidence: string } | null>(null);
   const det = s.batchDetail;
-  if (!det) return <p className="dsg-prefix qa-empty">请先接收批次</p>;
+  if (!det) return <NeedBatch />;
 
   const canExecute = det.status === 'approved' || det.status === 'executing';
   const approvedPlan = det.plans.find((p) => p.state === 'approved');
@@ -106,7 +107,7 @@ export function RunPanel() {
               <select value={manual.status} onChange={(e) => setManual({ ...manual, status: e.target.value })}>
                 <option value="pass">通过</option>
                 <option value="fail">失败</option>
-                <option value="blocked">受阻</option>
+                <option value="blocked">阻塞</option>
                 <option value="not-applicable">不适用</option>
               </select>
             </div>

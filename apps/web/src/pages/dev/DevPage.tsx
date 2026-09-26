@@ -6,7 +6,7 @@ import { QualityPanel } from './QualityPanel';
 import { RepoPanel } from './RepoPanel';
 import { StdPanel } from './StdPanel';
 import { devApi } from './api';
-import { attentionModel, useDevStore, type DevTopTab } from './store';
+import { attentionModel, RUN_STATUS_LABEL, useDevStore, type DevTopTab } from './store';
 import '../req/req.css';
 import '../design/design.css';
 import { GateBanner } from '../../ui/GateBanner';
@@ -16,7 +16,8 @@ import './dev.css';
 const TABS: Array<{ key: DevTopTab; name: string; testid: string }> = [
   { key: 'plan', name: '任务与计划', testid: 'dev-plan' },
   { key: 'execute', name: '开发执行', testid: 'dev-execute' },
-  { key: 'quality', name: '质量验收', testid: 'dev-quality' },
+  // 原型 viewDev 最终覆盖口径：顶页签为「开发自测」（LLD-6 §3.5 旧文本「质量验收」已被覆盖，差异已登记）
+  { key: 'quality', name: '开发自测', testid: 'dev-quality' },
   { key: 'change', name: '变更管理', testid: 'dev-change' },
 ];
 
@@ -72,7 +73,7 @@ export function DevPage() {
         <StatusChips items={flashItems} />
         <span className="dsg-prefix">
           任务 {s.tasks.length} · 完成 {s.tasks.filter((t) => t.col === 'done').length}
-          {s.autopilot?.run ? ` · ${s.autopilot.run.runId} ${s.autopilot.run.status}` : ''}
+          {s.autopilot?.run ? ` · ${s.autopilot.run.runId} ${RUN_STATUS_LABEL[s.autopilot.run.status] ?? s.autopilot.run.status}` : ''}
           {s.loading ? ' · 刷新中…' : ''}
         </span>
       </div>
@@ -155,14 +156,14 @@ function DevSide() {
       { key: 'std', name: '📏 编码规范', count: '' },
     ];
   } else if (s.topTab === 'quality') {
-    title = '质量工作区';
+    title = '开发自测';
     selected = s.qualityPage;
     rows = [
-      { key: 'targets', name: '🎯 质量目标', count: '' },
+      { key: 'targets', name: '📌 自测结论', count: '' },
       { key: 'unit', name: '🧪 单元测试', count: '' },
       { key: 'pr', name: '🔀 PR 评审', count: '' },
       { key: 'build', name: '🚦 集成与构建', count: '' },
-      { key: 'selftest', name: '📦 自测与交接', count: '' },
+      { key: 'selftest', name: '📋 项目自测报告', count: '' },
     ];
   } else {
     title = '变更工作区';
@@ -201,7 +202,9 @@ function DevSide() {
       </div>
       <div className="left-foot">
         单一任务池：前端 / 后端 / 公共 / 联调共享规格、依赖、质量与版本。<br />
-        {latest ? `当前计划 ${latest.revision} · ${{ submitted: '待批准', approved: '已批准', invalidated: '已失效' }[latest.state]}` : '尚无计划修订'}
+        {latest
+          ? `当前计划修订 ${latest.revision} · ${{ submitted: '待批准', approved: '已批准', invalidated: '已失效' }[latest.state]}${latest.state === 'invalidated' ? ' · 需重提交' : ''}`
+          : '尚无计划修订'}
       </div>
     </div>
   );

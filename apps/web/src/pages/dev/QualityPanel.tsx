@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { ConfirmModal } from '../../ui/ConfirmModal';
 import { devApi, type ReportDetail } from './api';
 import { KIND_CLASS, KIND_LABEL, useDevStore } from './store';
 
@@ -220,6 +221,7 @@ function SelftestPage() {
   const [detail, setDetail] = useState<ReportDetail | null>(null);
   const [cmp, setCmp] = useState<{ pageId: string; viewport: string; proto: string; build: string; distinct: boolean; protoFp: string; buildFp: string } | null>(null);
   const [retestReason, setRetestReason] = useState('');
+  const [transferOpen, setTransferOpen] = useState(false);
   const latest = s.reports[0] ?? null;
   const gate = s.selftestGate;
   const failed = latest?.status === 'fail';
@@ -412,13 +414,20 @@ function SelftestPage() {
         <button
           className="act primary"
           disabled={!s.transferGate?.ok || !latest || latest.status !== 'pass'}
-          onClick={() =>
-            window.confirm(`确认交接 ${latest!.code} 至测试验收？\n报告指纹：sha256:${latest!.report_fingerprint}\n（批次候选：构建+基线+报告三指纹；AI 不可代确认）`) &&
-            s.act(() => devApi.transfer(pid, latest!.id, `sha256:${latest!.report_fingerprint}`), '已交接（回执幂等）')}
+          onClick={() => setTransferOpen(true)}
         >
           确认转测试
         </button>
       </div>
+      {transferOpen && latest && (
+        <ConfirmModal
+          title={`确认交接 ${latest.code} 至测试验收`}
+          confirmLabel="确认转测试"
+          body={`报告指纹：sha256:${latest.report_fingerprint}\n批次候选：构建+基线+报告三指纹；AI 不可代确认。`}
+          onClose={() => setTransferOpen(false)}
+          onConfirm={() => s.act(() => devApi.transfer(pid, latest.id, `sha256:${latest.report_fingerprint}`), '已交接（回执幂等）')}
+        />
+      )}
     </div>
   );
 }

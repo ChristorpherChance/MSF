@@ -171,11 +171,12 @@ export class TstBatchesService {
   /** A07-2 批次列表（current=最新接收） */
   async list(projectId: string) {
     const r = await query(
-      `SELECT code, status, environment, environment_fingerprint, received_by, received_at, blocked_reason, previous_status
+      `SELECT code, status, environment, environment_fingerprint, received_by, received_at, blocked_reason, previous_status,
+              build_snapshot->>'build_id' AS build_id
        FROM tst_batches WHERE project_id=$1 ORDER BY received_at DESC`, [projectId]);
     return {
       items: r.rows.map((b: Record<string, unknown>, i: number) => ({
-        batchId: b.code, status: b.status, current: i === 0,
+        batchId: b.code, status: b.status, current: i === 0, buildId: b.build_id ?? null,
         environment: b.environment, environmentFingerprint: `sha256:${String(b.environment_fingerprint)}`,
         receivedBy: b.received_by, receivedAt: b.received_at,
         blockedReason: b.blocked_reason ?? null, previousStatus: b.previous_status ?? null,

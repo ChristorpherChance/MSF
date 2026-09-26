@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { ConfirmModal } from '../../ui/ConfirmModal';
+import { Modal } from '../../ui/Modal';
 import { devApi } from './api';
 import { useDevStore } from './store';
 
@@ -10,12 +12,15 @@ export function ChangePanel() {
   return <ImpactsPage />;
 }
 
-/** V11 影响处置（原型 devImpactHtml：逐事件卡片 + 处置按钮 + CI 回传设置） */
+/** V11 影响处置（原型 devImpactHtml/devSetImpact：逐事件卡片 + 处置 modal（理由必填）+ CI 回传设置） */
 function ImpactsPage() {
   const s = useDevStore();
   const pid = s.projectId!;
-  const [note, setNote] = useState('');
+  const [impactModal, setImpactModal] = useState<{ code: string; act: 'rework' | 'accept' } | null>(null);
+  const [reason, setReason] = useState('');
+  const [confirmAll, setConfirmAll] = useState(false);
   const [secret, setSecret] = useState('');
+  const [secretConfirm, setSecretConfirm] = useState(false);
   const pending = s.impacts.filter((i) => i.status === 'pending-assessment');
 
   return (
@@ -30,13 +35,20 @@ function ImpactsPage() {
           if (!r.impacts.length) useDevStore.setState({ notice: '未发现受影响任务' });
         })}>观察输入变化</button>
         {pending.length > 0 && (
-          <button className="act"
-            onClick={() => window.confirm(`对全部 ${pending.length} 张未决影响单执行「基线重确认（accept）」？`) &&
-              s.act(() => devApi.confirmBaseline(pid, '基线人工重确认'), '基线已重确认')}>
+          <button className="act" onClick={() => setConfirmAll(true)}>
             基线重确认（全部 accept）
           </button>
         )}
       </div>
+      {confirmAll && (
+        <ConfirmModal
+          title="基线重确认"
+          body={`对全部 ${pending.length} 张未决影响单执行「基线重确认（accept）」？`}
+          confirmLabel="全部 accept"
+          onClose={() => setConfirmAll(false)}
+          onConfirm={() => s.act(() => devApi.confirmBaseline(pid, '基线人工重确认'), '基线已重确认')}
+        />
+      )}
 
       {s.impacts.length === 0 && (
         <div className="dsg-card dsg-prefix" style={{ textAlign: 'center', padding: 24 }}>
@@ -58,20 +70,55 @@ function ImpactsPage() {
           </div>
           {im.status === 'pending-assessment' && (
             <div className="gen-ops" style={{ marginTop: 8 }}>
-              <input placeholder="处置说明（可选）" value={note} onChange={(e) => setNote(e.target.value)} style={{ flex: 1 }} />
-              <button className="act primary"
-                onClick={() => window.confirm(`${im.code} 返工：受影响任务修订+1 并回排队、计划失效，确认？`) &&
-                  s.act(() => devApi.applyImpact(pid, [im.code], 'rework', note || undefined), `${im.code} 已返工`)}>
+              <button className="act primary" onClick={() => { setReason(''); setImpactModal({ code: im.code, act: 'rework' }); }}>
                 需返工
               </button>
-              <button className="act"
-                onClick={() => s.act(() => devApi.applyImpact(pid, [im.code], 'accept', note || undefined), `${im.code} 已接受`)}>
+              <button className="act" onClick={() => { setReason(''); setImpactModal({ code: im.code, act: 'accept' }); }}>
                 不受影响
               </button>
             </div>
           )}
         </div>
       ))}
+
+      {/* 处置 modal（原型 devSetImpact 口径：理由必填，空理由不提交） */}
+      {impactModal && (
+        <Modal
+          title={`${impactModal.code} · ${impactModal.act === 'rework' ? '要求返工' : '判断不受影响'}`}
+          onClose={() => setImpactModal(null)}
+          footer={
+            <>
+              <button className="sm" onClick={() => setImpactModal(null)}>取消</button>
+              <button
+                className="sm primary"
+                disabled={!reason.trim()}
+                title={reason.trim() ? '' : '处置理由不能为空'}
+                onClick={() => {
+                  const { code, act } = impactModal;
+                  setImpactModal(null);
+                  void s.act(
+                    () => devApi.applyImpact(pid, [code], act, reason.trim()),
+                    act === 'rework' ? `${code} 已返工` : `${code} 已接受`,
+                  );
+                }}
+              >
+                记录处置
+              </button>
+            </>
+          }
+        >
+          {impactModal.act === 'rework' && (
+            <p className="pop-tip">返工：受影响任务修订 +1 并回排队、已批准计划失效。</p>
+          )}
+          <textarea
+            rows={3}
+            style={{ width: '100%' }}
+            placeholder="必填：判断依据或返工范围"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+          />
+        </Modal>
+      )}
 
       {/* CI webhook 设置（A06-22 只写不读） */}
       <div className="dsg-card">
@@ -88,13 +135,20 @@ function ImpactsPage() {
             type="password" placeholder="新密钥（≥32 字符，含字母与数字）"
             value={secret} onChange={(e) => setSecret(e.target.value)}
           />
-          <button className="act" disabled={secret.length < 32}
-            onClick={() => window.confirm('登记/轮换密钥？旧密钥立即失效。') &&
-              s.act(async () => { await devApi.setSecret(pid, secret); setSecret(''); }, '密钥已登记')}>
+          <button className="act" disabled={secret.length < 32} onClick={() => setSecretConfirm(true)}>
             {s.ciSecret?.enabled ? '轮换密钥' : '登记密钥'}
           </button>
         </div>
       </div>
+      {secretConfirm && (
+        <ConfirmModal
+          title={s.ciSecret?.enabled ? '轮换密钥' : '登记密钥'}
+          body="登记/轮换密钥？旧密钥立即失效。"
+          confirmLabel="确认登记"
+          onClose={() => setSecretConfirm(false)}
+          onConfirm={() => s.act(async () => { await devApi.setSecret(pid, secret); setSecret(''); }, '密钥已登记')}
+        />
+      )}
     </div>
   );
 }
@@ -104,6 +158,7 @@ function BaselinePage() {
   const s = useDevStore();
   const pid = s.projectId!;
   const bl = s.baseline;
+  const [confirmOpen, setConfirmOpen] = useState(false);
   return (
     <div>
       <div className="doc-toolbar">
@@ -115,12 +170,20 @@ function BaselinePage() {
           className="act primary"
           disabled={!bl || bl.valid}
           title={bl?.valid ? '基线有效，无需重确认' : ''}
-          onClick={() => window.confirm('核对差异并确认新基线？') &&
-            s.act(() => devApi.confirmBaseline(pid, '基线人工重确认'), '基线已重确认')}
+          onClick={() => setConfirmOpen(true)}
         >
           核对差异并确认新基线
         </button>
       </div>
+      {confirmOpen && (
+        <ConfirmModal
+          title="确认新基线"
+          body="核对差异并确认新基线？"
+          confirmLabel="确认新基线"
+          onClose={() => setConfirmOpen(false)}
+          onConfirm={() => s.act(() => devApi.confirmBaseline(pid, '基线人工重确认'), '基线已重确认')}
+        />
+      )}
       <div className="dsg-card">
         {bl ? (
           <>

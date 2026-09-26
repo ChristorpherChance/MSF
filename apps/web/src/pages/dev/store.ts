@@ -204,6 +204,12 @@ export const KIND_CLASS: Record<string, string> = { frontend: 'blue', backend: '
 /** 承接图标（原型 asgIcon：agent→🤖 human→👤） */
 export const asgIcon = (ownerType: string) => (ownerType === 'human' ? '👤' : '🤖');
 
+/** autopilot 运行状态文案（原型 v18AutoStatusHtml 口径） */
+export const RUN_STATUS_LABEL: Record<string, string> = {
+  running: '自动执行中', paused: '已暂停', blocked: '需要处理', stopped: '已停止',
+  'taken-over': '人工接管', 'awaiting-transfer': '等待确认转测试', transferred: '已转测试',
+};
+
 /** V4 注意项模型（原型 devAttentionModel 同口径，全部由真实数据派生） */
 export interface AttentionRow {
   key: string; kind: 'task' | 'gap'; taskId: string; sourceId: string; title: string;
