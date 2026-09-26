@@ -135,6 +135,43 @@ describe('FilesService（集成，需 DB+MinIO）', async () => {
     expect(names(parsedTree)).toEqual(['pack', 'root.md']);
   });
 
+  it('A03-5 解析稿树条目名=Markdown 产物名（原型 output() 口径：去扩展名+.md，撞名顺延）', async () => {
+    // 直接登记三个原件 + 解析稿：同名异扩展撞名 + 无扩展名
+    const mk = async (name: string, code: string) => {
+      const fid = randomUUID();
+      await query(
+        `INSERT INTO mat_files (id, project_id, code, name, ext, size_bytes, object_key, content_fingerprint, source, created_by)
+         VALUES ($1,$2,$3,$4,'bin',1,$5,$6,'upload','local')`,
+        [fid, PID, code, name, `test://${code}`, sha256(Buffer.from(code))],
+      );
+      await query(
+        `INSERT INTO mat_parsed (id, project_id, file_id, kind, body_md, content_fingerprint, status, created_by)
+         VALUES ($1,$2,$3,'file_parse','# x',$4,'draft','local')`,
+        [randomUUID(), PID, fid, sha256(Buffer.from(code))],
+      );
+      return fid;
+    };
+    const ids = [
+      await mk('设计说明书.pdf', 't_pdf'),
+      await mk('设计说明书.docx', 't_docx'),
+      await mk('readme', 't_noext'),
+    ];
+    try {
+      const { parsedTree } = await svc.tree(PID);
+      const all = (ns: TreeNode[]): string[] =>
+        ns.flatMap((n) => [n.name, ...(n.children ? all(n.children) : [])]);
+      const got = all(parsedTree);
+      // 先到先得：pdf → 设计说明书.md；docx 撞名退 设计说明书.docx.md；无扩展名 → readme.md
+      expect(got).toContain('设计说明书.md');
+      expect(got).toContain('设计说明书.docx.md');
+      expect(got).toContain('readme.md');
+      expect(got).not.toContain('设计说明书.pdf');
+    } finally {
+      await query('DELETE FROM mat_parsed WHERE file_id = ANY($1)', [ids]);
+      await query('DELETE FROM mat_files WHERE id = ANY($1)', [ids]);
+    }
+  });
+
   it('A03-6 列表：状态过滤 + 分页默认 20', async () => {
     const all = await svc.list(PID, {});
     expect(all.total).toBe(3); // root.md / pack.zip / inner.md

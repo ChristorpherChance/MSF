@@ -93,7 +93,8 @@ export class FilesService {
     const parsed = await query<MatParsed & { file_name: string; parse_status: MatParseStatus }>(
       `SELECT p.*, f.name AS file_name, f.parse_status FROM mat_parsed p
        JOIN mat_files f ON f.id = p.file_id
-       WHERE p.project_id=$1 AND p.kind='file_parse' AND p.status != 'discarded'`,
+       WHERE p.project_id=$1 AND p.kind='file_parse' AND p.status != 'discarded'
+       ORDER BY p.created_at`,
       [projectId],
     );
     // 内容稿（加工结果 ↳ 缩进行 + 内容稿状态）：每文件取最新一条内容稿
@@ -118,9 +119,10 @@ export class FilesService {
       originalTree: buildTree(folders.rows.filter((f) => f.tree === 'original'), files.rows),
       parsedTree: buildTree(
         folders.rows.filter((f) => f.tree === 'parsed'),
-        parsed.rows.map((p) => ({
+        // 解析稿条目名=Markdown 产物名（原型 output() 口径：去原扩展名加 .md，撞名顺延）
+        parsed.rows.map((p, i) => ({
           id: p.file_id,
-          name: p.file_name,
+          name: parsedMdNames(parsed.rows)[i]!,
           folder_id: p.folder_id,
           parse_status: p.parse_status,
           results: contentByFile.get(p.file_id)?.results ?? [],
@@ -311,4 +313,22 @@ function buildTree(
     return nodes;
   };
   return assemble(null);
+}
+
+/**
+ * 解析稿 Markdown 产物名（原型 output() 口径）：
+ * 原文件名去扩展名 + .md；撞名（大小写不敏感）先退「原全名.md」，再 -2/-3 顺延。
+ * 输入须按 created_at 排序，保证同一批文件命名稳定。
+ */
+function parsedMdNames(rows: Array<{ file_name: string }>): string[] {
+  const used = new Set<string>();
+  return rows.map(({ file_name }) => {
+    let p = file_name.replace(/\.[^/.]+$/, '') + '.md';
+    if (used.has(p.toLowerCase())) p = file_name + '.md';
+    const base = p;
+    let n = 2;
+    while (used.has(p.toLowerCase())) p = base.replace(/\.md$/, `-${n++}.md`);
+    used.add(p.toLowerCase());
+    return p;
+  });
 }
