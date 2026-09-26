@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import { DesignDocPanel } from './DesignDocPanel';
 import { PrototypePanel } from './PrototypePanel';
 import { ReviewPanel } from './ReviewPanel';
@@ -15,11 +15,12 @@ export function DesignPage() {
   useEffect(() => {
     void init();
   }, [init]);
-  const tabs: Array<{ key: DesignSubTab; label: string }> = [
-    { key: 'hld', label: '📐 概要' },
-    { key: 'detail', label: '📋 详细' },
+  const tabs: Array<{ key: DesignSubTab; label: ReactNode }> = [
+    { key: 'hld', label: '📐 概要设计' },
+    { key: 'detail', label: '📋 详细设计' },
     { key: 'prototype', label: '🖼️ 原型 UI' },
-    { key: 'review', label: `🧪 自检评审${openReviews > 0 ? `（${openReviews}）` : ''}` },
+    // 原型口径：未决计数为橙色 tag 而非括号文本
+    { key: 'review', label: <>🧪 自检评审{openReviews > 0 && <> <span className="tag tag-warn">{openReviews}</span></>}</> },
   ];
   return (
     <main>

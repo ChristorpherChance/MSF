@@ -10,10 +10,16 @@ import { useDesignView } from './store';
  */
 
 const GROUPS: Array<{ key: string; label: string; desc: string }> = [
-  { key: '概要', label: '📐 概要规则', desc: '架构完整性 / 容量估算 / 部署拓扑 / 关键时序类' },
-  { key: '详细', label: '📋 详细规则', desc: '接口一致性 / 错误语义 / 表结构 / REQ 覆盖类' },
-  { key: '原型', label: '🖼️ 原型规则', desc: '《原型 UI 设计规范》checklist · 机器自动扫描' },
+  { key: '概要', label: '📐 概要规则', desc: '架构完整性 / 容量估算 / 部署拓扑 / 关键时序类（7 条 checklist）' },
+  { key: '详细', label: '📋 详细规则', desc: '接口一致性 / 错误语义 / 表结构 / REQ 覆盖类（11 条 checklist）' },
+  { key: '原型', label: '🖼️ 原型规则', desc: '《原型 UI 设计规范》20 条 checklist · proto-lint 机器自动扫描' },
 ];
+
+/** 工件列中文名（原型口径：显示册名而非 docKind 代码） */
+const KIND_NAME: Record<string, string> = {
+  hld: '概要', mod: '模块设计', alg: '算法设计', cls: '类设计', db: '数据库',
+  api: '接口', ui: '界面', nfr: '非功能', proto: '原型 UI',
+};
 
 /** 分组口径：hld 册归概要规则；ui 册归原型规则；其余归详细规则 */
 function groupOf(docKind: string): string {
@@ -47,7 +53,7 @@ export function ReviewPanel() {
       <div className="doc-toolbar">
         <span className={`tag ${open.length > 0 ? 'tag-warn' : 'tag-ok'}`}>未决 {open.length}</span>
         <span className="tag">已解决 {done.length}</span>
-        <span className="pop-tip">概要规则 + 详细规则 + 原型规则 checklist（机器扫描）+ REQ 覆盖比对</span>
+        <span className="pop-tip">概要规则 7 条 + 详细规则 11 条 + 原型规则 20 条 checklist（机器扫描）+ REQ 覆盖比对</span>
         <span className="sep" />
         <button className="act primary" disabled={busy} onClick={reseed}>🔁 重新自检评审</button>
         {msg && <span className="rsn">{msg}</span>}
@@ -82,7 +88,7 @@ function GroupBlock({ g, list }: { g: { key: string; label: string; desc: string
       </tr>
       {list.length === 0 && (
         <tr><td colSpan={6} className="pop-tip" style={{ padding: '6px 10px 12px' }}>
-          — 暂无发现{g.key === '原型' ? '（原型 UI 生成 / 初稿入库后由机器扫描登记）' : ''}
+          — 暂无发现{g.key === '原型' ? '（原型 UI 生成 / 初稿入库后由 proto-lint 自动登记）' : ''}
         </td></tr>
       )}
       {list.map((r) => <ReviewRow key={r.id} r={r} />)}
@@ -128,7 +134,7 @@ function ReviewRow({ r }: { r: ReviewItem }) {
     <tr>
       <td><code>{r.id}</code></td>
       <td><SevDot sev={r.severity} /></td>
-      <td>{r.docKind}</td>
+      <td>{KIND_NAME[r.docKind] ?? r.docKind}</td>
       <td>
         {r.item}
         {r.status === 'done' && r.conclusion && (

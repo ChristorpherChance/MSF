@@ -93,3 +93,9 @@
 
 /* S9 再定稿影响提示 */
 .impact-banner { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+
+/* 原型口径对齐：分册栏头/副注/底部消费链 */
+.book-col-head { font-size: 12px; font-weight: 600; color: var(--ink2); padding: 0 6px 4px; }
+.book-col-sub { font-size: 11px; color: var(--ink2); padding: 0 6px 6px; }
+.book-col-foot { margin-top: auto; font-size: 11px; color: var(--ink2); padding: 8px 6px 2px; border-top: 1px dashed var(--line); line-height: 1.6; }
+.book-note { display: block; font-size: 11px; font-weight: 400; color: var(--ink2); }

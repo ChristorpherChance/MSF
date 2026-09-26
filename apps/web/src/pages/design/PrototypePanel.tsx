@@ -11,14 +11,16 @@ import { useDesignView } from './store';
 export function PrototypePanel() {
   const { projectId, proto, catalog, loading, error, refreshProto } = useDesignView();
   const [msg, setMsg] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [busyLabel, setBusyLabel] = useState<string | null>(null);
   const [pages_, setSel] = useState<{ pageId: string; stateId: string | null } | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewVer, setPreviewVer] = useState<string | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [verOpen, setVerOpen] = useState(false);
+  const [finOpen, setFinOpen] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const baselines = useBaselines(projectId, proto?.status ?? null);
+  const protoVers = useProtoVersions(projectId, proto?.prototype?.currentVersionId ?? null);
 
   const pages = (catalog?.groups.page ?? []) as Array<{ code: string; payload: Record<string, unknown> }>;
   const states = (catalog?.groups.state ?? []) as Array<{ code: string; payload: Record<string, unknown> }>;
@@ -49,8 +51,8 @@ export function PrototypePanel() {
   if (error) return <div className="req-banner err">{error}</div>;
   if (!proto) return <div className="doc-empty">{loading ? '加载中…' : '原型工作台初始化中…'}</div>;
 
-  const run = async (fn: () => Promise<unknown>) => {
-    setBusy(true);
+  const run = async (label: string, fn: () => Promise<unknown>) => {
+    setBusyLabel(label);
     setMsg(null);
     try {
       await fn();
@@ -58,27 +60,40 @@ export function PrototypePanel() {
       const issues = (e as ApiError & { issues?: unknown[] }).issues;
       setMsg(e instanceof ApiError ? `${e.code}: ${e.message}${issues ? `（${JSON.stringify(issues)}）` : ''}` : '操作失败');
     } finally {
-      setBusy(false);
+      setBusyLabel(null);
       void refreshProto();
     }
   };
   const currentBaseline = baselines.items?.find((b) => b.current) ?? null;
+  const curVerNo = protoVers?.find((v) => v.versionId === verId)?.v ?? null;
 
   return (
     <div className="proto-wrap">
       <CommandBar
-        proto={proto} busy={busy} run={run}
+        proto={proto} busy={busyLabel !== null} run={run}
         currentBaseline={currentBaseline}
         onOpenVersions={() => setVerOpen(true)}
+        onFinalize={() => setFinOpen(true)}
       />
+      {/* D15（原型口径）：四步操作进行中横幅（role=status，持续可见） */}
+      {busyLabel && (
+        <div className="req-banner warn" role="status" style={{ margin: '8px 0 0' }}>{busyLabel}</div>
+      )}
       {msg && <div className="req-banner err" style={{ margin: '8px 0 0' }}>{msg}</div>}
       {proto.plan?.stale && (
         <div className="req-banner warn" style={{ margin: '8px 0 0' }}>
-          ⚠ 规划依据（上游定稿）已变化——PLAN_STALE，请重新规划。
+          ⚠ PLAN_STALE · 规划依据（上游定稿）已变化，须重新规划。
+        </div>
+      )}
+      {/* D14（原型口径）：基线定稿后引导进入开发 */}
+      {proto.status === 'finalized' && currentBaseline?.valid && (
+        <div className="req-banner ok" style={{ margin: '8px 0 0' }}>
+          <b>设计基线已定稿，下一步进入开发核对输入并准备计划。</b>
+          {' '}<a className="act" href="/dev">进入开发准备计划</a>
         </div>
       )}
       {/* S4 KPI 三格：当前结论 / 需关注 / 下一步 */}
-      <KpiRow proto={proto} pageCount={pages.length} />
+      <KpiRow proto={proto} pageCount={pages.length} flowCount={(catalog?.groups.flow ?? []).length} />
 
       <div className="proto-main">
         <aside className="proto-pages" data-testid="prototype-page-list">
@@ -94,6 +109,9 @@ export function PrototypePanel() {
             </button>
           ))}
           {pages.length === 0 && <p className="pop-tip">规划后生成页面清单。</p>}
+          <div className="book-col-foot">
+            期望目录与实际 HTML 独立检查 · {(catalog?.groups.flow ?? []).length} 流程 · {(catalog?.groups.viewport ?? []).length} 视口
+          </div>
         </aside>
         <div className="proto-preview">
           {verId ? (
@@ -128,29 +146,13 @@ export function PrototypePanel() {
               )}
             </>
           ) : (
-            /* S6 空态：尚未生成客户原型 + 生成/上传双入口（V1.3 上传通道） */
+            /* S6 空态：尚未生成客户原型（生成走命令条 ①②；上传=人工初稿入同一套检查） */
             <div className="v19-empty">
               <div>🖼️</div>
               <b>尚未生成客户原型</b>
-              <p>先让 AI 识别完整页面、流程、状态与来源，再生成可操作内容；也可上传 HTML 初稿接受同一套对应性检查。</p>
+              <p>先让 AI 识别完整页面、流程、状态与来源（命令条 ① 识别规划 → ② 生成完整原型）；也可上传 HTML 初稿接受同一套对应性检查。</p>
               <div className="gen-ops" style={{ justifyContent: 'center' }}>
-                <button
-                  className="act primary"
-                  disabled={busy || proto.plan?.stale}
-                  title={proto.plan?.stale ? '规划已失效，请先在命令条重新规划' : ''}
-                  onClick={() => void run(async () => {
-                    let plan = proto.plan;
-                    if (!plan || plan.stale) {
-                      const p = (await designApi.plan(projectId!)) as { planId: string; fingerprint: string };
-                      plan = { ...plan, planId: p.planId, fingerprint: p.fingerprint } as typeof plan;
-                    }
-                    const r = await designApi.protoGenerate(projectId!, plan!.planId, plan!.fingerprint);
-                    setMsg(`已生成原型版本 v${r.v}`);
-                  })}
-                >
-                  ⚡ 生成客户原型
-                </button>
-                <button className="act" disabled={busy} onClick={() => setUploadOpen(true)}>⬆ 上传 HTML 初稿</button>
+                <button className="act" disabled={busyLabel !== null} onClick={() => setUploadOpen(true)}>⬆ 上传 HTML 初稿</button>
               </div>
             </div>
           )}
@@ -172,10 +174,10 @@ export function PrototypePanel() {
             ))}
           </div>
         )}
-        {/* S5 共同基线横幅 */}
+        {/* S5 共同基线横幅（呈现层不暴露技术 ID：显示版本号而非 uuid） */}
         {currentBaseline && (
           <div className="req-banner ok" data-testid="prototype-baseline-current">
-            共同基线 {currentBaseline.code} · 当前原型 {proto.prototype?.currentVersionId?.slice(0, 8) ?? '—'}
+            共同基线 {currentBaseline.code} · 当前原型 {curVerNo !== null ? `v${curVerNo}` : '—'}
             {!currentBaseline.valid && <span className="dev-bad">（已失效：{currentBaseline.staleReason ?? '上游变化'}）</span>}
           </div>
         )}
@@ -193,6 +195,9 @@ export function PrototypePanel() {
       <SourceAuditCard />
       {uploadOpen && <UploadModal onClose={() => setUploadOpen(false)} />}
       {verOpen && <ProtoModal firstPage={pages[0]?.code ?? 'index'} onClose={() => setVerOpen(false)} />}
+      {finOpen && verId && (
+        <FinalizeProtoModal verId={verId} reFinalize={(baselines.items?.length ?? 0) > 0} onClose={() => setFinOpen(false)} />
+      )}
     </div>
   );
 }
@@ -207,82 +212,92 @@ function useBaselines(projectId: string | null, protoStatus: string | null) {
   return { items, reload };
 }
 
-/** S4 KPI 三格：当前结论 / 需关注 / 下一步（不会由 AI 自动定稿） */
-function KpiRow({ proto, pageCount }: { proto: ProtoStatus; pageCount: number }) {
+/** S4 KPI 三格：当前结论 / 需关注 / 下一步（共同基线只由人工确认） */
+function KpiRow({ proto, pageCount, flowCount }: { proto: ProtoStatus; pageCount: number; flowCount: number }) {
   const issueCount = (proto.latestCheck?.issues.length ?? 0) + (proto.latestCheck?.unverified.length ?? 0);
+  const checked = proto.latestCheck && proto.latestCheck.prototypeVersionId === proto.prototype?.currentVersionId;
   const next = !proto.plan ? '先识别规划'
-    : proto.plan.stale ? '重新规划'
-    : !proto.prototype?.currentVersionId ? '生成原型'
-    : !proto.latestCheck || proto.latestCheck.prototypeVersionId !== proto.prototype.currentVersionId ? '执行检查'
-    : proto.status !== 'finalized' ? '人工定稿'
+    : proto.plan.stale ? '重新识别规划'
+    : !proto.prototype?.currentVersionId ? '生成完整原型'
+    : !checked ? '执行对应性检查'
+    : proto.status !== 'finalized' ? '人工确认定稿'
     : '进入开发';
   return (
     <div className="kpi-row" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
       <div className="kpi-card">
         <div className="kpi-label">当前结论</div>
         <div className="kpi-value" style={{ fontSize: 18 }}>{statusLabel(proto)}</div>
-        <div className="pop-tip">{pageCount} 个页面</div>
+        <div className="pop-tip">{pageCount} 个页面 · {flowCount} 条关键流程</div>
       </div>
       <div className="kpi-card">
         <div className="kpi-label">需关注</div>
-        <div className="kpi-value" style={{ fontSize: 18 }}>{issueCount > 0 ? `${issueCount} 项` : '无阻断'}</div>
-        <div className="pop-tip">{issueCount > 0 ? '查看下方检查问题' : '来源、语义与交互可继续验证'}</div>
+        <div className="kpi-value" style={{ fontSize: 18 }}>{issueCount > 0 ? `${issueCount} 项` : checked ? '无' : '尚未验证'}</div>
+        <div className="pop-tip">{issueCount > 0 ? '检查报告列出需处理项' : checked ? '页面、状态、来源与交互已检查' : '完成对应性检查后给出结论'}</div>
       </div>
       <div className="kpi-card">
         <div className="kpi-label">下一步</div>
         <div className="kpi-value" style={{ fontSize: 18 }}>{next}</div>
-        <div className="pop-tip">不会由 AI 自动定稿</div>
+        <div className="pop-tip">共同基线只由人工确认</div>
       </div>
     </div>
   );
 }
 
 function statusLabel(p: ProtoStatus): string {
+  // 原型口径（L8995 status() 五档 + 进行中三态）
   const map: Record<string, string> = {
-    idle: '尚无规划', 'plan-ready': '规划就绪', generated: '已生成（待检查）',
-    ready: '检查通过（待定稿）', finalized: '已定稿（基线有效）', stale: '已失效（需重新规划）', failed: '失败',
-    planning: '规划中…', generating: '生成中…', checking: '检查中…',
+    idle: '尚未规划', 'plan-ready': '规划完成，等待生成', generated: '原型待检查',
+    ready: '检查通过，等待人工定稿', finalized: '共同基线有效', stale: '已失效（须重新规划）', failed: '失败',
+    planning: '正在识别页面与业务流程…', generating: '正在生成可交互原型…', checking: '正在检查页面、流程与来源对应性…',
   };
   return map[p.status] ?? p.status;
 }
 
+/** 原型版本列表（基线横幅显示「当前原型 vN」用；呈现层不暴露 versionId 哈希） */
+function useProtoVersions(projectId: string | null, currentVersionId: string | null) {
+  const [items, setItems] = useState<Array<{ versionId: string; v: number }> | null>(null);
+  useEffect(() => {
+    if (!projectId || !currentVersionId) return;
+    let dead = false;
+    void designApi.protoVersions(projectId)
+      .then((r) => { if (!dead) setItems(r.items); })
+      .catch(() => { if (!dead) setItems(null); });
+    return () => { dead = true; };
+  }, [projectId, currentVersionId]);
+  return items;
+}
+
 /** 命令条：①规划 → ②生成 → ③检查 → ④人工定稿 + 导出基线 + 版本（S5/S7；逐步门禁实时求值） */
-function CommandBar({ proto, busy, run, currentBaseline, onOpenVersions }: {
+function CommandBar({ proto, busy, run, currentBaseline, onOpenVersions, onFinalize }: {
   proto: ProtoStatus;
   busy: boolean;
-  run: (fn: () => Promise<unknown>) => Promise<void>;
+  run: (label: string, fn: () => Promise<unknown>) => Promise<void>;
   currentBaseline: BaselineItem | null;
   onOpenVersions: () => void;
+  onFinalize: () => void;
 }) {
-  const { projectId, setImpactNotice } = useDesignView();
+  const { projectId } = useDesignView();
   if (!projectId) return null;
   const verId = proto.prototype?.currentVersionId ?? null;
   return (
     <div className="v19-command">
       <span className={`tag ${proto.status === 'finalized' ? 'tag-ok' : 'tag-warn'}`}>{statusLabel(proto)}</span>
-      <button className="act primary" disabled={busy} onClick={() => void run(() => designApi.plan(projectId))}>① AI 识别规划</button>
-      <button className="act" disabled={busy || !proto.plan || proto.plan.stale} onClick={() => void run(async () => {
+      <button className="act primary" disabled={busy} onClick={() => void run('正在识别页面与业务流程…', () => designApi.plan(projectId))}>① AI 识别规划</button>
+      <button className="act" disabled={busy || !proto.plan || proto.plan.stale} onClick={() => void run('正在生成可交互原型…', async () => {
         await designApi.protoGenerate(projectId, proto.plan!.planId, proto.plan!.fingerprint);
       })}>② 生成完整原型</button>
-      <button className="act" disabled={busy || !verId} onClick={() => void run(() => designApi.protoCheck(projectId, verId!))}>③ 对应性检查</button>
+      <button className="act" disabled={busy || !verId} onClick={() => void run('正在检查页面、流程与来源对应性…', () => designApi.protoCheck(projectId, verId!))}>③ 对应性检查</button>
       <button
         className="act primary"
         disabled={busy || !proto.latestCheck?.passed || proto.latestCheck?.prototypeVersionId !== verId}
-        title="人工定稿形成设计基线（策略确认点）"
-        onClick={() => {
-          if (!window.confirm('共同定稿将形成设计基线（append-only，人工确认点）。继续？')) return;
-          void run(async () => {
-            await designApi.protoFinalize(projectId, verId!, proto.latestCheck!.reportId);
-            // S9 impactTrigger：原型基线定稿形成新的开发输入身份
-            setImpactNotice('原型已共同定稿形成设计基线——开发输入以此指纹为准；后续再定稿将触发影响处置。');
-          });
-        }}
+        title="人工定稿形成设计基线（策略确认点，modal 二次确认）"
+        onClick={onFinalize}
       >④ 人工定稿</button>
-      {/* S5 导出基线（当前基线 JSON 本端下载） */}
+      {/* S5 导出基线（当前基线 JSON 本端下载；基线失效不可导出） */}
       <button
         className="act"
-        disabled={!currentBaseline}
-        title={currentBaseline ? '下载当前共同基线（JSON）' : '尚无基线——原型定稿后产生'}
+        disabled={!currentBaseline || !currentBaseline.valid}
+        title={currentBaseline ? (currentBaseline.valid ? '下载当前共同基线（JSON）' : '基线已失效（上游变化），不可导出') : '尚无基线——原型定稿后产生'}
         onClick={() => {
           if (!currentBaseline) return;
           const blob = new Blob([JSON.stringify(currentBaseline, null, 2)], { type: 'application/json' });
@@ -296,6 +311,43 @@ function CommandBar({ proto, busy, run, currentBaseline, onOpenVersions }: {
       >导出基线</button>
       {/* S7 旧版预览入口 */}
       <button className="act" onClick={onOpenVersions}>🕘 版本与旧版预览</button>
+    </div>
+  );
+}
+
+/** 原型人工定稿 modal（DSG-U07-2：共同定稿=形成设计基线，modal 二次确认替代原生 confirm） */
+function FinalizeProtoModal({ verId, reFinalize, onClose }: { verId: string; reFinalize: boolean; onClose: () => void }) {
+  const { projectId, proto, refreshProto, setImpactNotice } = useDesignView();
+  const [msg, setMsg] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  if (!projectId || !proto?.latestCheck) return null;
+  const submit = () => {
+    setBusy(true);
+    setMsg(null);
+    void designApi.protoFinalize(projectId, verId, proto.latestCheck!.reportId)
+      .then(() => {
+        onClose();
+        // S9 impactTrigger：仅再定稿（此前已有有效基线）提示影响处置
+        if (reFinalize) {
+          setImpactNotice('原型已再次共同定稿形成新的设计基线——开发输入以此指纹为准，请在开发页「影响处置」确认承接。');
+        }
+      })
+      .catch((e) => setMsg(e instanceof ApiError ? `${e.code}: ${e.message}` : '定稿失败'))
+      .finally(() => { setBusy(false); void refreshProto(); });
+  };
+  return (
+    <div className="modal-mask" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <h3>④ 人工定稿（共同基线）</h3>
+        <p className="pop-tip">
+          共同定稿将形成设计基线（append-only，人工确认点）：当前原型版本与检查报告指纹冻结，下游开发输入以此为准。定稿只由人工确认，记审计。
+        </p>
+        {msg && <p className="pop-tip err">{msg}</p>}
+        <div className="modal-ops">
+          <button className="act" onClick={onClose}>取消</button>
+          <button className="act primary" disabled={busy} onClick={submit}>确认定稿</button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -439,11 +491,11 @@ function BaselineCard({ items, reload }: { items: BaselineItem[] | null; reload:
 function CatalogCard({ onChanged }: { onChanged: () => void }) {
   const { projectId, catalog } = useDesignView();
   const [addOpen, setAddOpen] = useState(false);
+  const [delTarget, setDelTarget] = useState<{ itemId: string; label: string } | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   if (!projectId || !catalog) return null;
   const groups = Object.entries(catalog.groups);
   const remove = (itemId: string) => {
-    if (!window.confirm('删除该目录条目将产生新目录版本，引用随行迁移。继续？')) return;
     setMsg(null);
     void designApi.removeCatalogItem(projectId, itemId)
       .catch((e) => setMsg(e instanceof ApiError ? `${e.code}: ${e.message}` : '删除失败'))
@@ -463,12 +515,24 @@ function CatalogCard({ onChanged }: { onChanged: () => void }) {
             <div key={it.itemId} className="issue-row">
               <code>{it.code}</code> {(it.payload.title as string) ?? ''}
               <span className="mut">[{it.source === 'manual' ? '人工' : '识别'}{it.required ? '·必需' : ''}]</span>
-              {it.source === 'manual' && <button className="act" onClick={() => remove(it.itemId)}>删除</button>}
+              {it.source === 'manual' && <button className="act" onClick={() => setDelTarget({ itemId: it.itemId, label: `${it.code} ${(it.payload.title as string) ?? ''}` })}>删除</button>}
             </div>
           ))}
         </div>
       ))}
       {addOpen && <AddItemModal onClose={() => setAddOpen(false)} onChanged={onChanged} />}
+      {delTarget && (
+        <div className="modal-mask" onClick={() => setDelTarget(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3>删除目录条目</h3>
+            <p className="pop-tip">删除「{delTarget.label}」将产生新目录版本，引用随行迁移（记审计）。</p>
+            <div className="modal-ops">
+              <button className="act" onClick={() => setDelTarget(null)}>取消</button>
+              <button className="act primary" onClick={() => { const t = delTarget; setDelTarget(null); remove(t.itemId); }}>确认删除</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
