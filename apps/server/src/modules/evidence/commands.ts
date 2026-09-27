@@ -101,6 +101,8 @@ export const COMMANDS = [
   'dev.coverage.confirm',
   'dev.coverage.confirm-all',
   'dev.plan.submit',
+  'dev.plan.prepare', // 准备快照：draft 修订 + 建议生成（原型 devPreparePlan，LLD-5 无对应端点），差异登记
+  'dev.plan.suggestion.resolve', // 逐条处置建议并追加新草稿修订（原型 devRevisePreparation，LLD-5 无对应端点），差异登记
   'dev.plan.approve', // 同名单元既是命令也是策略确认点（7 确认点之一）
   // M4 开发域：看板流转与任务循环（F02-5；A06-8）
   'dev.task.start',

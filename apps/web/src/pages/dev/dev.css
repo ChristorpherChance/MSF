@@ -50,6 +50,11 @@
 .v18-prep details { margin-top: 9px; }
 .v18-prep summary { cursor: pointer; color: var(--blue); font-size: 12px; font-weight: 600; }
 .v18-prep-detail { font-size: 12px; line-height: 1.7; padding: 8px 0 0; }
+/* L4b proposals 网格（原型 .v18-proposals/.v18-proposal） */
+.v18-proposals { display: grid; gap: 8px; margin-top: 8px; }
+.v18-proposal { border: 1px solid var(--line); background: var(--canvas); border-radius: 8px; padding: 10px; }
+.v18-proposal-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.v18-proposal-diff { font-size: 12px; line-height: 1.7; margin-top: 6px; }
 .spacer { flex: 1; }
 
 /* —— V4 注意项页签 —— */

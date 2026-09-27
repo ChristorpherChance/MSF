@@ -41,10 +41,25 @@ export interface DevTaskDetail extends DevTask {
 export interface GateIssue { code: string; message: string; target?: string }
 export interface GateResult { ok: boolean; issues: GateIssue[] }
 
+/** L4b 准备建议（LLD-3 DSG-C06-2 suggestions[] + 原型 v18 proposals；state 闭集，修订以 edited 标记） */
+export interface PlanSuggestion {
+  id: string; kind: 'create-task' | 'patch-task';
+  state: 'pending' | 'accepted' | 'rejected'; edited?: boolean;
+  targetCode: string; sourceFingerprint: string;
+  task: {
+    code?: string; title?: string; kind?: string; owner?: string; asgType?: string;
+    goal?: string; scope?: string; boundary?: string; sourceIds?: string[];
+    deliverables?: unknown[]; quality?: DevQuality | null; [k: string]: unknown;
+  };
+  reason: string; sourceRefs: string[]; confidence?: 'high' | 'medium'; humanRequired?: boolean;
+}
+
 export interface PlanItem {
-  planId: string; revision: string; state: 'submitted' | 'approved' | 'invalidated';
+  planId: string; revision: string; state: 'draft' | 'submitted' | 'approved' | 'invalidated';
   fingerprint: string; snapshot: { taskIds: string[]; note: string | null };
   coverageReport: { ok: boolean; uncoveredDesignItems: string[] };
+  suggestions: PlanSuggestion[];
+  preparationFingerprint: string | null;
   baselineFingerprint: string; approvedBy: string | null; approvedAt: string | null;
   invalidatedReason: string | null;
 }
@@ -127,6 +142,16 @@ export const devApi = {
   plans: (pid: string) => api.get<{ items: PlanItem[] }>(`${base(pid)}/plan`),
   submitPlan: (pid: string, taskIds: string[], note?: string) =>
     api.post<{ revision: string; fingerprint: string }>(`${base(pid)}/plan:submit`, { taskIds, note }),
+  /** L4b 准备两级流程（原型 devPreparePlan/devRevisePreparation；服务端差异登记端点） */
+  preparePlan: (pid: string) =>
+    api.post<{ revision: string; fingerprint: string; preparationFingerprint: string; suggestions: number }>(
+      `${base(pid)}/plan:prepare`, {}),
+  resolveSuggestion: (
+    pid: string, revision: string, fingerprint: string,
+    suggestionId: string, decision: 'accepted' | 'rejected' | 'pending', task?: Record<string, unknown>,
+  ) =>
+    api.post<{ revision: string; fingerprint: string; preparationFingerprint: string }>(
+      `${base(pid)}/plan:suggestion-resolve`, { revision, fingerprint, suggestionId, decision, task }),
   approvePlan: (pid: string, revision: string, fingerprint: string) =>
     api.post(`${base(pid)}/plan:approve`, { revision, fingerprint, confirm: true }),
 

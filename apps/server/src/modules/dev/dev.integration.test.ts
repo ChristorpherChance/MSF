@@ -625,4 +625,90 @@ describe('Dev 开发域（集成，需 DB+MinIO）', async () => {
     expect(withUnit.every((t) => t.ci !== null)).toBe(true);
     expect(withUnit.some((t) => t.ci!.conclusion === 'pass')).toBe(true);
   });
+
+  it('T13 准备两级流程：prepare 建议 → resolve 追加修订 → approve 落池批准（L4b；LLD-2 F02-6 L253）', async () => {
+    // 造两类缺口：未覆盖目录项（create-task 建议）+ 人工草稿规格不全（patch-task 建议）
+    const catVer = (await query<{ catalog_version: string }>(
+      'SELECT catalog_version FROM dsg_catalog_items WHERE project_id=$1 ORDER BY catalog_version DESC LIMIT 1', [PID])).rows[0]!.catalog_version;
+    await query(
+      `INSERT INTO dsg_catalog_items (project_id, catalog_version, item_type, code, payload, content_fingerprint, created_by)
+       VALUES ($1,$2,'page','P-999','{"title":"准备测试页"}',$3,'test')`,
+      [PID, catVer, fingerprint({ code: 'P-999' })]);
+    const created = (await tasks.createTask(PID, '准备补丁任务', 'backend', CTX)) as { id: string; code: string };
+
+    interface PrepView {
+      revision: string; fingerprint: string; suggestions: number; status: string;
+    }
+    interface PlanRow {
+      revision: string; state: string; suggestions: Array<{
+        id: string; kind: string; state: string; targetCode: string; sourceRefs: string[];
+      }>;
+    }
+    const prep = (await plans.prepare(PID, CTX)) as PrepView;
+    expect(prep.status).toBe('draft');
+    const cur1 = (await plans.current(PID)) as unknown as { items: PlanRow[] };
+    const draft = cur1.items.find((p) => p.revision === prep.revision)!;
+    expect(draft.state).toBe('draft');
+    const createSug = draft.suggestions.find((s) => s.kind === 'create-task')!;
+    expect(createSug.state).toBe('accepted'); // 高置信自动采用（原型种子口径）
+    expect(createSug.sourceRefs).toContain('P-999');
+    const patchSug = draft.suggestions.find((s) => s.kind === 'patch-task' && s.targetCode === created.code)!;
+    expect(patchSug.state).toBe('pending'); // 触碰既有规格须人工判断（humanRequired）
+
+    // 未处置建议阻断批准
+    await expect(plans.approve(PID, prep.revision, prep.fingerprint, true, CTX))
+      .rejects.toMatchObject({ code: 'GATE_BLOCKED' });
+
+    // 处置全部 pending（本任务的 patch 附带人工修订；其余如 T12 遗留人工任务的 SPEC_SOURCE patch 直接采用）
+    let cur = { revision: prep.revision, fingerprint: prep.fingerprint };
+    for (const sg of draft.suggestions.filter((x) => x.state === 'pending')) {
+      cur = (await plans.resolveSuggestion(PID, {
+        revision: cur.revision, fingerprint: cur.fingerprint,
+        suggestionId: sg.id, decision: 'accepted',
+        ...(sg.id === patchSug.id ? { task: { goal: '人工修订后的目标' } } : {}),
+      }, CTX)) as { revision: string; fingerprint: string };
+    }
+    expect(cur.revision).not.toBe(prep.revision);
+    const cur2 = (await plans.current(PID)) as unknown as { items: PlanRow[] };
+    expect(cur2.items.find((p) => p.revision === prep.revision)!.state).toBe('invalidated');
+    expect(cur2.items.find((p) => p.revision === cur.revision)!.state).toBe('draft');
+
+    // 批准 draft：同事务应用全部已采用建议（create 落池 + patch 修规格）并批准
+    const ap = (await plans.approve(PID, cur.revision, cur.fingerprint, true, CTX)) as { status: string; applied: number };
+    expect(ap.status).toBe('approved');
+    expect(ap.applied).toBe(draft.suggestions.length);
+    const poolNow = await listTasks();
+    const newPage = poolNow.find((t) => t.title === '页面实现：准备测试页')!;
+    expect(newPage).toBeTruthy();
+    const patched = (await tasks.detail(PID, created.id)) as unknown as { goal: string; rev: number };
+    expect(patched.goal).toBe('人工修订后的目标'); // 人工修订覆盖建议默认值
+    expect(patched.rev).toBe(2);
+    // 已批准修订不可再处置建议；重复批准无效
+    await expect(plans.resolveSuggestion(PID, {
+      revision: cur.revision, fingerprint: cur.fingerprint, suggestionId: patchSug.id, decision: 'rejected',
+    }, CTX)).rejects.toMatchObject({ code: 'INVALID_STATE' });
+    await expect(plans.approve(PID, cur.revision, cur.fingerprint, true, CTX))
+      .rejects.toMatchObject({ code: 'INVALID_STATE' });
+
+    // 新鲜度：处置完全部 pending 后改动任务池 → 批准拒且本次准备作废
+    const prep2 = (await plans.prepare(PID, CTX)) as PrepView;
+    const cur4 = (await plans.current(PID)) as unknown as { items: PlanRow[] };
+    const draft2 = cur4.items.find((p) => p.revision === prep2.revision)!;
+    let cur5 = { revision: prep2.revision, fingerprint: prep2.fingerprint };
+    for (const sg of draft2.suggestions.filter((x) => x.state === 'pending')) {
+      cur5 = (await plans.resolveSuggestion(PID, {
+        revision: cur5.revision, fingerprint: cur5.fingerprint, suggestionId: sg.id, decision: 'accepted',
+      }, CTX)) as { revision: string; fingerprint: string };
+    }
+    await tasks.saveTask(PID, created.id, { goal: '准备后再次人工改动' }, CTX);
+    await expect(plans.approve(PID, cur5.revision, cur5.fingerprint, true, CTX))
+      .rejects.toMatchObject({ code: 'STALE_EVIDENCE' });
+    // 失败整体回滚：陈旧准备不被作废（保留 draft 可重试），重新准备才 supersede
+    const cur6 = (await plans.current(PID)) as unknown as { items: PlanRow[] };
+    expect(cur6.items.find((p) => p.revision === cur5.revision)!.state).toBe('draft');
+
+    // 清场：删除试探任务与目录项（afterAll 全量清理其余）
+    await query('DELETE FROM dev_tasks WHERE project_id=$1 AND code IN ($2,$3)', [PID, created.code, newPage.code]);
+    await query("DELETE FROM dsg_catalog_items WHERE project_id=$1 AND code='P-999'", [PID]);
+  });
 });

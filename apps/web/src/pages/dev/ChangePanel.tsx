@@ -231,7 +231,7 @@ function HistoryPage() {
           <div key={p.planId} className="v17-history">
             <b>{p.revision}</b>{' '}
             <span className={`tag ${p.state === 'approved' ? 'tag-ok' : p.state === 'submitted' ? 'tag-warn' : ''}`}>
-              {{ submitted: '已提交', approved: '已批准', invalidated: '已失效' }[p.state] ?? p.state}
+              {{ draft: '准备中', submitted: '已提交', approved: '已批准', invalidated: '已失效' }[p.state] ?? p.state}
             </span>
             <div className="dsg-prefix">
               任务 {p.snapshot.taskIds.length} · 基线 {p.baselineFingerprint.slice(0, 19)}…

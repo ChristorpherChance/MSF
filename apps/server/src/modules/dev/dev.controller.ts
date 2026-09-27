@@ -156,6 +156,21 @@ export class DevController {
     return this.plans.submit(pid, body.taskIds, body.note, this.actor(req, pid));
   }
 
+  // L4b 准备两级流程（原型 devPreparePlan/devRevisePreparation；LLD-5 无对应端点，差异登记）
+  @Post('plan\\:prepare')
+  preparePlan(@Param('projectId') pid: string, @Req() req: Request) {
+    return this.plans.prepare(pid, this.actor(req, pid));
+  }
+
+  @Post('plan\\:suggestion-resolve')
+  resolveSuggestion(
+    @Param('projectId') pid: string,
+    @Body() body: { revision: string; fingerprint: string; suggestionId: string; decision: 'accepted' | 'rejected' | 'pending'; task?: Record<string, unknown> },
+    @Req() req: Request,
+  ) {
+    return this.plans.resolveSuggestion(pid, body, this.actor(req, pid));
+  }
+
   @Post('plan\\:approve')
   @HttpCode(200)
   approvePlan(@Param('projectId') pid: string, @Body() body: { revision: string; fingerprint: string; confirm: boolean }, @Req() req: Request) {

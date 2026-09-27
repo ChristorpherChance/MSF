@@ -21,7 +21,15 @@ interface QualityScenario {
   type: string; applicable?: boolean; case?: string; expected?: string; pass?: string;
   notApplicableReason?: string;
 }
-interface QualitySpec { object: string; scenarios: QualityScenario[]; line: number; branch: number }
+/** 质量规格（dev_tasks.quality jsonb；L4b 起导出供准备建议共用） */
+export interface QualitySpec { object: string; scenarios: QualityScenario[]; line: number; branch: number }
+
+/** 规格补齐结果（dev.task.improve 与准备 patch 建议共用的字段集） */
+export interface SpecPatch {
+  goal: string; scope: string; boundary: string; owner: string; effort: string;
+  work: unknown[]; inputs: unknown[]; deliverables: unknown[]; acceptance: unknown[];
+  quality: QualitySpec;
+}
 
 const lines = (v: unknown): string[] =>
   Array.isArray(v) ? v.map((x) => String(x).trim()).filter(Boolean)
@@ -77,6 +85,85 @@ export function specIssues(t: Record<string, unknown>): Array<{ code: string; fi
     add('SPEC_QUALITY_THRESHOLD', 'quality', '行/分支覆盖率须明确填写 1–100');
   }
   return issues;
+}
+
+/**
+ * 缺失/不可执行规格字段的补齐计算（dev.task.improve 与 dev.plan.prepare 的 patch-task 建议共用同一口径；
+ * 仅补缺，保留已有具体标准——原型 devImproveTasks 逐字段 CASE-WHEN 语义的纯函数化）
+ */
+export function improveSpecPatch(t: Record<string, unknown>): SpecPatch | null {
+  if (specIssues(t).length === 0) return null;
+  const q: Partial<QualitySpec> = { ...((t.quality ?? {}) as Partial<QualitySpec>) };
+  if (!String(q.object ?? '').trim()) q.object = String(t.title);
+  const scenarios = Array.isArray(q.scenarios) ? [...q.scenarios] : [];
+  const DEFAULTS: Record<string, { case: string; expected: string; pass: string }> = {
+    normal: { case: '按任务目标完成主要业务路径', expected: '产生规格中定义的交付结果', pass: '主要业务结果和状态断言全部通过' },
+    boundary: { case: '输入处于边界值', expected: '给出明确且可恢复的反馈', pass: '状态一致且无崩溃' },
+  };
+  // 三场景逐一落位：缺失补默认、存在但字段空则仅补缺（保留已有具体标准）
+  let normal = scenarios.find((x) => x.type === 'normal');
+  if (!normal) { normal = { type: 'normal', applicable: true }; scenarios.push(normal); }
+  normal.applicable = true;
+  for (const k of ['case', 'expected', 'pass'] as const) {
+    if (!String(normal[k] ?? '').trim() || (k === 'pass' && /待补充|待完善/.test(String(normal.pass)))) normal[k] = DEFAULTS.normal![k];
+  }
+  let boundary = scenarios.find((x) => x.type === 'boundary');
+  if (!boundary) { boundary = { type: 'boundary', applicable: true }; scenarios.push(boundary); }
+  if (boundary.applicable !== false) {
+    for (const k of ['case', 'expected', 'pass'] as const) {
+      if (!String(boundary[k] ?? '').trim()) boundary[k] = DEFAULTS.boundary![k];
+    }
+  } else if (!String(boundary.notApplicableReason ?? '').trim()) {
+    boundary.notApplicableReason = '边界输入由上游校验层统一拦截';
+  }
+  let exception = scenarios.find((x) => x.type === 'exception');
+  if (!exception) { exception = { type: 'exception', applicable: false }; scenarios.push(exception); }
+  if (exception.applicable !== false) {
+    for (const k of ['case', 'expected', 'pass'] as const) {
+      if (!String(exception[k] ?? '').trim()) {
+        exception[k] = { case: '依赖异常或输入非法', expected: '返回明确错误码', pass: '不留中间态且可重试' }[k];
+      }
+    }
+  } else if (!String(exception.notApplicableReason ?? '').trim()) {
+    exception.notApplicableReason = '异常由上游公共错误层统一覆盖';
+  }
+  if (!(Number(q.line) > 0)) q.line = 80;
+  if (!(Number(q.branch) > 0)) q.branch = 70;
+
+  const blank = (v: unknown) => !String(v ?? '').trim();
+  const emptyArr = (v: unknown) => !Array.isArray(v) || v.length === 0;
+  const ws = lines(t.write_scopes ?? t.writeScopes);
+  return {
+    goal: blank(t.goal) ? `按冻结输入完成「${String(t.title)}」，产物可独立验收` : String(t.goal),
+    scope: blank(t.scope) ? (ws[0] ?? '待指定') : String(t.scope),
+    boundary: blank(t.boundary) ? '仅修改列出的交付物；不改公共接口与冻结输入' : String(t.boundary),
+    owner: blank(t.owner) ? 'mock-agent' : String(t.owner),
+    effort: blank(t.effort) ? 'M' : String(t.effort),
+    work: emptyArr(t.work) ? ['实现规格中的正常路径', '补齐边界处理与可观测日志'] : (t.work as unknown[]),
+    inputs: emptyArr(t.inputs) ? ['已确认输入基线', '对应设计锚点与验收口径'] : (t.inputs as unknown[]),
+    deliverables: emptyArr(t.deliverables) ? ws : (t.deliverables as unknown[]),
+    acceptance: emptyArr(t.acceptance) ? [{ item: '正常路径符合来源条款', pass: false }] : (t.acceptance as unknown[]),
+    quality: { object: String(q.object), scenarios, line: Number(q.line), branch: Number(q.branch) },
+  };
+}
+
+/** 应用规格补丁（improve 与准备 patch-task 建议批准落池共用）：全字段写入 + rev++ + 覆盖重置 pending */
+export async function applySpecPatch(
+  client: PoolClient, projectId: string, taskId: string, patch: SpecPatch, actorId: string,
+): Promise<void> {
+  // SET 子句中列名引用旧值：rev=rev+1 先于 coverage 子查询内 rev 引用（同一旧值），故 task_rev 用 rev+1
+  await client.query(
+    `UPDATE dev_tasks SET
+       goal=$3, scope=$4, boundary=$5, owner=$6, effort=$7,
+       work=$8, inputs=$9, deliverables=$10, acceptance=$11, quality=$12,
+       rev=rev+1,
+       coverage=(SELECT COALESCE(jsonb_agg(jsonb_build_object('item_id',c->>'item_id','status','pending','task_rev',rev+1)),'[]'::jsonb)
+                 FROM jsonb_array_elements(coverage) AS c),
+       updated_by=$13, updated_at=now()
+     WHERE id=$1 AND project_id=$2`,
+    [taskId, projectId, patch.goal, patch.scope, patch.boundary, patch.owner, patch.effort,
+      JSON.stringify(patch.work), JSON.stringify(patch.inputs), JSON.stringify(patch.deliverables),
+      JSON.stringify(patch.acceptance), JSON.stringify(patch.quality), actorId]);
 }
 
 /** 依赖拓扑编排（原型 devDependencyPlan 同口径）：自依赖/缺失/循环 → 拒绝；写入范围重叠串行到后批次 */
@@ -254,61 +341,9 @@ export class DevTasksService {
         'SELECT * FROM dev_tasks WHERE project_id=$1 AND archived=false AND excluded=false FOR UPDATE', [projectId]);
       let improved = 0;
       for (const t of rows.rows) {
-        if (specIssues(t).length === 0) continue;
-        const q = { ...((t.quality ?? {}) as Partial<QualitySpec>) };
-        if (!String(q.object ?? '').trim()) q.object = String(t.title);
-        const scenarios = Array.isArray(q.scenarios) ? [...q.scenarios] : [];
-        const DEFAULTS: Record<string, { case: string; expected: string; pass: string }> = {
-          normal: { case: '按任务目标完成主要业务路径', expected: '产生规格中定义的交付结果', pass: '主要业务结果和状态断言全部通过' },
-          boundary: { case: '输入处于边界值', expected: '给出明确且可恢复的反馈', pass: '状态一致且无崩溃' },
-        };
-        // 三场景逐一落位：缺失补默认、存在但字段空则仅补缺（保留已有具体标准）
-        let normal = scenarios.find((x) => x.type === 'normal');
-        if (!normal) { normal = { type: 'normal', applicable: true }; scenarios.push(normal); }
-        normal.applicable = true;
-        for (const k of ['case', 'expected', 'pass'] as const) {
-          if (!String(normal[k] ?? '').trim() || (k === 'pass' && /待补充|待完善/.test(String(normal.pass)))) normal[k] = DEFAULTS.normal![k];
-        }
-        let boundary = scenarios.find((x) => x.type === 'boundary');
-        if (!boundary) { boundary = { type: 'boundary', applicable: true }; scenarios.push(boundary); }
-        if (boundary.applicable !== false) {
-          for (const k of ['case', 'expected', 'pass'] as const) {
-            if (!String(boundary[k] ?? '').trim()) boundary[k] = DEFAULTS.boundary![k];
-          }
-        } else if (!String(boundary.notApplicableReason ?? '').trim()) {
-          boundary.notApplicableReason = '边界输入由上游校验层统一拦截';
-        }
-        let exception = scenarios.find((x) => x.type === 'exception');
-        if (!exception) { exception = { type: 'exception', applicable: false }; scenarios.push(exception); }
-        if (exception.applicable !== false) {
-          for (const k of ['case', 'expected', 'pass'] as const) {
-            if (!String(exception[k] ?? '').trim()) {
-              exception[k] = { case: '依赖异常或输入非法', expected: '返回明确错误码', pass: '不留中间态且可重试' }[k];
-            }
-          }
-        } else if (!String(exception.notApplicableReason ?? '').trim()) {
-          exception.notApplicableReason = '异常由上游公共错误层统一覆盖';
-        }
-        if (!(Number(q.line) > 0)) q.line = 80;
-        if (!(Number(q.branch) > 0)) q.branch = 70;
-        await client.query(
-          `UPDATE dev_tasks SET
-             goal=CASE WHEN btrim(goal)='' THEN '按冻结输入完成「'||title||'」，产物可独立验收' ELSE goal END,
-             scope=CASE WHEN btrim(scope)='' THEN COALESCE(write_scopes->>0,'待指定') ELSE scope END,
-             boundary=CASE WHEN btrim(boundary)='' THEN '仅修改列出的交付物；不改公共接口与冻结输入' ELSE boundary END,
-             owner=CASE WHEN btrim(owner)='' THEN 'mock-agent' ELSE owner END,
-             effort=CASE WHEN btrim(effort)='' THEN 'M' ELSE effort END,
-             work=CASE WHEN jsonb_array_length(work)=0 THEN jsonb_build_array('实现规格中的正常路径','补齐边界处理与可观测日志') ELSE work END,
-             inputs=CASE WHEN jsonb_array_length(inputs)=0 THEN jsonb_build_array('已确认输入基线','对应设计锚点与验收口径') ELSE inputs END,
-             deliverables=CASE WHEN jsonb_array_length(deliverables)=0 THEN COALESCE(write_scopes,'[]'::jsonb) ELSE deliverables END,
-             acceptance=CASE WHEN jsonb_array_length(acceptance)=0
-               THEN jsonb_build_array(jsonb_build_object('item','正常路径符合来源条款','pass',false)) ELSE acceptance END,
-             quality=$3, rev=rev+1,
-             coverage=(SELECT COALESCE(jsonb_agg(jsonb_build_object('item_id',c->>'item_id','status','pending','task_rev',rev+1)),'[]'::jsonb)
-                       FROM jsonb_array_elements(coverage) AS c),
-             updated_by=$4, updated_at=now()
-           WHERE id=$1 AND project_id=$2`,
-          [t.id, projectId, JSON.stringify({ object: q.object, scenarios, line: q.line, branch: q.branch }), ctx.actorId]);
+        const patch = improveSpecPatch(t);
+        if (!patch) continue;
+        await applySpecPatch(client, projectId, String(t.id), patch, ctx.actorId);
         improved++;
       }
       return { improved };
@@ -506,7 +541,8 @@ export class DevTasksService {
 }
 
 /** mock 任务规格派生：页面条目 → frontend 任务；骨架 common/integration（REQ-402 规格全字段） */
-function buildTaskSpecs(items: Array<{ item_type: string; code: string; payload: Record<string, unknown> }>) {
+/** 目录条目 → 任务规格（mock 识别口径；identify 与 dev.plan.prepare 的 create-task 建议共用） */
+export function buildTaskSpecs(items: Array<{ item_type: string; code: string; payload: Record<string, unknown> }>) {
   const pages = items.filter((i) => i.item_type === 'page');
   const flows = items.filter((i) => i.item_type === 'flow'); // 流程条目由端到端联调承接（覆盖闭环 REQ-403）
   const quality = {

@@ -89,7 +89,7 @@ export function BoardPanel() {
       <div className="doc-toolbar">
         <strong>🗂 开发执行</strong>
         <span className={`tag ${latest?.state === 'approved' ? 'tag-ok' : 'tag-warn'}`}>
-          {latest ? `计划 ${latest.revision} · ${{ submitted: '待批准', approved: '已批准', invalidated: '已失效' }[latest.state]}` : '尚无计划'}
+          {latest ? `计划 ${latest.revision} · ${{ draft: '准备中', submitted: '待批准', approved: '已批准', invalidated: '已失效' }[latest.state]}` : '尚无计划'}
         </span>
         <span className="dsg-prefix">开始动作实时复核计划、基线、依赖和影响；暂停/停止不会伪造完成。</span>
         <span className="spacer" />

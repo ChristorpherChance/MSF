@@ -216,7 +216,7 @@ function DevSide() {
       <div className="left-foot">
         单一任务池：前端 / 后端 / 公共 / 联调共享规格、依赖、质量与版本。<br />
         {latest
-          ? `当前计划修订 ${latest.revision} · ${{ submitted: '待批准', approved: '已批准', invalidated: '已失效' }[latest.state]}${latest.state === 'invalidated' ? ' · 需重提交' : ''}`
+          ? `当前计划修订 ${latest.revision} · ${{ draft: '准备中', submitted: '待批准', approved: '已批准', invalidated: '已失效' }[latest.state]}${latest.state === 'invalidated' ? ' · 需重提交' : ''}`
           : '尚无计划修订'}
       </div>
     </div>
