@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { mdHtml } from '../../md-html';
 import { ApiError } from '../../api';
 import { StatusChips, type StatusChipItem } from '../../ui/StatusChips';
 import { Modal } from '../../ui/Modal';
 import { toast } from '../../ui/toast';
-import { designApi, generateDesignDoc, type DesignKind, type PatchItem } from './api';
+import { designApi, generateDesignDoc, type DesignKind, type PatchItem, type UpstreamDocItem } from './api';
 import { useDesignView, type ViewMode } from './store';
 
 /** S2 分册行图标（📐 概要 / 📋 详细七册） */
@@ -65,6 +66,7 @@ function Toolbar() {
   const [finOpen, setFinOpen] = useState(false);
   const [genOpen, setGenOpen] = useState(false);
   const [dlOpen, setDlOpen] = useState(false);
+  const [refsOpen, setRefsOpen] = useState(false);
   const [tlOpen, setTlOpen] = useState(false);
   const [unlockOpen, setUnlockOpen] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -115,6 +117,10 @@ function Toolbar() {
           <option key={v.v} value={v.v}>v{v.v}{v.finalized ? '（定稿）' : ''}{v.note ? ` · ${v.note}` : ''}</option>
         ))}
       </select>
+      <div className="pop-wrap">
+        <button className="act" title="生成参考：上游定稿自动装配 + 可勾选内容已定稿资料（REQ-114）" onClick={() => setRefsOpen(!refsOpen)}>📚 参考资料 ▾</button>
+        {refsOpen && <DesignRefsPopover onClose={() => setRefsOpen(false)} />}
+      </div>
       <span className="sep" />
       <button className="act" disabled={readonly} title="撤销" onClick={() => act(() => designApi.undo(projectId, selKind))}>↩</button>
       <button className="act" disabled={readonly} title="重做" onClick={() => act(() => designApi.redo(projectId, selKind))}>↪</button>
@@ -501,17 +507,103 @@ function FinalizeModal({ onClose }: { onClose: () => void }) {
   );
 }
 
+/**
+ * L7 📚 参考资料 popover（原型 designRefPopover@3429 口径）：
+ * 默认参考=上游定稿自动装配（概要消费 PRD 定稿 / 详细七册消费概要定稿，门禁依据）；
+ * 追加资料=生成期勾选 content_final 资料，随下次生成提交，指纹快照进 dsg_versions.refs（REQ-114/115）。
+ * 与需求页差异：需求域参考落库（req_doc_refs），设计域按权威模型为生成期输入快照，无持久挂接表。
+ */
+function DesignRefsPopover({ onClose }: { onClose: () => void }) {
+  const { projectId, selKind, books, refCandidates, refSel, loadRefCandidates, toggleRef } = useDesignView();
+  const navigate = useNavigate();
+  const [upstream, setUpstream] = useState<UpstreamDocItem[] | null>(null);
+  useEffect(() => {
+    if (!projectId) return;
+    void loadRefCandidates();
+    designApi.upstreamDocs(projectId)
+      .then((r) => setUpstream(r.items))
+      .catch(() => setUpstream([]));
+  }, [projectId, loadRefCandidates]);
+  if (!projectId) return null;
+  const isOutline = selKind === 'hld';
+  const prd = upstream?.find((d) => d.kind.toLowerCase() === 'prd');
+  const crd = upstream?.find((d) => d.kind.toLowerCase() === 'crd');
+  const hld = books.find((b) => b.kind === 'hld');
+  const sel = new Set(refSel[selKind] ?? []);
+  const statusText = (doc: { cur: number; finalVer: number; finalized: boolean } | undefined, gate: boolean) =>
+    !doc || doc.cur === 0
+      ? `（未生成${gate ? ' · 门禁提示' : ''}）`
+      : doc.finalized
+        ? gate ? `v${doc.finalVer} · 已定稿（门禁依据）` : `v${doc.finalVer} · 已装配`
+        : `v${doc.cur} · 未定稿`;
+  const upstreamRows: Array<{ icon: string; name: string; text: string }> = isOutline
+    ? [
+        { icon: '📕', name: 'PRD', text: statusText(prd, true) },
+        { icon: '📗', name: 'CRD', text: statusText(crd, false) },
+      ]
+    : [
+        { icon: '🏛️', name: '概要设计', text: statusText(hld, true) },
+        { icon: '📕', name: 'PRD', text: statusText(prd, false) },
+      ];
+  return (
+    <div className="popover refs-pop">
+      <div className="pop-head">
+        <strong>参考资料 · {isOutline ? '概要设计' : '详细设计'}</strong>
+        <button className="act" onClick={onClose}>✕</button>
+      </div>
+      <div className="pop-sub">默认参考（自动装配）</div>
+      {upstreamRows.map((r) => (
+        <div key={r.name} className="ref-row" style={{ cursor: 'default' }}>
+          <span className="ref-name">{r.icon} {r.name}</span>
+          <span className="pop-tip">{r.text}</span>
+        </div>
+      ))}
+      <div className="pop-sub">追加资料（内容已定稿，随下次生成生效）</div>
+      {refCandidates.map((c) => (
+        <label key={c.fileId} className="ref-row" style={{ cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={sel.has(c.fileId)}
+            onChange={(e) => toggleRef(selKind, c.fileId, e.target.checked)}
+          />
+          <span className="ref-name" title={c.name}>📄 {c.name}</span>
+        </label>
+      ))}
+      {refCandidates.length === 0 && (
+        <p className="pop-tip">暂无内容定稿资料，请先在资料阶段复核并定稿。</p>
+      )}
+      <p className="pop-tip">勾选后点击「🔄 重新生成」随本次生成提交；参考指纹随版本登记（REQ-114/115）。</p>
+      <button
+        className="act"
+        style={{ width: '100%', marginTop: 4 }}
+        onClick={() => {
+          onClose();
+          toast('上传件须先在资料库完成解析与内容定稿，之后自动出现在本清单（REQ-114 无旁路）');
+          void navigate('/material');
+        }}
+      >
+        ⬆ 上传补充 .md（经资料库解析定稿后引用）
+      </button>
+    </div>
+  );
+}
+
 /** 生成弹窗：说明 + 参考（可选 content_final 资料）→ POST-SSE 流式 */
 function GenerateModal({ onClose }: { onClose: () => void }) {
-  const { projectId, selKind, refresh } = useDesignView();
+  const { projectId, selKind, refresh, refSel, refCandidates } = useDesignView();
   const [instruction, setInstruction] = useState('');
   const [msg, setMsg] = useState<string | null>(null);
   if (!projectId) return null;
+  const refIds = refSel[selKind] ?? [];
   const submit = () => {
     setMsg(null);
+    // L7：勾选的生成期参考随本次生成提交；指纹取自候选清单（服务端校验 content_final 现行指纹，REQ-114）
+    const referenceFingerprints = Object.fromEntries(
+      refCandidates.filter((c) => refIds.includes(c.fileId)).map((c) => [c.fileId, c.contentFingerprint]),
+    );
     useDesignView.setState({ gen: { operationId: null, running: true, paused: false, streamText: '', error: null, source: null } });
     onClose();
-    void generateDesignDoc(projectId, selKind, { referenceFileIds: [], referenceFingerprints: {}, ...(instruction ? { instruction } : {}) }, (f) => {
+    void generateDesignDoc(projectId, selKind, { referenceFileIds: refIds, referenceFingerprints, ...(instruction ? { instruction } : {}) }, (f) => {
       const g = useDesignView.getState().gen;
       if (f.type === 'stream.start') useDesignView.setState({ gen: { ...g, operationId: f.operationId ?? null, source: f.source === 'model' ? 'model' : f.source === 'mock' ? 'mock' : null } });
       else if (f.type === 'stream.delta') useDesignView.setState({ gen: { ...g, streamText: g.streamText + (f.text ?? '') } });
@@ -525,7 +617,7 @@ function GenerateModal({ onClose }: { onClose: () => void }) {
     <div className="modal-mask" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <h3>🔄 AI 生成 {selKind.toUpperCase()}</h3>
-        <p className="pop-tip">生成门禁：HLD 消费 PRD 定稿、LLD 消费 HLD 定稿；结果为待确认补丁不落稿。</p>
+        <p className="pop-tip">生成门禁：HLD 消费 PRD 定稿、LLD 消费 HLD 定稿；结果为待确认补丁不落稿。{refIds.length > 0 ? `已勾选追加参考 ${refIds.length} 份（📚 参考资料管理）。` : ''}</p>
         <textarea value={instruction} rows={3} placeholder="补充说明（可选）" onChange={(e) => setInstruction(e.target.value)} />
         {msg && <p className="pop-tip err">{msg}</p>}
         <div className="modal-ops">

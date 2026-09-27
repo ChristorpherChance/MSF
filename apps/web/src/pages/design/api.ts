@@ -53,6 +53,19 @@ export interface BaselineItem {
   items: Array<{ artifact: string; version_id: string | null; fingerprint: string | null }>;
 }
 
+/** 资料域参考清单项（A03-17 同口径；仅 content_final 可挂接，REQ-114） */
+export interface ReferenceCandidate {
+  fileId: string;
+  name: string;
+  status: string;
+  contentFingerprint: string;
+}
+
+/** 需求域文档清单项（L7 设计参考 popover「默认参考」区读上游 PRD/CRD 状态；HTTP 组合，非 import 跨域） */
+export interface UpstreamDocItem {
+  kind: string; cur: number; finalVer: number; finalized: boolean;
+}
+
 const base = (pid: string) => `/api/v1/projects/${pid}/design`;
 
 export const designApi = {
@@ -118,6 +131,12 @@ export const designApi = {
   protoVersions: (pid: string) =>
     api.get<{ items: Array<{ versionId: string; v: number; note: string | null; at: string; finalized: boolean }> }>(
       `${base(pid)}/prototype/versions`),
+  /** L7 生成参考候选（资料域 content_final 清单；生成期勾选，指纹随版本快照 dsg_versions.refs） */
+  referenceCandidates: (pid: string) =>
+    api.get<{ items: ReferenceCandidate[] }>(`/api/v1/projects/${pid}/materials/references`),
+  /** L7 上游 PRD/CRD 状态（默认参考自动装配显示用） */
+  upstreamDocs: (pid: string) =>
+    api.get<{ items: UpstreamDocItem[] }>(`/api/v1/projects/${pid}/requirements/docs`),
   gates: (pid: string, action: 'generate' | 'check' | 'finalize' | 'develop') =>
     api.get<GateResult>(`${base(pid)}/gates/${action}`),
   baselines: (pid: string) => api.get<{ items: BaselineItem[] }>(`${base(pid)}/baselines`),

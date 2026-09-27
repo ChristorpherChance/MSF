@@ -9,6 +9,7 @@ import {
   type GateResult,
   type PatchItem,
   type ProtoStatus,
+  type ReferenceCandidate,
   type ReviewItem,
 } from './api';
 
@@ -42,6 +43,10 @@ interface DesignViewState {
   proto: ProtoStatus | null;
   gen: GenState;
   tocFlash: string | null;
+  /** L7 生成参考候选（资料域 content_final 清单，popover 打开时懒加载） */
+  refCandidates: ReferenceCandidate[];
+  /** L7 生成期参考勾选：kind → fileId 集合；随下次生成提交，指纹快照进 dsg_versions.refs */
+  refSel: Partial<Record<DesignKind, string[]>>;
   /** S9 再定稿影响提示（impactTrigger 口径：定稿成功后置，人工关闭） */
   impactNotice: string | null;
   loading: boolean;
@@ -58,6 +63,8 @@ interface DesignViewState {
   flashToc: (secId: string) => void;
   setImpactNotice: (msg: string | null) => void;
   gate: (action: 'generate' | 'check' | 'finalize' | 'develop') => Promise<GateResult>;
+  loadRefCandidates: () => Promise<void>;
+  toggleRef: (kind: DesignKind, fileId: string, on: boolean) => void;
 }
 
 export const useDesignView = create<DesignViewState>((set, get) => ({
@@ -75,6 +82,8 @@ export const useDesignView = create<DesignViewState>((set, get) => ({
   proto: null,
   gen: { operationId: null, running: false, paused: false, streamText: '', error: null, source: null },
   tocFlash: null,
+  refCandidates: [],
+  refSel: {},
   impactNotice: null,
   loading: false,
   error: null,
@@ -159,4 +168,17 @@ export const useDesignView = create<DesignViewState>((set, get) => ({
   gate: (action) => designApi.gates(get().projectId!, action),
 
   setImpactNotice: (msg) => set({ impactNotice: msg }),
+
+  loadRefCandidates: async () => {
+    const { projectId, refCandidates } = get();
+    if (!projectId || refCandidates.length > 0) return;
+    const r = await designApi.referenceCandidates(projectId);
+    set({ refCandidates: r.items });
+  },
+
+  toggleRef: (kind, fileId, on) => {
+    const cur = get().refSel[kind] ?? [];
+    const next = on ? [...new Set([...cur, fileId])] : cur.filter((x) => x !== fileId);
+    set({ refSel: { ...get().refSel, [kind]: next } });
+  },
 }));
