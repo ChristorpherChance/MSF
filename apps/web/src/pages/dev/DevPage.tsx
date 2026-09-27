@@ -141,12 +141,25 @@ function DevSide() {
   let rows: Array<{ key: string; name: string; count: string | number }> = [];
   let selected = '';
   if (s.topTab === 'plan') {
-    title = '注意项';
+    title = '业务模块 / 需求';
     selected = s.planFilter;
     rows = [
       { key: 'all', name: '全部任务', count: s.tasks.length },
       { key: 'gap', name: '仅看缺口', count: gapCount },
     ];
+    // L4 REQ 过滤行（原型 devReqRows 口径）：任务 sourceIds 经目录页 reqIds 映射 REQ
+    const reqMap = new Map<string, { title: string; pages: Set<string> }>();
+    for (const p of s.catalogPages) {
+      for (const r of p.reqIds) {
+        const e = reqMap.get(r) ?? { title: p.title, pages: new Set<string>() };
+        e.pages.add(p.code);
+        reqMap.set(r, e);
+      }
+    }
+    for (const [req, info] of [...reqMap.entries()].sort()) {
+      const count = s.tasks.filter((t) => t.sourceIds.some((id) => info.pages.has(id))).length;
+      rows.push({ key: `req:${req}`, name: `${req} · ${info.title}`, count });
+    }
   } else if (s.topTab === 'execute') {
     title = '执行工作区';
     selected = s.executePage;

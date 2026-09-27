@@ -22,9 +22,13 @@ export function PlanPanel() {
   const needSchedule = s.tasks.some((t) => t.batchNo === null);
   const rows = s.attentionView === 'ai' ? model.aiActionable : model.needsHuman;
 
-  // V5 三视图过滤（左栏 planFilter + 搜索）
+  // V5 三视图过滤（左栏 planFilter + 搜索；L4 req:REQ-xxx 行经目录页 reqIds 映射）
+  const reqPages = s.planFilter.startsWith('req:')
+    ? new Set(s.catalogPages.filter((p) => p.reqIds.includes(s.planFilter.slice(4))).map((p) => p.code))
+    : null;
   const filtered = s.tasks.filter((t) => {
     if (s.planFilter === 'gap' && t.specIssues.length === 0 && t.coveragePending === 0) return false;
+    if (reqPages && !t.sourceIds.some((id) => reqPages.has(id))) return false;
     const q = s.planQuery.trim().toLowerCase();
     if (q && !`${t.code} ${t.title} ${t.kind} ${t.sourceIds.join(' ')}`.toLowerCase().includes(q)) return false;
     return true;

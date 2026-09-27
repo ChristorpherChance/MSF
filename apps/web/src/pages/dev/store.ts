@@ -16,8 +16,8 @@ import {
 /** 开发页会话态（LLD-6 §3.5 两层导航；DSG-D00 会话态不落库） */
 
 export type DevTopTab = 'plan' | 'execute' | 'quality' | 'change';
-/** plan 左栏：all/gap 过滤 + 三视图 */
-export type DevPlanFilter = 'all' | 'gap';
+/** plan 左栏：all/gap/req:REQ-xxx 过滤 + 三视图（L4：REQ 过滤行对齐原型 devSideHtml plan 组） */
+export type DevPlanFilter = 'all' | 'gap' | `req:${string}`;
 export type DevPlanView = 'business' | 'division' | 'order';
 /** V4 注意项页签 */
 export type DevAttentionView = 'human' | 'ai' | 'all';
@@ -50,7 +50,9 @@ interface DevViewState {
   transferGate: GateResult | null;
   impacts: ImpactItem[];
   ciSecret: { enabled: boolean; secretMasked?: string } | null;
-  baseline: { baselineId: string; code: string; fingerprint: string; valid: boolean } | null;
+  baseline: { baselineId: string; code: string; fingerprint: string; valid: boolean; items: Array<{ artifact: string; version_id: string | null; fingerprint: string | null }> } | null;
+  /** L4 REQ 过滤行：设计目录页条目（code → reqIds），任务 sourceIds 经此映射 REQ */
+  catalogPages: Array<{ code: string; title: string; reqIds: string[] }>;
   loading: boolean;
   error: string | null;
   notice: string | null;
@@ -95,6 +97,7 @@ export const useDevStore = create<DevViewState>((set, get) => ({
   impacts: [],
   ciSecret: null,
   baseline: null,
+  catalogPages: [],
   loading: false,
   error: null,
   notice: null,
@@ -111,10 +114,10 @@ export const useDevStore = create<DevViewState>((set, get) => ({
     await get().refresh();
   },
 
-  /** 左栏切换（按当前顶页签路由到对应工作区键） */
+  /** 左栏切换（按当前顶页签路由到对应工作区键；plan 支持 req:REQ-xxx 过滤行） */
   setSide: (key) => {
     const t = get().topTab;
-    if (t === 'plan') set({ planFilter: key === 'gap' ? 'gap' : 'all' });
+    if (t === 'plan') set({ planFilter: key.startsWith('req:') ? (key as DevPlanFilter) : key === 'gap' ? 'gap' : 'all' });
     else if (t === 'execute') set({ executePage: key as DevExecutePage });
     else if (t === 'quality') set({ qualityPage: key as DevQualityPage });
     else set({ changePage: key as DevChangePage });
@@ -132,7 +135,7 @@ export const useDevStore = create<DevViewState>((set, get) => ({
     if (!pid) return;
     set({ loading: true, error: null });
     try {
-      const [tasks, conflicts, coverage, plans, autopilot, build, reports, impacts, ciSecret, baselines] =
+      const [tasks, conflicts, coverage, plans, autopilot, build, reports, impacts, ciSecret, baselines, catalog] =
         await Promise.all([
           devApi.listTasks(pid),
           devApi.conflicts(pid),
@@ -144,12 +147,18 @@ export const useDevStore = create<DevViewState>((set, get) => ({
           devApi.impacts(pid),
           devApi.secretStatus(pid),
           designApi.baselines(pid),
+          designApi.catalog(pid).catch(() => null), // L4 REQ 过滤行：目录缺失不阻断开发页
         ]);
       const bl = baselines.items.find((b) => b.current) ?? baselines.items[0] ?? null;
       set({
         tasks: tasks.items, conflicts: conflicts.conflicts, coverage, plans: plans.items, autopilot,
         build: build.build, reports: reports.items, impacts: impacts.items, ciSecret,
-        baseline: bl ? { baselineId: bl.baselineId, code: bl.code, fingerprint: bl.fingerprint, valid: bl.valid } : null,
+        baseline: bl ? { baselineId: bl.baselineId, code: bl.code, fingerprint: bl.fingerprint, valid: bl.valid, items: bl.items } : null,
+        catalogPages: ((catalog?.groups.page ?? []) as Array<{ code: string; payload: Record<string, unknown> }>).map((p) => ({
+          code: p.code,
+          title: (p.payload.title as string) ?? p.code,
+          reqIds: (p.payload.reqIds as string[] | undefined) ?? [],
+        })),
       });
       // 门禁实时求值（质量/变更页签用）
       const [sg, tg] = await Promise.all([

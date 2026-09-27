@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ConfirmModal } from '../../ui/ConfirmModal';
 import { Modal } from '../../ui/Modal';
 import { devApi } from './api';
@@ -187,13 +187,20 @@ function BaselinePage() {
       <div className="dsg-card">
         {bl ? (
           <>
-            <h3>{bl.code}</h3>
+            <h3>{bl.code} · 定稿批次身份 {bl.fingerprint.slice(0, 19)}…</h3>
+            {/* L4 输入基线工件表（原型 devBaselineHtml 口径；版本身份=版本对象短 ID，摘要=内容指纹） */}
             <table className="dev-table">
-              <thead><tr><th>属性</th><th>值</th></tr></thead>
+              <thead><tr><th>工件</th><th>版本身份</th><th>内容摘要</th><th>适用</th></tr></thead>
               <tbody>
-                <tr><td>基线编号</td><td>{bl.code}</td></tr>
-                <tr><td>指纹</td><td className="dsg-prefix">{bl.fingerprint}</td></tr>
-                <tr><td>状态</td><td>{bl.valid ? '有效（开发输入以此为准）' : '已失效（需人工核对差异并重确认）'}</td></tr>
+                {bl.items.map((it) => (
+                  <tr key={it.artifact}>
+                    <td><b>{it.artifact}</b></td>
+                    <td className="dsg-prefix">{it.version_id ? `${it.version_id.slice(0, 8)}…` : '—（未定稿）'}</td>
+                    <td className="dsg-prefix">{it.fingerprint ? `sha256:${it.fingerprint.slice(0, 15)}…` : '—'}</td>
+                    {/* 适用口径=gate-common liveBaselineFingerprint：PRD/PROTOTYPE 必需定稿，HLD 定稿或当前版 */}
+                    <td>{({ PRD: '必需（定稿）', PROTOTYPE: '必需（定稿）', HLD: '定稿或当前版' } as Record<string, string>)[it.artifact] ?? '可选'}</td>
+                  </tr>
+                ))}
               </tbody>
             </table>
             <p className="dsg-prefix" style={{ marginTop: 10 }}>
@@ -247,6 +254,46 @@ function HistoryPage() {
           </div>
         ))}
       </div>
+      <AuditCard />
+    </div>
+  );
+}
+
+/** L4 操作审计卡（A10-3 只读链：append-only 哈希链，无改删；本卡过滤 dev. 前缀命令） */
+function AuditCard() {
+  const s = useDevStore();
+  const pid = s.projectId;
+  const [items, setItems] = useState<Array<{ eventId: string; actor: string; actorType: string; command: string; at: string }> | null>(null);
+  useEffect(() => {
+    if (!pid) return;
+    void devApi.audit(pid)
+      .then((r) => setItems(r.items.filter((x) => x.command.startsWith('dev.'))))
+      .catch(() => setItems([]));
+  }, [pid]);
+  return (
+    <div className="dsg-card">
+      <div className="gen-head">
+        <strong>操作审计</strong>
+        <span className="dsg-prefix">append-only 哈希链 · 只读 · 本域命令（dev.*）</span>
+      </div>
+      {items === null ? (
+        <p className="dsg-prefix">加载中…</p>
+      ) : items.length === 0 ? (
+        <p className="dsg-prefix">暂无本域操作记录。</p>
+      ) : (
+        <table className="dev-table">
+          <thead><tr><th>时间</th><th>命令</th><th>操作者</th></tr></thead>
+          <tbody>
+            {items.map((x) => (
+              <tr key={x.eventId}>
+                <td className="dsg-prefix">{new Date(x.at).toLocaleString()}</td>
+                <td><code>{x.command}</code></td>
+                <td>{x.actor}<span className="dsg-prefix">（{x.actorType}）</span></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </div>
   );
 }

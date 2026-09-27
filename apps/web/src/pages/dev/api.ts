@@ -169,6 +169,11 @@ export const devApi = {
     api.put<{ enabled: boolean; secretMasked: string }>(`${base(pid)}/ci/webhook-secret`, { secret }),
   secretStatus: (pid: string) =>
     api.get<{ enabled: boolean; secretMasked?: string; rotatedAt?: string }>(`${base(pid)}/ci/webhook-secret`),
+
+  /** L4 操作审计卡（A10-3 平台审计只读链；dev. 前缀命令客户端过滤） */
+  audit: (pid: string, limit = 50) =>
+    api.get<{ items: Array<{ eventId: string; actor: string; actorType: string; command: string; result: string; at: string; hash: string }> }>(
+      `/api/v1/system/audit?projectId=${pid}&limit=${limit}`),
 };
 
 /** 编码规范（A08-7 提示词版本复用，kind='std'；与设置页 Agent 配置同源） */
