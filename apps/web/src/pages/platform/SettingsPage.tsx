@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { ApiError } from '../../api';
 import { Modal } from '../../ui/Modal';
+import { ConfirmModal } from '../../ui/ConfirmModal';
 import { toast } from '../../ui/toast';
 import { useSession } from '../../store';
 import {
@@ -100,6 +101,7 @@ function VersionEditor(props: {
   const [draft, setDraft] = useState('');
   const [renaming, setRenaming] = useState<PromptVersionRow | null>(null);
   const [renameVal, setRenameVal] = useState('');
+  const [delTarget, setDelTarget] = useState<PromptVersionRow | null>(null);
 
   const load = useCallback(async () => {
     const r = await promptsApi.versions(props.agentKey).catch(() => ({ items: [] as PromptVersionRow[] }));
@@ -140,13 +142,20 @@ function VersionEditor(props: {
             className="act mini" title={v.is_current ? '当前生效版本不可删除' : '删除'}
             onClick={() => {
               if (v.is_current) { toast('当前生效版本不可删除', 'warn'); return; }
-              if (window.confirm(`删除版本 v${v.version_no}「${v.name ?? ''}」？`)) {
-                void run(() => promptsApi.remove(props.agentKey, v.version_no), '已删除');
-              }
+              setDelTarget(v);
             }}
           >🗑</button>
         </div>
       ))}
+      {delTarget && (
+        <ConfirmModal
+          title={`删除版本 v${delTarget.version_no}`}
+          confirmLabel="删除"
+          body={`删除版本 v${delTarget.version_no}「${delTarget.name ?? ''}」？`}
+          onClose={() => setDelTarget(null)}
+          onConfirm={() => void run(() => promptsApi.remove(props.agentKey, delTarget.version_no), '已删除')}
+        />
+      )}
       <div style={{ marginTop: 12 }}>
         <textarea
           className="prompt-editor" style={{ minHeight: 90 }}

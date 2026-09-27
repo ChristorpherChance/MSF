@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ApiError } from '../../api';
 import { Modal } from '../../ui/Modal';
+import { ConfirmModal } from '../../ui/ConfirmModal';
 import { toast } from '../../ui/toast';
 import { platformApi } from '../platform/api';
 import { useDelegateStore } from './store';
@@ -179,6 +180,7 @@ function TargetCard({ t }: { t: DelegationTarget }) {
 /** E4 工具卡 modal：入参/执行/审计摘要 + 失败时「用 pi_native 重跑」（不静默降级，需确认） */
 function ToolCardModal({ d, onClose }: { d: Delegation; onClose: () => void }) {
   const s = useDelegateStore();
+  const [rerunOpen, setRerunOpen] = useState(false);
   const st = STATUS_LABEL[d.status] ?? [d.status, ''];
   const failed = d.status === 'failed' || d.status === 'failed_timeout';
   const errMsg = (d.result as { error?: string } | null)?.error;
@@ -202,19 +204,25 @@ function ToolCardModal({ d, onClose }: { d: Delegation; onClose: () => void }) {
           ⚠ 已按策略提示降级选项：改用 pi_native 重跑（不静默降级，需确认）。
           <button
             className="act mini" style={{ marginLeft: 8 }}
-            onClick={() => {
-              if (window.confirm(`用 pi_native 重跑「${d.task_desc}」？（不静默降级：将新建一张委派单）`)) {
-                void s.act(async () => {
-                  await delegateApi.create(s.projectId!, {
-                    target: 'pi_native', taskDesc: d.task_desc,
-                    ...(d.budget_limit ? { budgetLimit: Number(d.budget_limit) } : {}),
-                  });
-                  onClose();
-                }, '已用 pi_native 重新排队');
-              }
-            }}
+            onClick={() => setRerunOpen(true)}
           >用 pi_native 重跑</button>
         </p>
+      )}
+      {rerunOpen && (
+        <ConfirmModal
+          title="用 pi_native 重跑"
+          confirmLabel="重跑"
+          body={`用 pi_native 重跑「${d.task_desc}」？\n不静默降级：将新建一张委派单。`}
+          onClose={() => setRerunOpen(false)}
+          onConfirm={() =>
+            void s.act(async () => {
+              await delegateApi.create(s.projectId!, {
+                target: 'pi_native', taskDesc: d.task_desc,
+                ...(d.budget_limit ? { budgetLimit: Number(d.budget_limit) } : {}),
+              });
+              onClose();
+            }, '已用 pi_native 重新排队')}
+        />
       )}
     </Modal>
   );

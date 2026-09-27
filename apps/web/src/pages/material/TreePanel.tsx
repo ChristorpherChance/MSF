@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { MatParseStatus } from '@msf/shared';
 import { ApiError } from '../../api';
 import { Modal } from '../../ui/Modal';
+import { ConfirmModal } from '../../ui/ConfirmModal';
 import { toast } from '../../ui/toast';
 import { materialApi, type TreeNode } from './api';
 import { useMaterialView } from './store';
@@ -244,13 +245,13 @@ function FolderRow({
 }) {
   const { collapsed, toggleFolder, projectId, refresh } = useMaterialView();
   const [busy, setBusy] = useState(false);
+  const [delOpen, setDelOpen] = useState(false);
   const isCollapsed = collapsed[node.id];
   const fileIds = collectFiles(node).map((f) => f.id);
 
   // 空目录可删（实机走查：资料里每个地方的节点都应可清理）；非空由服务端拒绝并明示原因
   const doDelete = async () => {
     if (!projectId) return;
-    if (!window.confirm(`删除空目录「${node.name}」？（双树镜像一并删除）`)) return;
     setBusy(true);
     try {
       await materialApi.deleteFolder(projectId, node.id);
@@ -278,12 +279,21 @@ function FolderRow({
           title="删除空目录（非空目录需先清空）"
           onClick={(e) => {
             e.stopPropagation();
-            void doDelete();
+            setDelOpen(true);
           }}
         >
           🗑
         </button>
       </div>
+      {delOpen && (
+        <ConfirmModal
+          title={`删除空目录「${node.name}」`}
+          confirmLabel="删除"
+          body={'双树镜像一并删除；非空目录由服务端拒绝并明示原因。'}
+          onClose={() => setDelOpen(false)}
+          onConfirm={() => void doDelete()}
+        />
+      )}
       {!isCollapsed && (
         <div className="tree-children">
           {(node.children ?? []).map((c) => (

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { mdHtml } from '../md-html';
 import { Modal } from '../ui/Modal';
+import { ConfirmModal } from '../ui/ConfirmModal';
 import type { AiMessageRow, ToolCallRow } from './api';
 import {
   CTX_LABEL,
@@ -286,6 +287,7 @@ function SessionMenu() {
   const [open, setOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [name, setName] = useState('');
+  const [delOpen, setDelOpen] = useState(false);
   const sess = s.sessions.find((x) => x.id === s.currentId);
   const wrapRef = useRef<HTMLDivElement>(null);
 
@@ -299,9 +301,7 @@ function SessionMenu() {
   }, [open]);
 
   const onDelete = async () => {
-    setOpen(false);
     if (!sess) return;
-    if (!window.confirm(`删除会话「${sess.name}」？消息记录随行删除（用量留账不删），不可恢复。`)) return;
     await s.deleteSession(sess.id);
   };
 
@@ -316,8 +316,17 @@ function SessionMenu() {
       {open && sess && (
         <div className="dock-menu">
           <button onClick={() => { setOpen(false); setName(sess.name); setRenaming(true); }}>✏ 重命名</button>
-          <button className="danger" onClick={() => void onDelete()}>🗑 删除会话</button>
+          <button className="danger" onClick={() => { setOpen(false); setDelOpen(true); }}>🗑 删除会话</button>
         </div>
+      )}
+      {delOpen && sess && (
+        <ConfirmModal
+          title={`删除会话「${sess.name}」`}
+          confirmLabel="删除"
+          body={'消息记录随行删除（用量留账不删），不可恢复。'}
+          onClose={() => setDelOpen(false)}
+          onConfirm={() => void onDelete()}
+        />
       )}
       {renaming && sess && (
         <Modal
