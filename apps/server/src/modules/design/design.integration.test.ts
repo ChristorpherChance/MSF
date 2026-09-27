@@ -166,11 +166,14 @@ describe('Design 设计域（集成，需 DB+MinIO）', async () => {
     const plan = (await catalog.plan(PID, CTX)) as { planId: string; complete: boolean; fingerprint: string };
     expect(plan.complete).toBe(true);
     const cat = (await catalog.getCatalog(PID)) as {
-      catalogVersion: string; groups: Record<string, Array<{ code: string; source: string }>>;
+      catalogVersion: string; groups: Record<string, Array<{ code: string; source: string; anchors?: Array<{ refKind: string; anchor: string | null }> }>>;
     };
     expect(cat.catalogVersion).toBe('V3-1');
     expect(cat.groups.page!.length).toBeGreaterThanOrEqual(3); // REQ-001/002 + P-HOME
     expect(cat.groups.viewport!.map((v) => v.code)).toEqual(['vp-1280', 'vp-1440', 'vp-1920']);
+    // L8：A05-4 条目带追溯锚点（REQ 章节来源页面 → prd 锚点）
+    const p1 = cat.groups.page!.find((x) => x.code === 'P-001');
+    expect(p1?.anchors?.some((a) => a.refKind === 'prd')).toBe(true);
 
     // 来源审计：锚点指纹与现行定稿一致 → ok
     const audit0 = (await catalog.sourceAudit(PID)) as { ok: boolean };

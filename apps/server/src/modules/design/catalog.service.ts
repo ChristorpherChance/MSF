@@ -187,7 +187,7 @@ export class CatalogService {
     return executeCommand('design.catalog.remove-item', { projectId, itemId }, { ...ctx, projectId });
   }
 
-  /** A05-4 目录查询（最新版本分组） */
+  /** A05-4 目录查询（最新版本分组；L8：条目带追溯锚点 anchors——「每项可追溯到具体文档章节锚点」） */
   async getCatalog(projectId: string): Promise<unknown> {
     const ver = await this.currentCatalogVersion(null, projectId);
     if (!ver) return { catalogVersion: null, catalogFingerprint: null, groups: {} };
@@ -195,10 +195,23 @@ export class CatalogService {
       'SELECT * FROM dsg_catalog_items WHERE project_id=$1 AND catalog_version=$2 ORDER BY item_type, code',
       [projectId, ver],
     );
+    const refs = await query<{ item_id: string; ref_kind: string; doc_kind: string | null; section_id: string | null; anchor: string | null }>(
+      `SELECT r.item_id, r.ref_kind, r.doc_kind, r.section_id, r.anchor FROM dsg_catalog_refs r
+       JOIN dsg_catalog_items i ON i.id=r.item_id
+       WHERE i.project_id=$1 AND i.catalog_version=$2 ORDER BY r.ref_kind, r.doc_kind, r.section_id`,
+      [projectId, ver],
+    );
+    const anchorsByItem = new Map<string, Array<{ refKind: string; docKind: string | null; sectionId: string | null; anchor: string | null }>>();
+    for (const r of refs.rows) {
+      (anchorsByItem.get(r.item_id) ?? anchorsByItem.set(r.item_id, []).get(r.item_id)!).push({
+        refKind: r.ref_kind, docKind: r.doc_kind, sectionId: r.section_id, anchor: r.anchor,
+      });
+    }
     const groups: Record<string, unknown[]> = {};
     for (const it of items.rows) {
       (groups[it.item_type] ??= []).push({
         itemId: it.id, code: it.code, payload: it.payload, required: it.required, source: it.source,
+        anchors: anchorsByItem.get(it.id) ?? [],
       });
     }
     const fp = fingerprint({ catalogVersion: ver, items: items.rows.map((i) => i.id) });

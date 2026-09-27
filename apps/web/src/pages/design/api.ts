@@ -26,7 +26,10 @@ export interface ReviewItem {
   status: 'open' | 'done'; conclusion: string | null; at: string | null;
 }
 
-export interface CatalogGroup { itemId: string; code: string; payload: Record<string, unknown>; required: boolean; source: string }
+/** L8 追溯锚点（A05-4：每项可追溯到具体文档章节锚点） */
+export interface CatalogAnchor { refKind: string; docKind: string | null; sectionId: string | null; anchor: string | null }
+
+export interface CatalogGroup { itemId: string; code: string; payload: Record<string, unknown>; required: boolean; source: string; anchors: CatalogAnchor[] }
 
 export interface CatalogView {
   catalogVersion: string | null;
@@ -137,6 +140,9 @@ export const designApi = {
   /** L7 上游 PRD/CRD 状态（默认参考自动装配显示用） */
   upstreamDocs: (pid: string) =>
     api.get<{ items: UpstreamDocItem[] }>(`/api/v1/projects/${pid}/requirements/docs`),
+  /** L8 追溯区任务组（开发域任务 source_ids 反查目录条目；HTTP 组合，非 import 跨域） */
+  devTasks: (pid: string) =>
+    api.get<{ items: Array<{ code: string; title: string; sourceIds: string[] }> }>(`/api/v1/projects/${pid}/dev/tasks`),
   gates: (pid: string, action: 'generate' | 'check' | 'finalize' | 'develop') =>
     api.get<GateResult>(`${base(pid)}/gates/${action}`),
   baselines: (pid: string) => api.get<{ items: BaselineItem[] }>(`${base(pid)}/baselines`),

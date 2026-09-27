@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { ApiError } from '../../api';
-import { designApi, type BaselineItem, type ProtoStatus } from './api';
+import { designApi, type BaselineItem, type CatalogGroup, type ProtoStatus } from './api';
 import { useDesignView } from './store';
 
 /**
@@ -22,8 +22,8 @@ export function PrototypePanel() {
   const baselines = useBaselines(projectId, proto?.status ?? null);
   const protoVers = useProtoVersions(projectId, proto?.prototype?.currentVersionId ?? null);
 
-  const pages = (catalog?.groups.page ?? []) as Array<{ code: string; payload: Record<string, unknown> }>;
-  const states = (catalog?.groups.state ?? []) as Array<{ code: string; payload: Record<string, unknown> }>;
+  const pages = (catalog?.groups.page ?? []) as CatalogGroup[];
+  const states = (catalog?.groups.state ?? []) as CatalogGroup[];
   const selPage = pages_?.pageId ?? pages[0]?.code ?? null;
   const selState = pages_?.stateId ?? states[0]?.code ?? null;
   const verId = proto?.prototype?.currentVersionId ?? null;
@@ -181,14 +181,13 @@ export function PrototypePanel() {
             {!currentBaseline.valid && <span className="dev-bad">（已失效：{currentBaseline.staleReason ?? '上游变化'}）</span>}
           </div>
         )}
-        {/* S5 追溯 details */}
-        <details className="v19-trace">
-          <summary>查看需求 / HLD / LLD 双向来源</summary>
-          <p className="pop-tip">
-            当前计划 {proto.plan?.planId.slice(0, 8) ?? '未生成'} · 目录 {proto.plan?.catalogVersion ?? catalog?.catalogVersion ?? '—'}
-            {' '}· 检查 {proto.latestCheck?.reportId.slice(0, 8) ?? '未执行'} · 基线 {currentBaseline?.code ?? '—'}
-          </p>
-        </details>
+        {/* S5+L8 追溯 details：按选中页补全 需求/锚点/任务/流程（原型 traceHtml 口径） */}
+        <TraceDetails
+          page={pages.find((p) => p.code === selPage) ?? null}
+          flows={(catalog?.groups.flow ?? []) as CatalogGroup[]}
+          proto={proto}
+          baselineCode={currentBaseline?.code ?? null}
+        />
       </div>
       <BaselineCard items={baselines.items} reload={baselines.reload} />
       <CatalogCard onChanged={() => void refreshProto()} />
@@ -202,8 +201,82 @@ export function PrototypePanel() {
   );
 }
 
-/** 基线数据（命令条导出 / 基线横幅 / 基线卡共用） */
-function useBaselines(projectId: string | null, protoStatus: string | null) {
+/**
+ * L8 追溯区（原型 traceHtml@9167 口径）：选中页的 需求 / 章节锚点 / 任务 / 流程 来源网格。
+ * 数据链：需求=页 payload.reqIds；锚点=A05-4 目录条目 anchors（dsg_catalog_refs，按文档分组）；
+ * 任务=开发域 source_ids 反查本页目录条目（HTTP 组合）；流程=目录 flow 条目 steps 命中页标题。
+ */
+function TraceDetails({ page, flows, proto, baselineCode }: {
+  page: CatalogGroup | null;
+  flows: CatalogGroup[];
+  proto: ProtoStatus;
+  baselineCode: string | null;
+}) {
+  const { projectId, catalog } = useDesignView();
+  const [tasks, setTasks] = useState<Array<{ code: string; title: string; sourceIds: string[] }> | null>(null);
+  useEffect(() => {
+    if (!projectId) return;
+    void designApi.devTasks(projectId).then((r) => setTasks(r.items)).catch(() => setTasks([]));
+  }, [projectId]);
+  const pageTitle = page ? ((page.payload.title as string) ?? page.code) : '';
+  const reqIds = (page?.payload.reqIds as string[] | undefined) ?? [];
+  const anchorsByDoc = new Map<string, Array<{ sectionId: string | null; anchor: string | null }>>();
+  for (const a of page?.anchors ?? []) {
+    const k = (a.docKind ?? 'prd').toUpperCase();
+    const arr = anchorsByDoc.get(k) ?? [];
+    arr.push({ sectionId: a.sectionId, anchor: a.anchor });
+    anchorsByDoc.set(k, arr);
+  }
+  const linkedTasks = page ? (tasks ?? []).filter((t) => t.sourceIds.includes(page.code)) : [];
+  const linkedFlows = pageTitle
+    ? flows.filter((f) => ((f.payload.steps as string[] | undefined) ?? []).some((s) => s.includes(pageTitle)))
+    : [];
+  return (
+    <details className="v19-trace">
+      <summary>查看{pageTitle ? `「${pageTitle}」的` : '页面'}需求 / 锚点 / 任务 / 流程来源</summary>
+      {!page ? (
+        <p className="pop-tip">规划后生成页面清单，选择页面查看追溯。</p>
+      ) : (
+        <div className="v19-trace-grid">
+          <div>
+            <b>需求</b>
+            <p>{reqIds.length > 0
+              ? reqIds.map((r) => <span key={r} className="tag" style={{ marginRight: 4 }}>{r}</span>)
+              : <span className="mut">—（通用页面，无直接 REQ）</span>}</p>
+          </div>
+          {[...anchorsByDoc.entries()].map(([doc, arr]) => (
+            <div key={doc}>
+              <b>{doc} 锚点</b>
+              {arr.map((a, i) => (
+                <p key={i}><code>{a.sectionId ?? '—'}</code> {a.anchor ?? ''}</p>
+              ))}
+            </div>
+          ))}
+          <div>
+            <b>任务</b>
+            <p>{tasks === null
+              ? <span className="mut">加载中…</span>
+              : linkedTasks.length > 0
+                ? linkedTasks.map((t) => <span key={t.code} className="tag" style={{ marginRight: 4 }} title={t.title}>{t.code}</span>)
+                : <span className="mut">—（开发任务未承接本页）</span>}</p>
+          </div>
+          <div>
+            <b>流程</b>
+            <p>{linkedFlows.length > 0
+              ? linkedFlows.map((f) => <span key={f.code} className="tag tag-ok" style={{ marginRight: 4 }}>{f.code}</span>)
+              : <span className="mut">—</span>}</p>
+          </div>
+        </div>
+      )}
+      <p className="pop-tip">
+        当前计划 {proto.plan?.planId.slice(0, 8) ?? '未生成'} · 目录 {proto.plan?.catalogVersion ?? catalog?.catalogVersion ?? '—'}
+        {' '}· 检查 {proto.latestCheck?.reportId.slice(0, 8) ?? '未执行'} · 基线 {baselineCode ?? '—'}
+      </p>
+    </details>
+  );
+}
+
+/** 基线数据（命令条导出 / 基线横幅 / 基线卡共用） */function useBaselines(projectId: string | null, protoStatus: string | null) {
   const [items, setItems] = useState<BaselineItem[] | null>(null);
   const reload = () => {
     if (projectId) void designApi.baselines(projectId).then((r) => setItems(r.items)).catch(() => setItems(null));
