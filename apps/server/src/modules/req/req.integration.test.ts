@@ -318,11 +318,19 @@ describe('ReqDocs/Rtm/Generate（集成，需 DB+MinIO）', async () => {
     await expect(docs.finalize(PID, 'prd', pv.cur, pv.cur, true, CTX)).rejects.toMatchObject({ code: 'GATE_BLOCKED' });
   });
 
-  it('导出：md/html 落 MinIO + 签名 URL（A04-13）', async () => {
+  it('导出：md/html/docx/pdf 落 MinIO + 签名 URL（A04-13 + L1 扩展）', async () => {
     const r = (await exp.export(PID, 'crd', 3, 'md', CTX)) as { downloadUrl: string; format: string };
     expect(r.format).toBe('md');
     expect(r.downloadUrl).toContain('http');
     const h = (await exp.export(PID, 'crd', 3, 'html', CTX)) as { downloadUrl: string };
     expect(h.downloadUrl).toContain('.html');
+    // L1：docx/pdf 四格式全通（pdf 依赖本机 CJK 字体）
+    for (const [fmt, magic] of [['docx', 'PK'], ['pdf', '%PDF-']] as const) {
+      const x = (await exp.export(PID, 'crd', 3, fmt, CTX)) as { downloadUrl: string };
+      expect(x.downloadUrl).toContain(`.${fmt}`);
+      const bytes = Buffer.from(await (await fetch(x.downloadUrl)).arrayBuffer());
+      expect(bytes.subarray(0, magic.length).toString('latin1')).toBe(magic);
+    }
+    await expect(exp.export(PID, 'crd', 3, 'xlsx' as never, CTX)).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
   });
 });

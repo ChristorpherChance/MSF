@@ -143,7 +143,7 @@ export const reqApi = {
     api.post(`${base(pid)}/rtm/${nodeKind}/${code}:defer`, { reason }),
   undefer: (pid: string, nodeKind: 'cr' | 'req', code: string) =>
     api.post(`${base(pid)}/rtm/${nodeKind}/${code}:undefer`, {}),
-  exportDoc: (pid: string, kind: DocKind, v: number, format: 'md' | 'html') =>
+  exportDoc: (pid: string, kind: DocKind, v: number, format: 'md' | 'html' | 'docx' | 'pdf') =>
     api.post<{ downloadUrl: string; format: string }>(
       `${base(pid)}/docs/${kind}/versions/${v}:export`, { format }),
   genControl: (pid: string, kind: DocKind, operationId: string, action: 'pause' | 'resume' | 'stop') =>

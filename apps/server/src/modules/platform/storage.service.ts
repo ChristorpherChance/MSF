@@ -68,8 +68,14 @@ export class StorageService {
     if (objects.length > 0) await this.client.removeObjects(this.bucket, objects);
   }
 
-  /** 短时签名直链（A03-7 source 视图，REQ-113） */
-  async presignedGet(objectKey: string, expirySeconds = 300): Promise<string> {
-    return this.client.presignedGetObject(this.bucket, objectKey, expirySeconds);
+  /**
+   * 短时签名直链（A03-7 source 视图，REQ-113）。
+   * downloadName：附 response-content-disposition（RFC 5987 编码，支持中文文件名），浏览器下载落盘为该名。
+   */
+  async presignedGet(objectKey: string, expirySeconds = 300, downloadName?: string): Promise<string> {
+    const respHeaders = downloadName
+      ? { 'response-content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(downloadName)}` }
+      : undefined;
+    return this.client.presignedGetObject(this.bucket, objectKey, expirySeconds, respHeaders);
   }
 }

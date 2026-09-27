@@ -78,6 +78,7 @@ export const COMMANDS = [
   'design.doc.unlock',
   'design.doc.generate',
   'design.doc.gen_control',
+  'design.doc.export', // L1：设计册导出留痕（md/html/docx/pdf，与 req.doc.export 同构）
   // M3 设计域：原型四步流水（F02-2；A05-5/6/7/9）
   'design.prototype.plan',
   'design.prototype.generate',

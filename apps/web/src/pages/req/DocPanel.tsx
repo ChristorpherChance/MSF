@@ -80,7 +80,7 @@ function Toolbar({
       .finally(() => void refresh());
   };
 
-  const doExport = (format: 'md' | 'html') =>
+  const doExport = (format: 'md' | 'docx' | 'pdf') =>
     act(async () => {
       const r = await reqApi.exportDoc(projectId, kind, doc.viewing ?? doc.cur, format);
       window.open(r.downloadUrl, '_blank');
@@ -113,7 +113,8 @@ function Toolbar({
           <div className="popover menu">
             <div className="pop-tip" style={{ padding: '4px 10px' }}>下载当前文档 v{doc.viewing ?? doc.cur}</div>
             <button className="act" onClick={() => { setDlOpen(false); doExport('md'); }}>⬇ Markdown (.md)</button>
-            <button className="act" onClick={() => { setDlOpen(false); doExport('html'); }}>⬇ HTML (.html)</button>
+            <button className="act" onClick={() => { setDlOpen(false); doExport('docx'); }}>⬇ Word (.docx)</button>
+            <button className="act" onClick={() => { setDlOpen(false); doExport('pdf'); }}>⬇ PDF (.pdf)</button>
           </div>
         )}
       </div>

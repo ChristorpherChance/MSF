@@ -119,19 +119,19 @@ function Toolbar() {
       <button className="act" disabled={readonly} title="撤销" onClick={() => act(() => designApi.undo(projectId, selKind))}>↩</button>
       <button className="act" disabled={readonly} title="重做" onClick={() => act(() => designApi.redo(projectId, selKind))}>↪</button>
       <div className="pop-wrap">
-        <button className="act" title="下载当前查看版本（Markdown 本端落盘）" onClick={() => setDlOpen(!dlOpen)}>⬇ 下载 ▾</button>
+        <button className="act" title="下载当前查看版本（服务端导出，审计留痕）" onClick={() => setDlOpen(!dlOpen)}>⬇ 下载 ▾</button>
         {dlOpen && (
           <div className="popover menu">
             <div className="pop-tip" style={{ padding: '4px 10px' }}>下载当前文档 v{doc.viewing ?? doc.cur}</div>
-            <button className="act" onClick={() => {
-              setDlOpen(false);
-              const md = doc.secs.map((s) => (s.title ? `## ${s.title}\n\n${s.md}` : s.md)).join('\n\n');
-              const a = document.createElement('a');
-              a.href = URL.createObjectURL(new Blob([md], { type: 'text/markdown' }));
-              a.download = `${bookTitle}-v${doc.viewing ?? doc.cur}.md`;
-              a.click();
-              URL.revokeObjectURL(a.href);
-            }}>⬇ Markdown (.md)</button>
+            {(['md', 'docx', 'pdf'] as const).map((f) => (
+              <button key={f} className="act" onClick={() => {
+                setDlOpen(false);
+                act(async () => {
+                  const r = await designApi.exportDoc(projectId, selKind, doc.viewing ?? doc.cur, f);
+                  window.open(r.downloadUrl, '_blank');
+                });
+              }}>⬇ {{ md: 'Markdown (.md)', docx: 'Word (.docx)', pdf: 'PDF (.pdf)' }[f]}</button>
+            ))}
           </div>
         )}
       </div>

@@ -72,6 +72,9 @@ export const designApi = {
     api.get<{ items: Array<{ v: number; note: string | null; at: string; finalized: boolean }> }>(`${base(pid)}/docs/${kind}/versions`),
   switchVersion: (pid: string, kind: DesignKind, v: number) =>
     api.post(`${base(pid)}/docs/${kind}/versions/${v}:switch`, {}),
+  /** L1：服务端导出（md/docx/pdf，审计留痕；与 req 域同构） */
+  exportDoc: (pid: string, kind: DesignKind, v: number, format: 'md' | 'html' | 'docx' | 'pdf') =>
+    api.post<{ downloadUrl: string; format: string }>(`${base(pid)}/docs/${kind}/versions/${v}:export`, { format }),
   listPatches: (pid: string, kind: DesignKind) => api.get<{ items: PatchItem[] }>(`${base(pid)}/docs/${kind}/patches`),
   acceptPatch: (pid: string, kind: DesignKind, patchId: string) =>
     api.post(`${base(pid)}/docs/${kind}/patches/${patchId}:accept`, {}),

@@ -9,6 +9,8 @@ import { DesignGenerateService } from './generate.service.js';
 import { CatalogService } from './catalog.service.js';
 import { PrototypeService } from './prototype.service.js';
 import { ReviewService } from './review.service.js';
+import { DesignExportService } from './export.service.js';
+import type { ExportFormat } from '../platform/doc-export.js';
 
 /**
  * 设计域端点（LLD-5 DSG-A05-1~13；REQ-301~312）。
@@ -22,6 +24,7 @@ export class DesignController {
     @Inject(CatalogService) private readonly catalog: CatalogService,
     @Inject(PrototypeService) private readonly proto: PrototypeService,
     @Inject(ReviewService) private readonly reviews: ReviewService,
+    @Inject(DesignExportService) private readonly exp: DesignExportService,
   ) {}
 
   private actor(req: Request, projectId: string) {
@@ -152,6 +155,19 @@ export class DesignController {
   @Get('docs/:kind/versions')
   versions(@Param('projectId') projectId: string, @Param('kind') kind: string) {
     return this.docs.listVersions(projectId, this.assertKind(kind));
+  }
+
+  /** 设计册导出（L1：md/html/docx/pdf 落 MinIO + 签名 URL + 审计留痕，与 req A04-13 同构） */
+  @Post('docs/:kind/versions/:v\\:export')
+  @HttpCode(202)
+  export(
+    @Param('projectId') projectId: string,
+    @Param('kind') kind: string,
+    @Param('v') v: string,
+    @Body() body: { format?: string },
+    @Req() req: Request,
+  ) {
+    return this.exp.export(projectId, this.assertKind(kind), Number(v), (body.format ?? 'md') as ExportFormat, this.actor(req, projectId));
   }
 
   @Post('docs/:kind/versions/:v\\:switch')

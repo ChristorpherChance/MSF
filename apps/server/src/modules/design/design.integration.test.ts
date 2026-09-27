@@ -10,6 +10,7 @@ import { DesignGenerateService, designGenTiming } from './generate.service.js';
 import { CatalogService } from './catalog.service.js';
 import { PrototypeService } from './prototype.service.js';
 import { ReviewService } from './review.service.js';
+import { DesignExportService } from './export.service.js';
 
 const PID = '00000000-0000-0000-0000-0000000000f2';
 const CTX = { projectId: PID, actorKind: 'human' as const, actorId: 'local' };
@@ -38,11 +39,13 @@ describe('Design 设计域（集成，需 DB+MinIO）', async () => {
   const catalog = new CatalogService(docs);
   const proto = new PrototypeService(docs, catalog, new StorageService(), policy);
   const reviews = new ReviewService();
+  const exp = new DesignExportService(new StorageService());
   resetCommands();
   reqDocs.onModuleInit();
   docs.onModuleInit();
   gen.onModuleInit();
   catalog.onModuleInit();
+  exp.onModuleInit();
   proto.onModuleInit();
   reviews.onModuleInit();
 
@@ -294,5 +297,20 @@ describe('Design 设计域（集成，需 DB+MinIO）', async () => {
     expect(link.rowCount).toBe(1);
     const g2 = (await proto.gates(PID, 'develop')) as { issues: Array<{ code: string; target?: string }> };
     expect(g2.issues.filter((i) => i.code === 'L0C_BELOW')).toEqual([]);
+  });
+
+  it('设计册导出（L1）：md/docx/pdf 落 MinIO + 签名 URL + 审计留痕', async () => {
+    const hd = (await docs.getDoc(PID, 'hld')) as { cur: number };
+    const m = (await exp.export(PID, 'hld', hd.cur, 'md', CTX)) as { downloadUrl: string };
+    expect(m.downloadUrl).toContain('.md');
+    for (const [fmt, magic] of [['docx', 'PK'], ['pdf', '%PDF-']] as const) {
+      const x = (await exp.export(PID, 'hld', hd.cur, fmt, CTX)) as { downloadUrl: string };
+      expect(x.downloadUrl).toContain(`.${fmt}`);
+      const bytes = Buffer.from(await (await fetch(x.downloadUrl)).arrayBuffer());
+      expect(bytes.subarray(0, magic.length).toString('latin1')).toBe(magic);
+    }
+    const audit = await query(
+      "SELECT 1 FROM audit_log WHERE project_id=$1 AND command='design.doc.export' AND payload->>'format'='pdf'", [PID]);
+    expect(audit.rowCount).toBeGreaterThan(0);
   });
 });

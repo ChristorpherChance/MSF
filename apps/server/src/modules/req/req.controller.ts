@@ -16,7 +16,7 @@ import { getActor } from '../api/identity.middleware.js';
 import { ReqDocsService } from './docs.service.js';
 import { GenerateService } from './generate.service.js';
 import { RtmService } from './rtm.service.js';
-import { ReqExportService } from './export.service.js';
+import { ReqExportService, type ExportFormat } from './export.service.js';
 
 /**
  * 需求域端点（LLD-5 DSG-A04-1~13 + A04-14 deferred 补充；REQ-201~210）。
@@ -240,7 +240,7 @@ export class ReqController {
     return this.rtm.unmarkDeferred(projectId, kind, code, this.actor(req, projectId));
   }
 
-  /** A04-13 文档导出（md/html 落 MinIO + 签名 URL） */
+  /** A04-13 文档导出（md/html/docx/pdf 落 MinIO + 签名 URL；L1 扩展） */
   @Post('docs/:kind/versions/:v\\:export')
   @HttpCode(202)
   export(
@@ -250,6 +250,6 @@ export class ReqController {
     @Body() body: { format?: string },
     @Req() req: Request,
   ) {
-    return this.exp.export(projectId, this.assertKind(kind), Number(v), (body.format ?? 'md') as 'md' | 'html', this.actor(req, projectId));
+    return this.exp.export(projectId, this.assertKind(kind), Number(v), (body.format ?? 'md') as ExportFormat, this.actor(req, projectId));
   }
 }
