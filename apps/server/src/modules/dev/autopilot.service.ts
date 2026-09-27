@@ -231,13 +231,34 @@ export class DevAutopilotService {
     return { ok: true };
   }
 
-  /** mock runner：每 tickDelayMs 触发一次 tick 直到终态/被停（D-11 BullMQ 链的进程内替身） */
+  /** mock runner：每 tickDelayMs 触发一次 tick 直到终态/被停（D-11 BullMQ 链的进程内替身）
+   *  U-026：tick 失败不得静默空转——记日志，持续 >10s 无进展落 DISPATCH_NO_PROGRESS 阻断（可被「需你处理」看见） */
+  private readonly tickFailures = new Map<string, { first: number; count: number }>();
+
   private kickRunner(projectId: string, runId: string, ctx: CommandContext): void {
     if (this.runners.get(projectId)) return;
     this.runners.set(projectId, true);
     const loop = async (): Promise<void> => {
       if (!this.runners.get(projectId)) return;
-      const done = await this.tick(projectId, runId, ctx).catch(() => false);
+      let done = false;
+      try {
+        done = await this.tick(projectId, runId, ctx);
+        this.tickFailures.delete(projectId);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        const f = this.tickFailures.get(projectId) ?? { first: Date.now(), count: 0 };
+        f.count += 1;
+        this.tickFailures.set(projectId, f);
+        if (f.count === 1 || f.count % 200 === 0) {
+          console.error(`[autopilot] tick 失败 run=${runId} 连续第 ${f.count} 次: ${msg}`);
+        }
+        if (Date.now() - f.first > 10_000) {
+          this.tickFailures.delete(projectId);
+          await this.block(projectId, runId, { code: 'DISPATCH_NO_PROGRESS', message: `派发持续失败：${msg}`, category: 'control' }, ctx)
+            .catch((be) => console.error('[autopilot] 阻断落库失败', be));
+          done = true;
+        }
+      }
       if (done) { this.runners.delete(projectId); return; }
       setTimeout(() => void loop(), devAutopilotTiming.tickDelayMs);
     };

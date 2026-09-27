@@ -33,7 +33,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     } | null;
     throw new ApiError(
       body?.error?.code ?? 'INTERNAL',
-      body?.error?.message ?? res.statusText,
+      // U-005：5xx 无响应体时不裸显英文 statusText，给可理解的人话
+      body?.error?.message ?? (res.status >= 500 ? '服务暂时不可用，请稍后重试' : res.statusText),
       res.status,
       body?.error?.target,
     );

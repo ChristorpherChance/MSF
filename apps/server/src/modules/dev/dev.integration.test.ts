@@ -185,7 +185,9 @@ describe('Dev 开发域（集成，需 DB+MinIO）', async () => {
     commonTask = items.find((t) => t.title === '平台基线接线')!;
     integrationTask = items.find((t) => t.title === '端到端联调')!;
     expect(pageTasks.length).toBeGreaterThanOrEqual(2);
-    expect(integrationTask.batchNo).toBe(99);
+    // U-020/U-024：批次按类型分组编排（common/backend→frontend→integration 殿后，组内每 3 条一批），不再固定 99
+    expect(integrationTask.batchNo).toBe(
+      Math.max(...items.filter((t) => t.title !== '端到端联调').map((t) => t.batchNo ?? 0)) + 1);
     expect(pageTasks[0]!.code).toMatch(/^T-\d{3}$/);
 
     // 覆盖核对：设计项 ↔ 任务双向
@@ -269,10 +271,10 @@ describe('Dev 开发域（集成，需 DB+MinIO）', async () => {
     expect(m3.basis.type).toBe('legacy-manual');
 
     // 详情视图：PR/证据/CI 齐
-    const det = (await tasks.detail(PID, t1!.id)) as unknown as { prs: unknown[]; evidence: unknown[]; ci: unknown[] };
+    const det = (await tasks.detail(PID, t1!.id)) as unknown as { prs: unknown[]; evidence: unknown[]; ciReports: unknown[] };
     expect(det.prs.length).toBe(1);
     expect(det.evidence.length).toBeGreaterThanOrEqual(2); // unit + ai-review
-    expect(det.ci.length).toBeGreaterThanOrEqual(1);
+    expect(det.ciReports.length).toBeGreaterThanOrEqual(1); // U-027：契约字段 ciReports（前端类型即契约）
   });
 
   it('T5 驳回回路：rework → rev++/PR stale/计划失效（F02-5 task.rework）', async () => {

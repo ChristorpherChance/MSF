@@ -70,6 +70,37 @@ export class MaterialsController {
     return this.files.tree(projectId);
   }
 
+  /** 新建目录（U-012：目录全生命周期管理；双树镜像同建） */
+  @Post('folders')
+  createFolder(
+    @Param('projectId') projectId: string,
+    @Body() body: { parentId?: string | null; name: string },
+    @Req() req: Request,
+  ) {
+    const actor = getActor(req);
+    return this.files.createFolder(projectId, body.parentId ?? null, body.name ?? '', {
+      projectId,
+      actorKind: actor.kind,
+      actorId: actor.id,
+    });
+  }
+
+  /** 重命名目录（U-012；双树镜像同行） */
+  @Post('folders/:folderId\\:rename')
+  renameFolder(
+    @Param('projectId') projectId: string,
+    @Param('folderId') folderId: string,
+    @Body() body: { name: string },
+    @Req() req: Request,
+  ) {
+    const actor = getActor(req);
+    return this.files.renameFolder(projectId, folderId, body.name ?? '', {
+      projectId,
+      actorKind: actor.kind,
+      actorId: actor.id,
+    });
+  }
+
   /** 空目录删除（实机走查：树内目录可清理；非空 INVALID_STATE；双树镜像同行删除） */
   @Delete('folders/:folderId')
   @HttpCode(200)

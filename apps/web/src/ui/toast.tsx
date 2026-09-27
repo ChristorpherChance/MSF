@@ -18,7 +18,8 @@ export const useToastStore = create<ToastState>((set) => ({
   push: (text, kind = 'default') => {
     const id = ++seq;
     set((s) => ({ items: [...s.items, { id, text, kind }] }));
-    setTimeout(() => set((s) => ({ items: s.items.filter((t) => t.id !== id) })), 2400);
+    // 错误/警告类 toast 停留更久（2.4s 常被错过，U-005/U-011）
+    setTimeout(() => set((s) => ({ items: s.items.filter((t) => t.id !== id) })), kind === 'warn' ? 6000 : 2400);
   },
   drop: (id) => set((s) => ({ items: s.items.filter((t) => t.id !== id) })),
 }));

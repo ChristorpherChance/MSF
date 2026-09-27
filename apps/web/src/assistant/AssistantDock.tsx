@@ -219,6 +219,11 @@ function DockInner({ global }: { global: boolean }) {
       )}
 
       <div className="chat-input">
+        {!s.currentId && (
+          <div className="conn-lost" style={{ color: 'var(--ink2)' }}>
+            💡 尚无会话：点顶部「＋」新建会话后即可提问；助手会携带当前项目与阶段上下文回答。
+          </div>
+        )}
         {s.quote && (
           <div className="quote-block" title="拖选正文自动引用；发送时随消息附上">
             <span className="qb-main">📎 引用</span>
@@ -228,7 +233,7 @@ function DockInner({ global }: { global: boolean }) {
         )}
         <textarea
           value={input}
-          placeholder={s.ctx === 'req' ? '例：第 4 章补充灾备要求，只改这一处' : '例：重新解析第 3 节表格'}
+          placeholder={!s.currentId ? '先点顶部「＋」新建会话，再开始对话' : s.ctx === 'req' ? '例：第 4 章补充灾备要求，只改这一处' : '例：重新解析第 3 节表格'}
           disabled={!s.currentId || !!s.streaming}
           onChange={(e) => s.setInput(s.ctx, e.target.value)}
           onKeyDown={(e) => {

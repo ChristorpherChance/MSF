@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ConfirmModal } from '../../ui/ConfirmModal';
+import { downloadFile } from '../../ui/download';
 import { tstApi, type PendingHandoff } from './api';
 import { useTstStore } from './store';
 
@@ -96,7 +97,7 @@ export function BatchPlanPanel() {
             <span className="dsg-prefix">{det.immutable ? '不可变快照' : ''} · 接收人 {det.receivedBy} · {new Date(det.receivedAt).toLocaleString()}</span>
             <button className="act" onClick={async () => {
               const e = await tstApi.exportSnapshot(pid, det.batchId);
-              window.open(e.downloadUrl, '_blank');
+              downloadFile(e.downloadUrl);
             }}>导出交接快照</button>
           </div>
           {/* T3 .qa-facts 六格：候选构建/开发自测/设计基线/环境/接收人/接收时间 */}

@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import type { MatParseStatus } from '@msf/shared';
 import { ApiError } from '../../api';
 import { Modal } from '../../ui/Modal';
-import { ConfirmModal } from '../../ui/ConfirmModal';
 import { toast } from '../../ui/toast';
 import { materialApi, type TreeNode } from './api';
 import { useMaterialView } from './store';
@@ -238,14 +237,20 @@ function FolderRow({
   node,
   depth,
   showResults,
+  origin,
 }: {
   node: TreeNode;
   depth: number;
   showResults?: boolean | undefined;
+  /** 原件树行（新建子目录仅原件树可点；解析稿树目录由镜像自动产生） */
+  origin?: boolean | undefined;
 }) {
   const { collapsed, toggleFolder, projectId, refresh } = useMaterialView();
   const [busy, setBusy] = useState(false);
   const [delOpen, setDelOpen] = useState(false);
+  const [delError, setDelError] = useState<string | null>(null);
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [childOpen, setChildOpen] = useState(false);
   const isCollapsed = collapsed[node.id];
   const fileIds = collectFiles(node).map((f) => f.id);
 
@@ -253,11 +258,14 @@ function FolderRow({
   const doDelete = async () => {
     if (!projectId) return;
     setBusy(true);
+    setDelError(null);
     try {
       await materialApi.deleteFolder(projectId, node.id);
+      setDelOpen(false);
       toast('目录已删除', 'success');
     } catch (e) {
-      toast(e instanceof ApiError ? e.message : '目录删除失败', 'warn');
+      // U-011：拒绝原因（如 409「目录非空」）留在弹窗内展示，不静默关窗
+      setDelError(e instanceof ApiError ? e.message : '目录删除失败');
     } finally {
       setBusy(false);
       await refresh();
@@ -273,6 +281,30 @@ function FolderRow({
         <span className="nm" title={node.name}>
           {node.name}
         </span>
+        {origin && (
+          <button
+            className="mini"
+            disabled={busy}
+            title="新建子目录"
+            onClick={(e) => {
+              e.stopPropagation();
+              setChildOpen(true);
+            }}
+          >
+            ＋
+          </button>
+        )}
+        <button
+          className="mini"
+          disabled={busy}
+          title="重命名目录"
+          onClick={(e) => {
+            e.stopPropagation();
+            setRenameOpen(true);
+          }}
+        >
+          ✏️
+        </button>
         <button
           className="mini"
           disabled={busy}
@@ -286,18 +318,39 @@ function FolderRow({
         </button>
       </div>
       {delOpen && (
-        <ConfirmModal
-          title={`删除空目录「${node.name}」`}
-          confirmLabel="删除"
-          body={'双树镜像一并删除；非空目录由服务端拒绝并明示原因。'}
-          onClose={() => setDelOpen(false)}
-          onConfirm={() => void doDelete()}
+        <Modal
+          title={`删除目录「${node.name}」`}
+          onClose={() => { setDelOpen(false); setDelError(null); }}
+          footer={
+            <>
+              <button className="sm" onClick={() => { setDelOpen(false); setDelError(null); }}>取消</button>
+              <button className="sm primary" disabled={busy} onClick={() => void doDelete()}>删除</button>
+            </>
+          }
+        >
+          <p>双树镜像一并删除；非空目录由服务端拒绝并明示原因。</p>
+          {delError && <p style={{ color: 'var(--red)' }}>✕ {delError}</p>}
+        </Modal>
+      )}
+      {renameOpen && (
+        <FolderNameModal
+          title={`重命名目录「${node.name}」`}
+          initial={node.name}
+          onClose={() => setRenameOpen(false)}
+          onSubmit={(name) => materialApi.renameFolder(projectId!, node.id, name)}
+        />
+      )}
+      {childOpen && (
+        <FolderNameModal
+          title={`在「${node.name}」下新建子目录`}
+          onClose={() => setChildOpen(false)}
+          onSubmit={(name) => materialApi.createFolder(projectId!, node.id, name)}
         />
       )}
       {!isCollapsed && (
         <div className="tree-children">
           {(node.children ?? []).map((c) => (
-            <TreeNodeRow key={c.id} node={c} depth={depth + 1} showResults={showResults} />
+            <TreeNodeRow key={c.id} node={c} depth={depth + 1} showResults={showResults} origin={origin} />
           ))}
         </div>
       )}
@@ -305,17 +358,71 @@ function FolderRow({
   );
 }
 
+/** 目录名表单弹窗（U-012 新建/重命名共用；失败原因行内展示不关窗） */
+function FolderNameModal(props: {
+  title: string;
+  initial?: string;
+  onSubmit: (name: string) => Promise<unknown>;
+  onClose: () => void;
+}) {
+  const { refresh } = useMaterialView();
+  const [name, setName] = useState(props.initial ?? '');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const submit = async () => {
+    if (!name.trim() || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await props.onSubmit(name.trim());
+      props.onClose();
+      toast('目录已保存', 'success');
+      await refresh();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : '保存失败');
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Modal
+      title={props.title}
+      onClose={props.onClose}
+      footer={
+        <>
+          <button className="sm" onClick={props.onClose}>取消</button>
+          <button className="sm primary" disabled={!name.trim() || busy} onClick={() => void submit()}>保存</button>
+        </>
+      }
+    >
+      <div className="pm-field">
+        <label>目录名</label>
+        <input
+          type="text"
+          value={name}
+          autoFocus
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') void submit(); }}
+        />
+      </div>
+      {error && <p style={{ color: 'var(--red)' }}>✕ {error}</p>}
+    </Modal>
+  );
+}
+
 function TreeNodeRow({
   node,
   depth,
   showResults,
+  origin,
 }: {
   node: TreeNode;
   depth: number;
   showResults?: boolean | undefined;
+  origin?: boolean | undefined;
 }) {
   return node.type === 'folder' ? (
-    <FolderRow node={node} depth={depth} showResults={showResults} />
+    <FolderRow node={node} depth={depth} showResults={showResults} origin={origin} />
   ) : (
     <FileRow node={node} showResults={showResults} />
   );
@@ -337,7 +444,8 @@ function filterPending(nodes: TreeNode[]): TreeNode[] {
 
 /** 双目录树（§3.2：原始文件·待解析 / 解析文件·Markdown；折叠/勾选/半选/全选为会话态，REQ-106） */
 export function TreePanel() {
-  const { subTab, originalTree, parsedTree, onlyPending, setOnlyPending } = useMaterialView();
+  const { subTab, originalTree, parsedTree, onlyPending, setOnlyPending, projectId } = useMaterialView();
+  const [rootCreateOpen, setRootCreateOpen] = useState(false);
   const original = subTab === 'file' && onlyPending ? filterPending(originalTree) : originalTree;
   const isContent = subTab === 'content';
   return (
@@ -346,6 +454,14 @@ export function TreePanel() {
         <>
           <h4>
             📁 原始文件 · 待解析
+            <button
+              className="mini"
+              style={{ float: 'right', marginLeft: 6 }}
+              title="新建根目录（双树镜像同建）"
+              onClick={() => setRootCreateOpen(true)}
+            >
+              ＋ 目录
+            </button>
             <label style={{ float: 'right', fontWeight: 400, cursor: 'pointer' }}>
               <input
                 type="checkbox"
@@ -355,13 +471,20 @@ export function TreePanel() {
               仅待解析
             </label>
           </h4>
+          {rootCreateOpen && projectId && (
+            <FolderNameModal
+              title="新建根目录"
+              onClose={() => setRootCreateOpen(false)}
+              onSubmit={(name) => materialApi.createFolder(projectId, null, name)}
+            />
+          )}
           {original.length === 0 && (
             <p style={{ color: 'var(--ink2)', fontSize: 13 }}>
               {onlyPending ? '无待解析文件。' : '尚无文件，先上传。'}
             </p>
           )}
           {original.map((n) => (
-            <TreeNodeRow key={n.id} node={n} depth={0} />
+            <TreeNodeRow key={n.id} node={n} depth={0} origin />
           ))}
         </>
       )}

@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import { ApiError } from '../../api';
+import { downloadFile } from '../../ui/download';
 import { tstApi } from './api';
 import { NeedBatch } from './NeedBatch';
 import { useTstStore } from './store';
@@ -179,7 +180,7 @@ function EvidenceLink({ runId, caseId, idx, att }: { runId: string; caseId: stri
       title={`${att.name} · ${(att.size / 1024).toFixed(1)}KB · ${att.by} · ${new Date(att.at).toLocaleString()}`}
       onClick={() => {
         void tstApi.evidenceDownload(pid, runId, caseId, idx)
-          .then((r) => window.open(r.url, '_blank'))
+          .then((r) => downloadFile(r.url))
           .catch((e) => useTstStore.setState({ error: e instanceof ApiError ? `${e.code}: ${e.message}` : '证据下载失败' }));
       }}
     >

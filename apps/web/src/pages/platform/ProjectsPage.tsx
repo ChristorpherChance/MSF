@@ -54,10 +54,11 @@ export function ProjectsPage() {
       .catch(() => undefined);
   }, [refresh]);
 
-  /** 打开：按 stage 字段落到对应阶段（首个未达标门；全部达标落测试验收） */
+  /** 打开：按 stage 字段落到对应阶段（首个未达标门；全部达标落测试验收；U-004：无门禁数据=未启动，落资料阶段） */
   const enter = (p: ProjectRow) => {
     useSession.getState().setProject(p.id, p.name);
     const gates = Array.isArray(p.stage_gates) ? p.stage_gates : [];
+    if (gates.length === 0) { navigate('/material'); return; }
     const firstGap = gates.find((g) => !g.ok);
     navigate(STAGE_ROUTES[firstGap?.stage ?? 'test'] ?? '/material');
   };
@@ -218,6 +219,7 @@ function ProjectModal(props: {
   const [description, setDescription] = useState(props.initial?.description ?? '');
   const [isDemo, setIsDemo] = useState(props.initial?.is_demo ?? false);
   const [busy, setBusy] = useState(false);
+  const navigate = useNavigate();
 
   const save = async () => {
     if (!name.trim() || busy) return;
@@ -226,7 +228,10 @@ function ProjectModal(props: {
       if (props.initial) {
         await platformApi.updateProject(props.initial.id, { name: name.trim(), description });
       } else {
-        await platformApi.createProject(name.trim(), isDemo, description);
+        const created = await platformApi.createProject(name.trim(), isDemo, description);
+        // U-003：创建即切换为当前项目并落资料阶段（新项目从第一段开始）
+        useSession.getState().setProject(created.id, name.trim());
+        navigate('/material');
       }
       await props.onSaved();
     } catch (e) {

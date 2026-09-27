@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, Navigate, NavLink, Route, Routes } from 'react-router-dom';
 import { AssistantDock } from './assistant/AssistantDock';
 import { NotificationBell } from './assistant/NotificationBell';
@@ -58,27 +58,34 @@ function StageNav() {
   );
 }
 
-/** 💰 本月成本（popover 明细：按项目×模型×用途分组，DSG-U02-2） */
+/** 💰 本月成本（popover 明细：按项目×模型×用途分组，DSG-U02-2）
+ *  U-002：挂载即拉取合计（未加载显示 … 而非误导性 $0）；打开 popover 时刷新明细 */
 function CostChip() {
   const [anchor, setAnchor] = useState<DOMRect | null>(null);
   const [rows, setRows] = useState<UsageSummaryRow[]>([]);
-  const [total, setTotal] = useState('0');
+  const [total, setTotal] = useState<string | null>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
 
-  const open = async () => {
-    if (anchor) { setAnchor(null); return; }
+  const load = useCallback(async () => {
     try {
       const r = await platformApi.usageSummary('current');
       setRows(r.items.slice(0, 8));
       setTotal(Number(r.totals.cost).toFixed(4));
-    } catch { /* 静默 */ }
+    } catch { /* 静默，保持 … 态 */ }
+  }, []);
+
+  useEffect(() => { void load(); }, [load]);
+
+  const open = async () => {
+    if (anchor) { setAnchor(null); return; }
+    await load();
     setAnchor(btnRef.current?.getBoundingClientRect() ?? null);
   };
 
   return (
     <>
       <button ref={btnRef} className="topbar-chip" title="本月成本（点击查看明细）" onClick={() => void open()}>
-        💰 ${total}
+        💰 {total === null ? '…' : `$${total}`}
       </button>
       {anchor && (
         <Popover anchor={anchor} onClose={() => setAnchor(null)}>

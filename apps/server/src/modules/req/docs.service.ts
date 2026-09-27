@@ -399,7 +399,7 @@ export class ReqDocsService {
     const effectiveFp = sha256Text(draft?.content ?? cur?.content ?? '');
     return {
       id: doc.id,
-      kind: doc.doc_kind.toUpperCase(),
+      kind: doc.doc_kind,
       cur: cur?.version_no ?? 0,
       viewing,
       finalized: !!doc.final_version_id && doc.final_version_id === doc.current_version_id,

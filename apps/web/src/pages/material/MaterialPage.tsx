@@ -8,7 +8,7 @@ import { DetailView, ViewModeSwitch } from './DetailView';
 import { TreePanel } from './TreePanel';
 import { UploadZone } from './UploadZone';
 import { useMaterialView, type MaterialSubTab } from './store';
-import { GateBanner } from '../../ui/GateBanner';
+import { GateBanner, useStagesStore } from '../../ui/GateBanner';
 import './material.css';
 
 const SUB_TABS: Array<{ key: MaterialSubTab; label: string }> = [
@@ -427,6 +427,35 @@ function BatchBar({ onFinalize }: { onFinalize: (ids: string[]) => void }) {
         await refresh();
       }
     };
+    // U-013：文件定稿批量入口（逐文件走既有 finalize_file 命令，逐条审计；失败逐个汇总）
+    const runBatchFinalizeFile = async () => {
+      if (!projectId) return;
+      const ids = collectCheckedFiles(originalTree, checked);
+      setBusy(true);
+      let ok = 0;
+      const fails: string[] = [];
+      try {
+        for (const id of ids) {
+          try {
+            await materialApi.finalizeFile(projectId, id);
+            ok++;
+          } catch (e) {
+            fails.push(e instanceof ApiError ? e.message : '失败');
+          }
+        }
+        toast(
+          fails.length > 0
+            ? `文件定稿 ${ok}/${ids.length} 成功；拒绝 ${fails.length} 个（${fails[0]}${fails.length > 1 ? ' 等' : ''}）`
+            : `文件定稿完成 ${ok}/${ids.length}`,
+          fails.length > 0 ? 'warn' : 'success',
+        );
+        if (ok > 0) clearChecked();
+        void useStagesStore.getState().load(projectId); // U-015
+      } finally {
+        setBusy(false);
+        await refresh();
+      }
+    };
     return (
       <div className="batch-bar">
         <button
@@ -435,6 +464,14 @@ function BatchBar({ onFinalize }: { onFinalize: (ids: string[]) => void }) {
           onClick={() => void runBatchParse()}
         >
           ⚡ 批量解析（已选 {n}）
+        </button>
+        <button
+          className="act"
+          disabled={busy || n === 0}
+          title="对勾选的已解析文件批量文件定稿（两级定稿的第一级）"
+          onClick={() => void runBatchFinalizeFile()}
+        >
+          ✓ 批量文件定稿（已选 {n}）
         </button>
       </div>
     );

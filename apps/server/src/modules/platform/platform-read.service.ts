@@ -101,21 +101,37 @@ export class PlatformReadService {
     return { items, total: total.rows[0]!.n, page, pageSize };
   }
 
-  /** A02-6 项目事件流（evd_events 直读，游标分页） */
+  /** A02-6 项目事件流（游标分页）
+   *  U-036：主源接通 audit_log（每次命令一条，append-only；排除自动快照噪音命令），
+   *  合并 evd_events（通知/备份等域事件），按时间倒序 */
   async events(projectId: string, q: { cursor?: string; limit?: number }) {
     const params: unknown[] = [projectId];
-    let where = 'project_id=$1';
-    if (q.cursor) { params.push(q.cursor); where += ` AND created_at < $${params.length}`; }
+    let cursorCond = '';
+    if (q.cursor) { params.push(q.cursor); cursorCond = `created_at < $${params.length}`; }
     params.push((q.limit ?? 30) + 1);
     const r = await query<{ id: string; kind: string; payload: unknown; actor_id: string; created_at: string }>(
-      `SELECT id, kind, payload, actor_id, created_at FROM evd_events WHERE ${where}
+      `SELECT * FROM (
+         SELECT 'a-' || seq AS id, command AS kind, payload, actor_id, created_at
+         FROM audit_log
+         WHERE project_id=$1 AND command NOT IN ('platform.stage_gates.snapshot')
+         UNION ALL
+         SELECT 'e-' || id AS id, kind, payload, actor_id, created_at
+         FROM evd_events
+         WHERE project_id=$1
+       ) e
+       WHERE ${cursorCond || 'TRUE'}
        ORDER BY created_at DESC LIMIT $${params.length}`, params);
-    const items = r.rows.slice(0, q.limit ?? 30).map((e) => ({
-      id: e.id, type: e.kind, text: JSON.stringify(e.payload), at: e.created_at, actor: e.actor_id,
-    }));
+    const items = r.rows.slice(0, q.limit ?? 30).map((e) => {
+      const text = JSON.stringify(e.payload);
+      return {
+        id: e.id, type: e.kind, at: e.created_at, actor: e.actor_id,
+        text: text.length > 200 ? `${text.slice(0, 200)}…` : text,
+      };
+    });
     // 事件总数（任务中心 KPI 行「事件数」）
     const total = q.cursor ? undefined : (await query<{ n: number }>(
-      'SELECT count(*)::int AS n FROM evd_events WHERE project_id=$1', [projectId])).rows[0]!.n;
+      `SELECT (SELECT count(*) FROM audit_log WHERE project_id=$1 AND command <> 'platform.stage_gates.snapshot')
+            + (SELECT count(*) FROM evd_events WHERE project_id=$1) AS n`, [projectId])).rows[0]!.n;
     return { items, nextCursor: r.rows.length > (q.limit ?? 30) ? items[items.length - 1]!.at : null, total };
   }
 

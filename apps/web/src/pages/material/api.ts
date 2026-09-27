@@ -64,6 +64,12 @@ export const materialApi = {
   /** 空目录删除（非空目录服务端 INVALID_STATE 拒绝；双树镜像同行） */
   deleteFolder: (pid: string, folderId: string) =>
     api.del<{ deleted: string; mirror: string | null }>(`${base(pid)}/folders/${folderId}`),
+  /** 新建目录（U-012；parentId 为空=根目录；双树镜像同建） */
+  createFolder: (pid: string, parentId: string | null, name: string) =>
+    api.post<{ folderId: string }>(`${base(pid)}/folders`, { parentId, name }),
+  /** 重命名目录（U-012；双树镜像同行） */
+  renameFolder: (pid: string, folderId: string, name: string) =>
+    api.post(`${base(pid)}/folders/${folderId}:rename`, { name }),
   parse: (pid: string, fileId: string) => api.post(`${base(pid)}/files/${fileId}:parse`, {}),
   retryParse: (pid: string, fileId: string) =>
     api.post(`${base(pid)}/files/${fileId}:retry-parse`, {}),

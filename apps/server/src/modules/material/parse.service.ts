@@ -26,6 +26,9 @@ export class MockParseEngine implements ParseEngine {
 
 const sha256 = (b: Buffer | string): string => createHash('sha256').update(b).digest('hex');
 
+/** 解析超时（U-008：AI 调用无限挂起防护）；超时按失败落态可重试 */
+const PARSE_TIMEOUT_MS = Number(process.env.MSF_PARSE_TIMEOUT_MS ?? 10 * 60 * 1000);
+
 @Injectable()
 export class ParseService {
   // 显式 @Inject：vitest(esbuild) 不产 design:paramtypes 元数据
@@ -316,13 +319,25 @@ export class ParseService {
       { projectId, fileId, operationId, retry },
       { ...ctx, projectId },
     );
-    // autoRun=false 供测试确定性驱动（手动 runParse）；生产默认 fire-and-forget
-    if (opts.autoRun !== false) this.runParse(projectId, fileId, operationId, ctx).catch(() => undefined);
+    // autoRun=false 供测试确定性驱动（手动 runParse）；生产默认 fire-and-forget（错误须可见，U-009）
+    if (opts.autoRun !== false) {
+      this.runParse(projectId, fileId, operationId, ctx).catch((e) =>
+        console.error(`[parse] 执行链异常 file=${fileId} op=${operationId}:`, e));
+    }
     return started;
+  }
+
+  /** 启动恢复（U-006）：进程重启后 parsing 僵尸一律落 failed，可经重试入口恢复 */
+  async onApplicationBootstrap(): Promise<void> {
+    const r = await query(
+      "UPDATE mat_files SET parse_status='failed', parse_error='服务重启导致解析中断，请重试' WHERE parse_status='parsing'",
+    );
+    if ((r.rowCount ?? 0) > 0) console.warn(`[parse] 启动恢复：${r.rowCount} 个 parsing 僵尸文件落 failed（可重试）`);
   }
 
   /** 解析执行（异步）：引擎产出 → parse_finish 命令；测试可 await 本方法拿到终态 */
   async runParse(projectId: string, fileId: string, operationId: string, ctx: CommandContext): Promise<void> {
+    const startedAt = Date.now();
     const r = await query<MatFile>('SELECT * FROM mat_files WHERE id=$1', [fileId]);
     const file = r.rows[0];
     if (!file) return;
@@ -330,17 +345,23 @@ export class ParseService {
     let bodyMd: string | undefined;
     let error: string | undefined;
     try {
+      console.warn(`[parse] 开始 file=${fileId} name=${file.name} op=${operationId}`);
       const content = await this.storage.getObject(file.object_key);
-      bodyMd = await this.engine.parse(file, content);
+      bodyMd = await Promise.race([
+        this.engine.parse(file, content),
+        new Promise<never>((_, rej) => setTimeout(() => rej(new Error(`解析超时（>${Math.round(PARSE_TIMEOUT_MS / 60000)} 分钟）`)), PARSE_TIMEOUT_MS)),
+      ]);
     } catch (e) {
       ok = false;
       error = e instanceof Error ? e.message : String(e);
+      console.error(`[parse] 失败 file=${fileId} name=${file.name} 耗时 ${Date.now() - startedAt}ms: ${error}`);
     }
     await executeCommand(
       'material.file.parse_finish',
       { projectId, fileId, operationId, ok, bodyMd, error },
       { ...ctx, projectId, actorKind: 'system', actorId: 'parse-engine' },
     );
+    if (ok) console.warn(`[parse] 完成 file=${fileId} name=${file.name} 耗时 ${Date.now() - startedAt}ms`);
   }
 
   async finalizeFile(projectId: string, fileId: string, ctx: CommandContext): Promise<unknown> {

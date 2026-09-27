@@ -76,11 +76,76 @@ export class FilesService {
       await client.query('DELETE FROM mat_folder_tree WHERE id = ANY($1::uuid[])', [ids]);
       return { deleted: folderId, mirror: folder.mirror_id };
     });
+
+    // 新建目录（U-012：目录全生命周期管理；原件树建行 + 解析稿树镜像行，mirror_id 互指）
+    registerCommand('material.folder.create', async (client, payload, ctx) => {
+      const { projectId, parentId, name } = payload as { projectId: string; parentId: string | null; name: string };
+      const trimmed = name.trim();
+      if (!trimmed) throw new DomainError('VALIDATION_FAILED', '目录名不能为空', 'name');
+      if (/[/\\]/.test(trimmed)) throw new DomainError('VALIDATION_FAILED', '目录名不能含路径分隔符', 'name');
+      let parent: MatFolderNode | null = null;
+      if (parentId) {
+        const pr = await client.query<MatFolderNode>(
+          "SELECT * FROM mat_folder_tree WHERE id=$1 AND project_id=$2 AND tree='original' FOR UPDATE",
+          [parentId, projectId]);
+        parent = pr.rows[0] ?? null;
+        if (!parent) throw new DomainError('NOT_FOUND', '父目录不存在', parentId);
+      }
+      const dup = await client.query<{ n: string }>(
+        "SELECT count(*)::int AS n FROM mat_folder_tree WHERE project_id=$1 AND tree='original' AND parent_id IS NOT DISTINCT FROM $2 AND lower(name)=lower($3)",
+        [projectId, parentId, trimmed]);
+      if (Number(dup.rows[0]?.n ?? 0) > 0) throw new DomainError('INVALID_STATE', '同级已存在同名目录', trimmed);
+      const sort = await client.query<{ n: number }>(
+        "SELECT coalesce(max(sort_no),0)+1 AS n FROM mat_folder_tree WHERE project_id=$1 AND tree='original' AND parent_id IS NOT DISTINCT FROM $2",
+        [projectId, parentId]);
+      const o = await client.query<{ id: string }>(
+        `INSERT INTO mat_folder_tree (project_id, tree, parent_id, name, sort_no, created_by)
+         VALUES ($1,'original',$2,$3,$4,$5) RETURNING id`,
+        [projectId, parentId, trimmed, sort.rows[0]!.n, ctx.actorId]);
+      const m = await client.query<{ id: string }>(
+        `INSERT INTO mat_folder_tree (project_id, tree, parent_id, name, sort_no, created_by)
+         VALUES ($1,'parsed',$2,$3,$4,$5) RETURNING id`,
+        [projectId, parent?.mirror_id ?? null, trimmed, sort.rows[0]!.n, ctx.actorId]);
+      await client.query('UPDATE mat_folder_tree SET mirror_id=$2 WHERE id=$1', [o.rows[0]!.id, m.rows[0]!.id]);
+      await client.query('UPDATE mat_folder_tree SET mirror_id=$2 WHERE id=$1', [m.rows[0]!.id, o.rows[0]!.id]);
+      return { folderId: o.rows[0]!.id, mirror: m.rows[0]!.id, name: trimmed };
+    });
+
+    // 重命名目录（U-012；双树镜像同行改名，同名冲突拒绝）
+    registerCommand('material.folder.rename', async (client, payload) => {
+      const { projectId, folderId, name } = payload as { projectId: string; folderId: string; name: string };
+      const trimmed = name.trim();
+      if (!trimmed) throw new DomainError('VALIDATION_FAILED', '目录名不能为空', 'name');
+      if (/[/\\]/.test(trimmed)) throw new DomainError('VALIDATION_FAILED', '目录名不能含路径分隔符', 'name');
+      const r = await client.query<MatFolderNode>(
+        'SELECT * FROM mat_folder_tree WHERE id=$1 AND project_id=$2 FOR UPDATE', [folderId, projectId]);
+      const folder = r.rows[0];
+      if (!folder) throw new DomainError('NOT_FOUND', '目录不存在', folderId);
+      const ids = folder.mirror_id ? [folderId, folder.mirror_id] : [folderId];
+      const dup = await client.query<{ n: string }>(
+        `SELECT count(*)::int AS n FROM mat_folder_tree
+         WHERE project_id=$1 AND tree=$2 AND parent_id IS NOT DISTINCT FROM $3 AND lower(name)=lower($4)
+           AND NOT (id = ANY($5::uuid[]))`,
+        [projectId, folder.tree, folder.parent_id, trimmed, ids]);
+      if (Number(dup.rows[0]?.n ?? 0) > 0) throw new DomainError('INVALID_STATE', '同级已存在同名目录', trimmed);
+      await client.query('UPDATE mat_folder_tree SET name=$2 WHERE id = ANY($1::uuid[])', [ids, trimmed]);
+      return { folderId, name: trimmed, mirror: folder.mirror_id };
+    });
   }
 
   /** 空目录删除门面 */
   async deleteFolder(projectId: string, folderId: string, ctx: CommandContext): Promise<unknown> {
     return executeCommand('material.folder.delete', { projectId, folderId }, { ...ctx, projectId });
+  }
+
+  /** 新建目录门面（U-012：目录全生命周期管理；双树镜像同建） */
+  async createFolder(projectId: string, parentId: string | null, name: string, ctx: CommandContext): Promise<unknown> {
+    return executeCommand('material.folder.create', { projectId, parentId, name }, { ...ctx, projectId });
+  }
+
+  /** 重命名目录门面（U-012；双树镜像同行改名） */
+  async renameFolder(projectId: string, folderId: string, name: string, ctx: CommandContext): Promise<unknown> {
+    return executeCommand('material.folder.rename', { projectId, folderId, name }, { ...ctx, projectId });
   }
 
   /** A03-5 双目录树：原件树与解析稿树一一对应（mirror_id 互指；原件树只增不改 REQ-105） */
@@ -316,15 +381,15 @@ function buildTree(
 }
 
 /**
- * 解析稿 Markdown 产物名（原型 output() 口径）：
- * 原文件名去扩展名 + .md；撞名（大小写不敏感）先退「原全名.md」，再 -2/-3 顺延。
+ * 解析稿 Markdown 产物名（U-007 统一替换式口径）：
+ * 原文件名去扩展名 + .md；撞名（大小写不敏感）一律 -2/-3 顺延，不再退「原全名.md」
+ * （x.txt 与 x.md 同批上传时产出 x.md / x-2.md，规则单一可预期）。
  * 输入须按 created_at 排序，保证同一批文件命名稳定。
  */
 function parsedMdNames(rows: Array<{ file_name: string }>): string[] {
   const used = new Set<string>();
   return rows.map(({ file_name }) => {
     let p = file_name.replace(/\.[^/.]+$/, '') + '.md';
-    if (used.has(p.toLowerCase())) p = file_name + '.md';
     const base = p;
     let n = 2;
     while (used.has(p.toLowerCase())) p = base.replace(/\.md$/, `-${n++}.md`);

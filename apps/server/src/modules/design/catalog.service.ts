@@ -53,12 +53,29 @@ export class CatalogService {
       const secs = splitSections(prd.rows[0]?.content ?? '');
       const reqSecs = secs.filter((s) => /\bREQ-\d{3}\b/.test(s.title));
 
+      // U-019：页面粒度优先锚已定稿 UI 册的页面清单章节（标题含「页面/界面」的章节），
+      // 页面数随 UI 册设计口径而非 REQ 条数；UI 册未定稿或无页面章节时回退「PRD 一章一页」
+      const uiDoc = await client.query<{ content: string }>(
+        `SELECT v.content FROM dsg_documents d JOIN dsg_versions v ON v.id=d.final_version_id
+         WHERE d.project_id=$1 AND d.doc_kind='ui'`, [projectId]);
+      const uiSecs = splitSections(uiDoc.rows[0]?.content ?? '')
+        .filter((s) => s.title && /(页面|界面|页\s*$)/.test(s.title));
+      const pageSeeds: Array<{ title: string; reqIds: string[] }> = uiSecs.length > 0
+        ? uiSecs.map((s) => ({
+            title: s.title,
+            reqIds: [...new Set([...`${s.title}\n${s.md}`.matchAll(/\bREQ-\d{3}\b/g)].map((m) => m[0]))],
+          }))
+        : reqSecs.map((s) => ({
+            title: s.title.replace(/^REQ-\d{3}\s*/, ''),
+            reqIds: [(/\bREQ-\d{3}\b/.exec(s.title))![0]],
+          }));
+
       interface ItemSeed { type: string; code: string; payload: Record<string, unknown>; required: boolean }
       const items: ItemSeed[] = [
-        ...reqSecs.map((s, i) => ({
+        ...pageSeeds.map((p, i) => ({
           type: 'page',
           code: `P-${String(i + 1).padStart(3, '0')}`,
-          payload: { title: s.title.replace(/^REQ-\d{3}\s*/, ''), route: `/p${i + 1}`, reqIds: [(/\bREQ-\d{3}\b/.exec(s.title))![0]] },
+          payload: { title: p.title, route: `/p${i + 1}`, reqIds: p.reqIds },
           required: true,
         })),
         { type: 'page', code: 'P-HOME', payload: { title: '首页', route: '/', reqIds: [] }, required: true },

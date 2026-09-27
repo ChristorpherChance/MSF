@@ -486,7 +486,7 @@ export class DevTasksService {
        ORDER BY received_at DESC LIMIT 5`,
       [projectId, taskId]);
     const row = t.rows[0] as Record<string, unknown>;
-    return { ...this.toView(row, true), effort: row.effort, specIssuesFull: specIssues(row), prs: prs.rows, evidence: evd.rows, ci: ci.rows };
+    return { ...this.toView(row, true), effort: row.effort, specIssuesFull: specIssues(row), prs: prs.rows, evidence: evd.rows, ciReports: ci.rows };
   }
 
   /** A06-4 写入范围冲突（与进行中任务重叠可检出） */
@@ -540,6 +540,26 @@ export class DevTasksService {
   }
 }
 
+/** 任务类型关键词启发式（U-020/U-024：mock 识别无 AI 语义分类时的确定性近似——
+ *  按条目标题关键词归类 frontend/backend/common/integration，批次按类型分组编排） */
+const BACKEND_RE = /(接口|服务|后端|API|数据库|集成|拉取|同步|webhook|CI|CD|流水线|工作流|网关|扫描|解析|存储|权限|认证|调度|导出|部署|监控|报告)/i;
+const COMMON_RE = /(公共|基础|框架|基线|脚手架|组件库)/;
+const INTEG_RE = /(联调|端到端|冒烟|e2e)/i;
+
+function classifyKind(title: string): 'frontend' | 'backend' | 'common' | 'integration' {
+  if (INTEG_RE.test(title)) return 'integration';
+  if (COMMON_RE.test(title)) return 'common';
+  if (BACKEND_RE.test(title)) return 'backend';
+  return 'frontend';
+}
+
+const KIND_META: Record<string, { prefix: string; dir: string }> = {
+  frontend: { prefix: '页面实现', dir: 'src/pages' },
+  backend: { prefix: '服务实现', dir: 'src/server' },
+  common: { prefix: '公共实现', dir: 'src/common' },
+  integration: { prefix: '联调实现', dir: 'e2e' },
+};
+
 /** mock 任务规格派生：页面条目 → frontend 任务；骨架 common/integration（REQ-402 规格全字段） */
 /** 目录条目 → 任务规格（mock 识别口径；identify 与 dev.plan.prepare 的 create-task 建议共用） */
 export function buildTaskSpecs(items: Array<{ item_type: string; code: string; payload: Record<string, unknown> }>) {
@@ -558,18 +578,33 @@ export function buildTaskSpecs(items: Array<{ item_type: string; code: string; p
     sourceIds: string[]; work: unknown[]; inputs: unknown[]; deliverables: unknown[]; acceptance: unknown[];
     quality: typeof quality; deps: string[]; writeScopes: string[]; batchNo: number; effort: string;
   }> = [];
-  pages.forEach((p, i) => {
-    specs.push({
-      title: `页面实现：${(p.payload.title as string) ?? p.code}`,
-      kind: 'frontend', asgType: 'agent',
-      goal: `实现页面 ${p.code}`, scope: `src/pages/${p.code}`, boundary: '不改动共享组件库',
-      sourceIds: [p.code],
-      work: [`按目录定义实现 ${p.code} 页面与状态`],
-      inputs: [p.code], deliverables: [`src/pages/${p.code}/index.tsx`],
-      acceptance: [{ item: `页面 ${p.code} 渲染符合目录定义`, pass: false }],
-      quality, deps: [], writeScopes: [`src/pages/${p.code}`], batchNo: 1 + Math.floor(i / 3), effort: 'M',
+  // 批次编排：common → backend → frontend → integration（基础设施先行、联调殿后），组内每 3 条一批
+  const KIND_ORDER = ['common', 'backend', 'frontend', 'integration'];
+  const grouped = new Map<string, typeof pages>();
+  for (const p of pages) {
+    const k = classifyKind(`${(p.payload.title as string) ?? ''} ${p.code}`);
+    if (!grouped.has(k)) grouped.set(k, []);
+    grouped.get(k)!.push(p);
+  }
+  let batchNo = 0;
+  for (const k of KIND_ORDER) {
+    const group = grouped.get(k) ?? [];
+    group.forEach((p, i) => {
+      if (i % 3 === 0) batchNo++;
+      const meta = KIND_META[k]!;
+      const title = (p.payload.title as string) ?? p.code;
+      specs.push({
+        title: `${meta.prefix}：${title}`,
+        kind: k, asgType: 'agent',
+        goal: `实现 ${p.code}（${title}）`, scope: `${meta.dir}/${p.code}`, boundary: '不改动共享组件库',
+        sourceIds: [p.code],
+        work: [`按目录定义实现 ${p.code}`],
+        inputs: [p.code], deliverables: [`${meta.dir}/${p.code}/index.ts`],
+        acceptance: [{ item: `${p.code} 符合目录定义`, pass: false }],
+        quality, deps: [], writeScopes: [`${meta.dir}/${p.code}`], batchNo, effort: 'M',
+      });
     });
-  });
+  }
   specs.push({
     title: '平台基线接线', kind: 'common', asgType: 'agent',
     goal: '公共基础设施接线', scope: 'src/platform', boundary: '不动页面代码',
@@ -581,7 +616,7 @@ export function buildTaskSpecs(items: Array<{ item_type: string; code: string; p
     goal: '全链路联调', scope: 'e2e', boundary: '只读页面产物',
     sourceIds: flows.map((f) => f.code), work: ['联调与冒烟脚本'], inputs: flows.map((f) => f.code), deliverables: ['e2e/smoke.ts'],
     acceptance: [{ item: '冒烟通过', pass: false }], quality,
-    deps: [], writeScopes: ['e2e'], batchNo: 99, effort: 'M',
+    deps: [], writeScopes: ['e2e'], batchNo: batchNo + 1, effort: 'M',
   });
   return specs;
 }

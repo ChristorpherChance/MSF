@@ -3,8 +3,11 @@ import { useNavigate } from 'react-router-dom';
 import { mdHtml } from '../../md-html';
 import { ApiError } from '../../api';
 import { Modal } from '../../ui/Modal';
+import { ConfirmModal } from '../../ui/ConfirmModal';
 import { StatusChips, type StatusChipItem } from '../../ui/StatusChips';
 import { toast } from '../../ui/toast';
+import { downloadFile } from '../../ui/download';
+import { useStagesStore } from '../../ui/GateBanner';
 import { reqApi, type DocKind, type HealthView, type PatchItem } from './api';
 import { useReqView, type ViewMode } from './store';
 
@@ -83,8 +86,9 @@ function Toolbar({
   const doExport = (format: 'md' | 'docx' | 'pdf') =>
     act(async () => {
       const r = await reqApi.exportDoc(projectId, kind, doc.viewing ?? doc.cur, format);
-      window.open(r.downloadUrl, '_blank');
-    });
+      // U-017：await 后 window.open 被弹窗拦截（丢失用户手势）→ 程序化 a.click 下载
+      downloadFile(r.downloadUrl);
+    }, `已导出 ${format.toUpperCase()}（下载开始）`);
 
   return (
     <div className="doc-toolbar req-toolbar">
@@ -442,6 +446,7 @@ function Paper({ kind, readonly }: { kind: DocKind; readonly: boolean }) {
           {pendCount > 0 && (
             <span className="tag tag-warn" title="待确认补丁：在下方各章节行内逐条接受或拒绝（REQ-205）">补丁 ×{pendCount}</span>
           )}
+          {pendCount > 1 && !readonly && <PatchBulk kind={kind} />}
         </h1>
         {doc.secs.map((s) => (
           <section key={s.id} id={`sec-${s.id}`} className={`sect${tocFlash === s.id ? ' flash' : ''}`}>
@@ -543,6 +548,54 @@ function SectionEditor({ kind, secId, md, readonly }: { kind: DocKind; secId: st
         </Modal>
       )}
     </div>
+  );
+}
+
+/** 补丁批量处置（U-016）：整篇生成产出数十条补丁时一键全收/全拒；逐条调用既有命令（逐条审计），二次确认 */
+function PatchBulk({ kind }: { kind: DocKind }) {
+  const { projectId, patches, refresh } = useReqView();
+  const [busy, setBusy] = useState(false);
+  const [confirmOp, setConfirmOp] = useState<'accept' | 'reject' | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+  if (!projectId) return null;
+  const pending = patches.filter((p) => p.status === 'pending');
+  if (pending.length < 2) return null;
+  const run = async (op: 'accept' | 'reject') => {
+    setBusy(true);
+    setMsg(null);
+    let done = 0;
+    try {
+      for (const p of pending) {
+        if (op === 'accept') await reqApi.acceptPatch(projectId, kind, p.patchId);
+        else await reqApi.rejectPatch(projectId, kind, p.patchId);
+        done += 1;
+      }
+      toast(`已${op === 'accept' ? '接受' : '拒绝'} ${done} 条补丁`, 'success');
+    } catch (e) {
+      setMsg(`${e instanceof ApiError ? e.message : '批量操作失败'}（已完成 ${done}/${pending.length}，剩余可重试）`);
+    } finally {
+      setBusy(false);
+      setConfirmOp(null);
+      await refresh();
+    }
+  };
+  return (
+    <span className="patch-bulk">
+      <button className="act primary sm" disabled={busy} title="逐条接受全部待确认补丁（逐条留审计）"
+        onClick={() => setConfirmOp('accept')}>✓ 全部接受</button>
+      <button className="act sm" disabled={busy} title="逐条拒绝全部待确认补丁"
+        onClick={() => setConfirmOp('reject')}>✕ 全部拒绝</button>
+      {msg && <span className="rsn err">{msg}</span>}
+      {confirmOp && (
+        <ConfirmModal
+          title={confirmOp === 'accept' ? '全部接受补丁' : '全部拒绝补丁'}
+          body={`将逐条${confirmOp === 'accept' ? '接受' : '拒绝'}当前 ${pending.length} 条待确认补丁（逐条留审计，REQ-205 确认语义不变）。\n接受 = 并入草稿；拒绝 = 丢弃提案。`}
+          confirmLabel={confirmOp === 'accept' ? '全部接受' : '全部拒绝'}
+          onClose={() => setConfirmOp(null)}
+          onConfirm={() => void run(confirmOp)}
+        />
+      )}
+    </span>
   );
 }
 
@@ -655,7 +708,7 @@ function FinalizeModal({ kind, onClose }: { kind: DocKind; onClose: () => void }
   const submit = () => {
     setMsg(null);
     void reqApi.finalize(pid, kind, doc.cur, doc.cur)
-      .then(() => { onClose(); })
+      .then(() => { onClose(); void useStagesStore.getState().load(pid); }) // U-015：定稿后刷新准入门禁
       .catch((e) => setMsg(e instanceof ApiError ? `${e.code}: ${e.message}` : '定稿失败'))
       .finally(() => void refresh());
   };

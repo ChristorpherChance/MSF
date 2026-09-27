@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>地毯式使用方案 · MSF 软件工厂</title>
+<style>
+  :root { --ink:#1f2329; --ink2:#646a73; --line:#dee0e3; --blue:#3370ff; --blue-soft:#e1eaff; --canvas:#f5f6f7; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.75 "Microsoft YaHei","PingFang SC",sans-serif; color:var(--ink); background:var(--canvas); }
+  .wrap { max-width:1080px; margin:0 auto; padding:32px 28px 80px; background:#fff; min-height:100vh; }
+  h1 { font-size:24px; border-bottom:2px solid var(--blue); padding-bottom:10px; }
+  h2 { font-size:18px; margin-top:36px; border-left:4px solid var(--blue); padding-left:10px; }
+  h3 { font-size:15px; margin-top:24px; color:var(--blue); }
+  .meta { color:var(--ink2); background:var(--canvas); border:1px solid var(--line); border-radius:8px; padding:12px 16px; }
+  .meta b { color:var(--ink); }
+  table { border-collapse:collapse; width:100%; margin:10px 0 18px; font-size:13px; }
+  th { background:var(--blue-soft); text-align:left; }
+  th, td { border:1px solid var(--line); padding:6px 10px; vertical-align:top; }
+  tr:nth-child(even) td { background:#fafbfc; }
+  ol li { margin:4px 0; }
+  .tag { display:inline-block; background:var(--blue-soft); color:var(--blue); border-radius:4px; padding:0 8px; font-size:12px; }
+  .warn { background:#fff3e0; color:#d46b08; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>地毯式使用方案：以产品使用团队视角全流程使用 MSF 软件工厂</h1>
+<div class="meta">
+  <b>日期</b>：2026-09-27<br>
+  <b>角色设定</b>：产品使用团队的一名工程师，拿到真实需求输入（智能代码审查系统设计说明书），用本平台从零交付一个软件项目。<br>
+  <b>与开发走查的区别</b>：不走后门、不直连数据库、不调用测试钩子；一切操作经 Web UI（个别 UI 未覆盖的查询用只读 API 佐证）。发现问题不现场修，记入《地毯式使用-问题与疑问.md》。<br>
+  <b>使用对象</b>：本地部署实例（apps/web :5173 + apps/server :8080 + postgres/minio/redis，AI 走 pi 真实网关）。
+</div>
+
+<h2>一、使用目标</h2>
+<ol>
+  <li>验证「资料 → 需求 → 设计 → 开发 → 测试验收」五阶段主线能否由真实用户独立走通，不依赖开发者知识。</li>
+  <li>地毯式覆盖每个页面的每个可操作控件（按钮/页签/过滤/弹窗/空态/错误态），而非只走 happy path。</li>
+  <li>记录三类发现：<span class="tag">系统问题</span>（报错/卡死/数据错误）<span class="tag warn">体验疑问</span>（不知道该点什么/文案看不懂/流程断点）<span class="tag">改进建议</span>（能做但绕路）。</li>
+</ol>
+
+<h2>二、前置检查（S0）</h2>
+<table>
+  <tr><th>步骤</th><th>操作</th><th>预期</th></tr>
+  <tr><td>0.1</td><td>打开首页 /projects</td><td>项目列表、新建入口、归档区可见；导航栏五阶段+Task+委派+设置可达</td></tr>
+  <tr><td>0.2</td><td>检查既有项目卡片</td><td>阶段标签、成本、操作按钮（编辑/进入/归档）语义自明</td></tr>
+  <tr><td>0.3</td><td>新建项目「地毯使用-智能代码审查系统」</td><td>创建后落到资料阶段；空态引导语看得懂</td></tr>
+  <tr><td>0.4</td><td>项目编辑/描述、切换项目</td><td>当前项目标识清晰，切换不串数据</td></tr>
+</table>
+<p><b>输入材料</b>：<code>test/赛道3-基于n8n的智能代码审查与质量管理系统--设计说明书.pdf</code> 作主输入；另造 md/txt/docx/zip 各一份试探格式覆盖与 ZIP 安全校验。</p>
+
+<h2>三、分阶段场景</h2>
+
+<h3>S1 资料域（把原始输入变成「已定稿参考」）</h3>
+<table>
+  <tr><th>#</th><th>场景</th><th>覆盖点</th></tr>
+  <tr><td>1.1</td><td>上传主 PDF（分片上传）</td><td>进度、完成后解析状态、去重提示</td></tr>
+  <tr><td>1.2</td><td>上传 md/txt/docx 各一</td><td>扩展名接纳、解析成功率</td></tr>
+  <tr><td>1.3</td><td>上传 zip（含嵌套目录）</td><td>ZIP 校验链行为、拒绝文案是否人话</td></tr>
+  <tr><td>1.4</td><td>目录管理</td><td>新建/重命名/删除空目录/删除非空目录的守卫</td></tr>
+  <tr><td>1.5</td><td>解析结果查看与编辑</td><td>双树、三态编辑器、保存草稿</td></tr>
+  <tr><td>1.6</td><td>内容定稿（单件+批量）</td><td>定稿门禁、批量弹窗五态、失败行级反馈</td></tr>
+  <tr><td>1.7</td><td>文件删除</td><td>引用守卫、留痕语义</td></tr>
+  <tr><td>1.8</td><td>参考资料候选确认</td><td>verifyReferences 供下游</td></tr>
+</table>
+
+<h3>S2 需求域（CRD/PRD 定稿，RTM 健康达标）</h3>
+<table>
+  <tr><th>#</th><th>场景</th><th>覆盖点</th></tr>
+  <tr><td>2.1</td><td>生成 CRD（勾选参考资料）</td><td>参考选择、SSE 流式过程、指纹透出</td></tr>
+  <tr><td>2.2</td><td>CRD 编辑与补丁处置</td><td>逐节编辑、乐观锁冲突提示、补丁接受/拒绝+理由</td></tr>
+  <tr><td>2.3</td><td>定稿 CRD</td><td>定稿后只读、版本固定</td></tr>
+  <tr><td>2.4</td><td>生成 PRD（基于 CRD）</td><td>上游引用、生成中取消/暂停语义</td></tr>
+  <tr><td>2.5</td><td>PRD 定稿 + RTM 门禁</td><td>L0 四指标实算、缺口提示是否可行动</td></tr>
+  <tr><td>2.6</td><td>导出 docx/pdf/md</td><td>文件名、内容完整性</td></tr>
+  <tr><td>2.7</td><td>RTM 页</td><td>四层级表、deferred 行、反向追溯</td></tr>
+</table>
+
+<h3>S3 设计域（八册定稿 + 原型定稿 + 基线确认）</h3>
+<table>
+  <tr><th>#</th><th>场景</th><th>覆盖点</th></tr>
+  <tr><td>3.1</td><td>生成 HLD（📚参考资料 popover）</td><td>默认上游+追加勾选、参考装配口径</td></tr>
+  <tr><td>3.2</td><td>其余七册依次生成定稿</td><td>册间一致性、定稿门禁</td></tr>
+  <tr><td>3.3</td><td>设计评审 DR</td><td>问题提出/解决/重开</td></tr>
+  <tr><td>3.4</td><td>原型：识别→生成→检查→定稿</td><td>目录条目、UI 检查矩阵、锚点</td></tr>
+  <tr><td>3.5</td><td>原型页追溯区</td><td>需求/锚点/任务/流程四组反查</td></tr>
+  <tr><td>3.6</td><td>确认共同基线</td><td>基线工件表、指纹、失效演示</td></tr>
+  <tr><td>3.7</td><td>导出设计册 docx/pdf</td><td>文件名带册名与版本</td></tr>
+</table>
+
+<h3>S4 开发域（准备计划→批准→自动执行→转测试）</h3>
+<table>
+  <tr><th>#</th><th>场景</th><th>覆盖点</th></tr>
+  <tr><td>4.1</td><td>✦ 准备计划</td><td>建议生成（create-task/patch-task）、六指标、proposals 卡四态</td></tr>
+  <tr><td>4.2</td><td>建议处置</td><td>采用/不采用/查看修订 modal、旧修订只读、指纹变化</td></tr>
+  <tr><td>4.3</td><td>批准并自动执行</td><td>未处置拦截、新鲜度失效提示、ConfirmModal 双联</td></tr>
+  <tr><td>4.4</td><td>看板观察自动执行</td><td>阶段标签、任务卡流转、失败 blocker 呈现</td></tr>
+  <tr><td>4.5</td><td>人工任务处理</td><td>HUMAN_TASK_REQUIRED 阻断、人工接管</td></tr>
+  <tr><td>4.6</td><td>手动操作条</td><td>识别/核对覆盖/完善任务/编排计划/提交版本</td></tr>
+  <tr><td>4.7</td><td>任务详情编辑</td><td>全字段表单、规格问题实时提示、覆盖确认</td></tr>
+  <tr><td>4.8</td><td>暂停/停止/接管运行</td><td>token 旋转语义的用户可感知面</td></tr>
+  <tr><td>4.9</td><td>自测四门与报告</td><td>单测/PR/构建/项目自测、报告导出</td></tr>
+  <tr><td>4.10</td><td>变更管理</td><td>影响处置、基线重确认、计划与审计时间线</td></tr>
+  <tr><td>4.11</td><td>确认转测试</td><td>门禁、人工确认、交接单</td></tr>
+</table>
+
+<h3>S5 测试验收域（批次→执行→缺陷→报告→放行决定）</h3>
+<table>
+  <tr><th>#</th><th>场景</th><th>覆盖点</th></tr>
+  <tr><td>5.1</td><td>创建测试批次</td><td>用例计划版本化</td></tr>
+  <tr><td>5.2</td><td>执行用例 + 人工验证记录</td><td>两级执行、通过/失败证据</td></tr>
+  <tr><td>5.3</td><td>缺陷→修复回流→回归关闭</td><td>缺陷五态、阻塞语义</td></tr>
+  <tr><td>5.4</td><td>汇总报告</td><td>结论横幅、定稿不通过的路径</td></tr>
+  <tr><td>5.5</td><td>人工交付决定（放行/不放行）</td><td>不可变留痕、导出报告与决定</td></tr>
+</table>
+
+<h3>S6 横切面（任何阶段顺带观察）</h3>
+<table>
+  <tr><th>#</th><th>场景</th></tr>
+  <tr><td>6.1</td><td>AI 助手 dock（F1）：问答、上下文引用</td></tr>
+  <tr><td>6.2</td><td>委派页：发起/跟踪/重跑</td></tr>
+  <tr><td>6.3</td><td>任务中心：异步作业列表与回执</td></tr>
+  <tr><td>6.4</td><td>通知中心：事件到达与跳转</td></tr>
+  <tr><td>6.5</td><td>设置：AI 模型路由、提示词版本、CI webhook 密钥（只写不读）</td></tr>
+  <tr><td>6.6</td><td>成本台账（💰）：用量记录是否合理</td></tr>
+  <tr><td>6.7</td><td>错误呈现：断网/后端重启后的前端表现、错误码是否人话</td></tr>
+</table>
+
+<h3>S7 压力与边界（选做）</h3>
+<ol>
+  <li>生成中途刷新页面 / 关闭再打开（恢复语义）</li>
+  <li>同一操作连点两次（幂等键行为）</li>
+  <li>两个浏览器标签同时操作同一对象（乐观锁提示）</li>
+</ol>
+
+<h2>四、记录纪律</h2>
+<ol>
+  <li>每完成一个场景立即在《地毯式使用-问题与疑问.md》登记：编号 U-xxx、严重度（阻断/严重/一般/建议）、现象、复现步骤、预期 vs 实际、证据。</li>
+  <li>疑问类（不确定是不是问题）单独标记「疑问」，不猜测结论。</li>
+  <li>本次使用<b>不修代码</b>；所有发现只登记。</li>
+  <li>中文提交一律经 Python/文件写盘（curl -d 经 Git Bash 会 GBK 乱码——已知坑）。</li>
+</ol>
+</div>
+</body>
+</html>

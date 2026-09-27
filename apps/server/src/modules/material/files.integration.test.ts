@@ -161,9 +161,9 @@ describe('FilesService（集成，需 DB+MinIO）', async () => {
       const all = (ns: TreeNode[]): string[] =>
         ns.flatMap((n) => [n.name, ...(n.children ? all(n.children) : [])]);
       const got = all(parsedTree);
-      // 先到先得：pdf → 设计说明书.md；docx 撞名退 设计说明书.docx.md；无扩展名 → readme.md
+      // U-007 统一替换式：先到先得 pdf → 设计说明书.md；docx 撞名顺延 设计说明书-2.md；无扩展名 → readme.md
       expect(got).toContain('设计说明书.md');
-      expect(got).toContain('设计说明书.docx.md');
+      expect(got).toContain('设计说明书-2.md');
       expect(got).toContain('readme.md');
       expect(got).not.toContain('设计说明书.pdf');
     } finally {
@@ -279,5 +279,49 @@ describe('FilesService（集成，需 DB+MinIO）', async () => {
     await svc.deleteFolder(PID, oId, CTX);
     const left = await query('SELECT id FROM mat_folder_tree WHERE id = ANY($1::uuid[])', [[oId, pId, childId]]);
     expect(left.rows).toHaveLength(0);
+  });
+
+  it('material.folder.create/rename：双树镜像同建同行改名；校验空名/分隔符/同级重名（U-012）', async () => {
+    // 根目录新建 → 原件+解析稿双行 mirror 互指
+    const r = (await svc.createFolder(PID, null, '走查目录', CTX)) as { folderId: string; mirror: string };
+    const both = await query<{ id: string; tree: string; name: string; mirror_id: string | null }>(
+      'SELECT id, tree, name, mirror_id FROM mat_folder_tree WHERE id = ANY($1::uuid[]) ORDER BY tree',
+      [[r.folderId, r.mirror]]);
+    expect(both.rows).toHaveLength(2);
+    const orig = both.rows.find((x) => x.tree === 'original')!;
+    const mir = both.rows.find((x) => x.tree === 'parsed')!;
+    expect(orig.name).toBe('走查目录');
+    expect(mir.name).toBe('走查目录');
+    expect(orig.mirror_id).toBe(mir.id);
+    expect(mir.mirror_id).toBe(orig.id);
+
+    // 同级重名（大小写不敏感）→ INVALID_STATE
+    await expect(svc.createFolder(PID, null, '走查目录', CTX)).rejects.toMatchObject({ code: 'INVALID_STATE' });
+    // 空名/分隔符 → VALIDATION_FAILED
+    await expect(svc.createFolder(PID, null, '  ', CTX)).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+    await expect(svc.createFolder(PID, null, 'a/b', CTX)).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+
+    // 子目录（父=原件树 id）→ 解析稿镜像挂到父镜像下
+    const c = (await svc.createFolder(PID, r.folderId, '子册', CTX)) as { folderId: string; mirror: string };
+    const childMirror = await query<{ parent_id: string | null }>(
+      'SELECT parent_id FROM mat_folder_tree WHERE id=$1', [c.mirror]);
+    expect(childMirror.rows[0]!.parent_id).toBe(r.mirror);
+    // 父不存在 → NOT_FOUND
+    await expect(svc.createFolder(PID, randomUUID(), 'x', CTX)).rejects.toMatchObject({ code: 'NOT_FOUND' });
+
+    // 重命名：双树同行改名；同级重名拒绝；不存在 NOT_FOUND
+    await svc.renameFolder(PID, r.folderId, '走查目录-改', CTX);
+    const renamed = await query<{ n: number }>(
+      "SELECT count(*)::int AS n FROM mat_folder_tree WHERE id = ANY($1::uuid[]) AND name='走查目录-改'",
+      [[r.folderId, r.mirror]]);
+    expect(renamed.rows[0]!.n).toBe(2);
+    const b = (await svc.createFolder(PID, null, '临时B', CTX)) as { folderId: string };
+    await expect(svc.renameFolder(PID, b.folderId, '走查目录-改', CTX)).rejects.toMatchObject({ code: 'INVALID_STATE' });
+    await expect(svc.renameFolder(PID, randomUUID(), 'x', CTX)).rejects.toMatchObject({ code: 'NOT_FOUND' });
+
+    // 清理
+    await svc.deleteFolder(PID, b.folderId, CTX);
+    await svc.deleteFolder(PID, c.folderId, CTX);
+    await svc.deleteFolder(PID, r.folderId, CTX);
   });
 });

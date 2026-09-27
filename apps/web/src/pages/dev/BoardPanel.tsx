@@ -14,7 +14,7 @@ const COLS: Array<{ key: DevTask['col']; name: string }> = [
 export function BoardPanel() {
   const s = useDevStore();
   const pid = s.projectId!;
-  const [confirm, setConfirm] = useState<null | 'start' | 'stop'>(null);
+  const [confirm, setConfirm] = useState<null | 'start' | 'stop' | 'takeover'>(null);
   const run = s.autopilot?.run ?? null;
   const approved = s.plans.find((p) => p.state === 'approved');
   const latest = s.plans[0];
@@ -58,7 +58,7 @@ export function BoardPanel() {
             <button className="act" onClick={() => s.act(() => devApi.autopilotControl(pid, 'resume'), '已继续')}>继续</button>
           )}
           {run && ['running', 'paused', 'blocked'].includes(run.status) && (
-            <button className="act" onClick={() => s.act(() => devApi.autopilotControl(pid, 'takeover'), '已人工接管')}>人工接管</button>
+            <button className="act" title="autopilot 停摆，后续派发与推进全部转人工" onClick={() => setConfirm('takeover')}>人工接管</button>
           )}
           {running && (
             <button className="act" onClick={() => setConfirm('stop')}>停止</button>
@@ -73,6 +73,15 @@ export function BoardPanel() {
           body={`计划 ${approved.revision} 指纹：${approved.fingerprint}\n授权范围：开发/单测CI/AI评审/合并/集成构建（不含转测试）`}
           onClose={() => setConfirm(null)}
           onConfirm={() => s.act(() => devApi.autopilotStart(pid, approved.revision, approved.fingerprint), 'autopilot 已启动')}
+        />
+      )}
+      {confirm === 'takeover' && (
+        <ConfirmModal
+          title="人工接管"
+          confirmLabel="确认接管"
+          body={'接管后 autopilot 立即停止派发，任务推进责任全部转交人工（开始/评审/合并均手动）。\n与「停止」不同：授权保留，随时可点「继续」交还 autopilot。'}
+          onClose={() => setConfirm(null)}
+          onConfirm={() => s.act(() => devApi.autopilotControl(pid, 'takeover'), '已人工接管')}
         />
       )}
       {confirm === 'stop' && (
@@ -175,7 +184,10 @@ function BoardCard({ t }: { t: DevTask }) {
       </div>
       <div className="v17-cardtitle">{t.title}</div>
       <div className="v17-meta">
-        批次 {t.batchNo ?? '—'} · {asgIcon(t.ownerType)} {t.owner}
+        批次 {t.batchNo ?? '—'} · {asgIcon(t.ownerType)}{' '}
+        <span title={t.owner === 'mock-agent' ? '原型期执行体占位：走真实命令链路与审计，但不产出真实代码提交（M6 接真实执行器）' : undefined}>
+          {t.owner}
+        </span>
         <br />依赖：{t.deps.join('、') || '无'}
         {t.sourceIds.length > 0 && (
           <>

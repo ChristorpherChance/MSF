@@ -203,14 +203,15 @@ function DevSide() {
       )}
       <div className="filelist">
         {rows.map((r) => (
-          <div
+          <button
             key={r.key}
+            type="button"
             className={`file-row${selected === r.key ? ' sel' : ''}`}
             onClick={() => s.setSide(r.key)}
           >
             <span className="fname">{r.name}</span>
             {r.count !== '' && <span className="tag">{r.count}</span>}
-          </div>
+          </button>
         ))}
       </div>
       <div className="left-foot">

@@ -30,7 +30,7 @@ function ImpactsPage() {
         <span className={`tag ${pending.length ? 'tag-warn' : 'tag-ok'}`}>开放 {pending.length}</span>
         <span className="dsg-prefix">处置与计划批准彼此独立；返工由明确关联的新提交闭环。</span>
         <span className="spacer" />
-        <button className="act" onClick={() => s.act(async () => {
+        <button className="act" disabled={s.acting} onClick={() => s.act(async () => {
           const r = await devApi.observe(pid);
           if (!r.impacts.length) useDevStore.setState({ notice: '未发现受影响任务' });
         })}>观察输入变化</button>

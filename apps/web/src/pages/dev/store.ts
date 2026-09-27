@@ -68,6 +68,8 @@ interface DevViewState {
   refresh: () => Promise<void>;
   selectTask: (taskId: string | null) => Promise<void>;
   act: (fn: () => Promise<unknown>, okMsg?: string) => Promise<void>;
+  /** U-039：写操作进行中标记（防连点双发；服务端幂等为兜底，不等兜底） */
+  acting: boolean;
   clearNotice: () => void;
 }
 
@@ -101,6 +103,7 @@ export const useDevStore = create<DevViewState>((set, get) => ({
   loading: false,
   error: null,
   notice: null,
+  acting: false,
 
   init: async () => {
     if (get().projectId) return;
@@ -194,13 +197,16 @@ export const useDevStore = create<DevViewState>((set, get) => ({
 
   /** 命令执行包装：错误落 error、成功刷新+notice（人工操作即领域命令，审计由服务端承载） */
   act: async (fn, okMsg) => {
-    set({ error: null, notice: null });
+    if (get().acting) return; // U-039：写操作进行中，忽略重复触发
+    set({ acting: true, error: null, notice: null });
     try {
       await fn();
       if (okMsg) set({ notice: okMsg });
       await get().refresh();
     } catch (e) {
       set({ error: e instanceof Error ? e.message : String(e) });
+    } finally {
+      set({ acting: false });
     }
   },
 

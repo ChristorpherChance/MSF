@@ -8,7 +8,26 @@ import './notice-drawer.css';
  * 通知中心（DSG-U02-2/U06-16；A10-2 + A01-6 SSE）：
  * 顶栏 🔔 未读红点计数；点击开**右侧抽屉**（通知列表 + 全部已读 + 跳转定位）；
  * notice.created SSE 实时推送；条目点击=已读 + 有 link 时跳回来源页。
+ * U-033：正文中的 URL 不明文展示（签名串属凭证类信息），渲染为「🔗 打开链接」。
  */
+const URL_RE = /(https?:\/\/[^\s]+)/g;
+function NoticeText({ text }: { text: string }) {
+  const parts = text.split(URL_RE);
+  return (
+    <>
+      {parts.map((p, i) =>
+        /^https?:\/\//.test(p) ? (
+          <a key={i} href={p} target="_blank" rel="noreferrer noopener" title={p}
+            onClick={(e) => e.stopPropagation()}>
+            🔗 打开链接
+          </a>
+        ) : (
+          <span key={i}>{p}</span>
+        ),
+      )}
+    </>
+  );
+}
 export function NotificationBell() {
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<Notice[]>([]);
@@ -88,7 +107,7 @@ export function NotificationBell() {
                   {n.unread && <span className="nd-dot">● 未读</span>}
                   {n.link && <span className="nd-jump">↗</span>}
                 </div>
-                <div className="nd-text">{n.text}</div>
+                <div className="nd-text"><NoticeText text={n.text} /></div>
               </div>
             ))}
           </div>

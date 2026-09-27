@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { ConfirmModal } from '../../ui/ConfirmModal';
+import { downloadFile } from '../../ui/download';
 import { tstApi } from './api';
 import { NeedBatch } from './NeedBatch';
 import { useTstStore } from './store';
@@ -98,7 +99,7 @@ export function ReportPanel() {
               )}
               <button className="act" onClick={async () => {
                 const e = await tstApi.exportReport(pid, latest.reportId);
-                window.open(e.downloadUrl, '_blank');
+                downloadFile(e.downloadUrl);
               }}>导出报告与决定</button>
             </div>
             {det.status === 'released' && (

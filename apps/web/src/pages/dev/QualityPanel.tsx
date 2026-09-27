@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { ConfirmModal } from '../../ui/ConfirmModal';
+import { downloadFile } from '../../ui/download';
 import { devApi, type ReportDetail } from './api';
 import { KIND_CLASS, KIND_LABEL, useDevStore } from './store';
 
@@ -259,7 +260,7 @@ function SelftestPage() {
         {latest && (
           <button className="act" onClick={async () => {
             const e = await devApi.reportExport(pid, latest.id, 'md');
-            window.open(e.downloadUrl, '_blank');
+            downloadFile(e.downloadUrl);
           }}>导出报告</button>
         )}
       </div>
@@ -352,7 +353,7 @@ function SelftestPage() {
                     <button className="act mini" onClick={async () => setDetail(await devApi.reportDetail(pid, r.id))}>详情</button>
                     <button className="act mini" onClick={async () => {
                       const e = await devApi.reportExport(pid, r.id, 'md');
-                      window.open(e.downloadUrl, '_blank');
+                      downloadFile(e.downloadUrl);
                     }}>导出</button>
                   </td>
                 </tr>

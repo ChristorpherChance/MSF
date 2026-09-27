@@ -5,6 +5,7 @@ import { ApiError } from '../../api';
 import { StatusChips, type StatusChipItem } from '../../ui/StatusChips';
 import { Modal } from '../../ui/Modal';
 import { toast } from '../../ui/toast';
+import { downloadFile } from '../../ui/download';
 import { designApi, generateDesignDoc, type DesignKind, type PatchItem, type UpstreamDocItem } from './api';
 import { useDesignView, type ViewMode } from './store';
 
@@ -134,7 +135,7 @@ function Toolbar() {
                 setDlOpen(false);
                 act(async () => {
                   const r = await designApi.exportDoc(projectId, selKind, doc.viewing ?? doc.cur, f);
-                  window.open(r.downloadUrl, '_blank');
+                  downloadFile(r.downloadUrl);
                 });
               }}>⬇ {{ md: 'Markdown (.md)', docx: 'Word (.docx)', pdf: 'PDF (.pdf)' }[f]}</button>
             ))}
@@ -270,6 +271,9 @@ function GenStreamCard() {
     if (!projectId || !gen.operationId) return;
     void designApi.genControl(projectId, selKind, gen.operationId, action).then(() => refresh());
   };
+  // U-018：与需求域同口径的章节级实时进度（流文本按 ## 标题增量切分）
+  const sections = [...gen.streamText.matchAll(/^##\s+(.+)$/gm)].map((m) => m[1]!.trim());
+  const runningIdx = gen.running ? sections.length - 1 : -1;
   return (
     <div className="gen-card" role="status">
       <div className="gen-head">
@@ -290,7 +294,26 @@ function GenStreamCard() {
           </span>
         )}
       </div>
-      <pre className="gen-stream">{gen.streamText || '等待模型输出…'}</pre>
+      {sections.length > 0 && (
+        <div className="tasklist">
+          <div className="tl-head">章节 Task（实时）· {sections.length}</div>
+          {sections.map((s, i) => (
+            <div key={`${i}-${s}`} className={`tl-item${i === runningIdx ? ' tl-enter' : ''}`}>
+              <span className="st">{i === runningIdx ? '🔄' : '✅'}</span>
+              <span style={{ flex: 1 }}>{s} · 生成</span>
+              {i === runningIdx && (
+                <div className="prog" style={{ width: 80 }}>
+                  <i className="indet" />
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      <details className="gen-raw">
+        <summary>查看原始输出流</summary>
+        <pre className="gen-stream">{gen.streamText || '等待模型输出…'}</pre>
+      </details>
       {!gen.running && !gen.error && <p className="pop-tip">生成结果为待确认补丁（不落稿），请逐条处置后提交版本。</p>}
     </div>
   );

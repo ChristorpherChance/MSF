@@ -15,13 +15,22 @@ const STAGE_ROUTE: Record<string, string> = {
   material: '/material', req: '/req', design: '/design', dev: '/dev', test: '/test',
 };
 
-/** 状态→进度（视图不带进度列，按状态映射纯展示） */
+/** 状态→进度（视图不带进度列，按状态映射纯展示；U-037：覆盖全部实际出现的状态值） */
 function statusProgress(status: string): { pct: number; cls: string; label: string } {
   if (['done', 'closed', 'succeeded'].includes(status)) return { pct: 100, cls: 'ok', label: status };
-  if (['running', 'in-progress', 'confirmed', 'fixing', 'retesting'].includes(status)) return { pct: 55, cls: 'ing', label: status };
+  if (['running', 'manual', 'in-progress', 'confirmed', 'fixing', 'retesting'].includes(status)) return { pct: 55, cls: 'ing', label: status };
+  if (['review'].includes(status)) return { pct: 80, cls: 'ing', label: status };
+  if (['paused'].includes(status)) return { pct: 45, cls: '', label: status };
   if (['blocked', 'failed'].includes(status)) return { pct: 30, cls: 'bad', label: status };
   return { pct: 8, cls: '', label: status };
 }
+
+/** 状态过滤器枚举 = 各源实际状态并集（dev 看板列/runStatus + 缺陷五态 + 委派状态；U-037） */
+const STATUS_OPTIONS = [
+  'queued', 'running', 'manual', 'paused', 'review', 'done',
+  'open', 'confirmed', 'fixing', 'retesting', 'closed',
+  'pending', 'failed', 'blocked',
+];
 
 export function TasksPage() {
   const projectId = useSession((s) => s.projectId);
@@ -99,7 +108,7 @@ export function TasksPage() {
             </select>
             <select value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }}>
               <option value="">全部状态</option>
-              {['queued', 'running', 'done', 'blocked', 'confirmed', 'closed'].map((s) => (
+              {STATUS_OPTIONS.map((s) => (
                 <option key={s} value={s}>{s}</option>
               ))}
             </select>

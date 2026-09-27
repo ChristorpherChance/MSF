@@ -1,6 +1,10 @@
 import { api, postSse } from '../../api';
+import { useStagesStore } from '../../ui/GateBanner';
 
 /** 设计域 API 封装（LLD-5 DSG-A05-1~13；路径前缀 /api/v1/projects/:pid/design） */
+
+/** U-015：定稿类写操作成功后立即刷新顶栏准入门禁 */
+const refreshGates = (pid: string) => void useStagesStore.getState().load(pid);
 
 export type DesignKind = 'hld' | 'mod' | 'alg' | 'cls' | 'db' | 'api' | 'ui' | 'nfr';
 
@@ -82,7 +86,8 @@ export const designApi = {
   commit: (pid: string, kind: DesignKind, note: string, baseVersion: number) =>
     api.post(`${base(pid)}/docs/${kind}/versions:commit`, { note, baseVersion }),
   finalize: (pid: string, kind: DesignKind, v: number, baseVersion: number, allowOpenReviews: boolean) =>
-    api.post(`${base(pid)}/docs/${kind}/versions/${v}:finalize`, { baseVersion, confirm: true, allowOpenReviews }),
+    api.post(`${base(pid)}/docs/${kind}/versions/${v}:finalize`, { baseVersion, confirm: true, allowOpenReviews })
+      .then((r) => { refreshGates(pid); return r; }),
   unlock: (pid: string, kind: DesignKind) => api.post(`${base(pid)}/docs/${kind}:unlock`, {}),
   listVersions: (pid: string, kind: DesignKind) =>
     api.get<{ items: Array<{ v: number; note: string | null; at: string; finalized: boolean }> }>(`${base(pid)}/docs/${kind}/versions`),
@@ -122,7 +127,8 @@ export const designApi = {
       `${base(pid)}/prototype:check`, { prototypeVersionId }),
   protoFinalize: (pid: string, prototypeVersionId: string, checkReportId: string) =>
     api.post<{ baselineId: string; code: string }>(`${base(pid)}/prototype:finalize`,
-      { prototypeVersionId, checkReportId, confirm: true }),
+      { prototypeVersionId, checkReportId, confirm: true })
+      .then((r) => { refreshGates(pid); return r; }),
   preview: (pid: string, pageId: string, v?: number) =>
     api.get<{ previewUrl: string; htmlFingerprint: string }>(
       `${base(pid)}/prototype/pages/${encodeURIComponent(pageId)}/preview${v !== undefined ? `?v=${v}` : ''}`),

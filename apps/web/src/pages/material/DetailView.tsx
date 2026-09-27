@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { mdHtml } from '../../md-html';
 import { ApiError } from '../../api';
 import { Popover } from '../../ui/Popover';
+import { downloadFile } from '../../ui/download';
+import { useStagesStore } from '../../ui/GateBanner';
 import { toast } from '../../ui/toast';
 import { materialApi } from './api';
 import { useMaterialView, type ViewMode } from './store';
@@ -56,7 +58,7 @@ function DownloadButton({ md, fileName }: { md: string | null; fileName: string 
     if (!projectId || !selectedFileId) return;
     try {
       const r = await materialApi.download(projectId, selectedFileId);
-      window.open(r.url, '_blank', 'noopener');
+      downloadFile(r.url);
     } catch (e) {
       toast(e instanceof ApiError ? e.message : '获取下载链接失败', 'warn');
     }
@@ -136,6 +138,8 @@ export function DetailView() {
     setNotice(null);
     try {
       await fn(pid);
+      // U-015：定稿类状态变更后立即刷新顶栏准入门禁（不等多 tab 轮询）
+      void useStagesStore.getState().load(pid);
     } catch (e) {
       setNotice(e instanceof ApiError ? e.message : '操作失败');
     } finally {

@@ -143,8 +143,15 @@ export class DevPlansService {
       }
 
       // 投影快照：既有任务 + 未驳回的 create-task 建议；覆盖按投影重算
+      // 顺序必须按 (batch_no, code) 编排——autopilot 按快照顺序派发，dev.task.start 批次门禁要求更早批次全部完成（U-026）
+      const batchOrder = (a: Record<string, unknown>, b: Record<string, unknown>): number => {
+        const ba = (a.batch_no as number | null) ?? 999;
+        const bb = (b.batch_no as number | null) ?? 999;
+        return ba !== bb ? ba - bb : String(a.code).localeCompare(String(b.code));
+      };
+      const orderedTasks = [...tasks.rows].sort(batchOrder);
       const createCodes = suggestions.filter((s) => s.kind === 'create-task').map((s) => s.targetCode);
-      const projectedIds = [...tasks.rows.map((t) => String(t.code)), ...createCodes];
+      const projectedIds = [...orderedTasks.map((t) => String(t.code)), ...createCodes];
       const projCovered = new Set([...covered, ...suggestions.filter((s) => s.kind === 'create-task').flatMap((s) => s.sourceRefs)]);
       const stillUncovered = cat.rows.map((c) => c.code).filter((c) => !projCovered.has(c));
       const maxRev = await client.query<{ r: number | null }>(

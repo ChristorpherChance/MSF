@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError } from '../../api';
+import { useStagesStore } from '../../ui/GateBanner';
 import { materialApi, type JobView, type TreeNode } from './api';
 import { useMaterialView } from './store';
 
@@ -217,6 +218,7 @@ export function BatchFinalizeModal({
       const r = await materialApi.batchFinalizeContent(projectId, fileIds);
       setResults(r.results);
       clearChecked();
+      void useStagesStore.getState().load(projectId); // U-015：定稿后刷新准入门禁
       await refresh();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : '批量定稿失败');

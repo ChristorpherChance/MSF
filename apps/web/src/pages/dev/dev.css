@@ -17,6 +17,8 @@
 .v17-side .file-row {
   display: flex; align-items: center; justify-content: space-between; gap: 6px;
   padding: 7px 10px; border-radius: 7px; cursor: pointer; font-size: 13px;
+  /* B2/U-031：导航行用语义化 button，需重置 UA 默认样式保持视觉不变 */
+  width: 100%; background: none; border: none; color: inherit; font-family: inherit; text-align: left;
 }
 .v17-side .file-row:hover { background: var(--soft); }
 .v17-side .file-row.sel { background: var(--blue-soft); color: var(--blue); font-weight: 600; box-shadow: inset 3px 0 0 var(--blue); }

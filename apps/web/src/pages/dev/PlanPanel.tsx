@@ -57,7 +57,7 @@ export function PlanPanel() {
               <button
                 className="act"
                 data-testid="prepare-plan"
-                disabled={!s.baseline?.valid}
+                disabled={!s.baseline?.valid || s.acting}
                 title={s.baseline?.valid ? '重新生成准备快照（旧草稿修订失效）' : '需先在设计阶段确认有效基线'}
                 onClick={() => s.act(async () => {
                   const r = await devApi.preparePlan(s.projectId!);
@@ -83,7 +83,7 @@ export function PlanPanel() {
             <button
               className="act primary"
               data-testid="prepare-plan"
-              disabled={!s.baseline?.valid}
+              disabled={!s.baseline?.valid || s.acting}
               title={s.baseline?.valid ? '' : '需先在设计阶段确认有效基线'}
               onClick={() => s.act(async () => {
                 const r = await devApi.preparePlan(s.projectId!);
@@ -98,7 +98,7 @@ export function PlanPanel() {
             <button
               className="act"
               data-testid="prepare-plan"
-              disabled={!s.baseline?.valid}
+              disabled={!s.baseline?.valid || s.acting}
               title={s.baseline?.valid ? '重新生成准备快照（不改动已批准计划）' : '需先在设计阶段确认有效基线'}
               onClick={() => s.act(async () => {
                 const r = await devApi.preparePlan(s.projectId!);
@@ -171,7 +171,7 @@ export function PlanPanel() {
             <span className="dsg-prefix">原有人工路径保持可达</span>
             <button
               className={`act${gapCount > 0 ? ' primary' : ''}`}
-              disabled={!s.baseline?.valid}
+              disabled={!s.baseline?.valid || s.acting}
               onClick={() => s.act(async () => {
                 const r = await devApi.identify(s.projectId!, s.baseline!.baselineId, s.baseline!.fingerprint);
                 useDevStore.setState({ notice: `识别完成：新增 ${r.identified} 个任务` });
@@ -181,18 +181,25 @@ export function PlanPanel() {
             </button>
             <button
               className={`act${gapCount === 0 && covPending > 0 ? ' primary' : ''}`}
-              disabled={s.tasks.length === 0}
+              disabled={s.tasks.length === 0 || s.acting}
               onClick={() => s.act(async () => {
-                for (const t of s.tasks.filter((x) => x.coveragePending > 0)) {
+                const targets = s.tasks.filter((x) => x.coveragePending > 0);
+                for (const t of targets) {
                   await devApi.confirmCoverage(s.projectId!, t.id);
                 }
-              }, '覆盖已核对（逐任务全量确认）')}
+                // U-029：核对完成给出结论数字（原来只静默刷新）
+                useDevStore.setState({
+                  notice: targets.length === 0
+                    ? '覆盖核对完成：全部任务覆盖均已确认'
+                    : `覆盖核对完成：本轮确认 ${targets.length} 个任务`,
+                });
+              })}
             >
               核对覆盖
             </button>
             <button
               className="act"
-              disabled={specGap === 0}
+              disabled={specGap === 0 || s.acting}
               title={specGap === 0 ? '当前任务规格已齐全' : '仅补充缺失或不可执行字段，保留已有具体标准'}
               onClick={() => s.act(async () => {
                 const r = await devApi.improveTasks(s.projectId!);
@@ -203,7 +210,7 @@ export function PlanPanel() {
             </button>
             <button
               className={`act${gapCount === 0 && covPending === 0 && specGap === 0 && needSchedule ? ' primary' : ''}`}
-              disabled={s.tasks.length === 0}
+              disabled={s.tasks.length === 0 || s.acting}
               onClick={() => s.act(async () => {
                 const r = await devApi.schedulePlan(s.projectId!);
                 useDevStore.setState({
@@ -288,10 +295,14 @@ function PreparationCard({ plan }: { plan: PlanItem }) {
   const sources = new Set([...inPlan.flatMap((t) => t.sourceIds), ...active.flatMap((g) => g.sourceRefs)]);
   const frontBatches = new Set(inPlan.filter((t) => t.kind === 'frontend').map((t) => t.batchNo).filter((b) => b !== null)).size;
   const backBatches = new Set(inPlan.filter((t) => t.kind === 'backend').map((t) => t.batchNo).filter((b) => b !== null)).size;
-  // 待决问题 = 未处置建议 + 未被已采用 patch 覆盖的规格缺口 + 覆盖缺口（原型 issues 口径）
-  const patched = new Set(active.filter((g) => g.kind === 'patch-task').map((g) => g.targetCode));
-  const specOpen = inPlan.filter((t) => t.specIssues.length > 0 && !patched.has(t.code)).length;
-  const issues = pending.length + specOpen + (plan.coverageReport.ok ? 0 : plan.coverageReport.uncoveredDesignItems.length);
+  // 待决问题（U-023 口径统一）：任务级并集 = 有未处置建议的任务 ∪ 有规格缺口的任务（同任务不双计）+ 覆盖缺口。
+  // 不得以"已有 patch 建议"豁免缺口计数——采用建议 ≠ 缺口已补齐（缺口随修订内容实时重算），
+  // 否则批准前（建议豁免后 0）与批准后（实时 specIssues 1）跳变，与 PrepSummary 口径保持连续。
+  const flagged = new Set<string>([
+    ...pending.map((g) => g.targetCode),
+    ...inPlan.filter((t) => t.specIssues.length > 0).map((t) => t.code),
+  ]);
+  const issues = flagged.size + (plan.coverageReport.ok ? 0 : plan.coverageReport.uncoveredDesignItems.length);
   const metrics: Array<[string, string]> = [
     ['任务范围', `${taskIds.length} 项`],
     ['具体建议', `${suggestions.length} 项`],
@@ -356,6 +367,10 @@ function PreparationCard({ plan }: { plan: PlanItem }) {
                 {g.kind === 'create-task'
                   ? `＋ ${String(g.task.title ?? g.targetCode)}（${KIND_LABEL[String(g.task.kind)] ?? String(g.task.kind ?? '')} · 来源 ${g.sourceRefs.join('、') || '—'}）`
                   : `△ ${g.reason}`}
+                {/* U-022：已修订建议的缺口文案为修订前快照，明示防误读 */}
+                {g.state === 'accepted' && g.edited && (
+                  <span className="dsg-prefix">（缺口为修订前快照；修订内容随批准并入任务池后重算）</span>
+                )}
               </div>
               <div className="dsg-prefix" style={{ marginTop: 6 }}>
                 依据：{g.sourceRefs.join('；') || '—'}{g.kind === 'create-task' ? ` · ${g.reason}` : ''}
@@ -385,7 +400,9 @@ function PreparationCard({ plan }: { plan: PlanItem }) {
             {issues
               ? [
                   ...pending.map((g) => `${g.targetCode} 建议待处置`),
-                  ...inPlan.filter((t) => t.specIssues.length > 0 && !patched.has(t.code)).map((t) => `${t.code} ${t.specIssues[0]}`),
+                  ...inPlan
+                    .filter((t) => t.specIssues.length > 0 && !pending.some((g) => g.targetCode === t.code))
+                    .map((t) => `${t.code} ${t.specIssues[0]}`),
                   ...plan.coverageReport.uncoveredDesignItems.map((c) => `${c} 无承接任务`),
                 ].join('；')
               : '无'}
@@ -413,6 +430,11 @@ function ProposalModal({ sg, onClose, onSave }: {
   const [goal, setGoal] = useState(String(sg.task.goal ?? ''));
   const [deliverables, setDeliverables] = useState(
     (sg.task.deliverables ?? []).map((x) => String(x)).join('\n'));
+  // U-021：建议点名的缺口字段（版本化来源/输入与依赖）必须可填——否则修订流于形式
+  const [sourceIds, setSourceIds] = useState(
+    ((sg.task.sourceIds ?? sg.task.source_ids ?? []) as unknown[]).map((x) => String(x)).join('\n'));
+  const [inputs, setInputs] = useState(
+    ((sg.task.inputs ?? []) as unknown[]).map((x) => String(x)).join('\n'));
   const [normal, setNormal] = useState(scPass('normal'));
   const [boundary, setBoundary] = useState(scPass('boundary'));
   const [exception, setException] = useState(scPass('exception'));
@@ -424,6 +446,8 @@ function ProposalModal({ sg, onClose, onSave }: {
     onSave({
       goal,
       deliverables: deliverables.split(/\r?\n/).map((x) => x.trim()).filter(Boolean),
+      sourceIds: sourceIds.split(/\r?\n/).map((x) => x.trim()).filter(Boolean),
+      inputs: inputs.split(/\r?\n/).map((x) => x.trim()).filter(Boolean),
       ...(q ? { quality: { ...q, scenarios } } : {}),
     });
   };
@@ -435,8 +459,13 @@ function ProposalModal({ sg, onClose, onSave }: {
           <strong>{sg.targetCode} · 查看并修订建议</strong>
           <button className="act" onClick={onClose}>✕</button>
         </div>
+        {sg.reason && <p className="pop-tip">建议缺口：{sg.reason}（下表字段逐条补齐后保存）</p>}
         <div className="form-row"><label>目标</label></div>
         <textarea rows={3} style={{ width: '100%' }} value={goal} onChange={(e) => setGoal(e.target.value)} />
+        <div className="form-row"><label>版本化来源（每行一条：目录条目/REQ 编号或技术决策出处）</label></div>
+        <textarea rows={2} style={{ width: '100%' }} value={sourceIds} onChange={(e) => setSourceIds(e.target.value)} />
+        <div className="form-row"><label>输入与依赖（每行一条）</label></div>
+        <textarea rows={2} style={{ width: '100%' }} value={inputs} onChange={(e) => setInputs(e.target.value)} />
         <div className="form-row"><label>交付物（每行一项）</label></div>
         <textarea rows={3} style={{ width: '100%' }} value={deliverables} onChange={(e) => setDeliverables(e.target.value)} />
         {([['正常', normal, setNormal], ['边界', boundary, setBoundary], ['异常', exception, setException]] as const).map(([name, val, setter]) => (
@@ -531,6 +560,11 @@ function PrepSummary() {
 function SubmitButton() {
   const s = useDevStore();
   const [note, setNote] = useState('');
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  // U-030：已有批准计划时提交新修订需确认后果（原批准转失效、需重新批准）
+  const approved = s.plans.find((p) => p.state === 'approved');
+  const doSubmit = () =>
+    s.act(() => devApi.submitPlan(s.projectId!, s.tasks.map((t) => t.code), note || undefined), '计划已提交（待批准）');
   return (
     <>
       <input
@@ -541,12 +575,20 @@ function SubmitButton() {
       />
       <button
         className="act"
-        disabled={s.tasks.length === 0}
-        onClick={() =>
-          s.act(() => devApi.submitPlan(s.projectId!, s.tasks.map((t) => t.code), note || undefined), '计划已提交（待批准）')}
+        disabled={s.tasks.length === 0 || s.acting}
+        onClick={() => (approved ? setConfirmOpen(true) : doSubmit())}
       >
         提交版本
       </button>
+      {confirmOpen && approved && (
+        <ConfirmModal
+          title="提交新计划版本"
+          confirmLabel="确认提交"
+          body={`当前已有批准计划 ${approved.revision}。\n提交将生成新修订（待批准），原批准计划随即转为「已失效」——autopilot 与新开始动作将以新修订为准，须重新批准。`}
+          onClose={() => setConfirmOpen(false)}
+          onConfirm={doSubmit}
+        />
+      )}
     </>
   );
 }

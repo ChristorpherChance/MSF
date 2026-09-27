@@ -362,7 +362,7 @@ export class AiSessionsService implements OnModuleInit {
     return { messageId: prep.messageId };
   }
 
-  /** 组装发往模型的提示词：参考全文（内容定稿稿，单份截 12000 字/总截 32000 字）+ 近 6 轮历史 + 本次请求 */
+  /** 组装发往模型的提示词：当前项目+阶段准入口径上下文（U-035）+ 参考全文（内容定稿稿，单份截 12000 字/总截 32000 字）+ 近 6 轮历史 + 本次请求 */
   private async buildPrompt(
     projectId: string,
     sessionId: string,
@@ -370,6 +370,27 @@ export class AiSessionsService implements OnModuleInit {
     referenceFileIds: string[],
   ): Promise<string> {
     const parts: string[] = [];
+    // U-035：注入项目与五阶段准入实时口径（跨域只 SQL 直读 projects 快照列，不写）
+    const STAGE_LABEL: Record<string, string> = { material: '资料', req: '需求', design: '设计', dev: '开发', test: '测试' };
+    const pj = await query<{ name: string; stage_gates: Array<{ stage: string; ok: boolean; issues: Array<{ message: string }> }> | null }>(
+      'SELECT name, stage_gates FROM projects WHERE id=$1', [projectId]);
+    if (pj.rows[0]) {
+      const gates = Array.isArray(pj.rows[0].stage_gates) ? pj.rows[0].stage_gates : [];
+      const gateText = gates.length === 0
+        ? '（准入未求值）'
+        : gates.map((g) => {
+            const label = STAGE_LABEL[g.stage] ?? g.stage;
+            if (g.ok) return `${label} ✓`;
+            const gap = g.issues.map((i) => i.message).join('；');
+            return `${label} ✗（缺口：${gap.length > 120 ? `${gap.slice(0, 120)}…` : gap}）`;
+          }).join(' / ');
+      parts.push(`【当前上下文】\n项目：${pj.rows[0].name}\n五阶段准入：${gateText}\n（你是该软件工厂项目的内置助手，回答与操作建议应结合上述项目状态。）`);
+    }
+    // U-040：能力边界声明——助手无写工具（封闭注册表仅只读三件套），缺此声明时模型会谎称"已修改/已定稿"
+    parts.push(`【能力边界（必须遵守）】
+你没有写权限：不能直接修改、定稿、放行任何文档、UI 原型、代码、计划或批次；也不能替你点击任何"人工确认"。
+对"修改/定稿/放行"类请求，正确做法是：①给出可直接采纳的建议文本或修改方案；②明确说明"我未改动系统内任何数据"；③指引落地路径——文档修改请到对应阶段页使用 AI 生成/修订（产出待确认补丁，由你逐条接受）；原型修改请到设计页调整；代码修改请在开发页任务/变更流程中进行；定稿与放行永远是人工操作。
+严禁声称"已修改/已定稿/已放行/已完成写入"——凡未经过上述人工路径，系统内数据均未变化。`);
     if (referenceFileIds.length > 0) {
       const refs = await query<{ name: string; body_md: string }>(
         `SELECT f.name, p.body_md FROM mat_files f
