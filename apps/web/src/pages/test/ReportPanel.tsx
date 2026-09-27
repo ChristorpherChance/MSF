@@ -34,23 +34,24 @@ export function ReportPanel() {
 
   return (
     <div>
-      {/* 汇总报告 */}
+      {/* 汇总报告（原型 delivery() 口径：报告与人工交付决定） */}
       <div className="dsg-card">
         <div className="gen-head">
-          <strong>验收报告</strong>
+          <strong>报告与人工交付决定</strong>
           <span className="dsg-prefix">{s.reports.length} 份 · 有未通过项或未关闭缺陷即 fail · 定稿≠放行</span>
           <button className="act" disabled={!canGenerate}
             title={!canGenerate ? '须先执行（批次 executing/reported 且有运行）' : ''}
             onClick={() => s.act(() => tstApi.generateReport(pid, det.batchId), '报告已生成（draft，登记 basis 指纹）')}>
-            生成/重新汇总
+            汇总本批报告
           </button>
         </div>
+        <p className="dsg-prefix" style={{ margin: '4px 0 0' }}>报告可定稿为不通过；定稿不会把失败变绿，也不会自动放行。</p>
 
         {latest && (
           <>
-            {/* 结论横幅 */}
+            {/* 结论横幅（原型：必测项通过/暂不放行 · 已定稿/待审阅） */}
             <div className={`qa-banner ${latest.verdict === 'pass' ? 'qa-banner-pass' : 'qa-banner-fail'}`}>
-              结论：{latest.verdict === 'pass' ? '通过' : '不通过'} · {latest.reportId} · {latest.status === 'finalized' ? `已定稿（${latest.finalizedBy ?? ''}）` : '草稿'}
+              {latest.reportId} · {latest.verdict === 'pass' ? '必测项通过' : '暂不放行'} · {latest.status === 'finalized' ? `已定稿（${latest.finalizedBy ?? ''}）` : '待审阅'}
               {simulated && <span className="dev-bad"> · 含模拟执行，不得用于正式放行依据</span>}
             </div>
             {/* T6 basis 指纹过期横幅 */}
@@ -98,14 +99,17 @@ export function ReportPanel() {
               <button className="act" onClick={async () => {
                 const e = await tstApi.exportReport(pid, latest.reportId);
                 window.open(e.downloadUrl, '_blank');
-              }}>导出报告</button>
+              }}>导出报告与决定</button>
             </div>
+            {det.status === 'released' && (
+              <p className="qa-banner qa-banner-pass" style={{ marginTop: 6 }}>本批交付决定已记录（不可变）。</p>
+            )}
             {waiverBlocked.length > 0 && latest.status === 'finalized' && !stale && (
               <p className="dsg-prefix">条件放行不可用：{waiverBlocked.join('；')}</p>
             )}
           </>
         )}
-        {!latest && <p className="dsg-prefix qa-empty">尚无报告（执行后生成）</p>}
+        {!latest && <p className="dsg-prefix qa-empty">尚未生成报告。先执行批准用例并记录人工验证。</p>}
 
         {/* T7 条件放行豁免清单：逐项列举全部未关闭缺陷（多选+逐项理由，缺一项即不可提交） */}
         {waiver && latest && (
