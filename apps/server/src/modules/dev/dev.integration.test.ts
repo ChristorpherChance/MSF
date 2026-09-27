@@ -358,6 +358,9 @@ describe('Dev 开发域（集成，需 DB+MinIO）', async () => {
       const s = (await autopilot.status(PID)) as { run: { status: string } | null };
       return s.run?.status === 'awaiting-transfer';
     });
+    // L6：phase 真实化——不再 alias status；终态前推进到 awaiting-transfer 档
+    const sPh = (await autopilot.status(PID)) as { run: { phase: string } | null };
+    expect(sPh.run?.phase).toBe('awaiting-transfer');
     // 计划任务全部完成
     const items = await listTasks();
     expect(items.every((t) => t.col === 'done')).toBe(true);

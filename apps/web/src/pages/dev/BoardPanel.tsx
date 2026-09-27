@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { ConfirmModal } from '../../ui/ConfirmModal';
 import { devApi, type DevTask } from './api';
-import { asgIcon, KIND_CLASS, KIND_LABEL, RUN_STATUS_LABEL, useDevStore } from './store';
+import { asgIcon, KIND_CLASS, KIND_LABEL, RUN_PHASE_LABEL, RUN_STATUS_LABEL, useDevStore } from './store';
 
 const COLS: Array<{ key: DevTask['col']; name: string }> = [
   { key: 'queue', name: '📥 排队' },
@@ -29,6 +29,7 @@ export function BoardPanel() {
           {run ? (
             <span className={`dev-run dev-run-${run.status}`}>
               {run.runId} · {RUN_STATUS_LABEL[run.status] ?? run.status}
+              {run.status === 'running' && run.phase ? ` · ${RUN_PHASE_LABEL[run.phase] ?? run.phase}` : ''}
             </span>
           ) : (
             <span className="dsg-prefix">尚未启动 · 准备并批准后开始</span>

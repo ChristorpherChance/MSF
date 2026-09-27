@@ -210,6 +210,12 @@ export const RUN_STATUS_LABEL: Record<string, string> = {
   'taken-over': '人工接管', 'awaiting-transfer': '等待确认转测试', transferred: '已转测试',
 };
 
+/** L6 autopilot 阶段标签（原型 v18AutoStatusHtml phases 映射；selftest 为真实管线扩展档） */
+export const RUN_PHASE_LABEL: Record<string, string> = {
+  dispatch: '等待派发', development: '开发', quality: '单测与 CI', 'ai-review': '独立 AI 评审',
+  merge: '合并', build: '集成构建', selftest: '项目自测', 'awaiting-transfer': '等待确认转测试',
+};
+
 /** V4 注意项模型（原型 devAttentionModel 同口径，全部由真实数据派生） */
 export interface AttentionRow {
   key: string; kind: 'task' | 'gap'; taskId: string; sourceId: string; title: string;

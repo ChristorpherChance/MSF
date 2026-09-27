@@ -13,9 +13,12 @@ export const devAutopilotTiming = { tickDelayMs: 15 };
 
 const RECOVERABLE_BLOCKERS = new Set(['RUNNER_START_FAILED', 'HUMAN_TASK_REQUIRED', 'SELFTEST_START_FAILED']);
 
+/** L6 运行阶段枚举（原型 v18AutoStatusHtml phases 映射：dispatch/development/quality/ai-review/merge/build/awaiting-transfer；selftest 为真实管线扩展档——原型模拟未建模项目自测阶段） */
+const RUN_PHASES = new Set(['dispatch', 'development', 'quality', 'ai-review', 'merge', 'build', 'selftest', 'awaiting-transfer']);
+
 interface RunRow {
   id: string; run_id: string; run_token: string; plan_id: string; plan_fingerprint: string;
-  authorization_id: string; status: string; blocker: { code: string; message: string; taskId?: string; category: string } | null;
+  authorization_id: string; status: string; phase: string | null; blocker: { code: string; message: string; taskId?: string; category: string } | null;
 }
 
 /**
@@ -81,7 +84,7 @@ export class DevAutopilotService {
       const runToken = randomUUID();
       await client.query(
         `INSERT INTO dev_runs (project_id, run_id, run_token, plan_id, plan_fingerprint, authorization_id, status, phase, created_by)
-         VALUES ($1,$2,$3,$4,$5,$6,'running','tasks',$7)`,
+         VALUES ($1,$2,$3,$4,$5,$6,'running','dispatch',$7)`,
         [projectId, runId, runToken, p.id, p.plan_fingerprint, authId, ctx.actorId]);
       return { runId, runToken, authorizationId: authId, status: 'running', operationId: `op_ap_${runId}` };
     });
@@ -169,8 +172,15 @@ export class DevAutopilotService {
       return { runId, status: 'awaiting-transfer' };
     });
 
-    // 派发回执登记（审计链：每 tick 一条）
-    registerCommand('dev.autopilot.advance', async (_client, payload) => {
+    // 派发回执登记（审计链：每派发 tick 一条）+ L6 阶段推进随回执落库（phase 闭集校验）
+    registerCommand('dev.autopilot.advance', async (client, payload) => {
+      const { projectId, runId, phase } = payload as { projectId?: string; runId?: string; phase?: string };
+      if (projectId && runId && phase !== undefined) {
+        if (!RUN_PHASES.has(phase)) throw new DomainError('VALIDATION_FAILED', '未知运行阶段', phase);
+        await client.query(
+          "UPDATE dev_runs SET phase=$3, updated_at=now() WHERE project_id=$1 AND run_id=$2 AND status='running'",
+          [projectId, runId, phase]);
+      }
       return { receipt: payload };
     });
   }
@@ -204,7 +214,7 @@ export class DevAutopilotService {
     const auth = await query<{ authorization_id: string; status: string; scope: unknown; plan_id: string }>(
       'SELECT * FROM dev_authorizations WHERE project_id=$1 AND authorization_id=$2', [projectId, r.authorization_id]);
     return {
-      run: { runId: r.run_id, status: r.status, phase: r.status, currentAction: '', blocker: r.blocker },
+      run: { runId: r.run_id, status: r.status, phase: r.phase ?? 'dispatch', currentAction: '', blocker: r.blocker },
       authorization: auth.rows[0]
         ? { authorizationId: auth.rows[0].authorization_id, status: auth.rows[0].status, scope: auth.rows[0].scope }
         : null,
@@ -264,11 +274,14 @@ export class DevAutopilotService {
         await this.block(projectId, runId, { code: 'HUMAN_TASK_REQUIRED', message: `任务 ${next.code} 需人工承接`, taskId: next.id, category: 'control' }, ctx);
         return true;
       }
+      let phase: string; // L6：本次派发动作对应的真实阶段（随 advance 回执落库）
       if (next.col === 'queue') {
         await this.board.transition(projectId, next.id, 'ing', undefined, autoCtx);
         await this.board.run(projectId, next.id, autoCtx); // mock 编码完成 prog=100
+        phase = 'development';
       } else if (next.col === 'ing' && next.prog === 100) {
         await this.board.transition(projectId, next.id, 'review', undefined, autoCtx);
+        phase = 'quality';
       } else if (next.col === 'review') {
         // 质量 → AI 评审 → 合并（证据缺失才补；防空转由证据已存在判定承载）
         // 证据须匹配当前代码修订（与合并自动门禁同口径；旧 codeRev 证据不算数）
@@ -278,6 +291,7 @@ export class DevAutopilotService {
           [projectId, next.id, String(next.code_rev)]);
         if (hasUnit.rows.length === 0) {
           await this.board.quality(projectId, next.id, autoCtx);
+          phase = 'quality';
         } else {
           const hasReview = await query(
             `SELECT 1 FROM evd_records WHERE project_id=$1 AND kind='ai-review' AND payload->>'taskId'=$2
@@ -285,12 +299,16 @@ export class DevAutopilotService {
             [projectId, next.id, String(next.code_rev)]);
           if (hasReview.rows.length === 0) {
             await this.board.aiReview(projectId, next.id, autoCtx);
+            phase = 'ai-review';
           } else {
             await this.board.merge(projectId, next.id, 'autopilot-authorization', undefined, r.authorization_id, autoCtx);
+            phase = 'merge';
           }
         }
+      } else {
+        return false; // 中间态（ing 未完成等）：等待下个 tick，不写阶段
       }
-      await executeCommand('dev.autopilot.advance', { projectId, runId, dispatched: next.code }, autoCtx);
+      await executeCommand('dev.autopilot.advance', { projectId, runId, dispatched: next.code, phase }, autoCtx);
       return false;
     }
     // ⑤ 集成构建（缺则派发，仅一次）
@@ -298,6 +316,7 @@ export class DevAutopilotService {
     const planRev = await query<{ revision: number }>('SELECT revision FROM dev_plans WHERE id=$1', [r.plan_id]);
     if (!buildCur.build || buildCur.build.planRevision !== planRev.rows[0]!.revision) {
       await this.build.run(projectId, autoCtx);
+      await executeCommand('dev.autopilot.advance', { projectId, runId, phase: 'build' }, autoCtx);
       return false;
     }
     // ⑥ 自测（人工 running 只等待；失败无实质修复不空转）
@@ -317,6 +336,7 @@ export class DevAutopilotService {
     }
     if (gate.issues.some((i) => i.code === 'SELFTEST_REQUIRED')) {
       await this.selftest.start(projectId, autoCtx);
+      await executeCommand('dev.autopilot.advance', { projectId, runId, phase: 'selftest' }, autoCtx);
       return false;
     }
     return false;
