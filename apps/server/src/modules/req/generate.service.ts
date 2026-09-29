@@ -37,6 +37,10 @@ interface GenOp {
     refTexts: Array<{ name: string; md: string }>;
     /** 当前文档已占用条目编号（增量修订顺延，#10 撞车防控） */
     existingCodes: string[];
+    /** 当前文档内容（增量修订时注入 prompt，模型据此只产差异补丁——W2-009） */
+    currentContent: string;
+    /** PRD 生成的上游 CRD 定稿稿（LLD-6 §3.3 消费链；空态文案已承诺「PRD 以 CRD 定稿稿为默认参考」——W2-006 补齐实现） */
+    upstreamCrd: string;
   };
 }
 
@@ -100,12 +104,18 @@ export class GenerateService {
       refs.push({ fileId, fingerprint: r.rows[0].content_fingerprint });
     }
     // PRD 生成门禁：CRD 已定稿（LLD-6 §3.3）
+    let upstreamCrd = '';
     if (kind === 'prd') {
       const crd = await query<{ final_version_id: string | null }>(
         "SELECT final_version_id FROM req_documents WHERE project_id=$1 AND doc_kind='crd'", [projectId]);
       if (!crd.rows[0]?.final_version_id) {
         throw new DomainError('GATE_BLOCKED', 'PRD 生成前置：CRD 已定稿', 'crd');
       }
+      // W2-006：注入 CRD 定稿稿全文作为上游输入（消费链权威输入，不只靠挂接参考）
+      const crdContent = await query<{ content: string }>(
+        `SELECT v.content FROM req_versions v JOIN req_documents d ON d.final_version_id=v.id
+         WHERE d.project_id=$1 AND d.doc_kind='crd'`, [projectId]);
+      upstreamCrd = crdContent.rows[0]?.content ?? '';
     }
     const cur = d.current_version_id
       ? await query<{ content: string }>(
@@ -129,6 +139,8 @@ export class GenerateService {
         real: {
           instruction: input.instruction ?? '', refTexts,
           existingCodes: [...new Set(effective.match(kind === 'crd' ? /\bCR-\d{3}\b/g : /\bREQ-\d{3}\b/g) ?? [])].sort(),
+          currentContent: effective,
+          upstreamCrd,
         },
       });
     } else {
@@ -232,7 +244,7 @@ export class GenerateService {
     const t0 = Date.now();
     try {
       const session = await this.ai!.createSession({ projectId: op.projectId, purpose: 'generation' });
-      const { deltas, result } = session.stream(buildPrompt(op.kind, real.instruction, real.refTexts, real.existingCodes));
+      const { deltas, result } = session.stream(buildPrompt(op.kind, real.instruction, real.refTexts, real.existingCodes, real.currentContent, real.upstreamCrd));
       let buf: string[] = [];
       for await (const d of deltas) {
         if (op.status === 'stopped') {
@@ -271,22 +283,29 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-/** 真接提示词：角色 + 章节口径（`## ` 条目）+ 编号顺延 + 用户指示 + 参考正文 */
+/** 真接提示词：角色 + 章节口径（`## ` 条目）+ 编号顺延 + 用户指示 + 参考正文 + 上游/当前文档（W2-006/W2-009） */
 function buildPrompt(
   kind: 'crd' | 'prd',
   instruction: string,
   refTexts: Array<{ name: string; md: string }>,
   existingCodes: string[] = [],
+  currentContent = '',
+  upstreamCrd = '',
 ): string {
   const refs = refTexts.map((r) => `## 参考资料：${r.name}\n\n${r.md}`).join('\n\n');
+  const incremental = instruction.trim().length > 0 && currentContent.trim().length > 0;
   return [
-    `你是软件工厂的需求分析助手。请基于参考资料生成一份${kind === 'crd' ? '客户需求文档（CRD）' : '产品需求文档（PRD）'}初稿。`,
+    incremental
+      ? `你是软件工厂的需求分析助手。本次是${kind === 'crd' ? '客户需求文档（CRD）' : '产品需求文档（PRD）'}的**增量修订**：只输出需要新增或修改的章节（每章一个 \`## \` 标题；修改某章时保持原标题不变、整章重写输出），**不要复述未变化的章节，不要整篇重出**。`
+      : `你是软件工厂的需求分析助手。请基于${kind === 'prd' ? '上游 CRD 定稿稿与' : ''}参考资料生成一份${kind === 'crd' ? '客户需求文档（CRD）' : '产品需求文档（PRD）'}初稿。`,
     `要求：中文 markdown；每条需求单独一个 \`## \` 章节，标题形如 \`${kind === 'crd' ? 'CR' : 'REQ'}-001 简明标题\`；条目正文含承接来源与需求描述、验收要点。`,
     // #11：整篇漏承接尾部条目 + 锚点错位的防控
-    `逐条核对参考资料中的全部功能/需求条目并逐一承接，不得遗漏（尤其参考资料文末的条目）；每条正文「承接」锚点（${kind === 'crd' ? 'R-nnn' : 'CR-nnn'}）须与该条实际出处一致，不得张冠李戴。`,
+    `逐条核对${kind === 'prd' ? '上游 CRD 定稿稿与' : ''}参考资料中的全部功能/需求条目并逐一承接，不得遗漏（尤其文末的条目）；每条正文「承接」锚点（${kind === 'crd' ? 'R-nnn' : 'CR-nnn'}）须与该条实际出处一致，不得张冠李戴。`,
     // #10：增量修订编号撞车防控
     existingCodes.length ? `本文档已占用编号：${existingCodes.join('、')}；新增条目必须使用未占用编号（在最大编号后顺延），不得复用。` : '',
     ...(instruction ? [`用户指示：${instruction}`] : []),
+    ...(upstreamCrd ? [`【上游输入：CRD 定稿稿（PRD 的权威输入，逐条承接）】\n\n${upstreamCrd}`] : []),
+    ...(incremental ? [`【当前文档内容（增量修订的基线；未提及的章节保持不变，不要输出）】\n\n${currentContent}`] : []),
     refs,
   ].filter(Boolean).join('\n\n');
 }

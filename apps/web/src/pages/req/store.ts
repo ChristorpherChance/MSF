@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { ensureProject } from '../material/api';
+import { toast } from '../../ui/toast';
 import {
   reqApi,
   generateDoc,
@@ -154,8 +155,12 @@ export const useReqView = create<ReqViewState>((set, get) => ({
             set({ gen: { ...g, streamText: g.streamText + (f.text ?? '') } });
           } else if (f.type === 'stream.done') {
             set({ gen: { ...g, operationId: f.operationId ?? g.operationId, running: false } });
+            // W2-008：流完成即重拉（补丁/章节状态立刻渲染，不留「须手动刷新」窗口）
+            void get().refresh();
           } else {
             set({ gen: { ...g, running: false, error: f.code ?? '生成失败' } });
+            // W2-001：失败人话 toast（工具栏 ⛔ 之外给显性提示；warn 停留 6s）
+            toast(`生成失败（${f.code ?? '未知错误'}）：草稿与版本未受影响，可重新发起；若持续失败请到设置页检查模型连接`, 'warn');
           }
         },
       );
