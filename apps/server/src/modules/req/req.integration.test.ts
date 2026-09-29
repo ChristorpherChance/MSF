@@ -199,10 +199,14 @@ describe('ReqDocs/Rtm/Generate（集成，需 DB+MinIO）', async () => {
     await docs.undo(PID, 'crd', CTX);
     const d3 = await view('crd');
     expect(d3.modified).toBe(false);
-    // add 补丁 reject → 不落稿
-    await docs.rejectPatch(PID, 'crd', proposed.patchIds[1]!, CTX);
-    const patches = (await docs.listPatches(PID, 'crd')) as { items: Array<{ status: string }> };
+    // add 补丁 reject（L2：带处置理由）→ 不落稿，理由落库并随查询返回
+    await docs.rejectPatch(PID, 'crd', proposed.patchIds[1]!, CTX, '与 CR-001 范围重复，不并入');
+    const patches = (await docs.listPatches(PID, 'crd')) as { items: Array<{ status: string; reason: string | null }> };
     expect(patches.items.map((p) => p.status).sort()).toEqual(['accepted', 'rejected']);
+    const rejected = patches.items.find((p) => p.status === 'rejected');
+    expect(rejected?.reason).toBe('与 CR-001 范围重复，不并入');
+    const accepted = patches.items.find((p) => p.status === 'accepted');
+    expect(accepted?.reason).toBeNull(); // 未填理由 → NULL
   });
 
   it('生成 mock：参考门禁 REFERENCE_NOT_FINAL → 定稿参考后生成→补丁→接受→提交；PRD 门禁 CRD 定稿', async () => {

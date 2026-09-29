@@ -448,6 +448,7 @@ function Paper({ kind, readonly }: { kind: DocKind; readonly: boolean }) {
           )}
           {pendCount > 1 && !readonly && <PatchBulk kind={kind} />}
         </h1>
+        <PatchTrail patches={patches} />
         {doc.secs.map((s) => (
           <section key={s.id} id={`sec-${s.id}`} className={`sect${tocFlash === s.id ? ' flash' : ''}`}>
             {/* 补丁条在章节标题之前（原型口径：pending-bar → h2 → 正文） */}
@@ -599,16 +600,22 @@ function PatchBulk({ kind }: { kind: DocKind }) {
   );
 }
 
-/** 待确认补丁行内条（REQ-205；modify/del 高亮旧→新） */
+/** 待确认补丁行内条（REQ-205；modify/del 高亮旧→新；L2：拒绝可填处置理由，落库留痕） */
 function PendingBar({ kind, patch }: { kind: DocKind; patch: PatchItem }) {
   const { projectId, refresh } = useReqView();
   const [msg, setMsg] = useState<string | null>(null);
+  const [rejectOpen, setRejectOpen] = useState(false);
+  const [reason, setReason] = useState('');
   if (!projectId) return null;
   const act = (fn: () => Promise<unknown>) => {
     setMsg(null);
     void fn()
       .catch((e) => setMsg(e instanceof ApiError ? `${e.code}: ${e.message}` : '操作失败'))
       .finally(() => void refresh());
+  };
+  const doReject = () => {
+    setRejectOpen(false);
+    act(() => reqApi.rejectPatch(projectId, kind, patch.patchId, reason.trim() || undefined));
   };
   return (
     <div className={`pending-bar pending-${patch.type === 'modify' ? 'mod' : patch.type === 'del' ? 'del' : 'add'}`}>
@@ -620,9 +627,44 @@ function PendingBar({ kind, patch }: { kind: DocKind; patch: PatchItem }) {
         <em>（{patch.source === 'ai' ? 'AI 提案' : patch.source}）</em>
       </span>
       <button className="act primary" onClick={() => act(() => reqApi.acceptPatch(projectId, kind, patch.patchId))}>✓ 接受</button>
-      <button className="act" onClick={() => act(() => reqApi.rejectPatch(projectId, kind, patch.patchId))}>✕ 拒绝</button>
+      <button className="act" onClick={() => setRejectOpen(true)}>✕ 拒绝</button>
       {msg && <span className="rsn err">{msg}</span>}
+      {rejectOpen && (
+        <div className="msk" onClick={() => setRejectOpen(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3>拒绝补丁</h3>
+            <p className="sub">拒绝 = 丢弃本提案（不落稿）。可填写处置理由，随裁决落库留痕。</p>
+            <textarea value={reason} rows={3} placeholder="处置理由（可选）：为什么拒绝这条提案" onChange={(e) => setReason(e.target.value)} />
+            <div className="foot">
+              <button className="act" onClick={() => setRejectOpen(false)}>取消</button>
+              <button className="act danger" onClick={doReject}>✕ 确认拒绝</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
+  );
+}
+
+/** 补丁处置留痕（L2）：已裁决补丁的理由回放；h1 旁 details 折叠展示 */
+function PatchTrail({ patches }: { patches: PatchItem[] }) {
+  const decided = patches.filter((p) => p.status !== 'pending');
+  if (decided.length === 0) return null;
+  return (
+    <details className="patch-trail">
+      <summary>处置留痕 ×{decided.length}</summary>
+      {decided.map((p) => (
+        <div key={p.patchId} className="patch-trail-row">
+          <span className={`tag ${p.status === 'accepted' ? 'tag-ok' : 'tag-warn'}`}>
+            {p.status === 'accepted' ? '已接受' : '已拒绝'}
+          </span>
+          <span className="pend-desc">
+            {p.type === 'add' ? `「${p.title ?? '章节'}」` : p.type === 'del' ? `「${p.old ?? ''}」` : `${p.old ?? ''} → ${p.new ?? ''}`}
+          </span>
+          <span className="rsn">{p.reason ?? '（未填理由）'}</span>
+        </div>
+      ))}
+    </details>
   );
 }
 

@@ -63,6 +63,8 @@ export interface PatchItem {
   new?: string;
   status: 'pending' | 'accepted' | 'rejected';
   source: string;
+  /** L2：处置理由（落库留痕；未填写为 null） */
+  reason: string | null;
 }
 
 export interface RtmRow {
@@ -127,10 +129,10 @@ export const reqApi = {
     api.post(`${base(pid)}/docs/${kind}/versions/${v}:switch`, {}),
   listPatches: (pid: string, kind: DocKind) =>
     api.get<{ items: PatchItem[] }>(`${base(pid)}/docs/${kind}/patches`),
-  acceptPatch: (pid: string, kind: DocKind, patchId: string) =>
-    api.post(`${base(pid)}/docs/${kind}/patches/${patchId}:accept`, {}),
-  rejectPatch: (pid: string, kind: DocKind, patchId: string) =>
-    api.post(`${base(pid)}/docs/${kind}/patches/${patchId}:reject`, {}),
+  acceptPatch: (pid: string, kind: DocKind, patchId: string, reason?: string) =>
+    api.post(`${base(pid)}/docs/${kind}/patches/${patchId}:accept`, reason ? { reason } : {}),
+  rejectPatch: (pid: string, kind: DocKind, patchId: string, reason?: string) =>
+    api.post(`${base(pid)}/docs/${kind}/patches/${patchId}:reject`, reason ? { reason } : {}),
   addReference: (pid: string, kind: DocKind, fileId: string) =>
     api.post(`${base(pid)}/docs/${kind}/references`, { fileId }),
   removeReference: (pid: string, kind: DocKind, fileId: string) =>

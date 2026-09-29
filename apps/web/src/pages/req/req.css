@@ -286,3 +286,10 @@ tr.row-flash { animation: rtm-flash 1.2s ease-in-out 2; }
 .plabel.add { color: var(--green, #16a34a); }
 .plabel.mod { color: var(--orange, #d97706); }
 .plabel.del { color: var(--red); }
+
+/* L2 补丁处置留痕 */
+.patch-trail { margin: 4px 0 10px; font-size: 12px; color: var(--muted, #64748b); }
+.patch-trail summary { cursor: pointer; user-select: none; }
+.patch-trail-row { display: flex; align-items: baseline; gap: 8px; padding: 3px 0 3px 12px; }
+.patch-trail-row .pend-desc { flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 50%; }
+.patch-trail-row .rsn { color: var(--muted, #64748b); }

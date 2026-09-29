@@ -271,6 +271,8 @@ R-xx（原始诉求，保留用户原话要点）与 CR-xx 的完整陈述与出
 | 2026-09-20 | README `5ba42305ac05b121` / CRD `23bc75ca4e9c641a` / PRD `d945c49aa74210b9` / HLD `d424be41d6e868bc` / LLD-1 `542bea3f955b092b` / LLD-2 `0466a6e978cab9ce` / LLD-3 `f918d0f9984542f1` / LLD-4 `dceba7472c28f937` / LLD-5 `21a44fe9233f8285` / LLD-6 `c384519adfb9404d` / LLD-7 `eb59e14d6f27abcc` / RTM（本表登记前）`8be84853e5901100` / 统稿裁决记录 `4b00ac155363c255` | **首个基线**（评审修订波次 0~3 全部完成后登记；本目录非 git 检出，以全文件 SHA-256 前 16 位清单代替提交 SHA）。此时 L0a/L0b/L0c 自算 100%、L0d=1，check-codes.mjs 零违规，评审状态转「通过（修订后）」 |
 | 2026-09-21 | README `5ba42305ac05b121` / CRD `1ca90240d66a48d3` / PRD `714b249dae4562c3` / HLD `157c960c119df041` / LLD-1 `dacb00a35d688036` / LLD-2 `16cb918053a3d943` / LLD-3 `b402cf550f0c5bf2` / LLD-4 `ae93a5b90cb7637e` / LLD-5 `725e5800d3015702` / LLD-6 `786377a6c96c3a88` / LLD-7 `eb59e14d6f27abcc` / RTM（本表登记前）`d34ea077b6819ad3` / 统稿裁决记录 `7b70b21ecf2412c4` | **二轮基线**（二轮评审修订 W5A~W5D + 原型代理全部完成后登记）。L0a 口径改 active R（R-03-1）后自算仍 100%（L0b/L0c 同 100%、L0d=1）；check-codes.mjs 零违规；build-rtm-index.mjs 反向索引 411 条目、无零引用行；新增锚点 DSG-A07-13/14、A06-22、D10-8、U06-24 等 12 个已双向挂接 |
 
+| 2026-09-29 | README `5ba42305ac05b121` / CRD `1ca90240d66a48d3` / PRD `714b249dae4562c3` / HLD `157c960c119df041` / LLD-1 `dacb00a35d688036` / LLD-2 `16cb918053a3d943` / LLD-3 `b402cf550f0c5bf2` / LLD-4 `bd7987cf015c7ff8` / LLD-5 `713861c37efa6bc4` / LLD-6 `5d0c93d3f8956639` / LLD-7 `eb59e14d6f27abcc` / RTM（本表登记前）`95227b71e1a9042c` / 统稿裁决记录 `60cf77073ca1699a` | **R-04 基线**（产品化实机走查修订：req_pendings.reason 增列（D04-4/A04-10）、LLD-5 回补 A06-23/24 并扩展 A06-7、LLD-6 §3.5 措辞回销「开发自测」；裁决见统稿裁决记录 R-04）。check-codes.mjs 零违规；接口/UI 行为不变（文档追认 + 增列为 additive） |
+
 ## 8. 修订记录
 
 | 日期 | 条目 | 变更 |

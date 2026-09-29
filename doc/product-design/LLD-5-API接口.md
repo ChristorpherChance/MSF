@@ -347,8 +347,9 @@ HTTP 状态码约定：
 - 错误码：`INVALID_STATE`。承接：REQ-203、`switchVer/verHistory`。
 
 ### DSG-A04-10 待确认补丁：查询 / 接受 / 拒绝
-- `GET .../docs/{docId}/patches` ｜ 查询型：`{ "items": [ { "patchId": "pd_1", "secId": "s1", "type": "modify", "old": "…", "new": "…", "source": "ai" } ] }`
+- `GET .../docs/{docId}/patches` ｜ 查询型：`{ "items": [ { "patchId": "pd_1", "secId": "s1", "type": "modify", "old": "…", "new": "…", "source": "ai", "status": "pending", "reason": null } ] }`（`reason` 为处置理由，未裁决或未填写为 null——R-04-1）
 - `POST .../docs/{docId}/patches/{patchId}:accept | :reject` ｜ 命令型 ｜ 幂等：必需
+- 请求：`{ "reason": "…" }`（可选；处置理由随裁决落库 req_pendings.reason，UI「处置留痕」回放——R-04-1）
 - 响应 200：`{ "patchId": "pd_1", "applied": true, "version": 14 }`
 - 说明：逐条人工处理；接受 → 落草稿并标 modified；拒绝 → 恢复原内容。承接：REQ-205、`acceptPend/rejectPend`。
 
@@ -497,10 +498,24 @@ HTTP 状态码约定：
 
 ### DSG-A06-7 计划批准
 - `POST /api/v1/projects/{projectId}/dev/plan:approve` ｜ 命令型 ｜ 幂等：必需
-- 说明：人工批准（策略门禁 `dev.plan.approve`）后才进入执行；批准后计划版本固定。
+- 说明：人工批准（策略门禁 `dev.plan.approve`）后才进入执行；批准后计划版本固定。**R-04-2 扩展**：除 submitted 修订外，亦接受 A06-23 产出的 draft（准备）修订——全部建议已处置（pending 清零，否则 `GATE_BLOCKED`/PLAN_REQUIRED）+ 任务池/目录新鲜度复核（snapshot.basedOn 比对，失败 `STALE_EVIDENCE` 整体回滚不作废、draft 可重试）后，同事务应用已采用建议落任务池并批准（LLD-2 DSG-F02-6 准备两级流程口径，原型 `devApproveAndRun` 前置）。
 - 请求：`{ "revision": "plan-r3", "fingerprint": "sha256:…", "confirm": true }`
-- 响应 200：`{ "revision": "plan-r3", "status": "approved", "approvedBy": "local-default", "approvedAt": "…" }`
-- 错误码：`STALE_EVIDENCE`（展示的修订/指纹非最新，对应 `devApproveAndRun` 的 displayedRevisionId/displayedFingerprint 复核）、`POLICY_MANUAL_REQUIRED`。承接：REQ-404、BR-06、REQ-711。
+- 响应 200：`{ "revision": "plan-r3", "status": "approved", "approvedBy": "local-default", "approvedAt": "…" }`（draft 批准另含 `applied` 应用建议数）
+- 错误码：`STALE_EVIDENCE`（展示的修订/指纹非最新，对应 `devApproveAndRun` 的 displayedRevisionId/displayedFingerprint 复核；或准备后任务池/目录已变化；或基线已失效——基线失效时本修订作废 invalidated）、`GATE_BLOCKED`（未处置建议）、`POLICY_MANUAL_REQUIRED`。承接：REQ-404、BR-06、REQ-711。
+
+### DSG-A06-23 计划准备（两级流程第一步）
+- `POST /api/v1/projects/{projectId}/dev/plan:prepare` ｜ 命令型 ｜ 幂等：必需
+- 说明：对当前任务池与目录做准备快照，产出 draft 修订：建议（suggestions）= 未覆盖目录项 → create-task（默认采用）+ 规格缺口任务 → patch-task（默认待处理，须人工判断；仅对 queue 列任务生成，与 dev.task.save 可编辑口径一致）；同时落 preparation_fingerprint 与 snapshot.basedOn（任务池 rev + 目录版本）作新鲜度基座。准备不会启动开发，不改动既有任务。（R-04-2 回补：实现先于本文档落地，原型 `devPreparePlan`/v18-preparation 为准）
+- 请求：无体
+- 响应 201：`{ "planId": "…", "revision": "plan-r4", "fingerprint": "sha256:…", "preparationFingerprint": "sha256:…", "suggestions": 3, "status": "draft" }`
+- 错误码：`GATE_BLOCKED`（开发入口门禁未过，同 A06-6 前置）。承接：REQ-404、REQ-420、LLD-2 DSG-F02-6。
+
+### DSG-A06-24 准备建议处置
+- `POST /api/v1/projects/{projectId}/dev/plan:suggestion-resolve` ｜ 命令型 ｜ 幂等：必需
+- 说明：逐条处置 draft 修订的建议（采用/不采用/回退待处理；patch-task 采用时可携修订后任务规格 `task`），每次处置追加一个新草稿修订（revision+1），旧修订只读失效（原型 `devRevisePreparation` 口径）；展示指纹不符拒绝。（R-04-2 回补）
+- 请求：`{ "revision": "plan-r4", "fingerprint": "sha256:…", "suggestionId": "sg-T-070", "decision": "accepted", "task": { …修订后规格… } }`
+- 响应 200：`{ "revision": "plan-r5", "fingerprint": "sha256:…", "preparationFingerprint": "sha256:…", "decision": { "suggestionId": "sg-T-070", "state": "accepted" } }`
+- 错误码：`STALE_EVIDENCE`（展示的修订/指纹非最新）、`INVALID_STATE`（目标非 draft 或建议非待处置）、`VALIDATION_FAILED`。承接：REQ-404、REQ-420。
 
 ### DSG-A06-8 看板状态流转
 - `POST /api/v1/projects/{projectId}/dev/tasks/{taskId}:transition` ｜ 命令型 ｜ 幂等：必需

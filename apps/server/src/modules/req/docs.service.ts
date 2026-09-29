@@ -265,7 +265,7 @@ export class ReqDocsService {
 
     // accept-pending：from 文本仍在当前内容（否则保留 pend 并拒绝 PATCH_BASE_STALE）；走 save 同路径入 undo 栈
     registerCommand('doc.accept-pending', async (client, payload, ctx) => {
-      const { projectId, kind, patchId } = payload as { projectId: string; kind: 'crd' | 'prd'; patchId: string };
+      const { projectId, kind, patchId, reason } = payload as { projectId: string; kind: 'crd' | 'prd'; patchId: string; reason?: string };
       const doc = await this.lockDoc(client, projectId, kind);
       this.assertEditable(doc, ctx);
       const p = await client.query<{ id: string; patch: EditPatch; status: string }>(
@@ -282,22 +282,22 @@ export class ReqDocsService {
       const content = joinSections(applied);
       if (content !== effective) await this.writeDraft(client, doc, cur, draft, content, ctx);
       await client.query(
-        "UPDATE req_pendings SET status='accepted', decided_by=$2, decided_at=now() WHERE id=$1",
-        [patchId, ctx.actorId],
+        "UPDATE req_pendings SET status='accepted', decided_by=$2, decided_at=now(), reason=$3 WHERE id=$1",
+        [patchId, ctx.actorId, reason?.trim() || null],
       );
       await this.assertInvariants(client, doc.id);
       return { patchId, applied: true };
     });
 
     registerCommand('doc.reject-pending', async (client, payload, ctx) => {
-      const { projectId, kind, patchId } = payload as { projectId: string; kind: 'crd' | 'prd'; patchId: string };
+      const { projectId, kind, patchId, reason } = payload as { projectId: string; kind: 'crd' | 'prd'; patchId: string; reason?: string };
       const doc = await this.lockDoc(client, projectId, kind);
       const p = await client.query<{ status: string }>(
         "SELECT status FROM req_pendings WHERE id=$1 AND document_id=$2 FOR UPDATE", [patchId, doc.id]);
       if (p.rows[0]?.status !== 'pending') throw new DomainError('INVALID_STATE', '补丁非待确认状态', patchId);
       await client.query(
-        "UPDATE req_pendings SET status='rejected', decided_by=$2, decided_at=now() WHERE id=$1",
-        [patchId, ctx.actorId],
+        "UPDATE req_pendings SET status='rejected', decided_by=$2, decided_at=now(), reason=$3 WHERE id=$1",
+        [patchId, ctx.actorId, reason?.trim() || null],
       );
       return { patchId, applied: false };
     });
@@ -432,11 +432,11 @@ export class ReqDocsService {
     };
   }
 
-  /** A04-10 补丁查询 */
+  /** A04-10 补丁查询（L2：含处置理由留痕） */
   async listPatches(projectId: string, kind: string): Promise<unknown> {
     const doc = await this.getDocRow(projectId, kind);
-    const r = await query<{ id: string; patch: EditPatch; status: string; proposed_by: string }>(
-      'SELECT id, patch, status, proposed_by FROM req_pendings WHERE document_id=$1 ORDER BY created_at',
+    const r = await query<{ id: string; patch: EditPatch; status: string; proposed_by: string; reason: string | null }>(
+      'SELECT id, patch, status, proposed_by, reason FROM req_pendings WHERE document_id=$1 ORDER BY created_at',
       [doc.id],
     );
     return {
@@ -449,6 +449,7 @@ export class ReqDocsService {
         new: x.patch.new,
         status: x.status,
         source: x.proposed_by === 'assistant' ? 'ai' : x.proposed_by,
+        reason: x.reason,
       })),
     };
   }
@@ -476,11 +477,11 @@ export class ReqDocsService {
   async unlock(projectId: string, kind: 'crd' | 'prd', ctx: CommandContext) {
     return executeCommand('doc.unlock', { projectId, kind }, { ...ctx, projectId });
   }
-  async acceptPatch(projectId: string, kind: 'crd' | 'prd', patchId: string, ctx: CommandContext) {
-    return executeCommand('doc.accept-pending', { projectId, kind, patchId }, { ...ctx, projectId });
+  async acceptPatch(projectId: string, kind: 'crd' | 'prd', patchId: string, ctx: CommandContext, reason?: string) {
+    return executeCommand('doc.accept-pending', { projectId, kind, patchId, ...(reason !== undefined ? { reason } : {}) }, { ...ctx, projectId });
   }
-  async rejectPatch(projectId: string, kind: 'crd' | 'prd', patchId: string, ctx: CommandContext) {
-    return executeCommand('doc.reject-pending', { projectId, kind, patchId }, { ...ctx, projectId });
+  async rejectPatch(projectId: string, kind: 'crd' | 'prd', patchId: string, ctx: CommandContext, reason?: string) {
+    return executeCommand('doc.reject-pending', { projectId, kind, patchId, ...(reason !== undefined ? { reason } : {}) }, { ...ctx, projectId });
   }
   async addReference(projectId: string, kind: 'crd' | 'prd', fileId: string, ctx: CommandContext) {
     return executeCommand('doc.add-reference', { projectId, kind, fileId }, { ...ctx, projectId });

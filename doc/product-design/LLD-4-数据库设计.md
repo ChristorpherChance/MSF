@@ -370,6 +370,7 @@ erDiagram
 | proposed_by | text | NOT NULL | AI 身份（actor_kind=assistant） |
 | status | text | NOT NULL DEFAULT 'pending' CHECK IN ('pending','accepted','rejected','stale') | |
 | decided_by / decided_at | text / timestamptz | | 人工裁决 |
+| reason | text | | 处置理由（接受/拒绝时可选填写，随裁决落库；已裁决补丁在 UI「处置留痕」回放）（R-04-1，2026-09-29 增列） |
 | created_at | | NOT NULL | |
 
 索引：`(document_id, status)`。承接 REQ-205、REQ-613、BR-07。

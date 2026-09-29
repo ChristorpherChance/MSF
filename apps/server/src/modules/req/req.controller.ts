@@ -184,14 +184,14 @@ export class ReqController {
 
   @Post('docs/:kind/patches/:patchId\\:accept')
   @HttpCode(200)
-  acceptPatch(@Param('projectId') projectId: string, @Param('kind') kind: string, @Param('patchId') patchId: string, @Req() req: Request) {
-    return this.docs.acceptPatch(projectId, this.assertKind(kind), patchId, this.actor(req, projectId));
+  acceptPatch(@Param('projectId') projectId: string, @Param('kind') kind: string, @Param('patchId') patchId: string, @Body() body: { reason?: string }, @Req() req: Request) {
+    return this.docs.acceptPatch(projectId, this.assertKind(kind), patchId, this.actor(req, projectId), body?.reason);
   }
 
   @Post('docs/:kind/patches/:patchId\\:reject')
   @HttpCode(200)
-  rejectPatch(@Param('projectId') projectId: string, @Param('kind') kind: string, @Param('patchId') patchId: string, @Req() req: Request) {
-    return this.docs.rejectPatch(projectId, this.assertKind(kind), patchId, this.actor(req, projectId));
+  rejectPatch(@Param('projectId') projectId: string, @Param('kind') kind: string, @Param('patchId') patchId: string, @Body() body: { reason?: string }, @Req() req: Request) {
+    return this.docs.rejectPatch(projectId, this.assertKind(kind), patchId, this.actor(req, projectId), body?.reason);
   }
 
   /** 参考关联（REQ-114；参考资料 popover 挂接/移除） */
