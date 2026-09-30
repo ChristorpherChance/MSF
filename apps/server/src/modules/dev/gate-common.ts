@@ -25,8 +25,8 @@ export async function latestBaseline(client: PoolClient | null, projectId: strin
   return r.rows[0] ?? null;
 }
 
-/** 实时重算基线工件指纹组合（与 design 域 baselineItems 同口径，SQL 直读） */
-export async function liveBaselineFingerprint(client: PoolClient | null, projectId: string): Promise<string | null> {
+/** 实时重算基线工件组合（与 design 域 baselineItems 同口径，SQL 直读；W2-043 提取供重确认重登复用） */
+export async function liveBaselineItems(client: PoolClient | null, projectId: string) {
   const q = qof(client);
   const items: Array<{ artifact: string; version_id: string | null; fingerprint: string | null; required: boolean }> = [];
   const sources = [
@@ -44,7 +44,12 @@ export async function liveBaselineFingerprint(client: PoolClient | null, project
     `SELECT v.id, v.content_fingerprint AS fp FROM dsg_documents d JOIN dsg_versions v ON v.id=d.final_version_id
      WHERE d.project_id=$1 AND d.doc_kind='prototype'`, [projectId]);
   items.push({ artifact: 'PROTOTYPE', version_id: proto.rows[0]?.id ?? null, fingerprint: proto.rows[0]?.fp ?? null, required: true });
-  return fingerprint({ items });
+  return items;
+}
+
+/** 实时基线指纹（liveBaselineItems 的指纹投影） */
+export async function liveBaselineFingerprint(client: PoolClient | null, projectId: string): Promise<string | null> {
+  return fingerprint({ items: await liveBaselineItems(client, projectId) });
 }
 
 /** develop 门禁（REQ-310：基线有效 ∧ L0c=100%；§15(a)/(e) 子码） */

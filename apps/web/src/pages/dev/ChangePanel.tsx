@@ -35,19 +35,44 @@ function ImpactsPage() {
           if (!r.impacts.length) useDevStore.setState({ notice: '未发现受影响任务' });
         })}>观察输入变化</button>
         {pending.length > 0 && (
-          <button className="act" onClick={() => setConfirmAll(true)}>
+          <button className="act" onClick={() => { setReason(''); setConfirmAll(true); }}>
             基线重确认（全部 accept）
           </button>
         )}
       </div>
+      {/* W2-043/044：重确认=人工确认点，理由必填（与服务端校验同口径）；重登新基线行并使计划失效 */}
       {confirmAll && (
-        <ConfirmModal
+        <Modal
           title="基线重确认"
-          body={`对全部 ${pending.length} 张未决影响单执行「基线重确认（accept）」？`}
-          confirmLabel="全部 accept"
           onClose={() => setConfirmAll(false)}
-          onConfirm={() => s.act(() => devApi.confirmBaseline(pid, '基线人工重确认'), '基线已重确认')}
-        />
+          footer={
+            <>
+              <button className="sm" onClick={() => setConfirmAll(false)}>取消</button>
+              <button
+                className="sm primary"
+                disabled={!reason.trim()}
+                title={reason.trim() ? '' : '重确认理由不能为空'}
+                onClick={() => {
+                  setConfirmAll(false);
+                  void s.act(() => devApi.confirmBaseline(pid, reason.trim()), '基线已重确认');
+                }}
+              >
+                全部 accept 并重确认
+              </button>
+            </>
+          }
+        >
+          <p className="pop-tip">
+            对全部 {pending.length} 张未决影响单执行 accept；若上游定稿实况与现行基线不符，将重登新基线行（reconfirmed_of 链），已批准计划失效须重新核对、提交、批准。
+          </p>
+          <textarea
+            rows={3}
+            style={{ width: '100%' }}
+            placeholder="必填：核对差异结论"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+          />
+        </Modal>
       )}
 
       {s.impacts.length === 0 && (
@@ -159,6 +184,7 @@ function BaselinePage() {
   const pid = s.projectId!;
   const bl = s.baseline;
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmReason, setConfirmReason] = useState('');
   return (
     <div>
       <div className="doc-toolbar">
@@ -170,19 +196,44 @@ function BaselinePage() {
           className="act primary"
           disabled={!bl || bl.valid}
           title={bl?.valid ? '基线有效，无需重确认' : ''}
-          onClick={() => setConfirmOpen(true)}
+          onClick={() => { setConfirmReason(''); setConfirmOpen(true); }}
         >
           核对差异并确认新基线
         </button>
       </div>
+      {/* W2-043/044：理由必填；重登 dsg_baselines 新行（reconfirmed_of 链），计划失效须重批 */}
       {confirmOpen && (
-        <ConfirmModal
+        <Modal
           title="确认新基线"
-          body="核对差异并确认新基线？"
-          confirmLabel="确认新基线"
           onClose={() => setConfirmOpen(false)}
-          onConfirm={() => s.act(() => devApi.confirmBaseline(pid, '基线人工重确认'), '基线已重确认')}
-        />
+          footer={
+            <>
+              <button className="sm" onClick={() => setConfirmOpen(false)}>取消</button>
+              <button
+                className="sm primary"
+                disabled={!confirmReason.trim()}
+                title={confirmReason.trim() ? '' : '重确认理由不能为空'}
+                onClick={() => {
+                  setConfirmOpen(false);
+                  void s.act(() => devApi.confirmBaseline(pid, confirmReason.trim()), '基线已重确认');
+                }}
+              >
+                确认新基线
+              </button>
+            </>
+          }
+        >
+          <p className="pop-tip">
+            按上方工件表逐项核对差异后确认：以当前上游定稿实况重登新基线行；已批准计划将失效，任务覆盖核对回 pending，须重新核对、提交、批准。
+          </p>
+          <textarea
+            rows={3}
+            style={{ width: '100%' }}
+            placeholder="必填：核对差异结论"
+            value={confirmReason}
+            onChange={(e) => setConfirmReason(e.target.value)}
+          />
+        </Modal>
       )}
       <div className="dsg-card">
         {bl ? (

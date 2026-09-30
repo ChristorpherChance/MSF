@@ -304,12 +304,13 @@ describe('Dev 开发域（集成，需 DB+MinIO）', async () => {
 
   it('T6 变更影响：observe → rework/accept/confirmBaseline（T4-11；REQ-419/420）', async () => {
     // 场景模拟：上游基线重登（SQL 直造新基线行，live 重算与存储不符 → 失效传播）
+    // confirmed_at 人为未来化（压过 beforeAll 真实基线行，保证 latestBaseline 取到 fake 行）
     const fake = (code: string, fp: string, plusMin: number) =>
       query(
         `INSERT INTO dsg_baselines (project_id, code, finalization_id, items, baseline_fingerprint, confirmed_by, confirmed_at)
          VALUES ($1,$2,'sim',$3,$4,'test', now() + make_interval(mins => $5))`,
         [PID, code, JSON.stringify([{ artifact: 'PRD', version_id: 'vX', fingerprint: fp }]), fp, plusMin]);
-    await fake('BL-9001', 'a'.repeat(64), 1);
+    await fake('BL-9001', 'a'.repeat(64), 3);
     const ob = (await impact.observe(PID, CTX)) as { impacts: string[]; affectedTasks?: string[] };
     expect(ob.impacts).toEqual(['IM-001']);
     expect(ob.affectedTasks).toContain(integrationTask.code);
@@ -318,27 +319,59 @@ describe('Dev 开发域（集成，需 DB+MinIO）', async () => {
     expect(ob2.deduplicated).toBe(true);
     // 处置：rework → 受影响任务 rev++/queue
     const before = (await listTasks()).find((t) => t.code === integrationTask.code)!;
+    // W2-044：处置理由服务端必填（绕 UI 直调也拦）
+    await expect(impact.apply(PID, ['IM-001'], 'rework', undefined, CTX)).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+    await expect(impact.apply(PID, ['IM-001'], 'rework', '   ', CTX)).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
     const ap = (await impact.apply(PID, ['IM-001'], 'rework', '按新基线返工', CTX)) as { resolved: number };
     expect(ap.resolved).toBe(1);
     const afterRework = (await listTasks()).find((t) => t.code === integrationTask.code)!;
     expect(afterRework.rev).toBe(before.rev + 1);
     expect(afterRework.col).toBe('queue');
     // 已处置单不可重复处置
-    await expect(impact.apply(PID, ['IM-001'], 'accept', undefined, CTX)).rejects.toMatchObject({ code: 'INVALID_STATE' });
+    await expect(impact.apply(PID, ['IM-001'], 'accept', '重复处置', CTX)).rejects.toMatchObject({ code: 'INVALID_STATE' });
     // accept：输入身份对齐新基线
     await fake('BL-9002', 'b'.repeat(64), 2);
     const ob3 = (await impact.observe(PID, CTX)) as { impacts: string[] };
     expect(ob3.impacts).toEqual(['IM-002']);
     await impact.apply(PID, ['IM-002'], 'accept', '确认输入仍适用', CTX);
-    // confirmBaseline： pending 全量 accept
+    // confirmBaseline：pending 全量 accept + W2-043 重登 dsg_baselines 新行（reconfirmed_of 链）
     await fake('BL-9003', 'c'.repeat(64), 3);
     await impact.observe(PID, CTX);
-    const cb = (await impact.confirmBaseline(PID, '基线人工重确认', CTX)) as { resolved: number };
+    // 重确认理由必填
+    await expect(impact.confirmBaseline(PID, undefined, CTX)).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+    // SQL 直造一个 approved 计划（fake 基线期走 submit/approve 会撞 STALE_EVIDENCE 实时复核），验证「确认基线本身使计划失效」（LLD-2 §540）
+    const bl9003 = (await query<{ id: string }>("SELECT id FROM dsg_baselines WHERE project_id=$1 AND code='BL-9003'", [PID])).rows[0]!;
+    await query(
+      "INSERT INTO dev_plans (project_id, revision, state, snapshot, coverage_report, baseline_id, baseline_fingerprint, plan_fingerprint, approved_by, approved_at) VALUES ($1, 900, 'approved', '{}', '{}', $2, $3, $4, 'test', now())",
+      [PID, bl9003.id, 'c'.repeat(64), 'd'.repeat(64)]);
+    const cb = (await impact.confirmBaseline(PID, '基线人工重确认', CTX)) as { resolved: number; reconfirmed: boolean; code: string; baselineId: string };
     expect(cb.resolved).toBe(1);
+    expect(cb.reconfirmed).toBe(true);
+    const newBl = (await query<{ code: string; baseline_fingerprint: string; valid: boolean; reconfirmed_of: string | null }>(
+      'SELECT * FROM dsg_baselines WHERE project_id=$1 AND id=$2', [PID, cb.baselineId])).rows[0]!;
+    expect(newBl.code).toBe(cb.code);
+    expect(newBl.valid).toBe(true);
+    expect(newBl.reconfirmed_of).toBe(bl9003.id); // reconfirmed_of 链（LLD-4 DSG-D05-7）
+    // 计划失效（baseline-reconfirm，LLD-2 §540）
+    const planAfter = (await query<{ state: string; invalidated_reason: string | null }>(
+      'SELECT state, invalidated_reason FROM dev_plans WHERE project_id=$1 AND revision=900', [PID])).rows[0]!;
+    expect(planAfter).toMatchObject({ state: 'invalidated', invalidated_reason: 'baseline-reconfirm' });
+    // 夹具行未来时间戳会盖住重登行（confirmed_at DESC）——解除引用、先删直造计划（FK→BL-9003）、再清 fake 行，重登行即成 latestBaseline（真实场景基线行天然时间递增，无此问题）
+    await query('UPDATE dsg_baselines SET reconfirmed_of=NULL WHERE project_id=$1 AND id=$2', [PID, cb.baselineId]);
+    await query('DELETE FROM dev_plans WHERE project_id=$1 AND revision=900', [PID]);
+    await query("DELETE FROM dsg_baselines WHERE project_id=$1 AND code LIKE 'BL-900%'", [PID]);
+    // 新行指纹=live 实况 → 门禁不再 BASELINE_STALE
+    const { developGateIssues, latestBaseline: latest2 } = await import('./gate-common.js');
+    expect((await latest2(null, PID))?.id).toBe(cb.baselineId);
+    expect((await developGateIssues(null, PID)).every((i) => i.code !== 'BASELINE_STALE')).toBe(true);
     const pend = (await impact.list(PID, 'pending-assessment')) as { items: unknown[] };
     expect(pend.items).toHaveLength(0);
-    // 清掉模拟基线，回到真实基线
-    await query("DELETE FROM dsg_baselines WHERE project_id=$1 AND code LIKE 'BL-900%'", [PID]);
+    // 幂等：live 已=最新行 → 再确认不重登
+    const cb2 = (await impact.confirmBaseline(PID, '重复确认', CTX)) as { reconfirmed: boolean; code: string };
+    expect(cb2.reconfirmed).toBe(false);
+    expect(cb2.code).toBe(cb.code);
+    // 清掉重登行，回到真实基线
+    await query('DELETE FROM dsg_baselines WHERE project_id=$1 AND id=$2', [PID, cb.baselineId]);
   });
 
   it('T7 autopilot 自动主线：批准启动 → 全链跑到 awaiting-transfer（T4-06；F02-6/F07）', async () => {
