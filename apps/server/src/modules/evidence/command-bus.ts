@@ -34,6 +34,13 @@ export async function executeCommand(
   const handler = handlers.get(name);
   if (!handler) throw new DomainError('COMMAND_UNKNOWN', `命令无处理器: ${name}`);
   return inTransaction(async (client) => {
+    // W2-037：归档项目全域只读——项目级写命令一律拒绝（平台项目命令自带状态校验，不在此拦）
+    if (ctx.projectId && !name.startsWith('platform.project.')) {
+      const st = await client.query<{ status: string }>('SELECT status FROM projects WHERE id=$1', [ctx.projectId]);
+      if (st.rows[0]?.status === 'archived') {
+        throw new DomainError('INVALID_STATE', '项目已归档（只读），写操作被拒绝', ctx.projectId);
+      }
+    }
     const result = await handler(client, payload, ctx);
     await appendAudit(client, {
       projectId: ctx.projectId,

@@ -126,7 +126,7 @@ export const tstApi = {
     api.post<{ defectId: string; status: string; deduplicated: boolean }>(`${base(pid)}/defects`, body),
   confirmDefect: (pid: string, defectId: string, severity: string, reason: string) =>
     api.post(`${base(pid)}/defects/${defectId}:confirm`, { severity, reason }),
-  fixStart: (pid: string, defectId: string) => api.post(`${base(pid)}/defects/${defectId}:fix-start`, {}),
+  fixStart: (pid: string, defectId: string, reworkTaskIds?: string[]) => api.post(`${base(pid)}/defects/${defectId}:fix-start`, { reworkTaskIds: reworkTaskIds ?? [] }),
   markFixed: (pid: string, defectId: string, newBuildFingerprint: string, note?: string) =>
     api.post(`${base(pid)}/defects/${defectId}:mark-fixed`, { newBuildFingerprint, note }),
   linkRegression: (pid: string, defectId: string, body: { batchId: string; runId: string; caseId: string }) =>

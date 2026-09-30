@@ -107,13 +107,24 @@ export const useMaterialView = create<MaterialState>((set, get) => ({
     });
   },
 
-  /** 首次进入：定位项目（M1 期取首个/建示例，项目页 M7 实现）并拉双树 */
+  /** 首次进入/项目切换：定位项目并拉双树（W2-037：项目变更必须重置域内会话态，杜绝跨项目写串扰） */
   init: async () => {
-    if (get().projectId) return;
     set({ loading: true, error: null });
     try {
       const p = await ensureProject();
-      set({ projectId: p.id });
+      if (get().projectId !== p.id) {
+        set({
+          projectId: p.id,
+          selectedFileId: null,
+          draft: null,
+          guardNext: null,
+          deleteTarget: null,
+          checked: {},
+          originalTree: [],
+          parsedTree: [],
+          detail: null,
+        });
+      }
       await get().refresh();
     } catch (e) {
       set({ loading: false, error: e instanceof Error ? e.message : String(e) });

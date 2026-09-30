@@ -38,6 +38,10 @@ export class TstBatchesService {
       }>('SELECT * FROM dev_transfer WHERE id=$1 AND project_id=$2', [handoffId, projectId]);
       const h = ho.rows[0];
       if (!h) throw new DomainError('HANDOFF_INVALID', '交接不存在', handoffId);
+      // W2-036：三指纹同为必填（缺失时 strip(undefined) 会裸 500）；校验置于交接存在性之后（不抢 HANDOFF_INVALID 语义）
+      for (const [k, v] of [['buildFingerprint', buildFingerprint], ['selftestReportFingerprint', selftestReportFingerprint], ['designBaselineFingerprint', designBaselineFingerprint]] as const) {
+        if (typeof v !== 'string' || !v) throw new DomainError('VALIDATION_FAILED', `${k} 缺失（三指纹复核必填）`, k);
+      }
       const strip = (s: string) => s.replace(/^sha256:/, '');
       // 报告当前合格（REQ-501）
       const rep = await client.query<{ status: string }>('SELECT status FROM dev_reports WHERE id=$1', [h.report_id]);

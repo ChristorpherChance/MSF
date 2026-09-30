@@ -68,9 +68,11 @@ export const useTstStore = create<TstViewState>((set, get) => ({
   notice: null,
 
   init: async () => {
-    if (get().projectId) return;
     const p = await ensureProject();
-    set({ projectId: p.id });
+    // W2-037：项目变更重置域内会话态（防跨项目写串扰）
+    if (get().projectId !== p.id) {
+      set({ projectId: p.id, selBatchId: null, batchDetail: null, plan: null, cases: [], runs: [], caseRuns: [], reports: [], decisions: [], notice: null, error: null });
+    }
     await get().refresh();
   },
 

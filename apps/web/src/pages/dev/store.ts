@@ -106,9 +106,11 @@ export const useDevStore = create<DevViewState>((set, get) => ({
   acting: false,
 
   init: async () => {
-    if (get().projectId) return;
     const p = await ensureProject();
-    set({ projectId: p.id });
+    // W2-037：项目变更重置域内会话态（防跨项目写串扰）
+    if (get().projectId !== p.id) {
+      set({ projectId: p.id, selTaskId: null, taskDetail: null, startGate: null, notice: null, error: null });
+    }
     await get().refresh();
   },
 

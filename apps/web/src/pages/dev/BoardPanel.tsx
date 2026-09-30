@@ -262,6 +262,19 @@ function TaskDrawer() {
             </button>
           </>
         )}
+        {/* W2-016：已合并任务的缺陷驱动返工入口（重入 queue、计划失效待重批） */}
+        {t.col === 'done' && (
+          <>
+            <input placeholder="返工理由（必填，如缺陷编号）" value={reason} onChange={(e) => setReason(e.target.value)} />
+            <button
+              className="act"
+              disabled={!reason.trim()}
+              onClick={() => transition('rework', reason)}
+            >
+              返工重开
+            </button>
+          </>
+        )}
         {t.col === 'ing' && t.ownerType === 'human' && (
           <div className="form-row" style={{ margin: 0 }}>
             {[10, 25, 50].map((n) => (

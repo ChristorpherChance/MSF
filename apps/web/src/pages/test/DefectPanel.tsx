@@ -1,8 +1,12 @@
 import { useState } from 'react';
 import { ConfirmModal } from '../../ui/ConfirmModal';
 import { tstApi } from './api';
+import { api } from '../../api';
 import { NeedBatch } from './NeedBatch';
 import { useTstStore } from './store';
+
+/** 开发任务选项（缺陷返工任务选择用，跨页只读拉取） */
+interface DevTaskOption { id: string; code: string; title: string; col: string; }
 
 const ST_NAME: Record<string, string> = {
   new: '新建', confirmed: '已确认', fixing: '修复中', pending_regression: '待回归', closed: '已关闭',
@@ -18,6 +22,8 @@ export function DefectPanel() {
   const [link, setLink] = useState<{ defectId: string; batchId: string; runId: string; caseId: string } | null>(null);
   const [reopen, setReopen] = useState<{ defectId: string; reason: string } | null>(null);
   const [closeTarget, setCloseTarget] = useState<string | null>(null);
+  // W2-016/017：返工任务选择（fix-start 联动重开任务，打通缺陷→返工→新构建链）
+  const [fixTarget, setFixTarget] = useState<{ defectId: string; tasks: DevTaskOption[]; sel: Record<string, boolean> } | null>(null);
   const det = s.batchDetail;
   if (!det) return <NeedBatch />;
 
@@ -80,7 +86,11 @@ export function DefectPanel() {
                 <button className="act" onClick={() => setConfirm({ defectId: d.defectId, severity: 'P2', reason: '' })}>确认与定级</button>
               )}
               {d.status === 'confirmed' && (
-                <button className="act" onClick={() => s.act(() => tstApi.fixStart(pid, d.defectId), '已转开发返工（fixing）')}>前往开发返工</button>
+                <button className="act" onClick={() =>
+                  void api.get<{ items: DevTaskOption[] }>(`/api/v1/projects/${pid}/dev/tasks`)
+                    .then((r) => setFixTarget({ defectId: d.defectId, tasks: r.items, sel: {} }))
+                    .catch(() => setFixTarget({ defectId: d.defectId, tasks: [], sel: {} }))
+                }>前往开发返工</button>
               )}
               {d.status === 'fixing' && (
                 <button className="act" onClick={() => setFixed({ defectId: d.defectId, fp: '', note: '' })}>标记待回归（开发侧）</button>
@@ -117,6 +127,32 @@ export function DefectPanel() {
               确认
             </button>
             <button onClick={() => setConfirm(null)}>取消</button>
+          </div>
+        )}
+        {/* 返工任务选择（W2-016/017：勾选后任务重开为 queue、计划失效待重批；可不选仅转 fixing） */}
+        {fixTarget && (
+          <div className="qa-inline-form" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
+            <span className="dsg-prefix">选择要重开的返工任务（选中项将重入排队并使当前计划失效待重批；不选则仅标记修复中）</span>
+            {fixTarget.tasks.length === 0 && <span className="dsg-prefix">（本项目无开发任务可选）</span>}
+            {fixTarget.tasks.map((t) => (
+              <label key={t.id} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                <input type="checkbox" checked={!!fixTarget.sel[t.id]}
+                  onChange={() => setFixTarget({ ...fixTarget, sel: { ...fixTarget.sel, [t.id]: !fixTarget.sel[t.id] } })} />
+                <span>{t.code} {t.title} <span className="dsg-prefix">（{t.col}）</span></span>
+              </label>
+            ))}
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="act"
+                onClick={() =>
+                  s.act(async () => {
+                    const ids = Object.entries(fixTarget.sel).filter(([, v]) => v).map(([k]) => k);
+                    await tstApi.fixStart(pid, fixTarget.defectId, ids);
+                    setFixTarget(null);
+                  }, '已转开发返工（fixing）')}>
+                确认返工{Object.values(fixTarget.sel).some(Boolean) ? `（重开 ${Object.values(fixTarget.sel).filter(Boolean).length} 任务）` : ''}
+              </button>
+              <button onClick={() => setFixTarget(null)}>取消</button>
+            </div>
           </div>
         )}
         {/* 标记待回归表单（新构建≠批次构建） */}

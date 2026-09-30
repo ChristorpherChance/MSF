@@ -486,12 +486,30 @@ function SectionEditor({ kind, secId, md, readonly }: { kind: DocKind; secId: st
   const [text, setText] = useState(md);
   const [msg, setMsg] = useState<string | null>(null);
   const [conflict, setConflict] = useState(false);
+  // W2-042：编辑基线快照——非编辑态基线跟随 store 最新；一旦开始编辑（dirty）即锁定，
+  // 保存用锁定基线而非 store 实时值（否则轮询/他人操作刷新指纹会使乐观锁形同虚设、后写覆盖先写）
+  const [baseFp, setBaseFp] = useState<string | null>(() => doc?.contentFingerprint ?? null);
+  const [baseVer, setBaseVer] = useState<number | null>(() => doc?.cur ?? null);
   const dirty = text !== md;
+  useEffect(() => {
+    if (!dirty && doc) {
+      setBaseFp(doc.contentFingerprint);
+      setBaseVer(doc.cur);
+    }
+  }, [dirty, doc]);
   if (!projectId || !doc) return null;
   const save = () => {
     setMsg(null);
-    void reqApi.saveDraft(projectId, kind, secId, text, doc.cur, doc.contentFingerprint)
-      .then(() => toast('已保存本节', 'success'))
+    const ver = baseVer ?? doc.cur;
+    const fp = baseFp ?? doc.contentFingerprint;
+    void reqApi.saveDraft(projectId, kind, secId, text, ver, fp)
+      .then((r) => {
+        // 保存成功：编辑基线推进到新指纹（响应携带），后续保存基于新基线
+        const next = (r as { contentFingerprint?: string }).contentFingerprint;
+        if (next) setBaseFp(next);
+        setBaseVer(useReqView.getState().doc?.cur ?? ver);
+        toast('已保存本节', 'success');
+      })
       .catch((e) => {
         // R7（DSG-U06-14）：并发冲突 toast + 弹窗（查看最新 / 基于最新重新编辑）
         if (e instanceof ApiError && e.code === 'VERSION_CONFLICT') {
@@ -506,6 +524,9 @@ function SectionEditor({ kind, secId, md, readonly }: { kind: DocKind; secId: st
   /** 基于最新重新编辑：刷新后保留本地文本，基线随 store 更新 */
   const rebaseAndKeep = async () => {
     await refresh();
+    const latest = useReqView.getState().doc;
+    setBaseFp(latest?.contentFingerprint ?? null);
+    setBaseVer(latest?.cur ?? null);
     setConflict(false);
     toast('已切换到最新基线，当前编辑内容保留，可再次保存', 'success');
   };

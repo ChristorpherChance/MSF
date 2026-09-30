@@ -103,6 +103,10 @@ export class GenerateService {
       }
       refs.push({ fileId, fingerprint: r.rows[0].content_fingerprint });
     }
+    // W2-021：CRD 整篇生成（无修订指令）必须至少一份已定稿参考——否则模型只会产出索要资料文本
+    if (kind === 'crd' && !input.instruction?.trim() && refs.length === 0) {
+      throw new DomainError('REFERENCE_NOT_FINAL', 'CRD 初稿生成须先挂接至少一份已定稿（content_final）参考资料', 'referenceFileIds');
+    }
     // PRD 生成门禁：CRD 已定稿（LLD-6 §3.3）
     let upstreamCrd = '';
     if (kind === 'prd') {

@@ -91,6 +91,10 @@ export class DesignDocsService {
       const secs = splitSections(effective);
       const si = secs.findIndex((s) => s.id === secId);
       if (si < 0) throw new DomainError('NOT_FOUND', '章节不存在', secId);
+      // W2-026 防呆（与 req 域同口径）：非文首节保存的内容不得携带节标题，防重切分出重复章节
+      if (si > 0 && /^#{2,6}\s/m.test(md)) {
+        throw new DomainError('VALIDATION_FAILED', '单节保存的内容不得包含章节标题（## 及更深）；请逐节编辑提交', secId);
+      }
       const next = secs.map((s, i) => (i === si ? { ...s, md } : s));
       const content = joinSections(next);
       if (content === effective) throw new DomainError('NO_CHANGE', '内容无变化', secId);

@@ -355,7 +355,8 @@ export class DevAutopilotService {
       await this.block(projectId, runId, { code: 'SELFTEST_FAILED', message: '自测未通过，待人工返工', category: 'quality' }, ctx);
       return true;
     }
-    if (gate.issues.some((i) => i.code === 'SELFTEST_REQUIRED')) {
+    if (gate.issues.some((i) => i.code === 'SELFTEST_REQUIRED' || i.code === 'SELFTEST_BUILD_STALE' || i.code === 'SELFTEST_DESIGN_STALE')) {
+      // W2-013：新构建/新基线使旧报告过期（STALE）时同样自动开启新一轮自测，不再静默空转
       await this.selftest.start(projectId, autoCtx);
       await executeCommand('dev.autopilot.advance', { projectId, runId, phase: 'selftest' }, autoCtx);
       return false;

@@ -50,6 +50,7 @@ interface DraftRow {
   content: string;
   undo_stack: string[];
   redo_stack: string[];
+  created_at: Date;
 }
 
 @Injectable()
@@ -92,6 +93,11 @@ export class ReqDocsService {
       const secs = splitSections(effective);
       const si = secs.findIndex((s) => s.id === secId);
       if (si < 0) throw new DomainError('NOT_FOUND', '章节不存在', secId);
+      // W2-026 防呆：非文首节（s0 为文首/全文口，允许整篇替换式写入）保存的内容不得携带节标题，
+      // 否则写回后重切分出重复章节（实机已发生 CR-100×2）
+      if (si > 0 && /^#{2,6}\s/m.test(md)) {
+        throw new DomainError('VALIDATION_FAILED', '单节保存的内容不得包含章节标题（## 及更深）；请逐节编辑提交', secId);
+      }
       const next = secs.map((s, i) => (i === si ? { ...s, md } : s));
       const content = joinSections(next);
       if (content === effective) throw new DomainError('NO_CHANGE', '内容无变化', secId);
@@ -113,10 +119,17 @@ export class ReqDocsService {
       const redo = [...draft.redo_stack, draft.content].slice(-UNDO_LIMIT);
       if (undo.length === 0 && cur && top === cur.content) {
         // 撤回到基点：草稿消亡回 clean（modified 按草稿是否存在重算，F02-1 undo 行）
+        // W2-024：草稿存续期间接受的补丁未随版本提交消费，回转 pending（否则内容蒸发无恢复入口）
+        await client.query(
+          `UPDATE req_pendings SET status='pending', decided_by=NULL, decided_at=NULL, reason=NULL
+           WHERE document_id=$1 AND status='accepted' AND decided_at >= $2`,
+          [doc.id, draft.created_at],
+        );
         await client.query('DELETE FROM req_drafts WHERE id=$1', [draft.id]);
         await client.query('UPDATE req_documents SET modified=false, updated_at=now() WHERE id=$1', [doc.id]);
         await this.assertInvariants(client, doc.id);
-        return { canUndo: false, canRedo: true };
+        // W2-025：栈随草稿消亡，undo/redo 均不可用（如实返回，不再谎称 canRedo）
+        return { canUndo: false, canRedo: false };
       }
       await client.query('UPDATE req_drafts SET content=$2, undo_stack=$3, redo_stack=$4, updated_at=now() WHERE id=$1',
         [draft.id, top, JSON.stringify(undo), JSON.stringify(redo)]);
@@ -319,6 +332,12 @@ export class ReqDocsService {
         'INSERT INTO req_doc_refs (document_id, parsed_id, content_fingerprint, created_by) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING',
         [doc.id, row.id, row.content_fingerprint, ctx.actorId],
       );
+      // W2-019：回填 mat_parsed.referenced_by（资料删除守卫读此列；挂接即建立引用关系）
+      await client.query(
+        `UPDATE mat_parsed SET referenced_by = COALESCE(referenced_by::jsonb, '[]'::jsonb) || $2::jsonb
+         WHERE id=$1 AND NOT (COALESCE(referenced_by::jsonb,'[]'::jsonb) @> $2::jsonb)`,
+        [row.id, JSON.stringify([{ kind: 'req-doc', id: doc.id, docKind: kind }])],
+      );
       return { docId: doc.id, parsedId: row.id };
     });
 
@@ -330,6 +349,15 @@ export class ReqDocsService {
            SELECT p.id FROM mat_parsed p JOIN mat_files f ON f.id=p.file_id
            WHERE f.id=$2 AND p.kind='content_parse' AND p.status='final')`,
         [doc.id, fileId],
+      );
+      // W2-019：同步回收 referenced_by（守卫读空表才放行删除，移除挂接必须同步清引用）
+      await client.query(
+        `UPDATE mat_parsed SET referenced_by = COALESCE((
+           SELECT jsonb_agg(elem) FROM jsonb_array_elements(referenced_by::jsonb) elem
+           WHERE NOT (elem->>'kind' = 'req-doc' AND elem->>'id' = $2)
+         ), '[]'::jsonb)
+         WHERE file_id=$1 AND kind='content_parse' AND status='final'`,
+        [fileId, doc.id],
       );
       return { docId: doc.id, removed: fileId };
     });

@@ -217,12 +217,13 @@ export class DevBoardService {
       return { id: taskId, col: 'done', merged: true, basis };
     });
 
-    // task.rework（评审驳回/人工返工重入；计划失效需重新批准，F02-5）
+    // task.rework（评审驳回/人工返工/缺陷驱动返工重入；计划失效需重新批准，F02-5）
     registerCommand('dev.task.rework', async (client, payload, ctx) => {
       const { projectId, taskId, reason } = payload as { projectId: string; taskId: string; reason?: string };
       if (!reason?.trim()) throw new DomainError('VALIDATION_FAILED', '返工理由必填', 'reason');
       const t = await this.lockTask(client, projectId, taskId);
-      if (!['ing', 'review'].includes(t.col)) throw new DomainError('INVALID_STATE', '仅进行中/待评审任务可返工', taskId);
+      // W2-017：done（含 merged）任务允许缺陷驱动返工——merged PR 保留为历史，任务 rev++ 重入 queue（REQ-507 链路）
+      if (!['ing', 'review', 'done'].includes(t.col)) throw new DomainError('INVALID_STATE', '仅进行中/待评审/已完成任务可返工', taskId);
       await client.query("UPDATE dev_prs SET status='stale', updated_at=now() WHERE task_id=$1 AND status IN ('review','changes')", [taskId]);
       await client.query(
         `UPDATE dev_tasks SET rev=rev+1, code_rev=code_rev+1, col='queue', prog=0, run_status='rework',

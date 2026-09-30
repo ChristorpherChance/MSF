@@ -83,6 +83,27 @@ export class TstDefectsService {
       };
       const d = await lockDefect(client, projectId, defectId);
       if (d.status !== 'confirmed') throw new DomainError('INVALID_STATE', `缺陷状态 ${d.status} 不可开始修复（仅 confirmed）`, defectId);
+      // W2-017：fix-start 携带返工任务时同步重开（含 done/merged），打通「缺陷→返工→新构建」链路（REQ-507）
+      if (reworkTaskIds?.length) {
+        for (const taskId of reworkTaskIds) {
+          // 兼容任务编号（T-001）与内部 id 两种引用
+          const t = await client.query<{ id: string; col: string }>(
+            'SELECT id, col FROM dev_tasks WHERE (id::text=$1 OR code=$1) AND project_id=$2 FOR UPDATE', [taskId, projectId]);
+          if (!t.rows[0]) throw new DomainError('NOT_FOUND', '返工任务不存在', taskId);
+          if (!['ing', 'review', 'done'].includes(t.rows[0].col)) {
+            throw new DomainError('INVALID_STATE', `任务 ${taskId} 状态 ${t.rows[0].col} 不可返工`, taskId);
+          }
+          await client.query("UPDATE dev_prs SET status='stale', updated_at=now() WHERE task_id=$1 AND status IN ('review','changes')", [t.rows[0].id]);
+          await client.query(
+            `UPDATE dev_tasks SET rev=rev+1, code_rev=code_rev+1, col='queue', prog=0, run_status='rework',
+               blocked=false, blocked_reason=NULL, updated_by=$3, updated_at=now() WHERE id=$1 AND project_id=$2`,
+            [t.rows[0].id, projectId, ctx.actorId]);
+        }
+        // 计划失效（F04-4：返工→需重新核对覆盖并重新批准计划）
+        await client.query(
+          "UPDATE dev_plans SET state='invalidated', invalidated_reason=$2 WHERE project_id=$1 AND state='approved'",
+          [projectId, `defect.fix-start: ${defectId}`]);
+      }
       await appendEvent(client, d, { event: 'fix-start', actor: ctx.actorId, assignee: assignee ?? null, reworkTaskIds: reworkTaskIds ?? [] });
       await client.query(
         'UPDATE tst_defects SET status=$3, assignee=$4, rework_task_ids=$5, updated_by=$6, updated_at=now() WHERE id=$1 AND project_id=$2',
@@ -97,6 +118,11 @@ export class TstDefectsService {
       };
       if (!newBuildFingerprint?.trim()) {
         throw new DomainError('VALIDATION_FAILED', '待回归必须关联新构建指纹', 'newBuildFingerprint');
+      }
+      // W2-015：指纹格式前置校验（sha256 64 位 hex），缺校验会直达 DB 裸 500
+      const fpClean = newBuildFingerprint.trim().replace(/^sha256:/, '');
+      if (!/^[0-9a-f]{64}$/i.test(fpClean)) {
+        throw new DomainError('VALIDATION_FAILED', '构建指纹须为 sha256（64 位十六进制，可带 sha256: 前缀）', 'newBuildFingerprint');
       }
       const d = await lockDefect(client, projectId, defectId);
       if (d.status !== 'fixing') throw new DomainError('INVALID_STATE', `缺陷状态 ${d.status} 不可标记待回归（仅 fixing）`, defectId);
