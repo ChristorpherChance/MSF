@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-21",
+  "generatedAt": "2026-09-29",
   "source": "RTM.md（§3 正向主矩阵）",
   "note": "派生产物，随涉及追溯的提交刷新：node doc/product-design/tools/build-rtm-index.mjs",
   "req": {
