@@ -50,6 +50,8 @@ interface DockState {
   /** 需求页 RTM 页签不内嵌 dock（hasDock L1090-1093） */
   hidden: boolean;
   ctx: DockTab;
+  /** 已加载会话列表的 ctx（W2-054：setCtx 同值早退须以首载完成为前提，否则刷新后列表永空） */
+  loadedCtx: DockTab | null;
   sessions: AiSessionRow[];
   currentId: string | null;
   messages: AiMessageRow[];
@@ -92,6 +94,7 @@ export const useDockStore = create<DockState>((set, get) => ({
   open: false,
   hidden: false,
   ctx: 'material',
+  loadedCtx: null,
   sessions: [],
   currentId: null,
   messages: [],
@@ -107,7 +110,8 @@ export const useDockStore = create<DockState>((set, get) => ({
 
   init: async () => {
     const p = await ensureProject();
-    set({ projectId: p.id });
+    const changed = get().projectId !== p.id;
+    set({ projectId: p.id, ...(changed ? { loadedCtx: null, sessions: [], currentId: null, messages: [] } : {}) });
     await Promise.all([get().refreshUsage(), get().refreshModels()]);
   },
 
@@ -115,13 +119,13 @@ export const useDockStore = create<DockState>((set, get) => ({
   setHidden: (h) => set({ hidden: h }),
 
   setCtx: async (ctx) => {
-    if (get().ctx === ctx) return;
+    if (get().ctx === ctx && get().loadedCtx === ctx) return;
     if (get().streaming) return; // 流式中冻结上下文切换（DSG-U02-7）
     set({ ctx, sessions: [], currentId: null, messages: [] });
     const pid = get().projectId;
     if (!pid) return;
     const sessions = await assistantApi.sessions(pid, ctx);
-    set({ sessions });
+    set({ sessions, loadedCtx: ctx });
     if (sessions[0]) await get().selectSession(sessions[0].id);
   },
 
