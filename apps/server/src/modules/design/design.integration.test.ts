@@ -72,8 +72,6 @@ describe('Design 设计域（集成，需 DB+MinIO）', async () => {
     await query('DELETE FROM req_documents WHERE project_id=$1', [PID]);
     await query('DELETE FROM rtm_links WHERE project_id=$1', [PID]);
     await query('DELETE FROM rtm_health WHERE project_id=$1', [PID]);
-    await query('DELETE FROM audit_log WHERE project_id=$1', [PID]);
-    await query('DELETE FROM evd_records WHERE project_id=$1', [PID]);
     await query('DELETE FROM projects WHERE id=$1', [PID]);
     await pool.end();
   });

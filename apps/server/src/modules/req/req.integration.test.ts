@@ -66,8 +66,6 @@ describe('ReqDocs/Rtm/Generate（集成，需 DB+MinIO）', async () => {
     await query('DELETE FROM mat_parsed WHERE project_id=$1', [PID]);
     await query('DELETE FROM mat_uploads WHERE project_id=$1', [PID]);
     await query('DELETE FROM mat_files WHERE project_id=$1', [PID]);
-    await query('DELETE FROM audit_log WHERE project_id=$1', [PID]);
-    await query('DELETE FROM evd_records WHERE project_id=$1', [PID]);
     await query('DELETE FROM projects WHERE id=$1', [PID]);
     await pool.end();
   });
