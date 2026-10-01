@@ -90,6 +90,13 @@ function Toolbar({
       downloadFile(r.downloadUrl);
     }, `已导出 ${format.toUpperCase()}（下载开始）`);
 
+  // W2-025：undo/redo 失败走 toast（自动消散），不占工具栏常驻 msg 位
+  const undoRedo = (fn: () => Promise<unknown>) => {
+    void fn()
+      .catch((e) => toast(e instanceof ApiError ? `${e.code}: ${e.message}` : '操作失败', 'warn'))
+      .finally(() => void refresh());
+  };
+
   return (
     <div className="doc-toolbar req-toolbar">
       <select
@@ -109,8 +116,15 @@ function Toolbar({
         {refsOpen && <RefsPopover kind={kind} onClose={() => setRefsOpen(false)} />}
       </div>
       <span className="sep" />
-      <button className="act" disabled={readonly} title="撤销" onClick={() => act(() => reqApi.undo(projectId, kind))}>↩</button>
-      <button className="act" disabled={readonly} title="重做" onClick={() => act(() => reqApi.redo(projectId, kind))}>↪</button>
+      {/* W2-025：栈空即置灰（不再点了才 409）；失败走 toast 自动消散，不再残留正文区 */}
+      <button
+        className="act" disabled={readonly || doc.canUndo === false}
+        title={doc.canUndo === false ? '无可撤销（栈随草稿消亡）' : '撤销'}
+        onClick={() => undoRedo(() => reqApi.undo(projectId, kind))}>↩</button>
+      <button
+        className="act" disabled={readonly || doc.canRedo === false}
+        title={doc.canRedo === false ? '无可重做（栈随草稿消亡）' : '重做'}
+        onClick={() => undoRedo(() => reqApi.redo(projectId, kind))}>↪</button>
       <div className="pop-wrap">
         <button className="act" title="下载当前查看版本" onClick={() => setDlOpen(!dlOpen)}>⬇ 下载 ▾</button>
         {dlOpen && (

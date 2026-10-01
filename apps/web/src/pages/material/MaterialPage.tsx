@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ApiError } from '../../api';
 import { Modal } from '../../ui/Modal';
 import { toast } from '../../ui/toast';
@@ -403,7 +403,39 @@ function BatchBar({ onFinalize }: { onFinalize: (ids: string[]) => void }) {
   const { subTab, projectId, checked, originalTree, parsedTree, refresh, clearChecked } =
     useMaterialView();
   const [busy, setBusy] = useState(false);
+  const parseTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const n = Object.values(checked).filter(Boolean).length;
+
+  useEffect(
+    () => () => {
+      if (parseTimer.current) clearInterval(parseTimer.current);
+    },
+    [],
+  );
+
+  // W2-003：批量解析受理后轮询双树直到无「解析中」行（完成态自动反映，不再滞留旧态）
+  const watchParse = () => {
+    if (parseTimer.current) return;
+    let ticks = 0;
+    parseTimer.current = setInterval(() => {
+      ticks++;
+      void (async () => {
+        await useMaterialView.getState().refresh();
+        let anyParsing = false;
+        const walk = (nodes: typeof originalTree) => {
+          for (const nd of nodes) {
+            if (nd.status === 'parsing') anyParsing = true;
+            if (nd.children) walk(nd.children);
+          }
+        };
+        walk(useMaterialView.getState().originalTree);
+        if (!anyParsing || ticks > 300) {
+          if (parseTimer.current) clearInterval(parseTimer.current);
+          parseTimer.current = null;
+        }
+      })();
+    }, 2000);
+  };
 
   if (subTab === 'file') {
     const runBatchParse = async () => {
@@ -421,6 +453,7 @@ function BatchBar({ onFinalize }: { onFinalize: (ids: string[]) => void }) {
           toast(`已受理 ${r.accepted} 个，解析中…`, 'success');
         }
         clearChecked();
+        if (r.accepted > 0) watchParse();
       } catch (e) {
         toast(e instanceof ApiError ? e.message : '批量解析失败', 'warn');
       } finally {

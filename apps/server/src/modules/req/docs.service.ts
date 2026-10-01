@@ -443,6 +443,9 @@ export class ReqDocsService {
       refs: refs.rows.map((r) => ({ fileId: r.file_id, name: r.name, fingerprint: `sha256:${r.content_fingerprint}` })),
       version: cur?.version_no ?? 0,
       contentFingerprint: `sha256:${effectiveFp}`,
+      // W2-025：undo/redo 按钮态依栈实态（栈随草稿消亡，消亡后双不可用）
+      canUndo: (draft?.undo_stack.length ?? 0) > 0,
+      canRedo: (draft?.redo_stack.length ?? 0) > 0,
     };
   }
 

@@ -61,16 +61,24 @@ export function ModelsGroup() {
       </h3>
       <p className="set-note" style={{ marginBottom: 12 }}>
         可同时启用多个模型；仅「启用 + 已连通」的模型会出现在对话框右下角的模型选择器中。
+        连通状态是「上次手动测试」的结果快照（非实时探测）——密钥过期等变化须重新「测试连通」才会反映。
       </p>
       {models.length === 0 && <div className="empty-tip">暂无模型，先注册一个</div>}
       {models.map((m) => {
         const conn = testing === m.id ? CONN_LABEL['testing']! : (CONN_LABEL[m.conn_status] ?? CONN_LABEL['untested']!);
+        const connAt = m.conn_checked_at ? m.conn_checked_at.slice(0, 16).replace('T', ' ') : null;
         return (
           <div key={m.id} className="model-card">
             <div className="mi">🧩</div>
             <div className="mmain">
               <div className="mname">
-                {m.name} <span className={`tag ${conn[1]}`}>{conn[0]}</span>
+                {m.name}{' '}
+                <span
+                  className={`tag ${conn[1]}`}
+                  title={m.conn_status === 'untested' ? '尚未测试过连通' : `上次测试 ${connAt ?? '—'}（结果快照，非实时探测）`}
+                >
+                  {conn[0]}{connAt && m.conn_status !== 'untested' ? ` · ${connAt.slice(5)}` : ''}
+                </span>
                 {m.id === chatDefault && <span className="tag tag-ok">对话默认</span>}
                 <span className={`tag ${m.supports_thinking ? 'tag-ok' : ''}`} title="是否支持思考强度（推理参数）档位切换">
                   {m.supports_thinking ? '思考强度 ✓' : '无思考强度'}

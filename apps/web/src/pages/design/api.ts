@@ -18,6 +18,8 @@ export interface DesignDocView {
   finalized: boolean; finalVer: number; modified: boolean; genState: string;
   secs: Array<{ id: string; title: string; md: string; pending: string | null }>;
   version: number; contentFingerprint: string;
+  /** W2-025：undo/redo 栈实态（与需求域同口径） */
+  canUndo?: boolean; canRedo?: boolean;
 }
 
 export interface PatchItem {

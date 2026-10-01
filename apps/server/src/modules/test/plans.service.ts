@@ -23,14 +23,32 @@ export class TstPlansService {
         throw new DomainError('INVALID_STATE', `批次状态 ${b.status} 不可起草计划`, batchId);
       }
       const terms = b.acceptance_terms as {
-        flows?: Array<{ code: string; payload: { title?: string; steps?: string[] } }>;
+        flows?: Array<{ code: string; payload: { title?: string; steps?: string[]; reqIds?: string[] } }>;
       };
       const flows = terms.flows ?? [];
+      // W2-014：deferred/dropped 语义=本期暂缓——起草时关联条目全暂缓的流程/步骤不进入本期测试范围
+      const defRows = await client.query<{ from_code: string }>(
+        "SELECT from_code FROM rtm_links WHERE project_id=$1 AND relation IN ('deferred','dropped')",
+        [projectId]);
+      const deferred = new Set(defRows.rows.map((r) => r.from_code));
+      const reqCodesOf = (text: string) => [...text.matchAll(/\bREQ-\d{3}\b/g)].map((m) => m[0]);
+      const allDeferred = (codes: string[]) => codes.length > 0 && codes.every((c) => deferred.has(c));
+      const skippedDeferred: string[] = [];
       interface CaseSpec { code: string; title: string; flowId: string | null; mode: 'auto' | 'manual'; priority: string; steps: Array<{ action: string; expected: string }> }
       const specs: CaseSpec[] = [];
       let n = 0;
       for (const f of flows) {
-        const steps = f.payload.steps ?? [];
+        if (allDeferred(f.payload.reqIds ?? [])) {
+          skippedDeferred.push(`${f.code}（${(f.payload.reqIds ?? []).join('、')}）`);
+          continue;
+        }
+        const steps = (f.payload.steps ?? []).filter((st) => {
+          if (allDeferred(reqCodesOf(st))) {
+            skippedDeferred.push(`${f.code} 步骤「${st.slice(0, 30)}」（${reqCodesOf(st).join('、')}）`);
+            return false;
+          }
+          return true;
+        });
         for (const st of steps) {
           n++;
           specs.push({
@@ -64,6 +82,7 @@ export class TstPlansService {
       return {
         planId: code, status: 'draft',
         cases: specs.map((s) => ({ id: s.code, flowId: s.flowId, mode: s.mode === 'auto' ? 'automatic' : 'manual', required: true })),
+        skippedDeferred,
       };
     });
 

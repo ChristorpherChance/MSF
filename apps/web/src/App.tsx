@@ -59,7 +59,8 @@ function StageNav() {
 }
 
 /** 💰 本月成本（popover 明细：按项目×模型×用途分组，DSG-U02-2）
- *  U-002：挂载即拉取合计（未加载显示 … 而非误导性 $0）；打开 popover 时刷新明细 */
+ *  U-002：挂载即拉取合计（未加载显示 … 而非误导性 $0）；打开 popover 时刷新明细
+ *  W2-031：30s 轮询合计——生成期间费用持续增长，顶栏与明细须同源追平（不再切路由才刷新） */
 function CostChip() {
   const [anchor, setAnchor] = useState<DOMRect | null>(null);
   const [rows, setRows] = useState<UsageSummaryRow[]>([]);
@@ -74,7 +75,11 @@ function CostChip() {
     } catch { /* 静默，保持 … 态 */ }
   }, []);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    void load();
+    const t = setInterval(() => void load(), 30000);
+    return () => clearInterval(t);
+  }, [load]);
 
   const open = async () => {
     if (anchor) { setAnchor(null); return; }

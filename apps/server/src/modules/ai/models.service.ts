@@ -28,6 +28,8 @@ export interface ModelRow {
   api_key_hint: string | null;
   enabled: boolean;
   conn_status: 'ok' | 'fail' | 'untested';
+  /** W2-004：上次手动连通测试时间（conn_status 是该次测试的结果快照，非实时探测） */
+  conn_checked_at: string | null;
   supports_thinking: boolean;
   context_window: number;
   routes: string[];
@@ -52,7 +54,7 @@ export interface ModelUpsertPayload {
 }
 
 const PUBLIC_COLS =
-  'id, name, provider, base_url, model_code, api_key_hint, enabled, conn_status, ' +
+  'id, name, provider, base_url, model_code, api_key_hint, enabled, conn_status, conn_checked_at, ' +
   'supports_thinking, context_window, routes, price_table';
 
 const maskKey = (k: string): string =>
@@ -112,7 +114,7 @@ export class AiModelsService implements OnModuleInit {
     registerCommand('ai.model.test', async (client, payload, ctx) => {
       const p = payload as { id: string; ok: boolean; detail?: string };
       const r = await client.query(
-        'UPDATE ai_models SET conn_status=$2, updated_at=now(), updated_by=$3 WHERE id=$1 RETURNING id',
+        'UPDATE ai_models SET conn_status=$2, conn_checked_at=now(), updated_at=now(), updated_by=$3 WHERE id=$1 RETURNING id',
         [p.id, p.ok ? 'ok' : 'fail', ctx.actorId]);
       if (!r.rows[0]) throw new DomainError('NOT_FOUND', '模型不存在', p.id);
       return { id: p.id, connStatus: p.ok ? 'ok' : 'fail', detail: p.detail ?? null };
@@ -123,6 +125,9 @@ export class AiModelsService implements OnModuleInit {
     validateUpsert(p, true);
     if (!p.provider) throw new DomainError('VALIDATION_FAILED', 'provider 必填', 'provider');
     if (!p.baseUrl) throw new DomainError('VALIDATION_FAILED', 'baseUrl 必填（代理/网关接入，注⑤）', 'baseUrl');
+    // W2-032：同名静默并存会让用途路由下拉无法区分——名称项目内唯一（改名同样查重，见 updateModel）
+    const dup = await client.query<{ id: string }>('SELECT id FROM ai_models WHERE name=$1', [p.name!.trim()]);
+    if (dup.rows[0]) throw new DomainError('VALIDATION_FAILED', `模型名称「${p.name!.trim()}」已存在，请换用可区分的名称`, 'name');
     const r = await client.query<{ id: string }>(
       `INSERT INTO ai_models (name, provider, base_url, model_code, api_key_enc, api_key_hint,
          enabled, supports_thinking, context_window, price_table, created_by)
@@ -143,7 +148,11 @@ export class AiModelsService implements OnModuleInit {
     const sets: string[] = [];
     const params: unknown[] = [];
     const push = (col: string, v: unknown) => { params.push(v); sets.push(`${col}=$${params.length}`); };
-    if (p.name !== undefined) push('name', p.name.trim());
+    if (p.name !== undefined) {
+      const dup = await client.query<{ id: string }>('SELECT id FROM ai_models WHERE name=$1 AND id<>$2', [p.name.trim(), p.id]);
+      if (dup.rows[0]) throw new DomainError('VALIDATION_FAILED', `模型名称「${p.name.trim()}」已存在，请换用可区分的名称`, 'name');
+      push('name', p.name.trim());
+    }
     if (p.provider !== undefined) push('provider', p.provider);
     if (p.baseUrl !== undefined) push('base_url', p.baseUrl.replace(/\/+$/, ''));
     if (p.modelCode !== undefined) push('model_code', p.modelCode.trim());
@@ -152,6 +161,7 @@ export class AiModelsService implements OnModuleInit {
       push('api_key_hint', maskKey(p.apiKey));
       // 换密钥后连通状态失效
       push('conn_status', 'untested');
+      push('conn_checked_at', null);
     }
     if (p.enabled !== undefined) push('enabled', p.enabled);
     if (p.supportsThinking !== undefined) push('supports_thinking', p.supportsThinking);

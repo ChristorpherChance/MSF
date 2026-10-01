@@ -331,11 +331,17 @@ export class DevTasksService {
           { type: 'exception', applicable: false, notApplicableReason: '' },
         ],
       };
+      // W2-045：手工任务同样绑定当前有效基线为输入工件——否则 observe 过滤 input_artifacts.length>0
+      // 使其永不进影响分析（上游再定稿零感知）。无基线时仍为空（影响分析无从谈起）。
+      const bl = await latestBaseline(client, projectId);
+      const inputArtifacts = bl
+        ? bl.items.map((i) => ({ doc_kind: i.artifact, version_id: i.version_id, fingerprint: i.fingerprint }))
+        : [];
       const r = await client.query<{ id: string }>(
         `INSERT INTO dev_tasks (project_id, code, title, kind, owner, asg_type, goal, scope, boundary,
            source_ids, input_artifacts, work, inputs, deliverables, acceptance, quality, deps, write_scopes, effort, created_by)
-         VALUES ($1,$2,$3,$4,$5,'human','','','','[]','[]','[]','[]','[]','[]',$6,'[]','[]','',$7) RETURNING id`,
-        [projectId, code, title.trim(), kind, ctx.actorId, JSON.stringify(quality), ctx.actorId]);
+         VALUES ($1,$2,$3,$4,$5,'human','','','','[]',$6,'[]','[]','[]','[]',$7,'[]','[]','',$8) RETURNING id`,
+        [projectId, code, title.trim(), kind, ctx.actorId, JSON.stringify(inputArtifacts), JSON.stringify(quality), ctx.actorId]);
       return { id: r.rows[0]!.id, code };
     });
 

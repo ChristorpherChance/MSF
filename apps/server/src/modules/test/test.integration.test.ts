@@ -277,6 +277,38 @@ describe('Tst 测试验收域（集成，需 DB+MinIO）', async () => {
     expect(det2.status).toBe('approved');
   });
 
+  it('T3b 计划起草剔除本期暂缓（W2-014：deferred 步骤/整流程不进范围，skippedDeferred 回执）', async () => {
+    // 直造 received 批次（M4 场景模拟模式）：F-001 含暂缓步骤 REQ-801，F-002 整流程 reqIds 全暂缓
+    await query(
+      `INSERT INTO tst_batches (project_id, code, handoff_fingerprint, handoff, build_snapshot, dev_report_snapshot,
+         baseline_snapshot, acceptance_terms, environment, environment_fingerprint, received_by, status)
+       VALUES ($1,'TB-901',$2,'{}',$3,$4,$5,$6,'{}',$7,'test','received')`,
+      [PID, '9'.repeat(64),
+        JSON.stringify({ build_id: 'B-901', build_fingerprint: '8'.repeat(64) }),
+        JSON.stringify({ report_id: 'R-901', report_fingerprint: '7'.repeat(64), status: 'pass' }),
+        JSON.stringify({ baseline_id: 'BL-901', baseline_fingerprint: '6'.repeat(64) }),
+        JSON.stringify({ flows: [
+          { code: 'F-001', payload: { title: '主流程', steps: ['REQ-800 登录', 'REQ-801 暂缓项', '普通步骤无码'] } },
+          { code: 'F-002', payload: { title: '全暂缓流程', steps: ['x'], reqIds: ['REQ-801'] } },
+        ] }),
+        '5'.repeat(64)]);
+    await query(
+      `INSERT INTO rtm_links (project_id, from_kind, from_code, to_kind, to_code, relation, created_by)
+       VALUES ($1,'req','REQ-801','req','REQ-801','deferred','test')`, [PID]);
+    const d = (await plans.draft(PID, 'TB-901', CTX)) as {
+      planId: string; cases: Array<{ id: string }>; skippedDeferred?: string[];
+    };
+    expect(d.cases.some((c) => c.id === 'AT-MANUAL')).toBe(true); // 人工走查硬条件不受剔除影响
+    const cs = await query<{ title: string }>(
+      `SELECT c.title FROM tst_cases c JOIN tst_plans p ON p.id=c.plan_id JOIN tst_batches b ON b.id=p.batch_id
+       WHERE b.project_id=$1 AND b.code='TB-901'`, [PID]);
+    const titles = cs.rows.map((r) => r.title).join('\n');
+    expect(titles).toContain('REQ-800');
+    expect(titles).toContain('普通步骤无码'); // 无 REQ 码步骤照常纳入
+    expect(titles).not.toContain('REQ-801'); // 暂缓步骤不进本期范围
+    expect(d.skippedDeferred?.length).toBe(2); // F-001 步骤 + F-002 整流程
+  });
+
   it('T4 自动执行：mock 执行器 + 两级模型 + 未完成不美化（A07-4；F02-9；REQ-504）', async () => {
     // 未批准计划执行拒绝
     await expect(runs.execute(PID, batchId, planDraftId, CTX)).rejects.toMatchObject({ code: 'INVALID_STATE' });

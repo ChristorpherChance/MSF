@@ -152,7 +152,11 @@ export function computeHealth(
   if (actR.length === 0) warnings.push('无 R 可核对');
   const l0a = actR.length === 0 ? 1 : rCovered.length / actR.length;
   for (const c of actR.filter((c) => !covered.has(`r:${c}`))) {
-    gaps.push({ code: 'L0A_BELOW', target: c, message: 'R→CR 未覆盖' });
+    // W2-007：R 层缺口给修复引导（对照 REQ 层已有指引；R 层无 deferred 入口，出口=CRD 内承接或移除）
+    gaps.push({
+      code: 'L0A_BELOW', target: c,
+      message: `R→CR 未覆盖：${c}（修复：在 CRD 为 ${c} 补写对应变更章节（CR-*）并提交版本；若该诉求已不做，在 CRD 中移除该条目。R 层无 deferred 标记入口）`,
+    });
   }
 
   const actCr = active(nodes.cr);
@@ -160,7 +164,10 @@ export function computeHealth(
   if (actCr.length === 0) warnings.push('无 CR 可核对');
   const l0b = actCr.length === 0 ? 1 : crCovered.length / actCr.length;
   for (const c of actCr.filter((c) => !covered.has(`cr:${c}`))) {
-    gaps.push({ code: 'RTM_HEALTH', target: c, message: 'CR→REQ 未承接' });
+    gaps.push({
+      code: 'RTM_HEALTH', target: c,
+      message: `CR→REQ 未承接：${c}（修复：接受/补写该变更的 PRD 承接补丁（REQ-*），或在 RTM 行标记 deferred（理由必填，不计入分母））`,
+    });
   }
 
   const actReq = active(nodes.req);

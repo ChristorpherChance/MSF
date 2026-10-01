@@ -199,13 +199,19 @@ function ToolCardModal({ d, onClose }: { d: Delegation; onClose: () => void }) {
       {d.result && Object.keys(d.result).some((k) => k !== 'error') && (
         <pre className="dlg-result">{JSON.stringify(d.result, null, 2)}</pre>
       )}
-      {failed && (
+      {/* W2-048：兜底目标（pi_native）本身失败时不给自我重跑建议（死循环）——指引人工处置 */}
+      {failed && d.target !== 'pi_native' && (
         <p style={{ marginTop: 10, fontSize: 13 }}>
           ⚠ 已按策略提示降级选项：改用 pi_native 重跑（不静默降级，需确认）。
           <button
             className="act mini" style={{ marginLeft: 8 }}
             onClick={() => setRerunOpen(true)}
           >用 pi_native 重跑</button>
+        </p>
+      )}
+      {failed && d.target === 'pi_native' && (
+        <p style={{ marginTop: 10, fontSize: 13 }}>
+          ⚠ 兜底目标 pi_native 已失败，无进一步降级路径——请按错误信息检查本机运行环境（pi CLI/沙箱镜像）后人工重发，或调整任务描述。
         </p>
       )}
       {rerunOpen && (

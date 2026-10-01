@@ -27,6 +27,13 @@ export function DevPage() {
   useEffect(() => {
     void s.init();
   }, []);
+  // W2-011：autopilot 活动态轮询——跑完/挂起即时反映，不再滞留「自动执行中」（awaiting-transfer 起为人工门禁稳态，停轮询）
+  const runLive = !!s.autopilot?.run && ['running', 'paused', 'blocked'].includes(s.autopilot.run.status);
+  useEffect(() => {
+    if (!runLive) return;
+    const t = setInterval(() => void useDevStore.getState().refresh(), 3000);
+    return () => clearInterval(t);
+  }, [runLive]);
   if (!s.projectId) return <main style={{ padding: 24 }}>加载中…</main>;
 
   const pendingImpacts = s.impacts.filter((i) => i.status === 'pending-assessment');

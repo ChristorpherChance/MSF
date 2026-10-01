@@ -137,8 +137,11 @@ export class UploadsService {
         [projectId, objectKey],
       );
       let fileId: string;
+      // W2-018：内容寻址去重命中时如实回执（前端据此提示「已复用同内容文件」，不再静默换名）
+      let deduped = false;
       if (existing.rows[0]) {
         fileId = existing.rows[0].id;
+        deduped = true;
       } else {
         const code = await this.nextFileCode(client, projectId);
         fileId = randomUUID();
@@ -166,7 +169,7 @@ export class UploadsService {
         "UPDATE mat_uploads SET status='completed', file_id=$2, updated_at=now() WHERE upload_id=$1",
         [uploadId, fileId],
       );
-      return { fileId, zipCheck };
+      return { fileId, zipCheck, deduped };
     });
 
     // A03-18：显式中止（暂存分片回收在事务提交后由服务层执行）
@@ -260,15 +263,15 @@ export class UploadsService {
     projectId: string,
     uploadId: string,
     ctx: CommandContext,
-  ): Promise<{ file: unknown; zipCheck: unknown }> {
+  ): Promise<{ file: unknown; zipCheck: unknown; deduped: boolean }> {
     const r = (await executeCommand(
       'material.upload.complete',
       { projectId, uploadId },
       { ...ctx, projectId },
-    )) as { fileId: string; zipCheck: unknown };
+    )) as { fileId: string; zipCheck: unknown; deduped?: boolean };
     await this.storage.removePrefix(`uploads/${uploadId}/`).catch(() => undefined); // 回收失败留待过期清理
     const file = await query('SELECT * FROM mat_files WHERE id=$1', [r.fileId]);
-    return { file: file.rows[0], zipCheck: r.zipCheck };
+    return { file: file.rows[0], zipCheck: r.zipCheck, deduped: r.deduped ?? false };
   }
 
   /** A03-18 中止会话：状态机 uploading→aborted + 回收暂存分片 */

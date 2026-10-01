@@ -43,6 +43,9 @@ export interface DocView {
   refs: DocRef[];
   version: number;
   contentFingerprint: string;
+  /** W2-025：undo/redo 栈实态（栈空时按钮置灰，不再点了才 409） */
+  canUndo?: boolean;
+  canRedo?: boolean;
 }
 
 export interface VersionItem {

@@ -47,6 +47,8 @@ export interface AuditItem {
 export interface ModelPublic {
   id: string; name: string; provider: string; base_url: string; model_code: string;
   api_key_hint: string | null; enabled: boolean; conn_status: 'ok' | 'fail' | 'untested';
+  /** W2-004：上次手动连通测试时间（conn_status 是该次测试的快照，非实时探测） */
+  conn_checked_at: string | null;
   supports_thinking: boolean; context_window: number; routes: string[];
 }
 

@@ -31,7 +31,7 @@ describe('M7 平台域（集成，需 DB+MinIO）', async () => {
   const storage = new StorageService();
   const notices = new NotificationsService();
   const read = new PlatformReadService();
-  const settings = new SettingsService();
+  const settings = new SettingsService(notices);
   const backups = new BackupsService(storage, notices);
   resetCommands();
   notices.onModuleInit();

@@ -4,6 +4,7 @@ import { mdHtml } from '../../md-html';
 import { ApiError } from '../../api';
 import { StatusChips, type StatusChipItem } from '../../ui/StatusChips';
 import { Modal } from '../../ui/Modal';
+import { ConfirmModal } from '../../ui/ConfirmModal';
 import { toast } from '../../ui/toast';
 import { downloadFile } from '../../ui/download';
 import { designApi, generateDesignDoc, type DesignKind, type PatchItem, type UpstreamDocItem } from './api';
@@ -106,6 +107,13 @@ function Toolbar() {
       .finally(() => void refresh());
   };
 
+  // W2-025：undo/redo 失败走 toast（自动消散），不占工具栏常驻 msg 位
+  const undoRedo = (fn: () => Promise<unknown>) => {
+    void fn()
+      .catch((e) => toast(e instanceof ApiError ? `${e.code}: ${e.message}` : '操作失败', 'warn'))
+      .finally(() => void refresh());
+  };
+
   return (
     <div className="doc-toolbar req-toolbar">
       <select
@@ -123,8 +131,15 @@ function Toolbar() {
         {refsOpen && <DesignRefsPopover onClose={() => setRefsOpen(false)} />}
       </div>
       <span className="sep" />
-      <button className="act" disabled={readonly} title="撤销" onClick={() => act(() => designApi.undo(projectId, selKind))}>↩</button>
-      <button className="act" disabled={readonly} title="重做" onClick={() => act(() => designApi.redo(projectId, selKind))}>↪</button>
+      {/* W2-025：栈空即置灰（与需求域同口径） */}
+      <button
+        className="act" disabled={readonly || doc.canUndo === false}
+        title={doc.canUndo === false ? '无可撤销（栈随草稿消亡）' : '撤销'}
+        onClick={() => undoRedo(() => designApi.undo(projectId, selKind))}>↩</button>
+      <button
+        className="act" disabled={readonly || doc.canRedo === false}
+        title={doc.canRedo === false ? '无可重做（栈随草稿消亡）' : '重做'}
+        onClick={() => undoRedo(() => designApi.redo(projectId, selKind))}>↪</button>
       <div className="pop-wrap">
         <button className="act" title="下载当前查看版本（服务端导出，审计留痕）" onClick={() => setDlOpen(!dlOpen)}>⬇ 下载 ▾</button>
         {dlOpen && (
@@ -371,6 +386,8 @@ function Paper() {
           {pendCount > 0 && (
             <span className="tag tag-warn" title="待确认补丁：在下方各章节行内逐条接受或拒绝（REQ-305）">补丁 ×{pendCount}</span>
           )}
+          {/* W2-010：设计域补丁批量处置（与需求域 U-016 同构能力对齐） */}
+          {pendCount > 1 && !readonly && <PatchBulk />}
         </h1>
         {doc.secs.map((s) => (
           <section key={s.id} id={`dsec-${s.id}`} className={`sect${tocFlash === s.id ? ' flash' : ''}`}>
@@ -419,6 +436,54 @@ function SectionEditor({ secId, md, readonly }: { secId: string; md: string; rea
         </div>
       )}
     </div>
+  );
+}
+
+/** W2-010：补丁批量处置（与需求域 U-016 PatchBulk 同构）：一键全收/全拒，逐条调命令留审计，二次确认 */
+function PatchBulk() {
+  const { projectId, selKind, patches, refresh } = useDesignView();
+  const [busy, setBusy] = useState(false);
+  const [confirmOp, setConfirmOp] = useState<'accept' | 'reject' | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+  if (!projectId) return null;
+  const pending = patches.filter((p) => p.status === 'pending');
+  if (pending.length < 2) return null;
+  const run = async (op: 'accept' | 'reject') => {
+    setBusy(true);
+    setMsg(null);
+    let done = 0;
+    try {
+      for (const p of pending) {
+        if (op === 'accept') await designApi.acceptPatch(projectId, selKind, p.patchId);
+        else await designApi.rejectPatch(projectId, selKind, p.patchId);
+        done += 1;
+      }
+      toast(`已${op === 'accept' ? '接受' : '拒绝'} ${done} 条补丁`, 'success');
+    } catch (e) {
+      setMsg(`${e instanceof ApiError ? e.message : '批量操作失败'}（已完成 ${done}/${pending.length}，剩余可重试）`);
+    } finally {
+      setBusy(false);
+      setConfirmOp(null);
+      await refresh();
+    }
+  };
+  return (
+    <span className="patch-bulk">
+      <button className="act primary sm" disabled={busy} title="逐条接受全部待确认补丁（逐条留审计）"
+        onClick={() => setConfirmOp('accept')}>✓ 全部接受</button>
+      <button className="act sm" disabled={busy} title="逐条拒绝全部待确认补丁"
+        onClick={() => setConfirmOp('reject')}>✕ 全部拒绝</button>
+      {msg && <span className="rsn err">{msg}</span>}
+      {confirmOp && (
+        <ConfirmModal
+          title={confirmOp === 'accept' ? '全部接受补丁' : '全部拒绝补丁'}
+          body={`将逐条${confirmOp === 'accept' ? '接受' : '拒绝'}当前 ${pending.length} 条待确认补丁（逐条留审计，REQ-305 确认语义不变）。\n接受 = 并入草稿；拒绝 = 丢弃提案。`}
+          confirmLabel={confirmOp === 'accept' ? '全部接受' : '全部拒绝'}
+          onClose={() => setConfirmOp(null)}
+          onConfirm={() => void run(confirmOp)}
+        />
+      )}
+    </span>
   );
 }
 
@@ -511,6 +576,7 @@ function FinalizeModal({ onClose }: { onClose: () => void }) {
               <input type="checkbox" checked={allow} onChange={(e) => setAllow(e.target.checked)} />
               {''}存在 {openReviews} 条未决评审项，我确认仍要定稿（记审计）
             </label>
+            {!allow && <p className="pop-tip">勾选上方确认复选框后，「仍要定稿」按钮才可用。</p>}
           </>
         ) : (
           <>
@@ -521,7 +587,11 @@ function FinalizeModal({ onClose }: { onClose: () => void }) {
         {msg && <p className="pop-tip err">{msg}</p>}
         <div className="modal-ops">
           <button className="act" onClick={onClose}>{openReviews > 0 ? '先去处理' : '取消'}</button>
-          <button className="act primary" disabled={openReviews > 0 && !allow} onClick={submit}>
+          {/* W2-046：disabled 须有原因提示（对照影响处置 modal 的 description 口径） */}
+          <button
+            className="act primary" disabled={openReviews > 0 && !allow}
+            title={openReviews > 0 && !allow ? '须先勾选上方「我确认仍要定稿」复选框（未决评审项确认）' : undefined}
+            onClick={submit}>
             {openReviews > 0 ? '仍要定稿（记审计）' : '确认定稿'}
           </button>
         </div>

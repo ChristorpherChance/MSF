@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError } from '../../api';
+import { toast } from '../../ui/toast';
 import { useStagesStore } from '../../ui/GateBanner';
 import { materialApi, type JobView, type TreeNode } from './api';
 import { useMaterialView } from './store';
@@ -220,6 +221,14 @@ export function BatchFinalizeModal({
     try {
       const r = await materialApi.batchFinalizeContent(projectId, fileIds);
       setResults(r.results);
+      // W2-038：n/N 成败计数提示（不静默完成；与批量文件定稿 U-013 同口径）
+      const ok = r.results.filter((x) => x.ok).length;
+      toast(
+        ok === r.results.length
+          ? `内容定稿完成 ${ok}/${r.results.length}`
+          : `内容定稿 ${ok}/${r.results.length} 成功；${r.results.length - ok} 个未通过（原因见弹窗列表）`,
+        ok === r.results.length ? 'success' : 'warn',
+      );
       clearChecked();
       void useStagesStore.getState().load(projectId); // U-015：定稿后刷新准入门禁
       await refresh();

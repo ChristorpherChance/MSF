@@ -255,6 +255,24 @@ export const useDockStore = create<DockState>((set, get) => ({
         disconnected: true,
         error: e instanceof Error ? e.message : String(e),
       });
+      // W2-055：断线恢复后自动补拉——「回复已落库但重拉窗口断网」时回复随网络恢复回到面板，
+      // 不再只能手动刷新。online 事件 + 延时重试双通道（断线未必是本地网络，online 可能不触发）；
+      // 服务端仍在生成时补拉到的是部分内容，下一次延时重试再追。
+      let tries = 0;
+      const retry = () => {
+        void (async () => {
+          try {
+            const messages = await assistantApi.messages(pid, currentId);
+            set({ messages, disconnected: false, error: null });
+            await get().refreshUsage();
+          } catch {
+            if (++tries < 4) setTimeout(retry, 3000 * tries);
+            else window.addEventListener('online', retry, { once: true });
+          }
+        })();
+      };
+      setTimeout(retry, 3000);
+      window.addEventListener('online', retry, { once: true });
     }
   },
 

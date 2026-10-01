@@ -1,7 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { DomainError, POLICY_GATE_KEYS, type PolicyGateKey } from '@msf/shared';
 import { query } from '../../db/pool.js';
 import { executeCommand, registerCommand, type CommandContext } from '../evidence/command-bus.js';
+import { NotificationsService } from './notifications.service.js';
 
 /**
  * 系统设置与放行策略配置（A10-1、REQ-705/711；D10-4/D10-6/D10-7、F10-2）：
@@ -12,6 +13,8 @@ import { executeCommand, registerCommand, type CommandContext } from '../evidenc
  */
 @Injectable()
 export class SettingsService {
+  constructor(@Inject(NotificationsService) private readonly notices: NotificationsService) {}
+
   onModuleInit(): void {
     registerCommand('system.settings.set', async (client, payload, ctx) => {
       const p = payload as { key: string; value: unknown };
@@ -36,12 +39,12 @@ export class SettingsService {
          VALUES ($1,$2,$3,$4,$5,$6,$7)`,
         [ctx.projectId, p.gateKey, from, p.mode, p.reason, ctx.actorKind, ctx.actorId]);
       // §3.9：切换本身通知项目成员（user_id NULL=全员）
-      await client.query(
+      const notice = await client.query<{ id: string }>(
         `INSERT INTO sys_notifications (project_id, user_id, type, text, link)
-         VALUES ($1,NULL,'policy.gate.switched',$2,'/settings')`,
+         VALUES ($1,NULL,'policy.gate.switched',$2,'/settings') RETURNING id`,
         [ctx.projectId,
          `放行策略切换：${p.gateKey} ${from === 'manual' ? '人工确认' : '自动放行'} → ${p.mode === 'auto' ? '自动放行' : '人工确认'}（${ctx.actorId}；理由：${p.reason}）`]);
-      return { gateKey: p.gateKey, mode: p.mode };
+      return { gateKey: p.gateKey, mode: p.mode, noticeId: notice.rows[0]!.id };
     });
 
     /** §3.9 放行策略卡：前置条件编辑（auto 放行的前置声明，逐条文本；求值消费后置，本期为配置面） */
@@ -100,7 +103,12 @@ export class SettingsService {
       throw new DomainError('VALIDATION_FAILED', 'mode 枚举 manual|auto', 'mode');
     }
     if (!reason?.trim()) throw new DomainError('VALIDATION_FAILED', '切换授权理由必填', 'reason');
-    return executeCommand('policy.gate.set_mode', { gateKey, mode, reason }, { ...ctx, projectId });
+    const r = (await executeCommand('policy.gate.set_mode', { gateKey, mode, reason }, { ...ctx, projectId })) as {
+      gateKey: string; mode: string; unchanged?: boolean; noticeId?: string;
+    };
+    // W2-033：通知行在命令事务内落库（原子），提交后补推 SSE notice.created——已开抽屉/多标签即时可见
+    if (r.noticeId) await this.notices.pushExisting(r.noticeId);
+    return r;
   }
 
   /** 前置条件编辑（逐条文本，空串剔除） */

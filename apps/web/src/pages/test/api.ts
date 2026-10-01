@@ -97,7 +97,7 @@ export const tstApi = {
 
   // 计划
   draftPlan: (pid: string, batchId: string) =>
-    api.post<{ planId: string; cases: Array<{ id: string; mode: string }> }>(`${base(pid)}/batches/${batchId}/plans:draft`, {}),
+    api.post<{ planId: string; cases: Array<{ id: string; mode: string }>; skippedDeferred?: string[] }>(`${base(pid)}/batches/${batchId}/plans:draft`, {}),
   approvePlan: (pid: string, batchId: string, planId: string) =>
     api.post<{ planId: string; status: string }>(`${base(pid)}/batches/${batchId}/plans/${planId}:approve`, { confirm: true }),
   currentPlan: (pid: string, batchId: string) =>

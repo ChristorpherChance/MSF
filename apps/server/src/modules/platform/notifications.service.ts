@@ -67,6 +67,12 @@ export class NotificationsService {
     await executeCommand('evidence.event.emit', { kind, payload }, ctx);
   }
 
+  /** 推送既有通知行（W2-033：通知在别的命令事务内落库时，提交后由调用方补推 SSE） */
+  async pushExisting(noticeId: string): Promise<void> {
+    const row = await query<NoticeRow>('SELECT * FROM sys_notifications WHERE id=$1', [noticeId]);
+    if (row.rows[0]) for (const l of listeners) l(row.rows[0]);
+  }
+
   async list(q: { unreadOnly: boolean; cursor?: string; limit?: number; projectId?: string }, userId: string) {
     const params: unknown[] = [userId];
     let where = '(user_id IS NULL OR user_id=$1)';

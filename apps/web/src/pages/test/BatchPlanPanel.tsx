@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ConfirmModal } from '../../ui/ConfirmModal';
 import { downloadFile } from '../../ui/download';
+import { toast } from '../../ui/toast';
 import { tstApi, type PendingHandoff } from './api';
 import { useTstStore } from './store';
 
@@ -139,7 +140,13 @@ export function BatchPlanPanel() {
           <p className="dsg-prefix">从业务流程起草用例，并保留人工交互走查；不会复制开发通过结果。</p>
           <div className="gen-ops">
             {['received', 'planned'].includes(det.status) && (
-              <button className="act primary" onClick={() => s.act(() => tstApi.draftPlan(pid, det.batchId), '计划已起草')}>起草测试计划</button>
+              <button className="act primary" onClick={() => s.act(async () => {
+                // W2-014：起草剔除本期暂缓（deferred）条目，剔除明细显性告知
+                const r = await tstApi.draftPlan(pid, det.batchId);
+                if (r.skippedDeferred && r.skippedDeferred.length > 0) {
+                  toast(`已剔除本期暂缓条目 ${r.skippedDeferred.length} 处：${r.skippedDeferred.slice(0, 3).join('；')}${r.skippedDeferred.length > 3 ? ' 等' : ''}`, 'warn');
+                }
+              }, '计划已起草')}>起草测试计划</button>
             )}
           </div>
         </div>
@@ -158,7 +165,12 @@ export function BatchPlanPanel() {
               </button>
             )}
             {['received', 'planned'].includes(det.status) && (
-              <button className="act" onClick={() => s.act(() => tstApi.draftPlan(pid, det.batchId), '计划已起草（追加新版本）')}>重新起草</button>
+              <button className="act" onClick={() => s.act(async () => {
+                const r = await tstApi.draftPlan(pid, det.batchId);
+                if (r.skippedDeferred && r.skippedDeferred.length > 0) {
+                  toast(`已剔除本期暂缓条目 ${r.skippedDeferred.length} 处：${r.skippedDeferred.slice(0, 3).join('；')}${r.skippedDeferred.length > 3 ? ' 等' : ''}`, 'warn');
+                }
+              }, '计划已起草（追加新版本）')}>重新起草</button>
             )}
           </div>
           {s.cases.length > 0 && (

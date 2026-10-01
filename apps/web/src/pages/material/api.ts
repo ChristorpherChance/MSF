@@ -124,7 +124,7 @@ export async function uploadFile(
   pid: string,
   file: File,
   onProgress?: (done: number, total: number) => void,
-): Promise<{ fileId: string }> {
+): Promise<{ fileId: string; deduped: boolean; code?: string | undefined; name?: string | undefined }> {
   const buf = await file.arrayBuffer();
   const digest = await crypto.subtle.digest('SHA-256', buf);
   const sha256 = Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
@@ -140,11 +140,11 @@ export async function uploadFile(
     await api.putRaw(`${base(pid)}/uploads/${session.uploadId}/parts/${i + 1}`, chunk);
     onProgress?.(i + 1, total);
   }
-  const done = await api.post<{ file: { id: string } }>(
+  const done = await api.post<{ file: { id: string; code?: string; name?: string }; deduped?: boolean }>(
     `${base(pid)}/uploads/${session.uploadId}:complete`,
     {},
   );
-  return { fileId: done.file.id };
+  return { fileId: done.file.id, deduped: done.deduped ?? false, code: done.file.code, name: done.file.name };
 }
 
 /** 项目来源：会话已选项目优先（项目页「进入」写入），否则首个活跃项目，无则建示例项目 */
