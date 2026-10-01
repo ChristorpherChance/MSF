@@ -32,6 +32,8 @@ const WRITE_TOOLS = new Set([
 const ROUTES: Record<string, string> = {
   material: '/material', req: '/req', design: '/design', proto: '/proto',
   dev: '/dev', test: '/test', delegate: '/delegate',
+  // W2-053：任务中心/设置页同样可被助手打开（模型自主调用链补齐）
+  tasks: '/tasks', settings: '/settings',
 };
 
 const TOOLS: ToolDef[] = [
@@ -99,7 +101,7 @@ const byName = new Map(TOOLS.map((t) => [t.name, t]));
 export class AiToolsService implements OnModuleInit {
   onModuleInit(): void {
     registerCommand('ai.tool.invoke', async (client, payload, ctx) => {
-      const p = payload as { sessionId?: string; toolName?: string; args?: Record<string, unknown> };
+      const p = payload as { sessionId?: string; messageId?: string; toolName?: string; args?: Record<string, unknown> };
       if (!p.toolName) throw new DomainError('TOOL_ARGS_INVALID', 'toolName 必填', 'toolName');
       // 判别式结果：denied/unregistered/args_invalid 均先落 ai_tool_calls 再返回，
       // 由门面抛错——命令内抛错会回滚留痕行（REQ-606/613 要求拒绝也留痕）
@@ -144,15 +146,16 @@ export class AiToolsService implements OnModuleInit {
 
   private async record(
     client: PoolClient,
-    p: { sessionId?: string; toolName?: string; args?: Record<string, unknown> },
+    p: { sessionId?: string; messageId?: string; toolName?: string; args?: Record<string, unknown> },
     status: 'ok' | 'denied' | 'failed',
     result: Record<string, unknown>,
   ): Promise<void> {
     // session_id 列 NOT NULL：有会话落行；无会话调用仅以命令审计留痕
     if (!p.sessionId) return;
+    // W2-053：message_id 挂接——工具卡随消息渲染（AiContent 按 message.toolCalls 聚合）的前提
     await client.query(
-      'INSERT INTO ai_tool_calls (session_id, tool_name, args, result_summary, status) VALUES ($1,$2,$3,$4,$5)',
-      [p.sessionId, p.toolName, JSON.stringify(p.args ?? {}), JSON.stringify(result), status]);
+      'INSERT INTO ai_tool_calls (session_id, message_id, tool_name, args, result_summary, status) VALUES ($1,$2,$3,$4,$5,$6)',
+      [p.sessionId, p.messageId ?? null, p.toolName, JSON.stringify(p.args ?? {}), JSON.stringify(result), status]);
   }
 
   /** 注册表元数据（A08-5 工具清单展示） */
@@ -165,7 +168,7 @@ export class AiToolsService implements OnModuleInit {
 
   async invoke(
     projectId: string,
-    p: { sessionId?: string; toolName: string; args?: Record<string, unknown> },
+    p: { sessionId?: string; messageId?: string; toolName: string; args?: Record<string, unknown> },
     ctx: CommandContext,
   ): Promise<{ tool: string; result: Record<string, unknown> }> {
     const r = await executeCommand('ai.tool.invoke', p, { ...ctx, projectId }) as

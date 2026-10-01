@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { mdHtml } from '../md-html';
 import { Modal } from '../ui/Modal';
 import { Popover } from '../ui/Popover';
@@ -487,13 +487,18 @@ function ThinkCard({ text }: { text: string }) {
   );
 }
 
-/** 工具卡（原型 toolcard L179/L1046：状态图标 + 名称头 + 摘要体；denied 标「已拦截」） */
+/** 工具卡（原型 toolcard L179/L1046：状态图标 + 名称头 + 摘要体；denied 标「已拦截」）
+ *  W2-053：nav.goto 成功的卡带「打开 →」行动钮（导航类工具的实际效果由用户点按触发，不静默跳页） */
 function ToolCards({ calls }: { calls: ToolCallRow[] }) {
+  const navigate = useNavigate();
   return (
     <>
       {calls.map((t, i) => {
         const icon = t.status === 'ok' ? '✅' : t.status === 'denied' ? '🚫' : '❌';
         const summary = summarizeTool(t);
+        const navRoute = t.toolName === 'nav.goto' && t.status === 'ok'
+          ? (t.resultSummary as { route?: string } | null)?.route
+          : undefined;
         return (
           <div key={i} className="toolcard">
             <div className="tc-head">
@@ -501,6 +506,11 @@ function ToolCards({ calls }: { calls: ToolCallRow[] }) {
               {t.status === 'denied' && <span className="tag red">已拦截</span>}
             </div>
             {summary && <div className="tc-body">{summary}</div>}
+            {navRoute && (
+              <div className="tc-body">
+                <button className="act mini primary" onClick={() => navigate(navRoute)}>打开 →</button>
+              </div>
+            )}
           </div>
         );
       })}

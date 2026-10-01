@@ -7,6 +7,7 @@ import { executeCommand, registerCommand, type CommandContext } from '../evidenc
 import { AI_PROVIDER, type AiProvider, type AiUsage } from './ai-provider.interface.js';
 import type { ModelRow } from './models.service.js';
 import { AiModelsService } from './models.service.js';
+import { AiToolsService } from './tools.service.js';
 import { StreamPipeline, type PipelineCompletion } from './stream-pipeline.js';
 
 /**
@@ -48,9 +49,20 @@ export class AiSessionsService implements OnModuleInit {
     @Inject(AI_PROVIDER) private readonly provider: AiProvider,
     @Inject(AiModelsService) private readonly models: AiModelsService,
     @Inject(StreamPipeline) private readonly pipeline: StreamPipeline,
+    @Inject(AiToolsService) private readonly tools: AiToolsService,
   ) {}
 
-  onModuleInit(): void {
+  async onModuleInit(): Promise<void> {
+    // W2-053 衍生：进程重启即流终结——注册表清空后 DB 里的 streaming 行永无人收尾，启动时一次性标 failed
+    // （本域表启动修复，不经命令总线；10 分钟龄期守卫：测试套件不 await onModuleInit，避免误杀在途流）
+    await query(
+      "UPDATE ai_messages SET status='failed', error='INTERNAL' WHERE status='streaming' AND created_at < now() - interval '10 minutes'",
+      [],
+    ).catch(() => undefined);
+    this.registerCommands();
+  }
+
+  private registerCommands(): void {
     registerCommand('ai.session.create', async (client, payload, ctx) => {
       const p = payload as { ctx: string; name?: string; thinkLevel?: string; modelId?: string };
       if (!(CTX_TABS as readonly string[]).includes(p.ctx)) {
@@ -368,6 +380,36 @@ export class AiSessionsService implements OnModuleInit {
     return { messageId: prep.messageId };
   }
 
+  /**
+   * W2-053：解析回复中的 ```msf-tool 围栏块，逐个经 ai.tool.invoke 编排执行（封顶 3 个，
+   * 调用挂 session_id+message_id——前端工具卡按消息聚合的前提），返回剔除围栏后的正文。
+   * 单块失败不阻断：denied/args_invalid 已在命令内留痕，非法 JSON 块忽略。
+   */
+  async runToolBlocks(
+    projectId: string,
+    sessionId: string,
+    messageId: string,
+    content: string,
+    ctx: CommandContext,
+  ): Promise<string> {
+    const RE = /```msf-tool\s*\n([\s\S]*?)```/g;
+    const blocks: string[] = [];
+    let m: RegExpExecArray | null;
+    while ((m = RE.exec(content)) !== null && blocks.length < 3) blocks.push(m[1]!.trim());
+    if (blocks.length === 0) return content;
+    for (const raw of blocks) {
+      try {
+        const call = JSON.parse(raw) as { name?: string; args?: Record<string, unknown> };
+        if (!call.name) continue;
+        await this.tools
+          .invoke(projectId, { sessionId, messageId, toolName: call.name, args: call.args ?? {} }, ctx)
+          .catch(() => undefined);
+      } catch { /* 非法 JSON 块忽略 */ }
+    }
+    const stripped = content.replace(RE, '').replace(/\n{3,}/g, '\n\n').trim();
+    return stripped || '已按请求调用工具，结果见下方工具卡。';
+  }
+
   /** 组装发往模型的提示词：当前项目+阶段准入口径上下文（U-035）+ 参考全文（内容定稿稿，单份截 12000 字/总截 32000 字）+ 近 6 轮历史 + 本次请求 */
   private async buildPrompt(
     projectId: string,
@@ -397,6 +439,16 @@ export class AiSessionsService implements OnModuleInit {
 你没有写权限：不能直接修改、定稿、放行任何文档、UI 原型、代码、计划或批次；也不能替你点击任何"人工确认"。
 对"修改/定稿/放行"类请求，正确做法是：①给出可直接采纳的建议文本或修改方案；②明确说明"我未改动系统内任何数据"；③指引落地路径——文档修改请到对应阶段页使用 AI 生成/修订（产出待确认补丁，由你逐条接受）；原型修改请到设计页调整；代码修改请在开发页任务/变更流程中进行；定稿与放行永远是人工操作。
 严禁声称"已修改/已定稿/已放行/已完成写入"——凡未经过上述人工路径，系统内数据均未变化。`);
+    // W2-053：只读三件套自主调用声明（REQ-605）——模型经 ```msf-tool 围栏块发起，编排层流末解析执行并挂接到消息
+    parts.push(`【可用工具（只读/导航类，可自主调用）】
+需要时，在回复正文之外输出独立的工具围栏块（可多个；不需要则不输出）：
+\`\`\`msf-tool
+{"name":"工具名","args":{...}}
+\`\`\`
+- nav.goto：为用户打开某个页面。args: {"tab":"material|req|design|dev|test|tasks|delegate|settings"}。当用户说"打开/带我去/跳转到某页"时调用，正文同时说明已发起打开。
+- read_context：读取当前项目状态快照（各域条目计数）。args: {}。当需要最新项目数据回答"进展/状态"类问题时调用。
+- propose_next_step：按项目当前状态计算下一步建议清单。args: {}。当用户问"下一步该做什么"时调用。
+工具由系统在回复完成后执行，结果以工具卡随消息呈现；围栏块本身不会展示给用户。工具只有只读/导航能力，写操作仍须走人工路径。`);
     if (referenceFileIds.length > 0) {
       const refs = await query<{ name: string; body_md: string }>(
         `SELECT f.name, p.body_md FROM mat_files f
@@ -443,8 +495,14 @@ export class AiSessionsService implements OnModuleInit {
       send({ type: f.type, seq: f.seq, messageId, ...f.data }));
     const startedAt = Date.now();
     this.pipeline.run(messageId, { thinkLevel: opts?.thinkLevel }, async (c) => {
+      // W2-053：流末解析 ```msf-tool 围栏块并编排执行（工具调用挂 message_id，工具卡随消息渲染）
+      let content = c.content;
+      if (c.status === 'done' && content.includes('```msf-tool')) {
+        content = await this.runToolBlocks(e.projectId, e.sessionId, messageId, content,
+          opts?.ctx ?? { projectId: e.projectId, actorKind: 'system', actorId: 'stream' });
+      }
       await executeCommand('ai.message.finish', {
-        messageId, status: c.status, content: c.content,
+        messageId, status: c.status, content,
         ...(c.usage ? { usage: c.usage } : {}), durationMs: Date.now() - startedAt,
         ...(c.error ? { error: c.error } : {}),
         ...(c.errorMessage ? { errorMessage: c.errorMessage } : {}),

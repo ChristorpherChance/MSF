@@ -172,7 +172,7 @@ export class AiSessionsController {
   @HttpCode(200)
   invokeTool(
     @Param('projectId') projectId: string,
-    @Body() body: { sessionId?: string; toolName: string; args?: Record<string, unknown> },
+    @Body() body: { sessionId?: string; messageId?: string; toolName: string; args?: Record<string, unknown> },
     @Req() req: Request,
   ) {
     return this.tools.invoke(projectId, body, this.actor(req, projectId));

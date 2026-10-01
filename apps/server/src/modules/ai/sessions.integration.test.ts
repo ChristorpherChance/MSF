@@ -10,6 +10,7 @@ import type {
 } from './ai-provider.interface.js';
 import { AiModelsService } from './models.service.js';
 import { AiSessionsService } from './sessions.service.js';
+import { AiToolsService } from './tools.service.js';
 import { StreamPipeline } from './stream-pipeline.js';
 
 const PID = '00000000-0000-0000-0000-0000000000f5';
@@ -22,13 +23,21 @@ class FakeSession implements AiSession {
   private gates: Array<() => void> = [];
   private released = false;
   private stopped = false;
+  /** W2-053：自定义块序列（工具围栏块测试用）；空=默认两段 */
+  chunks: string[] | null = null;
   stream(): { deltas: AsyncIterable<string>; result: Promise<AiMessageResult> } {
     let resolveResult!: (r: AiMessageResult) => void;
     const result = new Promise<AiMessageResult>((res) => { resolveResult = res; });
     const gates = this.gates;
     const isStopped = () => this.stopped;
     const isReleased = () => this.released;
+    const custom = this.chunks;
     const deltas = (async function* (): AsyncGenerator<string> {
+      if (custom) {
+        for (const ch of custom) yield ch;
+        resolveResult({ text: custom.join(''), usage: { inputTokens: 10, outputTokens: 6 } });
+        return;
+      }
       yield '第一段。';
       if (!isReleased()) await new Promise<void>((r) => gates.push(r));
       if (isStopped()) {
@@ -54,9 +63,14 @@ class FakeSession implements AiSession {
 class FakeProvider implements AiProvider {
   readonly kind = 'mock' as const;
   last: FakeSession | null = null;
+  /** W2-053：下一次 createSession 的自定义块序列 */
+  nextChunks: string[] | null = null;
   async createSession(): Promise<AiSession> {
-    this.last = new FakeSession();
-    return this.last;
+    const s = new FakeSession();
+    s.chunks = this.nextChunks;
+    this.nextChunks = null;
+    this.last = s;
+    return s;
   }
 }
 
@@ -90,7 +104,9 @@ describe('AI 会话/消息/流式管线（集成，需 DB）', async () => {
   models.onModuleInit();
   const pipeline = new StreamPipeline();
   await pipeline.onModuleInit(); // Redis 可达则镜像，否则降级
-  const sessions = new AiSessionsService(provider, models, pipeline);
+  const tools = new AiToolsService();
+  tools.onModuleInit();
+  const sessions = new AiSessionsService(provider, models, pipeline, tools);
   sessions.onModuleInit();
 
   // 项目行（外键）
@@ -104,6 +120,8 @@ describe('AI 会话/消息/流式管线（集成，需 DB）', async () => {
   const chatHolders = (await query<{ id: string }>("SELECT id FROM ai_models WHERE routes ? 'chat'", [])).rows.map((r) => r.id);
   afterAll(async () => {
     await query('DELETE FROM ai_usage WHERE project_id=$1', [PID]);
+    // W2-053：工具调用挂 message_id 后须先清 ai_tool_calls（FK ai_tool_calls_message_id_fkey）
+    await query('DELETE FROM ai_tool_calls WHERE session_id IN (SELECT id FROM ai_sessions WHERE project_id IN ($1,$2))', [PID, PID2]);
     await query('DELETE FROM ai_messages WHERE session_id IN (SELECT id FROM ai_sessions WHERE project_id IN ($1,$2))', [PID, PID2]);
     await query('DELETE FROM ai_sessions WHERE project_id IN ($1,$2)', [PID, PID2]);
     await query('DELETE FROM mat_parsed WHERE project_id=$1', [PID]);
@@ -188,7 +206,8 @@ describe('AI 会话/消息/流式管线（集成，需 DB）', async () => {
 
   it('发送消息 SSE 全程：user+ai 落库，终态 done，ai_usage 按 price_table 兜底成本', async () => {
     const mid = (await models.upsert({
-      name: 'chat 模型', provider: 'gateway', baseUrl: 'http://127.0.0.1:9', modelCode: 'm',
+      // W2-032 起名称唯一：测试名带随机后缀，崩溃残留不阻塞重跑
+      name: `chat 模型 ${randomUUID().slice(0, 8)}`, provider: 'gateway', baseUrl: 'http://127.0.0.1:9', modelCode: 'm',
       priceTable: { in: 0.002, out: 0.01 },
     }, CTX)).id;
     modelIds.push(mid);
@@ -222,10 +241,40 @@ describe('AI 会话/消息/流式管线（集成，需 DB）', async () => {
     await expect(query('SELECT 1', [])).resolves.toBeTruthy();
   });
 
+  it('W2-053 工具自主调用链：```msf-tool 围栏块流末解析执行——挂 message_id、正文剔除、工具卡随消息可达', async () => {
+    provider.nextChunks = ['好的，为你打开需求页。', '\n```msf-tool\n{"name":"nav.goto","args":{"tab":"req"}}\n```'];
+    const { messageId } = await sessions.send(PID, sessionId, { content: '帮我打开需求页' }, CTX);
+    const c = await sessions.drive(messageId, () => {}, { ctx: CTX });
+    expect(c.status).toBe('done');
+    const msgs = await sessions.messages(PID, sessionId);
+    const aiMsg = msgs.items.find((m) => m.id === messageId)! as unknown as {
+      content: string;
+      toolCalls: Array<{ toolName: string; status: string; resultSummary: unknown }>;
+    };
+    // 正文剔除围栏块；工具调用挂到该消息（前端 AiContent 按 message.toolCalls 渲染工具卡）
+    expect(aiMsg.content).not.toContain('msf-tool');
+    expect(aiMsg.content).toContain('为你打开需求页');
+    expect(aiMsg.toolCalls.length).toBe(1);
+    expect(aiMsg.toolCalls[0]!.toolName).toBe('nav.goto');
+    expect(aiMsg.toolCalls[0]!.status).toBe('ok');
+    expect((aiMsg.toolCalls[0]!.resultSummary as { route: string }).route).toBe('/req');
+    // 非法块/未注册工具不阻断落稿：正文保留剔除后内容，失败调用留痕 failed
+    provider.nextChunks = ['```msf-tool\nnot-json\n```', '尾部正文。', '```msf-tool\n{"name":"no.such"}\n```'];
+    const s2 = await sessions.send(PID, sessionId, { content: '再来一次' }, CTX);
+    const c2 = await sessions.drive(s2.messageId, () => {}, { ctx: CTX });
+    expect(c2.status).toBe('done');
+    const msgs2 = await sessions.messages(PID, sessionId);
+    const aiMsg2 = msgs2.items.find((m) => m.id === s2.messageId)! as unknown as {
+      content: string; toolCalls: Array<{ toolName: string; status: string }>;
+    };
+    expect(aiMsg2.content).toBe('尾部正文。');
+    expect(aiMsg2.toolCalls.some((t) => t.toolName === 'no.such' && t.status === 'denied')).toBe(true);
+  });
+
   it('会话级模型：create/set-model 校验，发送按会话绑定模型落戳（优先于 chat 路由）', async () => {
     // 绑定一个无 chat 路由的模型：会话绑定优先于路由默认
     const bound = (await models.upsert({
-      name: '会话绑定模型', provider: 'gateway', baseUrl: 'http://127.0.0.1:9', modelCode: 'mb',
+      name: `会话绑定模型 ${randomUUID().slice(0, 8)}`, provider: 'gateway', baseUrl: 'http://127.0.0.1:9', modelCode: 'mb',
     }, CTX)).id;
     modelIds.push(bound);
     const s = await sessions.create(PID, { ctx: 'dev', modelId: bound }, CTX) as { id: string };
