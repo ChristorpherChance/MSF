@@ -779,6 +779,8 @@ function FinalizeModal({ kind, onClose }: { kind: DocKind; onClose: () => void }
   const pid = projectId;
   useEffect(() => {
     if (pid && kind === 'prd') void reqApi.health(pid).then(setHealth).catch(() => setHealth(null));
+    // W2-028：CRD 定稿不挂 L0a 门禁（规格如此——L0a 卡在进入设计/PRD 定稿），但低承接率须显性告知
+    if (pid && kind === 'crd') void reqApi.health(pid).then(setHealth).catch(() => setHealth(null));
   }, [pid, kind]);
   if (!pid || !doc) return null;
   const gateOk = kind === 'crd' || health?.ok === true;
@@ -806,6 +808,15 @@ function FinalizeModal({ kind, onClose }: { kind: DocKind; onClose: () => void }
                 {health.gaps.map((g) => <li key={`${g.code}-${g.target}`} className="err">✗ {g.target}：{g.message}</li>)}
               </ul>
             ) : <p>健康度加载中…</p>}
+          </div>
+        )}
+        {kind === 'crd' && health && health.l0a < 0.95 && (
+          <div className="gate-box err">
+            <strong>提示（不阻断定稿）</strong>
+            <p className="pop-tip" style={{ margin: '4px 0 0' }}>
+              当前 R→CR 承接率仅 {(health.l0a * 100).toFixed(1)}%（进入设计/PRD 定稿门禁线 ≥95%）——
+              现在定稿 CRD 不会受阻，但 PRD 定稿与进入设计阶段将被 RTM 门禁拦截，届时仍需回补承接或标记 deferred。
+            </p>
           </div>
         )}
         {msg && <p className="pop-tip err">{msg}</p>}

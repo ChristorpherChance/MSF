@@ -727,6 +727,9 @@ export class ReqDocsService {
   /**
    * 实时健康度（F06-7 实算不用缓存值）：节点集从当前提交版本内容重扫（含未被承接的孤立节点），
    * 链与 deferred 标记取 rtm_links 当前全集。
+   * W2-029 盲区显性化：R 层权威=CRD 承接锚点（规格如此，分母不变）——但内容定稿参考资料中的
+   * 诉求编码（FR-/NFR-/R- 形）若未在 CRD 出现即「漏承接隐身」（不进分母、L0a 虚高），
+   * 此类编码以 warning 显性列出（告警不阻断，引导人工核对回补）。
    */
   async computeLiveHealth(client: PoolClient | null, projectId: string) {
     const { crd, prd } = await this.currentContents(client, projectId);
@@ -734,7 +737,27 @@ export class ReqDocsService {
     const q = client ? client.query.bind(client) : query;
     const links = await q<{ from_kind: string; from_code: string; to_kind: string; to_code: string; relation: string }>(
       'SELECT from_kind, from_code, to_kind, to_code, relation FROM rtm_links WHERE project_id=$1', [projectId]);
-    return computeHealth(nodes, links.rows);
+    const health = computeHealth(nodes, links.rows);
+    // 盲区扫描：全部内容定稿参考资料的诉求编码 vs CRD 全文
+    const refs = await q<{ body_md: string }>(
+      `SELECT p.body_md FROM mat_parsed p JOIN mat_files f ON f.id=p.file_id
+       WHERE f.project_id=$1 AND p.kind='content_parse' AND p.status='final'`, [projectId]);
+    if (refs.rows.length > 0 && crd) {
+      const missing = new Set<string>();
+      for (const r of refs.rows) {
+        for (const m of r.body_md.matchAll(/\b(?:FR|NFR|R)-\d{2,3}\b/g)) {
+          if (!crd.includes(m[0])) missing.add(m[0]);
+        }
+      }
+      if (missing.size > 0) {
+        const list = [...missing].sort();
+        health.warnings.push(
+          `参考资料诉求码 ${list.length} 个未在 CRD 出现（${list.slice(0, 8).join('、')}${list.length > 8 ? ' 等' : ''}）——` +
+          'R 层以 CRD 承接锚点为权威，漏承接不计入 L0a 分母（不告警即隐身），请核对是否漏写承接章节',
+        );
+      }
+    }
+    return health;
   }
 
   /** INV-DOC 发布前不变式断言（违反即抛错 → 命令整体回滚） */
