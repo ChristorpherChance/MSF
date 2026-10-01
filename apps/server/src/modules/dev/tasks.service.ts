@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { DomainError } from '@msf/shared';
 import type { PoolClient } from 'pg';
 import { query } from '../../db/pool.js';
+import { lockCodeGen } from '../../db/seq.js';
 import { executeCommand, registerCommand, type CommandContext } from '../evidence/command-bus.js';
 import { developGateIssues, latestBaseline } from './gate-common.js';
 
@@ -248,6 +249,8 @@ export class DevTasksService {
       const specs = buildTaskSpecs(items.rows);
       let identified = 0;
       const taskIds: string[] = [];
+      // W2-052：T- 发号 count+1 属 check-then-act——咨询锁串行化「计数→批量插入」临界区
+      await lockCodeGen(client, `msf:code:task:${projectId}`);
       let seq = (await client.query<{ n: string }>('SELECT count(*) AS n FROM dev_tasks WHERE project_id=$1', [projectId])).rows[0]?.n ?? '0';
       for (const s of specs) {
         if (have.has(s.title)) continue; // 识别幂等：同基线重复识别不产生重复任务
@@ -316,6 +319,8 @@ export class DevTasksService {
       if (!KINDS.includes(kind as (typeof KINDS)[number])) {
         throw new DomainError('VALIDATION_FAILED', 'kind 枚举 frontend|backend|common|integration', 'kind');
       }
+      // W2-052：T- 发号 count+1 属 check-then-act——咨询锁串行化「计数→插入」临界区
+      await lockCodeGen(client, `msf:code:task:${projectId}`);
       const seq = (await client.query<{ n: string }>('SELECT count(*) AS n FROM dev_tasks WHERE project_id=$1', [projectId])).rows[0]?.n ?? '0';
       const code = `T-${String(Number(seq) + 1).padStart(3, '0')}`;
       const quality: QualitySpec = {

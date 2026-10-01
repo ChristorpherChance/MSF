@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { DomainError, fingerprint } from '@msf/shared';
 import { query } from '../../db/pool.js';
+import { lockCodeGen } from '../../db/seq.js';
 import { executeCommand, registerCommand, type CommandContext } from '../evidence/command-bus.js';
 import { PolicyService } from '../policy/policy.service.js';
 import { developGateIssues, latestBaseline, liveBaselineFingerprint } from './gate-common.js';
@@ -62,6 +63,8 @@ export class DevPlansService {
          AND item_type IN ('page','flow')`, [projectId]);
       const covered = new Set(cov.rows.flatMap((t) => t.source_ids));
       const uncovered = cat.rows.map((c) => c.code).filter((c) => !covered.has(c));
+      // W2-052：revision max+1 属 check-then-act——咨询锁串行化「取号→插入」临界区
+      await lockCodeGen(client, `msf:code:plan:${projectId}`);
       const maxRev = await client.query<{ r: number | null }>(
         'SELECT max(revision) AS r FROM dev_plans WHERE project_id=$1', [projectId]);
       const revision = (maxRev.rows[0]?.r ?? 0) + 1;
@@ -109,6 +112,8 @@ export class DevPlansService {
       const covered = new Set(tasks.rows.flatMap((t) => (t.source_ids as string[]) ?? []));
       const uncovered = cat.rows.filter((c) => !covered.has(c.code));
       const haveTitles = new Set(tasks.rows.map((t) => String(t.title)));
+      // W2-052：建议 T- 预发号与任务发号同序列——同键串行（正式落池在 approve，另有 dup 护栏）
+      await lockCodeGen(client, `msf:code:task:${projectId}`);
       let seq = Number((await client.query<{ n: string }>(
         'SELECT count(*) AS n FROM dev_tasks WHERE project_id=$1', [projectId])).rows[0]?.n ?? '0');
       if (uncovered.length > 0) {
@@ -154,6 +159,8 @@ export class DevPlansService {
       const projectedIds = [...orderedTasks.map((t) => String(t.code)), ...createCodes];
       const projCovered = new Set([...covered, ...suggestions.filter((s) => s.kind === 'create-task').flatMap((s) => s.sourceRefs)]);
       const stillUncovered = cat.rows.map((c) => c.code).filter((c) => !projCovered.has(c));
+      // W2-052：revision max+1 属 check-then-act——咨询锁串行化「取号→插入」临界区
+      await lockCodeGen(client, `msf:code:plan:${projectId}`);
       const maxRev = await client.query<{ r: number | null }>(
         'SELECT max(revision) AS r FROM dev_plans WHERE project_id=$1', [projectId]);
       const revision = (maxRev.rows[0]?.r ?? 0) + 1;
@@ -235,6 +242,8 @@ export class DevPlansService {
       const uncovered = cat.rows.map((c) => c.code).filter((c) => !covered.has(c));
       const snapshot = { ...oldSnapshot, taskIds, order: taskIds };
       const coverageReport = { ok: uncovered.length === 0, uncoveredDesignItems: uncovered, unmatchedTasks: [] };
+      // W2-052：revision max+1 属 check-then-act——咨询锁串行化「取号→插入」临界区
+      await lockCodeGen(client, `msf:code:plan:${projectId}`);
       const maxRev = await client.query<{ r: number | null }>(
         'SELECT max(revision) AS r FROM dev_plans WHERE project_id=$1', [projectId]);
       const next = (maxRev.rows[0]?.r ?? 0) + 1;
@@ -316,6 +325,8 @@ export class DevPlansService {
           throw new DomainError('STALE_EVIDENCE', '任务池或目录在准备后已变化（请重新准备）', revision);
         }
         // 应用已采用建议落任务池（批准前不写入任务池——原型同口径）
+        // W2-052：create-task 建议落池与任务发号共用 T- 序列——同键串行（dup 护栏兜底保留）
+        await lockCodeGen(client, `msf:code:task:${projectId}`);
         const bl = await latestBaseline(client, projectId);
         const inputArtifacts = (bl?.items ?? []).map((i) => ({ doc_kind: i.artifact, version_id: i.version_id, fingerprint: i.fingerprint }));
         for (const sg of suggestions.filter((s) => s.state === 'accepted')) {

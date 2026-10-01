@@ -2,6 +2,7 @@ import { Inject, Injectable, Optional, OnModuleInit } from '@nestjs/common';
 import type { PoolClient } from 'pg';
 import { DomainError } from '@msf/shared';
 import { query } from '../../db/pool.js';
+import { lockCodeGen } from '../../db/seq.js';
 import { appendEvidence } from '../evidence/audit.service.js';
 import { executeCommand, registerCommand, type CommandContext } from '../evidence/command-bus.js';
 import { encryptText } from '../platform/crypto.service.js';
@@ -174,6 +175,8 @@ export class AiDelegationsService implements OnModuleInit {
         throw new DomainError('DELEGATION_TARGET_UNAVAILABLE', `目标 ${p.target} 不可用（${t.rows[0].status}）`, p.target);
       }
       const cap = await maxRunning(client);
+      // W2-052：上限检查+编号+插入是同一临界区（上限按全局 running 计数）——咨询锁串行化，防并行撞 UNIQUE 500 / 击穿上限
+      await lockCodeGen(client, 'msf:code:delegation');
       const running = await client.query<{ n: string }>(
         "SELECT count(*) AS n FROM ai_delegations WHERE status IN ('queued','running')", []);
       if (Number(running.rows[0]!.n) >= cap) {

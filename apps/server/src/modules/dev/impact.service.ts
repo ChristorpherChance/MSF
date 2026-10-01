@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { DomainError, fingerprint } from '@msf/shared';
 import { query } from '../../db/pool.js';
+import { lockCodeGen } from '../../db/seq.js';
 import { appendEvidence } from '../evidence/audit.service.js';
 import { executeCommand, registerCommand, type CommandContext } from '../evidence/command-bus.js';
 import { latestBaseline, liveBaselineFingerprint, liveBaselineItems } from './gate-common.js';
@@ -37,6 +38,8 @@ export class DevImpactService {
       const exist = await client.query<{ code: string }>(
         "SELECT code FROM dev_impacts WHERE project_id=$1 AND trigger=$2 AND status='pending-assessment'", [projectId, trigger]);
       if (exist.rows[0]) return { impacts: [exist.rows[0].code], deduplicated: true };
+      // W2-052：IM- 发号 count+1 属 check-then-act——咨询锁串行化「计数→插入」临界区
+      await lockCodeGen(client, `msf:code:impact:${projectId}`);
       const seq = await client.query<{ n: string }>('SELECT count(*) AS n FROM dev_impacts WHERE project_id=$1', [projectId]);
       const code = `IM-${String(Number(seq.rows[0]?.n ?? 0) + 1).padStart(3, '0')}`;
       await client.query(
@@ -106,6 +109,8 @@ export class DevImpactService {
       let code: string = bl.code;
       let reconfirmed = false;
       if (bl.baseline_fingerprint !== liveFp || !bl.valid) {
+        // W2-052：BL- 发号与 design.prototype.finalize 共用 dsg_baselines——同键串行（msf:code:baseline:<pid>）
+        await lockCodeGen(client, `msf:code:baseline:${projectId}`);
         const seq = await client.query<{ n: string }>('SELECT count(*) AS n FROM dsg_baselines WHERE project_id=$1', [projectId]);
         code = `BL-${String(Number(seq.rows[0]?.n ?? 0) + 1).padStart(4, '0')}`;
         const recSeq = await client.query<{ n: string }>(

@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import type { PoolClient } from 'pg';
 import { DomainError, fingerprint } from '@msf/shared';
 import { query } from '../../db/pool.js';
+import { lockCodeGen } from '../../db/seq.js';
 
 /** 测试验收域共享件（DSG-D07；编号 TB/TP/AT/TR/AR/AD/DF 统稿 M5） */
 
@@ -44,8 +45,10 @@ export function assertNotBlocked(b: BatchRow): void {
   }
 }
 
-/** 域内序列号：count+1 补零 */
+/** 域内序列号：count+1 补零（W2-052：check-then-act——咨询锁串行化「计数→发号」；
+ *  锁键含 where 参数集，粒度对齐调用方唯一约束维度（项目/批次）） */
 export async function nextCode(client: PoolClient, table: string, where: string, params: unknown[], prefix: string, pad = 3): Promise<string> {
+  await lockCodeGen(client, `msf:code:tst:${table}:${prefix}:${params.join(':')}`);
   const r = await client.query<{ n: string }>(`SELECT count(*) AS n FROM ${table} WHERE ${where}`, params);
   return `${prefix}-${String(Number(r.rows[0]?.n ?? 0) + 1).padStart(pad, '0')}`;
 }

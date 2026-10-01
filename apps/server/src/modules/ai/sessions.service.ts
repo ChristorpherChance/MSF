@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { Inject, Injectable, OnModuleInit } from '@nestjs/common';
 import { DomainError } from '@msf/shared';
 import { query } from '../../db/pool.js';
+import { lockCodeGen } from '../../db/seq.js';
 import { executeCommand, registerCommand, type CommandContext } from '../evidence/command-bus.js';
 import { AI_PROVIDER, type AiProvider, type AiUsage } from './ai-provider.interface.js';
 import type { ModelRow } from './models.service.js';
@@ -56,6 +57,8 @@ export class AiSessionsService implements OnModuleInit {
         throw new DomainError('VALIDATION_FAILED', `ctx 枚举 ${CTX_TABS.join('|')}`, 'ctx');
       }
       if (p.modelId) await this.assertModelUsable(client, p.modelId);
+      // W2-052：ss_ 发号 count+1 属 check-then-act——咨询锁串行化「计数→插入」临界区
+      await lockCodeGen(client, `msf:code:session:${ctx.projectId}`);
       const n = await client.query<{ n: string }>(
         'SELECT count(*) AS n FROM ai_sessions WHERE project_id=$1', [ctx.projectId]);
       const code = `ss_${Number(n.rows[0]!.n) + 1}`;

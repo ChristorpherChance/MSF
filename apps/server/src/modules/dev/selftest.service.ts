@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { DomainError, fingerprint } from '@msf/shared';
 import type { PoolClient } from 'pg';
 import { query } from '../../db/pool.js';
+import { lockCodeGen } from '../../db/seq.js';
 import { executeCommand, registerCommand, type CommandContext } from '../evidence/command-bus.js';
 import { mdToHtml } from '../platform/md-html.js';
 import { StorageService } from '../platform/storage.service.js';
@@ -115,6 +116,8 @@ export class DevSelftestService {
       }
 
       // 不可变报告（REQ-417：执行证据自动汇总；指纹剔除自身字段）
+      // W2-052：SR- 发号 count+1 属 check-then-act——咨询锁串行化「计数→插入」临界区
+      await lockCodeGen(client, `msf:code:selftest:${projectId}`);
       const seq = await client.query<{ n: string }>('SELECT count(*) AS n FROM dev_reports WHERE project_id=$1', [projectId]);
       const code = `SR-${String(Number(seq.rows[0]?.n ?? 0) + 1).padStart(4, '0')}`;
       const bl = await latestBaseline(client, projectId);

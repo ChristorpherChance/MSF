@@ -3,6 +3,7 @@ import { DomainError, fingerprint } from '@msf/shared';
 import { createHash } from 'node:crypto';
 import type { PoolClient } from 'pg';
 import { query } from '../../db/pool.js';
+import { lockCodeGen } from '../../db/seq.js';
 import { executeCommand, registerCommand, type CommandContext } from '../evidence/command-bus.js';
 import { appendEvidence } from '../evidence/audit.service.js';
 import { PolicyService } from '../policy/policy.service.js';
@@ -94,6 +95,8 @@ export class PrototypeService {
         ? (await this.storage.getObject(ver.rows[0].content_object_key)).toString('utf8')
         : '';
       const { issues, unverified } = checkPrototype(html, items.rows);
+      // W2-052：run_no 发号 count+1 属 check-then-act——咨询锁串行化「计数→插入」临界区
+      await lockCodeGen(client, `msf:code:proto-check:${projectId}`);
       const run = await client.query<{ n: string }>(
         'SELECT count(*) AS n FROM dsg_prototype_checks WHERE project_id=$1', [projectId]);
       const catFp = fingerprint({ catalogVersion: catVer, items: items.rows.map((i) => i.code) });
@@ -131,7 +134,8 @@ export class PrototypeService {
       if (d.current_version_id !== prototypeVersionId) {
         throw new DomainError('GATE_BLOCKED', '原型内容在检查后已变化', 'prototype', { issues: [{ code: 'PROTOTYPE_DIRTY', message: '原型已修改' }] });
       }
-      // ① 先置 finalized + finalizationId
+      // ① 先置 finalized + finalizationId（W2-052：fin_ 发号按文档维度串行化）
+      await lockCodeGen(client, `msf:code:fin:${d.id}`);
       const finSeq = await client.query<{ n: string }>(
         "SELECT count(*) AS n FROM evd_records WHERE kind='finalize' AND payload->>'documentId'=$1", [d.id]);
       const finalizationId = `fin_${Number(finSeq.rows[0]?.n ?? 0) + 1}`;
@@ -140,6 +144,8 @@ export class PrototypeService {
       // ② 定稿后快照 → ③ 追加基线（工件版本组合+指纹，不复制内容）
       const items = await this.baselineItems(client, projectId, prototypeVersionId);
       const blFp = fingerprint({ items });
+      // W2-052：BL- 发号与 dev.baseline.confirm 共用 dsg_baselines——同键串行（msf:code:baseline:<pid>）
+      await lockCodeGen(client, `msf:code:baseline:${projectId}`);
       const codeSeq = await client.query<{ n: string }>(
         'SELECT count(*) AS n FROM dsg_baselines WHERE project_id=$1', [projectId]);
       const code = `BL-${String(Number(codeSeq.rows[0]?.n ?? 0) + 1).padStart(4, '0')}`;

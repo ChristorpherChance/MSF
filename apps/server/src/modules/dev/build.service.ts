@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { DomainError, fingerprint } from '@msf/shared';
 import { query } from '../../db/pool.js';
+import { lockCodeGen } from '../../db/seq.js';
 import { executeCommand, registerCommand, type CommandContext } from '../evidence/command-bus.js';
 import { StorageService } from '../platform/storage.service.js';
 import { sha256 } from './gate-common.js';
@@ -31,6 +32,8 @@ export class DevBuildService {
       }
       const merged = await client.query<{ task_id: string; pr_ref: string; commit_id: string }>(
         "SELECT task_id, pr_ref, commit_id FROM dev_prs WHERE project_id=$1 AND status='merged' ORDER BY pr_ref", [projectId]);
+      // W2-052：B- 发号 count+1 属 check-then-act——咨询锁串行化「计数→插入」临界区
+      await lockCodeGen(client, `msf:code:build:${projectId}`);
       const seq = await client.query<{ n: string }>('SELECT count(*) AS n FROM dev_builds WHERE project_id=$1', [projectId]);
       const code = `B-${String(Number(seq.rows[0]?.n ?? 0) + 1).padStart(4, '0')}`;
       const commitRefs = merged.rows.map((m) => ({ prRef: m.pr_ref, commitId: m.commit_id }));

@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { DomainError, fingerprint } from '@msf/shared';
 import type { PoolClient } from 'pg';
 import { query } from '../../db/pool.js';
+import { lockCodeGen } from '../../db/seq.js';
 import { executeCommand, registerCommand, type CommandContext } from '../evidence/command-bus.js';
 import { appendEvidence } from '../evidence/audit.service.js';
 import { PolicyService } from '../policy/policy.service.js';
@@ -221,6 +222,8 @@ export class ReqDocsService {
       }
       await client.query('UPDATE req_documents SET final_version_id=$2, updated_by=$3, updated_at=now() WHERE id=$1',
         [doc.id, cur.id, ctx.actorId]);
+      // W2-052：fin_ 发号按文档维度串行化（count+1 属 check-then-act）
+      await lockCodeGen(client, `msf:code:fin:${doc.id}`);
       const finSeq = await client.query<{ n: string }>(
         "SELECT count(*) AS n FROM evd_records WHERE kind='finalize' AND payload->>'documentId'=$1", [doc.id]);
       const finalizationId = `fin_${Number(finSeq.rows[0]?.n ?? 0) + 1}`;

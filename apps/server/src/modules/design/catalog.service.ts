@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { DomainError, fingerprint } from '@msf/shared';
 import { query } from '../../db/pool.js';
+import { lockCodeGen } from '../../db/seq.js';
 import { executeCommand, registerCommand, type CommandContext } from '../evidence/command-bus.js';
 import { sha256Text, splitSections } from '../platform/doc-sections.js';
 import { DesignDocsService } from './docs.service.js';
@@ -41,6 +42,8 @@ export class CatalogService {
         throw new DomainError('GATE_BLOCKED', `原型规划前置：${up.missing.join('、')} 已定稿`, up.missing[0]);
       }
       const governing = up.fingerprint!;
+      // W2-052：plan_no 计数与目录版本 V3-n 递增同属 check-then-act——同键串行化整个临界区
+      await lockCodeGen(client, `msf:code:catalog:${projectId}`);
       const planNo = await client.query<{ n: string }>(
         'SELECT count(*) AS n FROM dsg_plans WHERE project_id=$1', [projectId]);
       // 目录版本与人工增删共用同一递增序列（V3-n），plan 取下一号
@@ -131,6 +134,8 @@ export class CatalogService {
         projectId: string; itemType: string; code: string; title: string; note?: string;
       };
       if (!title?.trim()) throw new DomainError('VALIDATION_FAILED', '条目标题必填', 'title');
+      // W2-052：目录版本递增属 check-then-act——咨询锁串行化「取版本→复制→插入」临界区
+      await lockCodeGen(client, `msf:code:catalog:${projectId}`);
       const ver = await this.nextCatalogVersion(client, projectId);
       const curVer = await this.currentCatalogVersion(client, projectId);
       // 复制上一版全部条目到新版本（目录版本化：增删=新版本）
@@ -169,6 +174,8 @@ export class CatalogService {
       if (row.source !== 'manual') {
         throw new DomainError('INVALID_STATE', '识别条目须走来源文档修订→重新识别路径，不可直删', itemId);
       }
+      // W2-052：目录版本递增属 check-then-act——咨询锁串行化「取版本→复制」临界区
+      await lockCodeGen(client, `msf:code:catalog:${projectId}`);
       const ver = await this.nextCatalogVersion(client, projectId);
       await client.query(
         `INSERT INTO dsg_catalog_items (project_id, catalog_version, item_type, code, payload, required, source, content_fingerprint, created_by)
