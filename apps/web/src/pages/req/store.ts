@@ -159,15 +159,18 @@ export const useReqView = create<ReqViewState>((set, get) => ({
             void get().refresh();
           } else {
             set({ gen: { ...g, running: false, error: f.code ?? '生成失败' } });
-            // W2-001：失败人话 toast（工具栏 ⛔ 之外给显性提示；warn 停留 6s）
-            toast(`生成失败（${f.code ?? '未知错误'}）：草稿与版本未受影响，可重新发起；若持续失败请到设置页检查模型连接`, 'warn');
+            // W2-001：失败人话 toast（工具栏 ⛔ 之外给显性提示；warn 停留 6s）；W2-002：附脱敏原因
+            toast(`生成失败（${f.code ?? '未知错误'}）${f.message ? `：${f.message}` : ''}。草稿与版本未受影响，可重新发起；若持续失败请到设置页检查模型连接`, 'warn');
           }
         },
       );
     } catch (e) {
+      const msg = e instanceof Error ? e.message : '生成失败';
       set((s) => ({
-        gen: { ...s.gen, running: false, error: e instanceof Error ? e.message : '生成失败' },
+        gen: { ...s.gen, running: false, error: msg },
       }));
+      // W2-023：同步 HTTP 拒绝（如 423 门禁）同样显性提示——W2-001 的 toast 原只挂 stream.error 帧分支
+      toast(`生成未开始：${msg}`, 'warn');
     }
     await get().refresh();
   },

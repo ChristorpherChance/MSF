@@ -58,14 +58,14 @@ function SubTabs() {
  */
 export function MaterialPage() {
   const { subTab, selectedFileId, loading, error, init } = useMaterialView();
-  const [jobModal, setJobModal] = useState<{ kind: JobKind; fileIds: string[] } | null>(null);
+  const [jobModal, setJobModal] = useState<{ kind: JobKind; fileIds: string[]; params?: Record<string, unknown> | undefined } | null>(null);
   const [finalizeModal, setFinalizeModal] = useState<string[] | null>(null);
 
   useEffect(() => {
     void init();
   }, [init]);
 
-  const openJob = (kind: JobKind) => {
+  const openJob = (kind: JobKind, params?: Record<string, unknown>) => {
     const { checked, parsedTree, selectedFileId: sel } = useMaterialView.getState();
     const ids = collectCheckedFiles(parsedTree, checked);
     // ops-panel 对当前文件执行；批量条对勾选项执行（原型口径：ops 作用于当前文稿）
@@ -74,7 +74,7 @@ export function MaterialPage() {
       toast('先在左侧勾选或选中要加工的文件（须为文件已定稿状态）', 'warn');
       return;
     }
-    setJobModal({ kind, fileIds: targets });
+    setJobModal({ kind, fileIds: targets, params });
   };
 
   return (
@@ -113,6 +113,7 @@ export function MaterialPage() {
         <ProcessJobModal
           kind={jobModal.kind}
           fileIds={jobModal.fileIds}
+          params={jobModal.params}
           onClose={() => {
             setJobModal(null);
             void useMaterialView.getState().refresh();
@@ -129,7 +130,7 @@ export function MaterialPage() {
 }
 
 /** M5：操作列图标钮 + 展开 .ops-panel 表单（原型 opsColHtml）；翻译/建索引/脱敏走批量加工作业 */
-function OpsColumn({ onRun }: { onRun: (kind: JobKind) => void }) {
+function OpsColumn({ onRun }: { onRun: (kind: JobKind, params?: Record<string, unknown>) => void }) {
   const { detail, selectedFileId } = useMaterialView();
   const [open, setOpen] = useState<string | null>(null);
   const [lang, setLang] = useState('中文');
@@ -175,7 +176,7 @@ function OpsColumn({ onRun }: { onRun: (kind: JobKind) => void }) {
                     <option>法语</option>
                   </select>
                 </div>
-                <button className="act primary" style={{ width: '100%' }} onClick={() => onRun('translate')}>
+                <button className="act primary" style={{ width: '100%' }} onClick={() => onRun('translate', { lang })}>
                   执行翻译（生成附件）
                 </button>
               </>
@@ -209,7 +210,7 @@ function OpsColumn({ onRun }: { onRun: (kind: JobKind) => void }) {
                     电话 / 邮箱
                   </label>
                 </div>
-                <button className="act primary" style={{ width: '100%' }} onClick={() => onRun('mask')}>
+                <button className="act primary" style={{ width: '100%' }} onClick={() => onRun('mask', { maskName, maskContact })}>
                   执行脱敏（改写正文）
                 </button>
               </>

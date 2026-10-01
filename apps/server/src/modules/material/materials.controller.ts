@@ -207,9 +207,14 @@ export class MaterialsController {
 
   @Post('files/:fileId\\:unfinalize-file')
   @HttpCode(200)
-  unfinalizeFile(@Param('projectId') projectId: string, @Param('fileId') fileId: string, @Req() req: Request) {
+  unfinalizeFile(
+    @Param('projectId') projectId: string,
+    @Param('fileId') fileId: string,
+    @Body() body: { reason?: string },
+    @Req() req: Request,
+  ) {
     const actor = getActor(req);
-    return this.parse.unfinalizeFile(projectId, fileId, { projectId, actorKind: actor.kind, actorId: actor.id });
+    return this.parse.unfinalizeFile(projectId, fileId, { projectId, actorKind: actor.kind, actorId: actor.id }, body?.reason ?? '');
   }
 
   /** A03-12 内容定稿（单件；批量随 T1-15） */

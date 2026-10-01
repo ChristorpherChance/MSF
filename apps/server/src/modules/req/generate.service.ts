@@ -5,6 +5,7 @@ import { query } from '../../db/pool.js';
 import { executeCommand, registerCommand, type CommandContext } from '../evidence/command-bus.js';
 import { mdToPatches, sha256Text, type EditPatch } from '../platform/doc-sections.js';
 import { AI_PROVIDER, type AiProvider } from '../ai/ai-provider.interface.js';
+import { classifyAiError, sanitizeAiError } from '../ai/stream-pipeline.js';
 
 /**
  * 文档 AI 生成（A04-4/5；REQ-202/114/115；F02-12 流式控制）。
@@ -31,6 +32,8 @@ interface GenOp {
   patches: EditPatch[];
   targetFingerprint: string;
   refs: Array<{ fileId: string; fingerprint: string }>;
+  /** 发起时文档挂接集合（fileId 排序快照；W2-030 流末复验挂接变更用，独立于本次提交的参考载荷） */
+  refSet: string[];
   /** 真接模式：start 时取参考正文，drive 时经 AI_PROVIDER 流式生成后切补丁 */
   real?: {
     instruction: string;
@@ -127,6 +130,12 @@ export class GenerateService {
            WHERE d.project_id=$1 AND d.doc_kind=$2`, [projectId, kind])
       : { rows: [] as Array<{ content: string }> };
     const effective = cur.rows[0]?.content ?? '';
+    // W2-030：挂接集合快照（发起时 DB 实况，流末复验比对增/删挂接）
+    const refSetRows = await query<{ file_id: string }>(
+      `SELECT DISTINCT f.id AS file_id FROM req_doc_refs r
+         JOIN mat_parsed p ON p.id=r.parsed_id JOIN mat_files f ON f.id=p.file_id
+       WHERE r.document_id=$1 ORDER BY f.id`, [d.id]);
+    const refSet = refSetRows.rows.map((r) => r.file_id);
     const operationId = `op_gen_${randomBytes(6).toString('hex')}`;
     if (this.ai?.kind === 'pi') {
       // 真接：取参考正文（content_final 已校验），drive 时流式生成后切补丁
@@ -139,7 +148,7 @@ export class GenerateService {
       }
       ops.set(operationId, {
         id: operationId, projectId, kind, status: 'running',
-        chunks: [], patches: [], targetFingerprint: sha256Text(effective), refs,
+        chunks: [], patches: [], targetFingerprint: sha256Text(effective), refs, refSet,
         real: {
           instruction: input.instruction ?? '', refTexts,
           existingCodes: [...new Set(effective.match(kind === 'crd' ? /\bCR-\d{3}\b/g : /\bREQ-\d{3}\b/g) ?? [])].sort(),
@@ -151,7 +160,7 @@ export class GenerateService {
       const { chunks, patches } = buildMock(kind, input.instruction ?? '', refs);
       ops.set(operationId, {
         id: operationId, projectId, kind, status: 'running',
-        chunks, patches, targetFingerprint: sha256Text(effective), refs,
+        chunks, patches, targetFingerprint: sha256Text(effective), refs, refSet,
       });
     }
     await executeCommand('req.doc.generate', { projectId, kind, operationId }, { ...ctx, projectId });
@@ -189,7 +198,7 @@ export class GenerateService {
     operationId: string,
     ctx: CommandContext,
     onDelta: (text: string) => void,
-  ): Promise<{ status: 'done' | 'stopped' | 'failed'; patchIds?: string[]; error?: string }> {
+  ): Promise<{ status: 'done' | 'stopped' | 'failed'; patchIds?: string[]; error?: string; errorMessage?: string }> {
     const op = ops.get(operationId);
     if (!op) throw new DomainError('NOT_FOUND', '生成操作不存在', operationId);
     if (op.real) {
@@ -198,7 +207,7 @@ export class GenerateService {
       if (real.status === 'failed') {
         ops.delete(operationId);
         await executeCommand('req.doc.gen_control', { projectId: op.projectId, kind: op.kind, genState: 'failed' }, { ...ctx, projectId: op.projectId });
-        return { status: 'failed', error: real.error ?? 'INTERNAL' };
+        return { status: 'failed', error: real.error ?? 'INTERNAL', ...(real.errorMessage ? { errorMessage: real.errorMessage } : {}) };
       }
       op.patches = real.patches ?? [];
     } else {
@@ -210,6 +219,22 @@ export class GenerateService {
       }
     }
     if (op.status === 'stopped') return { status: 'stopped' };
+    // W2-030：流末复验覆盖挂接集合本身——生成期间增/删挂接即 REFERENCE_STALE（不只比对参考内容指纹）；
+    // 与发起时 DB 实况快照（op.refSet）比对，独立于本次提交的参考载荷
+    const docRow = await query<{ id: string }>(
+      'SELECT id FROM req_documents WHERE project_id=$1 AND doc_kind=$2', [op.projectId, op.kind]);
+    if (docRow.rows[0]) {
+      const curRefs = await query<{ file_id: string }>(
+        `SELECT DISTINCT f.id AS file_id FROM req_doc_refs r
+           JOIN mat_parsed p ON p.id=r.parsed_id JOIN mat_files f ON f.id=p.file_id
+         WHERE r.document_id=$1 ORDER BY f.id`, [docRow.rows[0].id]);
+      const cur = curRefs.rows.map((r) => r.file_id);
+      if (cur.length !== op.refSet.length || cur.some((id, i) => id !== op.refSet[i])) {
+        ops.delete(operationId);
+        await executeCommand('req.doc.gen_control', { projectId: op.projectId, kind: op.kind, genState: 'failed' }, { ...ctx, projectId: op.projectId });
+        return { status: 'failed', error: 'REFERENCE_STALE' };
+      }
+    }
     // REQ-115：流末复验参考指纹，变化即拒绝提交（不落稿）
     for (const ref of op.refs) {
       const r = await query<{ content_fingerprint: string }>(
@@ -243,7 +268,7 @@ export class GenerateService {
   private async driveReal(
     op: GenOp,
     onDelta: (text: string) => void,
-  ): Promise<{ status: 'done' | 'stopped' | 'failed'; patches?: EditPatch[]; error?: string }> {
+  ): Promise<{ status: 'done' | 'stopped' | 'failed'; patches?: EditPatch[]; error?: string; errorMessage?: string }> {
     const real = op.real!;
     const t0 = Date.now();
     try {
@@ -265,8 +290,18 @@ export class GenerateService {
         }
         onDelta(d);
       }
+      // W2-022：pause 冻结整个生成语义——流在暂停期间走完后不得直接收尾（done+落补丁）；
+      // 待 resume 后先冲放缓冲再进入复验/落库（模型侧仍在跑属缓冲层口径，但完成事件绝不越过暂停）
+      while (op.status === 'paused') await sleep(50);
+      if (op.status === 'stopped') { session.stop(); return { status: 'stopped' }; }
+      if (buf.length > 0) {
+        for (const b of buf) onDelta(b);
+        buf = [];
+      }
       const res = await result;
-      if (op.status === 'stopped') return { status: 'stopped' };
+      // op 为共享可变态（pause/resume/stop 由外部改写），await 期间可能已被停止——绕开 TS 控制流收窄再判
+      const afterResult: string = op.status;
+      if (afterResult === 'stopped') return { status: 'stopped' };
       const patches = mdToPatches(res.text);
       if (patches.length === 0) return { status: 'failed', error: 'INTERNAL' };
       if (res.modelId) {
@@ -278,7 +313,10 @@ export class GenerateService {
       }
       return { status: 'done', patches };
     } catch (e) {
-      return { status: 'failed', error: e instanceof DomainError ? e.code : 'INTERNAL' };
+      // W2-002：生成失败留后端日志 + 归类闭集码 + 脱敏人话（原始供应商错误不再被吞）
+      const raw = e instanceof Error ? e.message : String(e);
+      console.error(`[req] generate failed op=${op.id}: ${raw}`);
+      return { status: 'failed', error: e instanceof DomainError ? e.code : classifyAiError(raw), errorMessage: sanitizeAiError(raw) };
     }
   }
 }

@@ -95,7 +95,8 @@ export class ReqController {
     } else if (result.status === 'stopped') {
       send({ type: 'stream.done', operationId, status: 'stopped' });
     } else {
-      send({ type: 'stream.error', operationId, code: result.error ?? 'INTERNAL' });
+      // W2-002：error 帧带脱敏 message（原只带 code）
+      send({ type: 'stream.error', operationId, code: result.error ?? 'INTERNAL', ...(result.errorMessage ? { message: result.errorMessage } : {}) });
     }
     res.end();
   }

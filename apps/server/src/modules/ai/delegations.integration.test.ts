@@ -95,8 +95,10 @@ describe('委派执行（集成，需 DB）', async () => {
       "SELECT config FROM ai_delegation_targets WHERE key='t6_remote'", []);
     expect(enc.rows[0]!.config['apiToken']).toMatch(/^v1\./);
     expect(enc.rows[0]!.config['endpoint']).toBe('http://x');
+    // W2-047：builtin 探测=执行同环境（无 config.image → 不再恒 available）
     const t = await svc.testTarget('pi_native', CTX) as { status: string };
-    expect(t.status).toBe('available');
+    expect(t.status).toBe('unconfigured');
+    await query("UPDATE ai_delegation_targets SET status='available' WHERE key='pi_native'", []); // 恢复供后续执行链用例
     await expect(svc.testTarget('no_such', CTX)).rejects.toMatchObject({ code: 'NOT_FOUND' });
   });
 
@@ -181,12 +183,13 @@ describe('委派执行（集成，需 DB）', async () => {
     expect(d2.ok).toBe(false);
     expect(d2.detail).toContain('端点');
     await expect(svc.testDraft({ adapterKind: 'x' })).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
-    // test 记延迟
+    // test 记延迟（W2-047：builtin 探测走沙箱口径，无镜像 → unconfigured；延迟仍记）
     const tr = await svc.testTarget('pi_native', CTX) as { latencyMs: number | null };
     expect(tr.latencyMs).not.toBeNull();
     const lat = await query<{ last_latency_ms: number | null }>(
       "SELECT last_latency_ms FROM ai_delegation_targets WHERE key='pi_native'", []);
     expect(lat.rows[0]!.last_latency_ms).not.toBeNull();
+    await query("UPDATE ai_delegation_targets SET status='available' WHERE key='pi_native'", []); // 恢复供后续执行链用例
   });
 
   it('W7 并发上限可配置：sys_settings delegation.concurrencyMax=1 → 第二个 RATE_LIMITED', async () => {

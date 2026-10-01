@@ -77,8 +77,8 @@ export const materialApi = {
     api.put(`${base(pid)}/files/${fileId}/content-draft`, { contentMd, baseFingerprint }),
   finalizeFile: (pid: string, fileId: string) =>
     api.post(`${base(pid)}/files/${fileId}:finalize-file`, {}),
-  unfinalizeFile: (pid: string, fileId: string) =>
-    api.post(`${base(pid)}/files/${fileId}:unfinalize-file`, {}),
+  unfinalizeFile: (pid: string, fileId: string, reason: string) =>
+    api.post(`${base(pid)}/files/${fileId}:unfinalize-file`, { reason }),
   finalizeContent: (pid: string, fileId: string, contentMd?: string) =>
     api.post(`${base(pid)}/files/${fileId}:finalize-content`, contentMd !== undefined ? { contentMd } : {}),
   batchParse: (pid: string, fileIds: string[], onlyPending = true) =>
@@ -91,10 +91,10 @@ export const materialApi = {
       `${base(pid)}/files:batch-finalize-content`,
       { fileIds, confirm: true }, // INV-BULK-1：强制人工确认后才调用
     ),
-  createJob: (pid: string, kind: 'translate' | 'mask' | 'index', fileIds: string[]) =>
+  createJob: (pid: string, kind: 'translate' | 'mask' | 'index', fileIds: string[], params?: Record<string, unknown>) =>
     api.post<{ jobId: string; operationId: string; basisFingerprint: string }>(
       `${base(pid)}/jobs`,
-      { kind, fileIds },
+      { kind, fileIds, ...(params ? { params } : {}) },
     ),
   confirmJob: (pid: string, jobId: string) =>
     api.post(`${base(pid)}/jobs/${jobId}:confirm`, {}),

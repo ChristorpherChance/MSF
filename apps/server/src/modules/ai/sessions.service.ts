@@ -57,11 +57,13 @@ export class AiSessionsService implements OnModuleInit {
         throw new DomainError('VALIDATION_FAILED', `ctx 枚举 ${CTX_TABS.join('|')}`, 'ctx');
       }
       if (p.modelId) await this.assertModelUsable(client, p.modelId);
-      // W2-052：ss_ 发号 count+1 属 check-then-act——咨询锁串行化「计数→插入」临界区
+      // W2-052：ss_ 发号属 check-then-act——咨询锁串行化「取号→插入」临界区；
+      // 会话可删（deleteSession），count+1 在删行后与存量撞号（实测 ss_3 撞 500）→ 须 max(数字后缀)+1
       await lockCodeGen(client, `msf:code:session:${ctx.projectId}`);
       const n = await client.query<{ n: string }>(
-        'SELECT count(*) AS n FROM ai_sessions WHERE project_id=$1', [ctx.projectId]);
-      const code = `ss_${Number(n.rows[0]!.n) + 1}`;
+        `SELECT COALESCE(MAX(CAST(substring(code FROM 'ss_(\\d+)') AS int)), 0) + 1 AS n
+         FROM ai_sessions WHERE project_id=$1`, [ctx.projectId]);
+      const code = `ss_${Number(n.rows[0]!.n)}`;
       const r = await client.query<{ id: string; code: string }>(
         `INSERT INTO ai_sessions (project_id, code, ctx, name, think_level, model_id, created_by)
          VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id, code`,
@@ -143,11 +145,12 @@ export class AiSessionsService implements OnModuleInit {
     registerCommand('ai.message.finish', async (client, payload) => {
       const p = payload as {
         messageId: string; status: 'done' | 'stopped' | 'failed';
-        content: string; usage?: AiUsage; durationMs: number; error?: string;
+        content: string; usage?: AiUsage; durationMs: number; error?: string; errorMessage?: string;
       };
+      // W2-002：失败行落脱敏错误人话（ai_messages.error，0022 迁移）——失败原因不再只在帧里
       const m = await client.query<MessageRow & { session_id: string }>(
-        'UPDATE ai_messages SET status=$2, content=$3 WHERE id=$1 AND status=$4 RETURNING *',
-        [p.messageId, p.status, p.content, 'streaming']);
+        'UPDATE ai_messages SET status=$2, content=$3, error=$5 WHERE id=$1 AND status=$4 RETURNING *',
+        [p.messageId, p.status, p.content, 'streaming', p.errorMessage ?? p.error ?? null]);
       if (!m.rows[0]) throw new DomainError('INVALID_STATE', '消息已终结（重复 finish 拒绝）', p.messageId);
       if (p.usage) {
         const row = m.rows[0];
@@ -444,6 +447,7 @@ export class AiSessionsService implements OnModuleInit {
         messageId, status: c.status, content: c.content,
         ...(c.usage ? { usage: c.usage } : {}), durationMs: Date.now() - startedAt,
         ...(c.error ? { error: c.error } : {}),
+        ...(c.errorMessage ? { errorMessage: c.errorMessage } : {}),
       }, opts?.ctx ?? { projectId: e.projectId, actorKind: 'system', actorId: 'stream' });
     });
     try {

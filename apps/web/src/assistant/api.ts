@@ -31,6 +31,8 @@ export interface StreamFrame {
   text?: string;
   status?: string;
   code?: string;
+  /** W2-002：error 帧携带的脱敏失败原因（后端 0022 起） */
+  message?: string;
 }
 
 export const assistantApi = {
@@ -63,7 +65,7 @@ export const assistantApi = {
 export async function sendMessageSse(
   pid: string,
   sessionId: string,
-  body: { content: string; thinkLevel?: string },
+  body: { content: string; thinkLevel?: string; referenceFileIds?: string[]; referenceFingerprints?: Record<string, string> },
   onFrame: (f: StreamFrame) => void,
 ): Promise<void> {
   const res = await fetch(`/api/v1/projects/${pid}/ai/sessions/${sessionId}/messages:send`, {

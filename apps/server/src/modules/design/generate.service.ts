@@ -5,6 +5,7 @@ import { query } from '../../db/pool.js';
 import { executeCommand, registerCommand, type CommandContext } from '../evidence/command-bus.js';
 import { mdToPatches, sha256Text, type EditPatch } from '../platform/doc-sections.js';
 import { AI_PROVIDER, type AiProvider } from '../ai/ai-provider.interface.js';
+import { classifyAiError, sanitizeAiError } from '../ai/stream-pipeline.js';
 import { DesignDocsService, DESIGN_BOOKS, type DesignKind } from './docs.service.js';
 
 /**
@@ -173,7 +174,7 @@ export class DesignGenerateService {
     operationId: string,
     ctx: CommandContext,
     onDelta: (text: string) => void,
-  ): Promise<{ status: 'done' | 'stopped' | 'failed'; patchIds?: string[]; error?: string }> {
+  ): Promise<{ status: 'done' | 'stopped' | 'failed'; patchIds?: string[]; error?: string; errorMessage?: string }> {
     const op = ops.get(operationId);
     if (!op) throw new DomainError('NOT_FOUND', '生成操作不存在', operationId);
     if (op.real) {
@@ -228,7 +229,7 @@ export class DesignGenerateService {
   private async driveReal(
     op: GenOp,
     onDelta: (text: string) => void,
-  ): Promise<{ status: 'done' | 'stopped' | 'failed'; patches?: EditPatch[]; error?: string }> {
+  ): Promise<{ status: 'done' | 'stopped' | 'failed'; patches?: EditPatch[]; error?: string; errorMessage?: string }> {
     const real = op.real!;
     const t0 = Date.now();
     try {
@@ -250,8 +251,18 @@ export class DesignGenerateService {
         }
         onDelta(d);
       }
+      // W2-022：pause 冻结整个生成语义——流在暂停期间走完后不得直接收尾（done+落补丁）；
+      // 待 resume 后先冲放缓冲再进入复验/落库（与需求域同口径）
+      while (op.status === 'paused') await sleep(50);
+      if (op.status === 'stopped') { session.stop(); return { status: 'stopped' }; }
+      if (buf.length > 0) {
+        for (const b of buf) onDelta(b);
+        buf = [];
+      }
       const res = await result;
-      if (op.status === 'stopped') return { status: 'stopped' };
+      // op 为共享可变态（pause/resume/stop 由外部改写），await 期间可能已被停止——绕开 TS 控制流收窄再判
+      const afterResult: string = op.status;
+      if (afterResult === 'stopped') return { status: 'stopped' };
       const patches = mdToPatches(res.text);
       if (patches.length === 0) return { status: 'failed', error: 'INTERNAL' };
       if (res.modelId) {
@@ -263,7 +274,10 @@ export class DesignGenerateService {
       }
       return { status: 'done', patches };
     } catch (e) {
-      return { status: 'failed', error: e instanceof DomainError ? e.code : 'INTERNAL' };
+      // W2-002：生成失败留后端日志 + 归类闭集码 + 脱敏人话（与需求域同口径）
+      const raw = e instanceof Error ? e.message : String(e);
+      console.error(`[design] generate failed op=${op.id}: ${raw}`);
+      return { status: 'failed', error: e instanceof DomainError ? e.code : classifyAiError(raw), errorMessage: sanitizeAiError(raw) };
     }
   }
 }

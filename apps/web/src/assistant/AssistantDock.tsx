@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { mdHtml } from '../md-html';
 import { Modal } from '../ui/Modal';
+import { Popover } from '../ui/Popover';
 import { ConfirmModal } from '../ui/ConfirmModal';
 import type { AiMessageRow, ToolCallRow } from './api';
 import {
@@ -241,6 +242,7 @@ function DockInner({ global }: { global: boolean }) {
           }}
         />
         <div className="row">
+          <RefPicker />
           <select
             title="模型切换（仅已连通）"
             value={sess?.model_id ?? ''}
@@ -264,8 +266,59 @@ function DockInner({ global }: { global: boolean }) {
   );
 }
 
-/** 欢迎卡（welcomeHtml L1006：阶段感知示例，点击填入输入框） */
-function Welcome({ ctx }: { ctx: string }) {
+/** W2-035：参考资料勾选入口（📎 按钮 + popover 清单；content_final 候选，随发送提交指纹快照） */
+function RefPicker() {
+  const refCandidates = useDockStore((s) => s.refCandidates);
+  const refSel = useDockStore((s) => s.refSel);
+  const currentId = useDockStore((s) => s.currentId);
+  const streaming = useDockStore((s) => s.streaming);
+  const loadRefCandidates = useDockStore((s) => s.loadRefCandidates);
+  const toggleRef = useDockStore((s) => s.toggleRef);
+  const [anchor, setAnchor] = useState<DOMRect | null>(null);
+
+  return (
+    <>
+      <button
+        className={`ghost sm${refSel.length > 0 ? ' primary' : ''}`}
+        title={refSel.length > 0 ? `已挂 ${refSel.length} 份参考资料（点击调整）` : '挂接参考资料提问（内容已定稿资料候选）'}
+        disabled={!currentId || !!streaming}
+        onClick={(e) => {
+          setAnchor(e.currentTarget.getBoundingClientRect());
+          void loadRefCandidates();
+        }}
+      >
+        📎{refSel.length > 0 ? ` ${refSel.length}` : ''}
+      </button>
+      {anchor && (
+        <Popover anchor={anchor} onClose={() => setAnchor(null)}>
+          <div style={{ minWidth: 220, maxWidth: 300 }}>
+            <div style={{ fontWeight: 600, marginBottom: 6 }}>📚 参考资料（内容已定稿）</div>
+            {refCandidates.length === 0 && (
+              <p style={{ fontSize: 12, color: 'var(--ink2)' }}>暂无内容定稿资料，请先在资料阶段复核并定稿。</p>
+            )}
+            {refCandidates.map((c) => (
+              <label key={c.fileId} style={{ display: 'flex', gap: 6, alignItems: 'center', padding: '3px 0', cursor: 'pointer', fontSize: 12 }}>
+                <input
+                  type="checkbox"
+                  checked={refSel.includes(c.fileId)}
+                  onChange={(e) => toggleRef(c.fileId, e.target.checked)}
+                />
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</span>
+              </label>
+            ))}
+            {refSel.length > 0 && (
+              <p style={{ fontSize: 11, color: 'var(--ink2)', marginTop: 6 }}>
+                已选 {refSel.length} 份，随下次发送提交（指纹随消息登记，REQ-114/115）。
+              </p>
+            )}
+          </div>
+        </Popover>
+      )}
+    </>
+  );
+}
+
+/** 欢迎卡（welcomeHtml L1006：阶段感知示例，点击填入输入框） */function Welcome({ ctx }: { ctx: string }) {
   const setInput = useDockStore((s) => s.setInput);
   const sug = SUGGESTS[ctx] ?? SUGGESTS._gen!;
   const icons = ['✍️', '📊', '🌐'];

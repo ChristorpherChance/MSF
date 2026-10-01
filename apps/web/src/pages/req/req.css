@@ -274,7 +274,7 @@ tr.row-flash { animation: rtm-flash 1.2s ease-in-out 2; }
 .status-chip.err { background: #fef2f2; color: var(--red); border-color: #fecaca; }
 .status-chip.on { outline: 1px solid currentColor; }
 .chip-detail { min-width: 340px; max-width: 460px; font-size: 12.5px; line-height: 1.7; display: block; }
-.chip-detail-body { display: block; margin-top: 6px; }
+.chip-detail-body { display: block; margin-top: 6px; white-space: pre-line; }
 .chip-detail-body .act { margin: 6px 8px 0 0; }
 
 /* 原型口径对齐：RTM 页标题/说明、L0c 卡内操作、补丁条类型标签 */

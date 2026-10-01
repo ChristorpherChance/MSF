@@ -42,10 +42,12 @@ const KIND_LABEL: Record<'translate' | 'mask' | 'index', string> = {
 export function ProcessJobModal({
   kind,
   fileIds,
+  params,
   onClose,
 }: {
   kind: 'translate' | 'mask' | 'index';
   fileIds: string[];
+  params?: Record<string, unknown> | undefined;
   onClose: () => void;
 }) {
   const { projectId, refresh } = useMaterialView();
@@ -62,7 +64,7 @@ export function ProcessJobModal({
   useEffect(() => {
     if (!projectId) return;
     materialApi
-      .createJob(projectId, kind, fileIds)
+      .createJob(projectId, kind, fileIds, params)
       .then((r) => {
         setJobId(r.jobId);
         setBasis(r.basisFingerprint);
@@ -70,7 +72,7 @@ export function ProcessJobModal({
       })
       .then(setJob)
       .catch((e) => setError(e instanceof ApiError ? e.message : '作业登记失败'));
-  }, [projectId, kind, fileIds]);
+  }, [projectId, kind, fileIds, params]);
 
   const poll = useCallback(
     async (id: string) => {
@@ -144,6 +146,7 @@ export function ProcessJobModal({
         <h3>{KIND_LABEL[kind]}</h3>
         <p className="sub">
           共 {fileIds.length} 个文件{job ? ` · 作业 ${job.code}（${job.status}）` : ' · 登记中…'}
+          {params && Object.keys(params).length > 0 && ` · 参数 ${Object.entries(params).map(([k, v]) => `${k}=${String(v)}`).join('，')}`}
         </p>
         {basis && !stale && (
           <div className="basis-box">基线快照指纹（确认提交时将整批复核）：{basis}</div>

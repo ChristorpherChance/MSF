@@ -94,8 +94,9 @@ describe('ParseService（集成，需 DB+MinIO）', async () => {
     await parseAndWait(id);
     await svc.finalizeFile(PID, id, CTX);
     expect(await statusOf(id)).toBe('file_final');
-    // 解锁回 parsed，再定稿，存内容稿后内容定稿
-    await svc.unfinalizeFile(PID, id, CTX);
+    // 解锁回 parsed，再定稿，存内容稿后内容定稿（W2-039：理由必填——空理由 VALIDATION_FAILED）
+    await expect(svc.unfinalizeFile(PID, id, CTX, '')).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+    await svc.unfinalizeFile(PID, id, CTX, '测试解锁');
     expect(await statusOf(id)).toBe('parsed');
     await svc.finalizeFile(PID, id, CTX);
     const fpRow = await query<{ content_fingerprint: string }>(

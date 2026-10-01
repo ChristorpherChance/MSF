@@ -141,8 +141,10 @@ export class ParseService {
     });
 
     // A03-11 解锁文件定稿：file_final → parsed（引用门禁立即重判，F02-3 解锁行）
+    // W2-039：理由必填（与 doc.unlock/缺陷 reopen 同口径——审计链须含判断依据）
     registerCommand('material.file.unfinalize_file', async (client, payload, ctx) => {
-      const { projectId, fileId } = payload as { projectId: string; fileId: string };
+      const { projectId, fileId, reason } = payload as { projectId: string; fileId: string; reason?: string };
+      if (!reason?.trim()) throw new DomainError('VALIDATION_FAILED', '解锁理由必填（审计链须含判断依据）', 'reason');
       const file = await this.lockFile(client, projectId, fileId);
       if (file.parse_status !== 'file_final') {
         throw new DomainError('INVALID_STATE', '仅 file_final 状态可解锁', fileId);
@@ -151,7 +153,7 @@ export class ParseService {
         "UPDATE mat_files SET parse_status='parsed', finalized_by=NULL, finalized_at=NULL WHERE id=$1",
         [fileId],
       );
-      await this.appendTrail(client, file, { op: 'unfinalize_file', at: new Date().toISOString(), by: ctx.actorId });
+      await this.appendTrail(client, file, { op: 'unfinalize_file', reason: reason.trim(), at: new Date().toISOString(), by: ctx.actorId });
       return { id: fileId, status: 'parsed' };
     });
 
@@ -368,8 +370,8 @@ export class ParseService {
     return executeCommand('material.file.finalize_file', { projectId, fileId }, { ...ctx, projectId });
   }
 
-  async unfinalizeFile(projectId: string, fileId: string, ctx: CommandContext): Promise<unknown> {
-    return executeCommand('material.file.unfinalize_file', { projectId, fileId }, { ...ctx, projectId });
+  async unfinalizeFile(projectId: string, fileId: string, ctx: CommandContext, reason: string): Promise<unknown> {
+    return executeCommand('material.file.unfinalize_file', { projectId, fileId, reason }, { ...ctx, projectId });
   }
 
   async finalizeContent(projectId: string, fileId: string, ctx: CommandContext, contentMd?: string): Promise<unknown> {

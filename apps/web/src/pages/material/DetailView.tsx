@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { mdHtml } from '../../md-html';
 import { ApiError } from '../../api';
+import { Modal } from '../../ui/Modal';
 import { Popover } from '../../ui/Popover';
 import { downloadFile } from '../../ui/download';
 import { useStagesStore } from '../../ui/GateBanner';
@@ -110,6 +111,9 @@ export function DetailView() {
     useMaterialView();
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  // W2-039：解锁定稿须理由必填（与服务端 VALIDATION_FAILED 同口径）
+  const [unfinalizeOpen, setUnfinalizeOpen] = useState(false);
+  const [unfinalizeReason, setUnfinalizeReason] = useState('');
 
   const md = subTab === 'file' ? (detail?.parsedMd ?? null) : (detail?.contentMd ?? null);
   const activeDraft = draft && draft.fileId === selectedFileId ? draft : null;
@@ -202,8 +206,11 @@ export function DetailView() {
           <button
             className="act"
             disabled={busy}
-            title="退回已解析状态，可重新解析"
-            onClick={() => void run((pid) => materialApi.unfinalizeFile(pid, fileId))}
+            title="退回已解析状态，可重新解析（须填理由，落审计）"
+            onClick={() => {
+              setUnfinalizeReason('');
+              setUnfinalizeOpen(true);
+            }}
           >
             取消定稿
           </button>
@@ -298,6 +305,43 @@ export function DetailView() {
           </div>
         )}
       </div>
+      {unfinalizeOpen && (
+        <Modal
+          title="取消文件定稿"
+          onClose={() => setUnfinalizeOpen(false)}
+          footer={
+            <>
+              <button className="act" onClick={() => setUnfinalizeOpen(false)}>
+                取消
+              </button>
+              <button
+                className="act primary"
+                disabled={busy || !unfinalizeReason.trim()}
+                title={!unfinalizeReason.trim() ? '理由必填（审计链须含判断依据）' : ''}
+                onClick={() =>
+                  void run(async (pid) => {
+                    await materialApi.unfinalizeFile(pid, fileId, unfinalizeReason.trim());
+                    setUnfinalizeOpen(false);
+                  })
+                }
+              >
+                ✓ 确认取消定稿
+              </button>
+            </>
+          }
+        >
+          <p className="hint" style={{ marginTop: 0 }}>
+            取消定稿后文件退回「已解析」状态，可重新解析；引用门禁将立即重判。理由将写入审计链。
+          </p>
+          <textarea
+            className="md-editor"
+            style={{ minHeight: 72 }}
+            placeholder="取消定稿理由（必填）"
+            value={unfinalizeReason}
+            onChange={(e) => setUnfinalizeReason(e.target.value)}
+          />
+        </Modal>
+      )}
     </>
   );
 }

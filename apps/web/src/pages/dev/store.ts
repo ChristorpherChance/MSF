@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { ApiError } from '../../api';
 import { ensureProject } from '../material/api';
 import { designApi } from '../design/api';
 import {
@@ -206,6 +207,14 @@ export const useDevStore = create<DevViewState>((set, get) => ({
       if (okMsg) set({ notice: okMsg });
       await get().refresh();
     } catch (e) {
+      // W2-012：门禁拒绝（423 GATE_BLOCKED）带缺口清单——逐条修复引导文案必须呈现，不静默
+      if (e instanceof ApiError && e.code === 'GATE_BLOCKED' && e.details) {
+        const issues = (e.details as { issues?: Array<{ code: string; message: string }> }).issues;
+        if (issues?.length) {
+          set({ error: `${e.message}：\n${issues.map((i) => `・${i.message}`).join('\n')}` });
+          return;
+        }
+      }
       set({ error: e instanceof Error ? e.message : String(e) });
     } finally {
       set({ acting: false });

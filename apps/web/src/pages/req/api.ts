@@ -161,6 +161,8 @@ export interface GenFrame {
   source?: string;
   proposedPatchIds?: string[];
   code?: string;
+  /** W2-002：error 帧携带的脱敏失败原因 */
+  message?: string;
 }
 
 /** A04-4 文档 AI 生成（POST-SSE，fetch+ReadableStream） */

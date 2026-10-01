@@ -10,6 +10,8 @@ export class ApiError extends Error {
     message: string,
     public readonly status: number,
     public readonly target?: string,
+    /** 结构化细节（门禁缺口 issues 等；W2-012：423 缺口清单须可达前端） */
+    public readonly details?: unknown,
   ) {
     super(message);
     this.name = 'ApiError';
@@ -29,7 +31,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as {
-      error?: { code?: string; message?: string; target?: string };
+      error?: { code?: string; message?: string; target?: string; details?: unknown };
     } | null;
     throw new ApiError(
       body?.error?.code ?? 'INTERNAL',
@@ -37,6 +39,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       body?.error?.message ?? (res.status >= 500 ? '服务暂时不可用，请稍后重试' : res.statusText),
       res.status,
       body?.error?.target,
+      body?.error?.details,
     );
   }
   return (await res.json()) as T;
@@ -70,7 +73,19 @@ export async function postSse(
     headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
     body: JSON.stringify(body),
   });
-  if (!res.ok || !res.body) throw new ApiError('INTERNAL', `SSE 请求失败: ${res.status}`, res.status);
+  if (!res.ok || !res.body) {
+    // W2-023：同步拒绝（423/422 等）携带 {error:{code,message}}——解析人话，不再只报状态码
+    const err = (await res.json().catch(() => null)) as {
+      error?: { code?: string; message?: string; target?: string; details?: unknown };
+    } | null;
+    throw new ApiError(
+      err?.error?.code ?? 'INTERNAL',
+      err?.error?.message ?? `SSE 请求失败: ${res.status}`,
+      res.status,
+      err?.error?.target,
+      err?.error?.details,
+    );
+  }
   const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
   for (;;) {
     const { done, value } = await reader.read();

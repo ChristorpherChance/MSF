@@ -162,6 +162,8 @@ export interface GenFrame {
   text?: string; operationId?: string; code?: string;
   /** #5 生成来源：model=真模型 / mock=桩 */
   source?: string;
+  /** W2-002：error 帧携带的脱敏失败原因 */
+  message?: string;
 }
 
 /** A05-2 POST-SSE 生成（同 A04-4 消费口径） */

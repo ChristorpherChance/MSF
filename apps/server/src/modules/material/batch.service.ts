@@ -89,8 +89,9 @@ export class BatchService {
         const file = r.rows[0];
         let ok = false;
         let reason = '文件不存在';
-        if (file && file.parse_status !== 'file_final') reason = '非 file_final 状态';
-        if (file && file.parse_status === 'file_final') {
+        // W2-040：加工资格 = file_final 或 content_final（content_final 是 file_final 后继态，倒挂拒绝修掉）
+        if (file && file.parse_status !== 'file_final' && file.parse_status !== 'content_final') reason = '非 file_final/content_final 状态';
+        if (file && (file.parse_status === 'file_final' || file.parse_status === 'content_final')) {
           let draft = await client.query<{ id: string }>(
             "SELECT id FROM mat_parsed WHERE file_id=$1 AND kind='content_parse' AND status='draft' ORDER BY created_at DESC LIMIT 1",
             [fileId],
@@ -257,7 +258,7 @@ export class BatchService {
       return this.finalizeIfDone(client, jobId);
     });
 
-    // A03-16 单条重试：行仍 file_final（F02-4 v11RetryBulk 前置），新行挂 retry_of 链
+    // A03-16 单条重试：行仍 file_final/content_final（F02-4 v11RetryBulk 前置；W2-040：content_final 为 file_final 后继态同具资格），新行挂 retry_of 链
     registerCommand('material.job.item_retry', async (client, payload) => {
       const { projectId, jobId, fileId } = payload as { projectId: string; jobId: string; fileId: string };
       const jr = await client.query<{ status: string }>('SELECT status FROM mat_batch_jobs WHERE id=$1 FOR UPDATE', [jobId]);
@@ -266,8 +267,8 @@ export class BatchService {
         'SELECT parse_status FROM mat_files WHERE id=$1 AND project_id=$2',
         [fileId, projectId],
       );
-      if (fr.rows[0]?.parse_status !== 'file_final') {
-        throw new DomainError('INVALID_STATE', '行对应文件须仍为 file_final 方可重试', fileId);
+      if (fr.rows[0]?.parse_status !== 'file_final' && fr.rows[0]?.parse_status !== 'content_final') {
+        throw new DomainError('INVALID_STATE', '行对应文件须仍为 file_final/content_final 方可重试', fileId);
       }
       const ir = await client.query<{ id: string }>(
         "SELECT id FROM mat_batch_items WHERE job_id=$1 AND file_id=$2 AND result IN ('failed','skipped') ORDER BY created_at DESC LIMIT 1",
@@ -368,11 +369,11 @@ export class BatchService {
     params: Record<string, unknown> | undefined,
     ctx: CommandContext,
   ): Promise<{ jobId: string; operationId: string; basisFingerprint: string }> {
-    // intake 前置：行须 file_final（F02-4 加工对象）
+    // intake 前置：行须 file_final/content_final（F02-4 加工对象；W2-040：content_final 为 file_final 后继态同具资格）
     for (const fileId of fileIds) {
       const r = await query<{ parse_status: string }>('SELECT parse_status FROM mat_files WHERE id=$1 AND project_id=$2', [fileId, projectId]);
-      if (r.rows[0]?.parse_status !== 'file_final') {
-        throw new DomainError('INVALID_STATE', `文件 ${fileId} 非 file_final，不可批量加工`, fileId);
+      if (r.rows[0]?.parse_status !== 'file_final' && r.rows[0]?.parse_status !== 'content_final') {
+        throw new DomainError('INVALID_STATE', `文件 ${fileId} 非 file_final/content_final，不可批量加工`, fileId);
       }
     }
     const basis = await this.snapshotBasis(projectId, fileIds);

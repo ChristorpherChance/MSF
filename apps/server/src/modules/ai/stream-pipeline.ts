@@ -22,6 +22,26 @@ export interface PipelineCompletion {
   content: string;
   usage?: AiUsage;
   error?: string;
+  /** 失败原因人话（脱敏截断；W2-002：error 帧带 message、失败行落库） */
+  errorMessage?: string;
+}
+
+/** W2-002：原始供应商错误归类到闭集码（401/网络不可达→MODEL_UNAVAILABLE；429→MODEL_RATE_LIMITED） */
+export function classifyAiError(raw: string): string {
+  if (/429|rate.?limit/i.test(raw)) return 'MODEL_RATE_LIMITED';
+  if (/401|403|unauthorized|invalid api key|forbidden/i.test(raw)) return 'MODEL_UNAVAILABLE';
+  if (/ECONNREFUSED|ETIMEDOUT|ENOTFOUND|ECONNRESET|fetch failed|network|socket|timed? ?out/i.test(raw)) return 'MODEL_UNAVAILABLE';
+  return 'INTERNAL';
+}
+
+/** 脱敏：去密钥样 token + 压空白 + 截断（本地单用户部署，仍需防密钥回显到消息/帧） */
+export function sanitizeAiError(raw: string): string {
+  return raw
+    .replace(/sk-[A-Za-z0-9_-]{8,}/g, 'sk-***')
+    .replace(/(api[-_ ]?key|token|authorization|bearer)\s*[:=]?\s*\S+/gi, '$1=***')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 300);
 }
 
 interface PipelineEntry {
@@ -151,9 +171,13 @@ export class StreamPipeline implements OnModuleInit, OnModuleDestroy {
         usage = r?.usage;
         await this.finish(e, { status: e.stopped ? 'stopped' : 'done', content, ...(usage ? { usage } : {}) }, onFinish);
       } catch (err) {
+        // W2-002：后端日志留痕（原静默无日志）；DomainError 保留其闭集码，原始供应商错误归类+脱敏
+        const raw = err instanceof Error ? err.message : String(err);
+        console.error(`[ai] stream failed messageId=${messageId}: ${raw}`);
         await this.finish(e, {
           status: 'failed', content,
-          error: err instanceof Error ? err.message : String(err),
+          error: err instanceof DomainError ? err.code : classifyAiError(raw),
+          errorMessage: sanitizeAiError(raw),
           ...(usage ? { usage } : {}),
         }, onFinish);
       }
@@ -198,8 +222,9 @@ export class StreamPipeline implements OnModuleInit, OnModuleDestroy {
       await onFinish(c);
     } finally {
       e.done = true;
+      // W2-002：error 帧带脱敏 message（原只带 code，「401 Invalid API key」类细节被吞）
       const terminal: StreamFrame = c.status === 'failed'
-        ? { seq: 0, type: 'stream.error', data: { code: c.error ?? 'INTERNAL' } }
+        ? { seq: 0, type: 'stream.error', data: { code: c.error ?? 'INTERNAL', message: c.errorMessage ?? c.error ?? 'INTERNAL' } }
         : { seq: 0, type: 'stream.done', data: { status: c.status } };
       this.record(e, terminal);
       this.broadcast(e, terminal);

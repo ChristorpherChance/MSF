@@ -327,12 +327,39 @@ export class AiDelegationsService implements OnModuleInit {
   }
 
   async testTarget(key: string, ctx: CommandContext) {
-    // 连通探测在事务外：builtin(pi_native) 恒可；local-cli 查 PATH；remote-agent 本期 HTTP 探测后置
+    // 连通探测在事务外：local-cli 查 PATH；remote-agent 本期 HTTP 探测后置；
+    // W2-047：builtin(pi_native) 不再恒可——以执行同环境（沙箱镜像内 pi --version）探测，
+    // 「可用」承诺与执行力一致（原口径探测通过但执行 882ms 即败：镜像内无 pi 可执行体）
     const t = await query<{ adapter_kind: string }>(
       'SELECT adapter_kind FROM ai_delegation_targets WHERE key=$1', [key]);
     if (!t.rows[0]) throw new DomainError('NOT_FOUND', '委派目标不存在', key);
-    const probe = await probeTarget(t.rows[0].adapter_kind, key);
+    const probe = t.rows[0].adapter_kind === 'builtin'
+      ? await this.probeBuiltin(key)
+      : await probeTarget(t.rows[0].adapter_kind, key);
     return executeCommand('ai.target.test', { key, ...probe }, ctx);
+  }
+
+  /** builtin 目标探测：沙箱镜像内真实执行 pi --version（与委派执行同口径） */
+  private async probeBuiltin(key: string): Promise<{ ok: boolean; detail: string; latencyMs: number }> {
+    const t0 = Date.now();
+    const t = await query<{ config: Record<string, unknown> }>(
+      'SELECT config FROM ai_delegation_targets WHERE key=$1', [key]);
+    const image = t.rows[0]?.config?.['image'] as string | undefined;
+    if (!image) {
+      return { ok: false, detail: '内建运行时未配置沙箱镜像（config.image）', latencyMs: Date.now() - t0 };
+    }
+    try {
+      const r = await this.sandbox.runOnce({ image, cmd: ['pi', '--version'], limits: { timeoutMs: 15000 } });
+      return {
+        ok: r.exitCode === 0,
+        detail: r.exitCode === 0
+          ? `沙箱镜像 ${image} 内 pi 可执行（与委派执行同环境）`
+          : `镜像 ${image} 内无 pi 可执行体（exit ${r.exitCode}）——须换含 pi 运行时的镜像`,
+        latencyMs: Date.now() - t0,
+      };
+    } catch (e) {
+      return { ok: false, detail: `沙箱探测失败：${e instanceof Error ? e.message : String(e)}`, latencyMs: Date.now() - t0 };
+    }
   }
 
   /** 注册向导 dry-run：不入册的连通探测（保存前测试，失败即阻止注册） */

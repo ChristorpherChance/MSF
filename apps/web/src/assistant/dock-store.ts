@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { api } from '../api';
 import { ensureProject } from '../pages/material/api';
 import { platformApi, type ModelPublic } from '../pages/platform/api';
 import {
@@ -67,6 +68,9 @@ interface DockState {
   width: number;
   /** 拖选引用 chip（D5 .quote-block；发送时拼 `> 引用` 前缀入 content，服务端不感知） */
   quote: { text: string } | null;
+  /** W2-035：参考资料勾选（content_final 候选；随发送提交 referenceFileIds/指纹，服务端 REQ-114 校验） */
+  refCandidates: Array<{ fileId: string; name: string; contentFingerprint: string }>;
+  refSel: string[];
 
   init: () => Promise<void>;
   toggle: () => void;
@@ -81,6 +85,8 @@ interface DockState {
   renameSession: (id: string, name: string) => Promise<void>;
   deleteSession: (id: string) => Promise<void>;
   setQuote: (text: string | null) => void;
+  loadRefCandidates: () => Promise<void>;
+  toggleRef: (fileId: string, on: boolean) => void;
   send: () => Promise<void>;
   control: (action: 'pause' | 'resume' | 'stop') => Promise<void>;
   refreshUsage: () => Promise<void>;
@@ -107,11 +113,13 @@ export const useDockStore = create<DockState>((set, get) => ({
   disconnected: false,
   width: savedWidth >= 300 && savedWidth <= 620 ? savedWidth : 380,
   quote: null,
+  refCandidates: [],
+  refSel: [],
 
   init: async () => {
     const p = await ensureProject();
     const changed = get().projectId !== p.id;
-    set({ projectId: p.id, ...(changed ? { loadedCtx: null, sessions: [], currentId: null, messages: [] } : {}) });
+    set({ projectId: p.id, ...(changed ? { loadedCtx: null, sessions: [], currentId: null, messages: [], refCandidates: [], refSel: [] } : {}) });
     await Promise.all([get().refreshUsage(), get().refreshModels()]);
   },
 
@@ -185,8 +193,23 @@ export const useDockStore = create<DockState>((set, get) => ({
 
   setQuote: (text) => set({ quote: text ? { text: text.slice(0, 500) } : null }),
 
+  loadRefCandidates: async () => {
+    const pid = get().projectId;
+    if (!pid) return;
+    try {
+      const r = await api.get<{ items: Array<{ fileId: string; name: string; contentFingerprint: string }> }>(
+        `/api/v1/projects/${pid}/materials/references`);
+      set({ refCandidates: r.items });
+    } catch { /* 候选加载失败不阻塞 dock（发送时服务端 REQ-114 校验兜底） */ }
+  },
+
+  toggleRef: (fileId, on) => {
+    const cur = get().refSel;
+    set({ refSel: on ? [...new Set([...cur, fileId])] : cur.filter((x) => x !== fileId) });
+  },
+
   send: async () => {
-    const { projectId: pid, currentId, ctx, drafts, thinkLevel, quote } = get();
+    const { projectId: pid, currentId, ctx, drafts, thinkLevel, quote, refSel, refCandidates } = get();
     const input = drafts[ctx] ?? '';
     if (!pid || !currentId || (!input.trim() && !quote) || get().streaming) return;
     // D5 引用块：拼 `> 引用行` 前缀（每行加 >），服务端按纯文本存
@@ -194,6 +217,11 @@ export const useDockStore = create<DockState>((set, get) => ({
       ? quote.text.split('\n').map((l) => `> ${l}`).join('\n') + '\n\n'
       : '';
     const content = (quotePrefix + input.trim()).trim();
+    // W2-035：勾选参考随消息提交（指纹快照，服务端 REQ-114/115 校验+登记）
+    const referenceFileIds = refSel;
+    const referenceFingerprints = Object.fromEntries(
+      refCandidates.filter((c) => refSel.includes(c.fileId)).map((c) => [c.fileId, c.contentFingerprint]),
+    );
     set({ drafts: { ...drafts, [ctx]: '' }, quote: null, error: null, disconnected: false });
     set({ messages: [...get().messages, {
       id: `local-${Date.now()}`, role: 'user', content, status: 'done',
@@ -201,13 +229,20 @@ export const useDockStore = create<DockState>((set, get) => ({
     }] });
     let acc = '';
     try {
-      await sendMessageSse(pid, currentId, { content, thinkLevel }, (f) => {
+      await sendMessageSse(pid, currentId, { content, thinkLevel, referenceFileIds, referenceFingerprints }, (f) => {
         if (f.type === 'stream.start' && f.operationId) {
           set({ streaming: { messageId: f.operationId, text: '', paused: false } });
         } else if (f.type === 'stream.delta' && f.text) {
           acc += f.text;
           const st = get().streaming;
           if (st) set({ streaming: { ...st, text: acc } });
+        } else if (f.type === 'stream.error') {
+          // W2-002：错误帧带脱敏 message——失败原因行内可见（不再只有 code/静默）
+          set({
+            streaming: null,
+            disconnected: true,
+            error: `生成失败（${f.code ?? '未知'}）${f.message ? `：${f.message}` : ''}`,
+          });
         }
       });
       const messages = await assistantApi.messages(pid, currentId);
