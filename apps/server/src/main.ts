@@ -9,6 +9,8 @@ import { idempotencyMiddleware } from './modules/api/idempotency.middleware.js';
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, { rawBody: true });
+  // X-05/W2-056：文档逐节保存 10 万字级正文 ≈300KB（UTF-8），默认 100KB 会 413；显式 2MB 上限（超限由过滤器映射人话）
+  app.useBodyParser('json', { limit: '2mb' });
   app.use(identityMiddleware);
   app.use(idempotencyMiddleware);
   app.useGlobalFilters(new DomainErrorFilter());

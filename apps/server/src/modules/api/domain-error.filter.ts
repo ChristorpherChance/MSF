@@ -82,6 +82,14 @@ export class DomainErrorFilter implements ExceptionFilter {
       res.status(exception.getStatus()).json(exception.getResponse());
       return;
     }
+    // W2-056：body-parser 超限（type=entity.too.large）映射 413 + 闭集码 VALIDATION_FAILED 人话（不加码）
+    const raw = exception as { type?: string };
+    if (raw?.type === 'entity.too.large') {
+      res.status(413).json({
+        error: { code: 'VALIDATION_FAILED', message: '请求体超出大小上限（2MB）；超长文档请分章节保存', target: 'payload' },
+      });
+      return;
+    }
     console.warn('[filter] non-domain exception:', exception);
     res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
       error: { code: 'INTERNAL', message: '内部错误' },
