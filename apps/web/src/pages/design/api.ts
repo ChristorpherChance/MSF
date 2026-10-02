@@ -131,6 +131,10 @@ export const designApi = {
     api.post<{ baselineId: string; code: string }>(`${base(pid)}/prototype:finalize`,
       { prototypeVersionId, checkReportId, confirm: true })
       .then((r) => { refreshGates(pid); return r; }),
+  /** W7-003 原型解除定稿（spec ⋯ 菜单「解锁定稿」；解锁后基线实时失效，可重新生成） */
+  protoUnlock: (pid: string) =>
+    api.post<{ unlocked: boolean }>(`${base(pid)}/prototype:unlock`, {})
+      .then((r) => { refreshGates(pid); return r; }),
   preview: (pid: string, pageId: string, v?: number) =>
     api.get<{ previewUrl: string; htmlFingerprint: string }>(
       `${base(pid)}/prototype/pages/${encodeURIComponent(pageId)}/preview${v !== undefined ? `?v=${v}` : ''}`),

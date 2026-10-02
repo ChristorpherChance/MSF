@@ -319,6 +319,13 @@ export class DesignController {
     return this.proto.finalize(projectId, body.prototypeVersionId, body.checkReportId, body.confirm ?? false, this.actor(req, projectId));
   }
 
+  /** W7-003 原型解除定稿（spec ⋯ 菜单「解锁定稿」；解锁后基线实时失效，可重新生成） */
+  @Post('prototype\\:unlock')
+  @HttpCode(200)
+  unlockPrototype(@Param('projectId') projectId: string, @Req() req: Request) {
+    return this.proto.unlock(projectId, this.actor(req, projectId));
+  }
+
   /** A05-10 门禁求值（实时） */
   @Get('gates/:action')
   gates(@Param('projectId') projectId: string, @Param('action') action: string) {

@@ -254,8 +254,7 @@ describe('Design 设计域（集成，需 DB+MinIO）', async () => {
 
     // 恢复路径（F02-2 stale→planning）：重规划→解除原型定稿→重生成→重检查→重定稿 → develop 放行
     const plan2 = (await catalog.plan(PID, CTX)) as { planId: string; fingerprint: string };
-    const { executeCommand } = await import('../evidence/command-bus.js');
-    await executeCommand('design.doc.unlock', { projectId: PID, kind: 'prototype' }, CTX);
+    await proto.unlock(PID, CTX);
     const g2 = (await proto.generate(PID, plan2.planId, plan2.fingerprint, CTX)) as { prototypeVersionId: string };
     const chk2 = (await proto.check(PID, g2.prototypeVersionId, CTX)) as { reportId: string; status: string };
     expect(chk2.status).toBe('pass');
@@ -313,5 +312,44 @@ describe('Design 设计域（集成，需 DB+MinIO）', async () => {
     const audit = await query(
       "SELECT 1 FROM audit_log WHERE project_id=$1 AND command='design.doc.export' AND payload->>'format'='pdf'", [PID]);
     expect(audit.rowCount).toBeGreaterThan(0);
+  });
+
+  it('W7-002 回归：人工目录增项后重新规划不丢 manual 条目（按 type+code 去重）', async () => {
+    // 前置：上游 RTM 测试把 PRD 改到 v4 未再定稿——plan 门禁要求 PRD 定稿，先补
+    const rp = (await reqDocs.getDoc(PID, 'prd')) as unknown as DocView & { finalized: boolean };
+    if (!rp.finalized) await reqDocs.finalize(PID, 'prd', rp.cur, rp.cur, true, CTX);
+    const added = (await catalog.addItem(PID, { itemType: 'page', code: 'P-W7002', title: '巡检履历', note: '人工补充' }, CTX)) as { itemId: string; source: string };
+    expect(added.source).toBe('manual');
+    const plan = (await catalog.plan(PID, CTX)) as { planId: string };
+    const snap = await query<{ snapshot: { items: Array<{ type: string; code: string }> } }>(
+      'SELECT snapshot FROM dsg_plans WHERE id=$1', [plan.planId]);
+    const codes = snap.rows[0]!.snapshot.items.map((i) => `${i.type}:${i.code}`);
+    expect(codes).toContain('page:P-W7002'); // 修复前：re-plan 全量重导派生项，人工增项静默丢失
+    // cleanup：删除人工条目，避免影响后续口径
+    await catalog.removeItem(PID, added.itemId, CTX);
+  });
+
+  it('W7-003 回归：原型定稿后可解锁定稿重新生成（迭代回路闭合）', async () => {
+    // 定稿态生成被门禁拦（修复前：提示「须先解除定稿」但全系统无任何解锁通道，迭代回路断裂）
+    const g0 = (await proto.gates(PID, 'generate')) as { ok: boolean; issues: Array<{ code: string }> };
+    expect(g0.ok).toBe(false);
+    expect(g0.issues.some((i) => i.code === 'PROTOTYPE_FINALIZED')).toBe(true);
+
+    // 解锁 → 旧基线实时失效 + PROTOTYPE_FINALIZED 门禁解除
+    await proto.unlock(PID, CTX);
+    const bls = (await proto.baselines(PID)) as { items: Array<{ valid: boolean }> };
+    expect(bls.items.length).toBeGreaterThan(0);
+    expect(bls.items.every((b) => !b.valid)).toBe(true);
+    const g1 = (await proto.gates(PID, 'generate')) as { issues: Array<{ code: string }> };
+    expect(g1.issues.some((i) => i.code === 'PROTOTYPE_FINALIZED')).toBe(false);
+
+    // 重新规划→生成→检查→再定稿 → 新基线 + develop 放行
+    const plan = (await catalog.plan(PID, CTX)) as { planId: string; fingerprint: string };
+    const gen = (await proto.generate(PID, plan.planId, plan.fingerprint, CTX)) as { prototypeVersionId: string };
+    const chk = (await proto.check(PID, gen.prototypeVersionId, CTX)) as { reportId: string; status: string };
+    expect(chk.status).toBe('pass');
+    await proto.finalize(PID, gen.prototypeVersionId, chk.reportId, true, CTX);
+    const dev = (await proto.gates(PID, 'develop')) as { ok: boolean };
+    expect(dev.ok).toBe(true);
   });
 });

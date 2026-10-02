@@ -85,7 +85,7 @@ export class PlatformReadService {
   /**
    * W3-006：design 门禁的基线实时有效性——最新基线行的 baseline_fingerprint vs 当前活指纹。
    * 条目构造须与 design 域 prototype.service baselineItems 完全同构（PRD=req final、HLD=dsg final、
-   * PROTOTYPE=基线行内版本指纹；字段序 artifact/version_id/fingerprint/required），跨域 SQL 直读不写。
+   * W7-003 起 PROTOTYPE 同取 final_version_id——解锁即失效；字段序 artifact/version_id/fingerprint/required），跨域 SQL 直读不写。
    */
   private async designBaselineLive(projectId: string): Promise<{ ok: boolean; count: number }> {
     const b = await query<{
@@ -104,13 +104,10 @@ export class PlatformReadService {
       `SELECT v.id, v.content_fingerprint AS fp FROM dsg_documents d JOIN dsg_versions v ON v.id=d.final_version_id
        WHERE d.project_id=$1 AND d.doc_kind='hld'`, [projectId]);
     items.push({ artifact: 'HLD', version_id: hld.rows[0]?.id ?? null, fingerprint: hld.rows[0]?.fp ?? null, required: false });
-    const protoVerId = base.items.find((i) => i.artifact === 'PROTOTYPE')?.version_id ?? '';
-    let protoFp: string | null = null;
-    if (protoVerId) {
-      const r = await query<{ fp: string }>('SELECT content_fingerprint AS fp FROM dsg_versions WHERE id=$1', [protoVerId]);
-      protoFp = r.rows[0]?.fp ?? null;
-    }
-    items.push({ artifact: 'PROTOTYPE', version_id: protoVerId || null, fingerprint: protoFp, required: true });
+    const proto = await query<{ id: string; fp: string }>(
+      `SELECT v.id, v.content_fingerprint AS fp FROM dsg_documents d JOIN dsg_versions v ON v.id=d.final_version_id
+       WHERE d.project_id=$1 AND d.doc_kind='prototype'`, [projectId]);
+    items.push({ artifact: 'PROTOTYPE', version_id: proto.rows[0]?.id ?? null, fingerprint: proto.rows[0]?.fp ?? null, required: true });
     return { ok: fingerprint({ items }) === base.baseline_fingerprint, count: cnt.rows[0]!.n };
   }
 

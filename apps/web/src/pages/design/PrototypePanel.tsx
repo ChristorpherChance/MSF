@@ -18,6 +18,7 @@ export function PrototypePanel() {
   const [uploadOpen, setUploadOpen] = useState(false);
   const [verOpen, setVerOpen] = useState(false);
   const [finOpen, setFinOpen] = useState(false);
+  const [unlockOpen, setUnlockOpen] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const baselines = useBaselines(projectId, proto?.status ?? null);
   const protoVers = useProtoVersions(projectId, proto?.prototype?.currentVersionId ?? null);
@@ -74,6 +75,7 @@ export function PrototypePanel() {
         currentBaseline={currentBaseline}
         onOpenVersions={() => setVerOpen(true)}
         onFinalize={() => setFinOpen(true)}
+        onUnlock={() => setUnlockOpen(true)}
       />
       {/* D15（原型口径）：四步操作进行中横幅（role=status，持续可见） */}
       {busyLabel && (
@@ -197,6 +199,41 @@ export function PrototypePanel() {
       {finOpen && verId && (
         <FinalizeProtoModal verId={verId} reFinalize={(baselines.items?.length ?? 0) > 0} onClose={() => setFinOpen(false)} />
       )}
+      {unlockOpen && <UnlockProtoModal onClose={() => setUnlockOpen(false)} />}
+    </div>
+  );
+}
+
+/** W7-003 原型解除定稿 modal（spec ⋯ 菜单「解锁定稿」；解锁后旧基线立即失效，可重新规划/生成迭代） */
+function UnlockProtoModal({ onClose }: { onClose: () => void }) {
+  const { projectId, refreshProto, setImpactNotice } = useDesignView();
+  const [msg, setMsg] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  if (!projectId) return null;
+  const submit = () => {
+    setBusy(true);
+    setMsg(null);
+    void designApi.protoUnlock(projectId)
+      .then(() => {
+        onClose();
+        setImpactNotice('原型已解锁定稿——旧设计基线立即失效，开发输入须待再次定稿后以新指纹为准。');
+      })
+      .catch((e) => setMsg(e instanceof ApiError ? `${e.code}: ${e.message}` : '解锁失败'))
+      .finally(() => { setBusy(false); void refreshProto(); });
+  };
+  return (
+    <div className="modal-mask" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <h3>解除原型定稿</h3>
+        <p className="pop-tip">
+          解除后原型回到可迭代状态，可重新规划/生成/检查后再次定稿；旧设计基线立即失效，下游开发须等待新基线。操作记审计。
+        </p>
+        {msg && <p className="pop-tip err">{msg}</p>}
+        <div className="modal-ops">
+          <button className="act" onClick={onClose}>取消</button>
+          <button className="act primary" disabled={busy} onClick={submit}>确认解锁</button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -341,13 +378,14 @@ function useProtoVersions(projectId: string | null, currentVersionId: string | n
 }
 
 /** 命令条：①规划 → ②生成 → ③检查 → ④人工定稿 + 导出基线 + 版本（S5/S7；逐步门禁实时求值） */
-function CommandBar({ proto, busy, run, currentBaseline, onOpenVersions, onFinalize }: {
+function CommandBar({ proto, busy, run, currentBaseline, onOpenVersions, onFinalize, onUnlock }: {
   proto: ProtoStatus;
   busy: boolean;
   run: (label: string, fn: () => Promise<unknown>) => Promise<void>;
   currentBaseline: BaselineItem | null;
   onOpenVersions: () => void;
   onFinalize: () => void;
+  onUnlock: () => void;
 }) {
   const { projectId } = useDesignView();
   if (!projectId) return null;
@@ -384,6 +422,14 @@ function CommandBar({ proto, busy, run, currentBaseline, onOpenVersions, onFinal
       >导出基线</button>
       {/* S7 旧版预览入口 */}
       <button className="act" onClick={onOpenVersions}>🕘 版本与旧版预览</button>
+      {/* W7-003 定稿后解锁再迭代入口（spec ⋯ 菜单「解锁定稿」） */}
+      {proto.status === 'finalized' && (
+        <button
+          className="act"
+          title="解除原型定稿：旧基线立即失效，可重新规划/生成迭代"
+          onClick={onUnlock}
+        >🔓 解锁定稿</button>
+      )}
     </div>
   );
 }

@@ -371,7 +371,12 @@ export class ReqDocsService {
   /** A04-1 文档列表（首次访问自动建 crd/prd 各一份 + 模板 v1） */
   async listDocs(projectId: string, ctx: CommandContext): Promise<unknown> {
     for (const kind of ['crd', 'prd'] as const) {
-      const r = await query('SELECT id FROM req_documents WHERE project_id=$1 AND doc_kind=$2', [projectId, kind]);
+      // W7-001：provisioning 判定从「文档行不存在」放宽到「文档行不存在或无基点版本」——
+      // 先挂参考（addReference 的 lockOrCreateDoc 只建行不建版本）再首访列表时，
+      // 旧口径会跳过模板 v1，导致 accept-pending/save-html 全部 409「文档无基点版本」死锁
+      const r = await query<{ id: string }>(
+        'SELECT id FROM req_documents WHERE project_id=$1 AND doc_kind=$2 AND current_version_id IS NOT NULL',
+        [projectId, kind]);
       if (!r.rows[0]) {
         await executeCommand('doc.import-draft', { projectId, kind, content: TEMPLATES[kind] }, { ...ctx, projectId });
       }

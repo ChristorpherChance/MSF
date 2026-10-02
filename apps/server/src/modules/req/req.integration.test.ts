@@ -338,4 +338,45 @@ describe('ReqDocs/Rtm/Generate（集成，需 DB+MinIO）', async () => {
     }
     await expect(exp.export(PID, 'crd', 3, 'xlsx' as never, CTX)).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
   });
+
+  it('W7-001 回归：先挂参考（建行无版本）再首访列表 → 模板 v1 自举，补丁可接受', async () => {
+    const PID2 = '00000000-0000-0000-0000-0000000000fa';
+    const CTX2 = { projectId: PID2, actorKind: 'human' as const, actorId: 'local' };
+    await query("INSERT INTO projects (id, name) VALUES ($1, 'w7-001-reg') ON CONFLICT (id) DO NOTHING", [PID2]);
+    try {
+      // 造 content_final 参考（同 makeReference，但落在 PID2）
+      const content = Buffer.from('# W7-001 参考\n\n离线点检要求。');
+      const s = await uploads.create(PID2, { fileName: 'w7-001.md', size: content.length, sha256: sha256(content) }, CTX2);
+      await uploads.uploadPart(PID2, s.uploadId, 1, content);
+      const done = (await uploads.complete(PID2, s.uploadId, CTX2)) as { file: { id: string } };
+      const fileId = done.file.id;
+      const op = (await parse.parse(PID2, fileId, CTX2, false, { autoRun: false })) as { operationId: string };
+      await parse.runParse(PID2, fileId, op.operationId, CTX2);
+      await parse.finalizeFile(PID2, fileId, CTX2);
+      const fp = await query<{ content_fingerprint: string }>(
+        "SELECT content_fingerprint FROM mat_parsed WHERE file_id=$1 AND kind='file_parse' AND status!='discarded'", [fileId]);
+      await parse.saveDraft(PID2, fileId, '# W7-001 内容稿', `sha256:${fp.rows[0]!.content_fingerprint}`, CTX2);
+      await parse.finalizeContent(PID2, fileId, CTX2);
+      // 关键顺序：先挂参考（lockOrCreateDoc 建行不建版本），再首访列表
+      await docs.addReference(PID2, 'crd', fileId, CTX2);
+      const list = (await docs.listDocs(PID2, CTX2)) as { items: Array<{ kind: string; cur: number | null }> };
+      const crd = list.items.find((i) => i.kind === 'CRD')!;
+      expect(crd.cur).toBe(1); // 模板 v1 已自举（修复前为 null → accept-pending 409 死锁）
+      const d = (await docs.getDoc(PID2, 'crd')) as unknown as DocView;
+      await docs.saveDraft(PID2, 'crd', { secId: d.secs[0]!.id, md: '引言 ok', baseVersion: d.cur, baseFingerprint: d.contentFingerprint }, CTX2);
+    } finally {
+      await query('DELETE FROM req_doc_refs WHERE document_id IN (SELECT id FROM req_documents WHERE project_id=$1)', [PID2]);
+      await query('DELETE FROM req_pendings WHERE document_id IN (SELECT id FROM req_documents WHERE project_id=$1)', [PID2]);
+      await query('DELETE FROM req_drafts WHERE document_id IN (SELECT id FROM req_documents WHERE project_id=$1)', [PID2]);
+      await query('UPDATE req_documents SET current_version_id=NULL, final_version_id=NULL WHERE project_id=$1', [PID2]);
+      await query('DELETE FROM req_versions WHERE document_id IN (SELECT id FROM req_documents WHERE project_id=$1)', [PID2]);
+      await query('DELETE FROM req_documents WHERE project_id=$1', [PID2]);
+      await query('DELETE FROM rtm_links WHERE project_id=$1', [PID2]);
+      await query('DELETE FROM rtm_health WHERE project_id=$1', [PID2]);
+      await query('DELETE FROM mat_parsed WHERE project_id=$1', [PID2]);
+      await query('DELETE FROM mat_uploads WHERE project_id=$1', [PID2]);
+      await query('DELETE FROM mat_files WHERE project_id=$1', [PID2]);
+      await query('DELETE FROM projects WHERE id=$1', [PID2]);
+    }
+  });
 });

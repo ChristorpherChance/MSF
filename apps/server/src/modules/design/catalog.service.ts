@@ -73,7 +73,7 @@ export class CatalogService {
             reqIds: [(/\bREQ-\d{3}\b/.exec(s.title))![0]],
           }));
 
-      interface ItemSeed { type: string; code: string; payload: Record<string, unknown>; required: boolean }
+      interface ItemSeed { type: string; code: string; payload: Record<string, unknown>; required: boolean; source?: string }
       const items: ItemSeed[] = [
         ...pageSeeds.map((p, i) => ({
           type: 'page',
@@ -89,13 +89,30 @@ export class CatalogService {
         ...FIXED_VIEWPORTS.map((v) => ({ type: 'viewport', code: `vp-${v}`, payload: { width: Number(v) }, required: false })),
       ];
 
+      // W7-002：人工增项随行——重新规划不得丢 source='manual' 条目
+      // （旧口径 plan 全量重导派生项，人工加的页面/流程在 re-plan 后静默消失，
+      //   检查报告因计划与生成同源而照样 pass，用户意图被静默吞掉）。
+      // 按 type+code 去重：同码以派生（identified）口径为准。
+      const prevCatVer = await this.currentCatalogVersion(client, projectId);
+      if (prevCatVer) {
+        const manual = await client.query<{ item_type: string; code: string; payload: Record<string, unknown>; required: boolean }>(
+          `SELECT item_type, code, payload, required FROM dsg_catalog_items
+           WHERE project_id=$1 AND catalog_version=$2 AND source='manual'`,
+          [projectId, prevCatVer]);
+        for (const m of manual.rows) {
+          if (!items.some((i) => i.type === m.item_type && i.code === m.code)) {
+            items.push({ type: m.item_type, code: m.code, payload: m.payload, required: m.required, source: 'manual' });
+          }
+        }
+      }
+
       const itemIds: string[] = [];
       for (const it of items) {
         const fp = sha256Text(JSON.stringify(it.payload));
         const r = await client.query<{ id: string }>(
           `INSERT INTO dsg_catalog_items (project_id, catalog_version, item_type, code, payload, required, source, content_fingerprint, created_by)
-           VALUES ($1,$2,$3,$4,$5,$6,'identified',$7,$8) RETURNING id`,
-          [projectId, catalogVersion, it.type, it.code, JSON.stringify(it.payload), it.required, fp, ctx.actorId],
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
+          [projectId, catalogVersion, it.type, it.code, JSON.stringify(it.payload), it.required, it.source ?? 'identified', fp, ctx.actorId],
         );
         itemIds.push(r.rows[0]!.id);
         // REQ 章节来源的页面挂追溯引用（锚点=PRD 章节）

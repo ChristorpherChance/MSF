@@ -142,7 +142,7 @@ export class PrototypeService {
       await client.query('UPDATE dsg_documents SET final_version_id=$2, updated_by=$3, updated_at=now() WHERE id=$1',
         [d.id, prototypeVersionId, ctx.actorId]);
       // ② 定稿后快照 → ③ 追加基线（工件版本组合+指纹，不复制内容）
-      const items = await this.baselineItems(client, projectId, prototypeVersionId);
+      const items = await this.baselineItems(client, projectId);
       const blFp = fingerprint({ items });
       // W2-052：BL- 发号与 dev.baseline.confirm 共用 dsg_baselines——同键串行（msf:code:baseline:<pid>）
       await lockCodeGen(client, `msf:code:baseline:${projectId}`);
@@ -190,6 +190,22 @@ export class PrototypeService {
       );
       return { prototypeVersionId: r.rows[0]!.id, v: vno, objectKey };
     });
+
+    // W7-003 原型解除定稿（spec：⋯ 菜单「解锁定稿」；此前 generate 门禁提示「须先解除定稿」但无任何解锁通道，
+    // 定稿后永远无法再生成，迭代循环断裂）。解锁后 final_version_id 落空 → 基线条目实时比对失效（不写回），
+    // 下游 develop 门禁随之拦住，与 design.doc.unlock 同口径。
+    registerCommand('design.prototype.unlock', async (client, payload, ctx) => {
+      const { projectId } = payload as { projectId: string };
+      const r = await client.query<{ id: string; final_version_id: string | null }>(
+        "SELECT id, final_version_id FROM dsg_documents WHERE project_id=$1 AND doc_kind='prototype' FOR UPDATE",
+        [projectId]);
+      const doc = r.rows[0];
+      if (!doc) throw new DomainError('NOT_FOUND', '原型尚未生成', 'prototype');
+      if (!doc.final_version_id) throw new DomainError('INVALID_STATE', '原型未定稿', doc.id);
+      await client.query('UPDATE dsg_documents SET final_version_id=NULL, updated_by=$2, updated_at=now() WHERE id=$1',
+        [doc.id, ctx.actorId]);
+      return { unlocked: true };
+    });
   }
 
   // ---------- 命令入口薄封装 ----------
@@ -210,6 +226,11 @@ export class PrototypeService {
 
   async finalize(projectId: string, prototypeVersionId: string, checkReportId: string, confirm: boolean, ctx: CommandContext) {
     return executeCommand('design.prototype.finalize', { projectId, prototypeVersionId, checkReportId, confirm }, { ...ctx, projectId });
+  }
+
+  /** W7-003 原型解除定稿（人工操作，命令留痕） */
+  async unlock(projectId: string, ctx: CommandContext) {
+    return executeCommand('design.prototype.unlock', { projectId }, { ...ctx, projectId });
   }
 
   /** S6 上传通道：登记版本（同事务）后写对象（与 generate 同序：先登记后落对象） */
@@ -327,7 +348,7 @@ export class PrototypeService {
       baseline_fingerprint: string; valid: boolean; confirmed_by: string; confirmed_at: string;
     }>('SELECT * FROM dsg_baselines WHERE project_id=$1 ORDER BY confirmed_at DESC', [projectId]);
     const items = await Promise.all(rows.rows.map(async (b) => {
-      const live = await this.baselineItems(null, projectId, b.items.find((i) => i.artifact === 'PROTOTYPE')?.version_id ?? '');
+      const live = await this.baselineItems(null, projectId);
       const liveFp = fingerprint({ items: live });
       const stale = liveFp !== b.baseline_fingerprint;
       return {
@@ -416,23 +437,26 @@ export class PrototypeService {
     return issues;
   }
 
-  /** 定稿/比对共用的基线工件清单（PRD/HLD/原型 当前定稿或当前版本指纹组合） */
-  private async baselineItems(client: PoolClient | null, projectId: string, prototypeVersionId: string) {
+  /** 定稿/比对共用的基线工件清单（PRD/HLD/原型 三工件均 finalOnly——任一解锁即基线实时失效） */
+  private async baselineItems(client: PoolClient | null, projectId: string) {
     const q = client ? client.query.bind(client) : query;
     const items: Array<{ artifact: string; version_id: string | null; fingerprint: string | null; required: boolean }> = [];
     // W3-005：HLD 同取 final_version_id（finalOnly）——基线工件须为定稿态；解锁后 final 丢失 →
     // 条目 version/fingerprint 落空 → 实时比对失效（此前 COALESCE 回退 current 掩盖解锁态，与解锁 modal 承诺不符）。
     // 注：required 标志独立于 finalOnly（HLD required:false 为既有口径，改它会 invalidate 全部存量基线指纹）
-    const sources: Array<{ artifact: string; domain: 'req' | 'dsg'; kind: string; finalOnly: boolean; required: boolean }> = [
-      { artifact: 'PRD', domain: 'req', kind: 'prd', finalOnly: true, required: true },
-      { artifact: 'HLD', domain: 'dsg', kind: 'hld', finalOnly: true, required: false },
+    // W7-003：PROTOTYPE 同改 finalOnly——此前按「基线行内冻结版本 id」取指纹，原型解锁后基线仍假性有效，
+    // 与 spec「原型 UI 已解锁，旧开发依据立即失效」及 dev 域 gate-common liveBaselineItems 口径冲突。
+    const sources: Array<{ artifact: string; domain: 'req' | 'dsg'; kind: string; required: boolean }> = [
+      { artifact: 'PRD', domain: 'req', kind: 'prd', required: true },
+      { artifact: 'HLD', domain: 'dsg', kind: 'hld', required: false },
+      { artifact: 'PROTOTYPE', domain: 'dsg', kind: 'prototype', required: true },
     ];
     for (const s of sources) {
       const table = s.domain === 'req' ? 'req_documents' : 'dsg_documents';
       const vtable = s.domain === 'req' ? 'req_versions' : 'dsg_versions';
       const r = await q<{ id: string; fp: string }>(
         `SELECT v.id, v.content_fingerprint AS fp FROM ${table} d
-         JOIN ${vtable} v ON v.id = ${s.finalOnly ? 'd.final_version_id' : 'COALESCE(d.final_version_id, d.current_version_id)'}
+         JOIN ${vtable} v ON v.id = d.final_version_id
          WHERE d.project_id=$1 AND d.doc_kind=$2`, [projectId, s.kind]);
       items.push({
         artifact: s.artifact,
@@ -441,12 +465,6 @@ export class PrototypeService {
         required: s.required,
       });
     }
-    let protoFp: string | null = null;
-    if (prototypeVersionId) {
-      const r = await q<{ fp: string }>('SELECT content_fingerprint AS fp FROM dsg_versions WHERE id=$1', [prototypeVersionId]);
-      protoFp = r.rows[0]?.fp ?? null;
-    }
-    items.push({ artifact: 'PROTOTYPE', version_id: prototypeVersionId || null, fingerprint: protoFp, required: true });
     return items;
   }
 
