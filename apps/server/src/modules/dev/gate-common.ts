@@ -29,16 +29,17 @@ export async function latestBaseline(client: PoolClient | null, projectId: strin
 export async function liveBaselineItems(client: PoolClient | null, projectId: string) {
   const q = qof(client);
   const items: Array<{ artifact: string; version_id: string | null; fingerprint: string | null; required: boolean }> = [];
+  // W3-005：HLD finalOnly=true（解锁即失效）；required 为既有指纹口径（HLD=false），与 finalOnly 解耦
   const sources = [
-    { artifact: 'PRD', table: 'req_documents', vtable: 'req_versions', kind: 'prd', finalOnly: true },
-    { artifact: 'HLD', table: 'dsg_documents', vtable: 'dsg_versions', kind: 'hld', finalOnly: false },
+    { artifact: 'PRD', table: 'req_documents', vtable: 'req_versions', kind: 'prd', finalOnly: true, required: true },
+    { artifact: 'HLD', table: 'dsg_documents', vtable: 'dsg_versions', kind: 'hld', finalOnly: true, required: false },
   ];
   for (const s of sources) {
     const r = await q<{ id: string; fp: string }>(
       `SELECT v.id, v.content_fingerprint AS fp FROM ${s.table} d
        JOIN ${s.vtable} v ON v.id = ${s.finalOnly ? 'd.final_version_id' : 'COALESCE(d.final_version_id, d.current_version_id)'}
        WHERE d.project_id=$1 AND d.doc_kind=$2`, [projectId, s.kind]);
-    items.push({ artifact: s.artifact, version_id: r.rows[0]?.id ?? null, fingerprint: r.rows[0]?.fp ?? null, required: s.finalOnly });
+    items.push({ artifact: s.artifact, version_id: r.rows[0]?.id ?? null, fingerprint: r.rows[0]?.fp ?? null, required: s.required });
   }
   const proto = await q<{ id: string; fp: string }>(
     `SELECT v.id, v.content_fingerprint AS fp FROM dsg_documents d JOIN dsg_versions v ON v.id=d.final_version_id

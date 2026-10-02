@@ -127,6 +127,15 @@ describe('BatchService（集成，需 DB+MinIO）', async () => {
       [noDraft],
     );
     expect(autoDraft.rows[0]?.status).toBe('final');
+
+    // W3-001：已 content_final 再批量定稿 → 计失败「已内容定稿」且不再落 final 行（幂等）
+    const before = await query<{ n: string }>(
+      "SELECT count(*) AS n FROM mat_parsed WHERE file_id=$1 AND kind='content_parse' AND status='final'", [ok]);
+    const again = await svc.batchFinalizeContent(PID, [ok], true, CTX);
+    expect(again.results[0]).toMatchObject({ fileId: ok, ok: false, reason: '已内容定稿' });
+    const after = await query<{ n: string }>(
+      "SELECT count(*) AS n FROM mat_parsed WHERE file_id=$1 AND kind='content_parse' AND status='final'", [ok]);
+    expect(after.rows[0]!.n).toBe(before.rows[0]!.n);
   });
 
   it('A03-15/16 加工作业五态：idle→confirm(running)→done，行 ops 落账', async () => {
@@ -145,11 +154,13 @@ describe('BatchService（集成，需 DB+MinIO）', async () => {
     job = await svc.getJob(PID, created.jobId);
     expect(job.status).toBe('done');
     expect(job.items.every((i) => i.status === 'succeeded')).toBe(true);
-    const ops = await query<{ ops: Array<{ op: string }> }>(
+    const ops = await query<{ ops: Array<{ op: string; params?: Record<string, unknown> }> }>(
       "SELECT ops FROM mat_parsed WHERE file_id=$1 AND kind='file_parse' AND status!='discarded'",
       [f1],
     );
     expect(ops.rows[0]?.ops[0]?.op).toBe('mask');
+    // W3-002：job filter.params 透传到行级 ops 审计（此前 params 恒 {}）
+    expect(ops.rows[0]?.ops[0]?.params).toEqual({ patterns: ['name'] });
   });
 
   it('A03-15 开始复核不一致 → STALE_EVIDENCE 整批拒绝且不留作业行', async () => {

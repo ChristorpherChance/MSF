@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
-import { DomainError } from '@msf/shared';
+import { DomainError, fingerprint } from '@msf/shared';
 import { query } from '../../db/pool.js';
 import { executeCommand, registerCommand, type CommandContext } from '../evidence/command-bus.js';
 
@@ -32,14 +32,15 @@ export class PlatformReadService {
     const pj = await query('SELECT stage_gates FROM projects WHERE id=$1', [projectId]);
     if (!pj.rows[0]) throw new DomainError('NOT_FOUND', '项目不存在', projectId);
 
-    const [mat, prd, rtm, dsg, dev, tst] = await Promise.all([
+    const [mat, prd, rtm, dev, tst] = await Promise.all([
       query<{ n: number }>("SELECT count(*)::int AS n FROM mat_files WHERE project_id=$1 AND parse_status='content_final'", [projectId]),
       query<{ n: number }>("SELECT count(*)::int AS n FROM req_documents WHERE project_id=$1 AND doc_kind='prd' AND final_version_id IS NOT NULL", [projectId]),
       query<{ passed: boolean }>('SELECT passed FROM rtm_health WHERE project_id=$1 ORDER BY measured_at DESC LIMIT 1', [projectId]),
-      query<{ n: number }>('SELECT count(*)::int AS n FROM dsg_baselines WHERE project_id=$1 AND valid', [projectId]),
       query<{ n: number }>("SELECT count(*)::int AS n FROM dev_builds WHERE project_id=$1 AND status='pass'", [projectId]),
       query<{ n: number }>("SELECT count(*)::int AS n FROM tst_batches WHERE project_id=$1 AND status='released'", [projectId]),
     ]);
+    // W3-006：基线实时有效性（最新基线行 + 活指纹比对；条目构造口径镜像 prototype.service baselineItems）
+    const dsgLive = await this.designBaselineLive(projectId);
 
     const stages: StageResult[] = [
       {
@@ -56,8 +57,12 @@ export class PlatformReadService {
         ],
       },
       {
-        stage: 'design', ok: dsg.rows[0]!.n > 0,
-        issues: dsg.rows[0]!.n > 0 ? [] : [{ code: 'BASELINE_MISSING', message: '无有效设计基线', target: 'design' }],
+        // W3-006：design 门禁与 baselines() 同口径实时比对（库存 valid 列无回写路径，单看库存列会在
+        // 基线内容级失效后仍绿灯撒谎）；跨域 SQL 直读 + shared fingerprint，不 import design 域
+        stage: 'design', ok: dsgLive.ok,
+        issues: dsgLive.ok ? [] : [dsgLive.count > 0
+          ? { code: 'BASELINE_STALE', message: '设计基线已失效（上游定稿或原型内容变化，需重确认）', target: 'design' }
+          : { code: 'BASELINE_MISSING', message: '无有效设计基线', target: 'design' }],
       },
       {
         stage: 'dev', ok: dev.rows[0]!.n > 0,
@@ -75,6 +80,38 @@ export class PlatformReadService {
       await executeCommand('platform.stage_gates.snapshot', { stages }, { ...ctx, projectId });
     }
     return { stages };
+  }
+
+  /**
+   * W3-006：design 门禁的基线实时有效性——最新基线行的 baseline_fingerprint vs 当前活指纹。
+   * 条目构造须与 design 域 prototype.service baselineItems 完全同构（PRD=req final、HLD=dsg final、
+   * PROTOTYPE=基线行内版本指纹；字段序 artifact/version_id/fingerprint/required），跨域 SQL 直读不写。
+   */
+  private async designBaselineLive(projectId: string): Promise<{ ok: boolean; count: number }> {
+    const b = await query<{
+      items: Array<{ artifact: string; version_id: string | null }>;
+      baseline_fingerprint: string;
+    }>('SELECT items, baseline_fingerprint FROM dsg_baselines WHERE project_id=$1 AND valid ORDER BY confirmed_at DESC LIMIT 1', [projectId]);
+    const cnt = await query<{ n: number }>('SELECT count(*)::int AS n FROM dsg_baselines WHERE project_id=$1 AND valid', [projectId]);
+    const base = b.rows[0];
+    if (!base) return { ok: false, count: 0 };
+    const items: Array<{ artifact: string; version_id: string | null; fingerprint: string | null; required: boolean }> = [];
+    const prd = await query<{ id: string; fp: string }>(
+      `SELECT v.id, v.content_fingerprint AS fp FROM req_documents d JOIN req_versions v ON v.id=d.final_version_id
+       WHERE d.project_id=$1 AND d.doc_kind='prd'`, [projectId]);
+    items.push({ artifact: 'PRD', version_id: prd.rows[0]?.id ?? null, fingerprint: prd.rows[0]?.fp ?? null, required: true });
+    const hld = await query<{ id: string; fp: string }>(
+      `SELECT v.id, v.content_fingerprint AS fp FROM dsg_documents d JOIN dsg_versions v ON v.id=d.final_version_id
+       WHERE d.project_id=$1 AND d.doc_kind='hld'`, [projectId]);
+    items.push({ artifact: 'HLD', version_id: hld.rows[0]?.id ?? null, fingerprint: hld.rows[0]?.fp ?? null, required: false });
+    const protoVerId = base.items.find((i) => i.artifact === 'PROTOTYPE')?.version_id ?? '';
+    let protoFp: string | null = null;
+    if (protoVerId) {
+      const r = await query<{ fp: string }>('SELECT content_fingerprint AS fp FROM dsg_versions WHERE id=$1', [protoVerId]);
+      protoFp = r.rows[0]?.fp ?? null;
+    }
+    items.push({ artifact: 'PROTOTYPE', version_id: protoVerId || null, fingerprint: protoFp, required: true });
+    return { ok: fingerprint({ items }) === base.baseline_fingerprint, count: cnt.rows[0]!.n };
   }
 
   /** A02-5 任务中心（REQ-704 判定句：计数=各阶段已产生 Task 总数；行跳回所属阶段由 stage 字段承载） */

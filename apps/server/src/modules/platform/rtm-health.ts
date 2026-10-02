@@ -2,6 +2,14 @@ import { fingerprint } from '@msf/shared';
 import { splitSections } from './doc-sections.js';
 
 /**
+ * W3-004：设计册 kind → 规格单字母前缀（h/o/g/k/d/a/u/n，DSG-U06-23 统稿 M7、REQ-302、LLD-4 chapter_prefix）。
+ * 权威定义在 design 域 DESIGN_BOOKS；跨域禁令下 platform 不 import 他域模块，此处镜像（改 DESIGN_BOOKS 须同步）。
+ */
+const DSG_BOOK_LETTER: Record<string, string> = {
+  hld: 'H', mod: 'O', alg: 'G', cls: 'K', db: 'D', api: 'A', ui: 'U', nfr: 'N',
+};
+
+/**
  * RTM 追踪链派生与健康度实算（LLD-2 DSG-F06 同步纯函数；REQ-207/208/310）。
  *
  * 派生口径（任务分解 M2 注①，版本提交同事务执行）：
@@ -80,7 +88,8 @@ export function deriveLinks(
 
   // #15 反向派生：设计册章节回引 REQ 编号即认定承接（REQ 节点集仍以 PRD 为权威，不回灌）
   for (const { book, content } of designDocs) {
-    const bookAnchor = `DSG-${book.toUpperCase()}`;
+    // W3-004：册级锚用规格单字母前缀（DSG-H/O/G/K/D/A/U/N），不再用 kind 全大写（DSG-MOD 等与八册卡错位）
+    const bookAnchor = `DSG-${DSG_BOOK_LETTER[book] ?? book.toUpperCase()}`;
     for (const sec of splitSections(content)) {
       const reqs = scanCodes(`${sec.title}\n${sec.md}`, RE_REQ);
       if (reqs.length === 0) continue;

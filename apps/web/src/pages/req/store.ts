@@ -111,8 +111,13 @@ export const useReqView = create<ReqViewState>((set, get) => ({
   },
 
   refreshRtm: async () => {
-    const { projectId } = get();
-    if (!projectId) return;
+    let { projectId } = get();
+    if (!projectId) {
+      // W3-003：?tab=rtm 直达竞态——init 尚未落定 projectId 时自举（此前静默 return 致页面永卡「初始化中」）
+      const p = await ensureProject();
+      projectId = p.id;
+      set({ projectId });
+    }
     set({ loading: true, error: null });
     try {
       const [rtm, health] = await Promise.all([reqApi.rtm(projectId), reqApi.health(projectId)]);

@@ -420,9 +420,12 @@ export class PrototypeService {
   private async baselineItems(client: PoolClient | null, projectId: string, prototypeVersionId: string) {
     const q = client ? client.query.bind(client) : query;
     const items: Array<{ artifact: string; version_id: string | null; fingerprint: string | null; required: boolean }> = [];
-    const sources: Array<{ artifact: string; domain: 'req' | 'dsg'; kind: string; finalOnly: boolean }> = [
-      { artifact: 'PRD', domain: 'req', kind: 'prd', finalOnly: true },
-      { artifact: 'HLD', domain: 'dsg', kind: 'hld', finalOnly: false },
+    // W3-005：HLD 同取 final_version_id（finalOnly）——基线工件须为定稿态；解锁后 final 丢失 →
+    // 条目 version/fingerprint 落空 → 实时比对失效（此前 COALESCE 回退 current 掩盖解锁态，与解锁 modal 承诺不符）。
+    // 注：required 标志独立于 finalOnly（HLD required:false 为既有口径，改它会 invalidate 全部存量基线指纹）
+    const sources: Array<{ artifact: string; domain: 'req' | 'dsg'; kind: string; finalOnly: boolean; required: boolean }> = [
+      { artifact: 'PRD', domain: 'req', kind: 'prd', finalOnly: true, required: true },
+      { artifact: 'HLD', domain: 'dsg', kind: 'hld', finalOnly: true, required: false },
     ];
     for (const s of sources) {
       const table = s.domain === 'req' ? 'req_documents' : 'dsg_documents';
@@ -435,7 +438,7 @@ export class PrototypeService {
         artifact: s.artifact,
         version_id: r.rows[0]?.id ?? null,
         fingerprint: r.rows[0]?.fp ?? null,
-        required: s.finalOnly,
+        required: s.required,
       });
     }
     let protoFp: string | null = null;

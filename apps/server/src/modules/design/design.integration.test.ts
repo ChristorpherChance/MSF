@@ -281,7 +281,7 @@ describe('Design 设计域（集成，需 DB+MinIO）', async () => {
     expect(gap!.message).toContain('设计承接：DSG-*');
     expect(gap!.message).toContain('设计册');
 
-    // ② HLD 章节回引 REQ-002（无 DSG 锚点）→ commit 触发 rtm.rebuild → 册级链 DSG-HLD 解锁
+    // ② HLD 章节回引 REQ-002（无 DSG 锚点）→ commit 触发 rtm.rebuild → 册级链 DSG-H 解锁（W3-004 单字母前缀）
     await docs.unlock(PID, 'hld', CTX);
     const hd = await view('hld');
     const hsec = hd.secs[0]!;
@@ -294,7 +294,7 @@ describe('Design 设计域（集成，需 DB+MinIO）', async () => {
 
     const link = await query(
       `SELECT 1 FROM rtm_links WHERE project_id=$1 AND from_kind='req' AND from_code='REQ-002'
-       AND to_kind='dsg' AND to_code='DSG-HLD' AND relation='implements'`, [PID]);
+       AND to_kind='dsg' AND to_code='DSG-H' AND relation='implements'`, [PID]);
     expect(link.rowCount).toBe(1);
     const g2 = (await proto.gates(PID, 'develop')) as { issues: Array<{ code: string; target?: string }> };
     expect(g2.issues.filter((i) => i.code === 'L0C_BELOW')).toEqual([]);

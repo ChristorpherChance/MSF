@@ -105,13 +105,16 @@ export function DelegatePage() {
 
         {/* E5 失败语义卡 */}
         <div className="set-card">
-          <h3>失败语义（五态）</h3>
+          <h3>失败语义（原因五类）</h3>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {FAIL_SEMANTICS.map(([k, label]) => (
               <span key={k} className="tag" style={{ padding: '5px 10px' }}>{k} · {label}</span>
             ))}
           </div>
+          {/* W3-008：口径注——失败原因为 result.error 归类；状态机六态以 LLD-4 DSG-D08-7 为权威
+              （queued/running/succeeded/failed/failed_timeout/cancelled），五类语义不落成独立状态值 */}
           <p className="set-note" style={{ marginTop: 10 }}>
+            失败原因为 result.error 归类展示；状态机六态以 LLD-4 DSG-D08-7 为权威（failed/failed_timeout 承载全部失败）。
             每次委派均写入审计：谁发起 / 用了哪个 target / 传入摘要 / 产出摘要 / 成本。
           </p>
         </div>

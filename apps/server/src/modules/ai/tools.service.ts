@@ -34,6 +34,8 @@ const ROUTES: Record<string, string> = {
   dev: '/dev', test: '/test', delegate: '/delegate',
   // W2-053：任务中心/设置页同样可被助手打开（模型自主调用链补齐）
   tasks: '/tasks', settings: '/settings',
+  // W3-007：RTM 子页签直达（助手承诺「查看 RTM」落对页签）
+  rtm: '/req?tab=rtm',
 };
 
 const TOOLS: ToolDef[] = [

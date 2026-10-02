@@ -20,11 +20,11 @@ describe('deriveLinks（#15 设计册反向派生）', () => {
     expect(links).toContainEqual({ fromKind: 'req', fromCode: 'REQ-001', toKind: 'dsg', toCode: 'DSG-U03-2', relation: 'implements' });
   });
 
-  it('设计册章节只回引 REQ（无 DSG 锚点）→ 册级粗粒度链 DSG-<册>', () => {
+  it('设计册章节只回引 REQ（无 DSG 锚点）→ 册级粗粒度链 DSG-<册>（W3-004：单字母规格前缀）', () => {
     const hld = '# HLD\n\n## REQ-002 自动触发设计\n\n本章承接 REQ-002 的触发链路。\n';
     const { links, nodes } = deriveLinks(CRD, PRD, [{ book: 'hld', content: hld }]);
-    expect(nodes.dsg).toContain('DSG-HLD');
-    expect(links).toContainEqual({ fromKind: 'req', fromCode: 'REQ-002', toKind: 'dsg', toCode: 'DSG-HLD', relation: 'implements' });
+    expect(nodes.dsg).toContain('DSG-H');
+    expect(links).toContainEqual({ fromKind: 'req', fromCode: 'REQ-002', toKind: 'dsg', toCode: 'DSG-H', relation: 'implements' });
   });
 
   it('设计册章节同含 REQ 与 DSG-* → 精确链优先于册级链', () => {

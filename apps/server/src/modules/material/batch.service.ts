@@ -91,7 +91,10 @@ export class BatchService {
         let reason = '文件不存在';
         // W2-040：加工资格 = file_final 或 content_final（content_final 是 file_final 后继态，倒挂拒绝修掉）
         if (file && file.parse_status !== 'file_final' && file.parse_status !== 'content_final') reason = '非 file_final/content_final 状态';
-        if (file && (file.parse_status === 'file_final' || file.parse_status === 'content_final')) {
+        // W3-001：已内容定稿不重复定稿（与单条 finalize_content「仅 file_final」同口径）——
+        // 否则每次执行静默新落一条 final 内容稿，final 唯一性被破坏
+        if (file && file.parse_status === 'content_final') reason = '已内容定稿';
+        if (file && file.parse_status === 'file_final') {
           let draft = await client.query<{ id: string }>(
             "SELECT id FROM mat_parsed WHERE file_id=$1 AND kind='content_parse' AND status='draft' ORDER BY created_at DESC LIMIT 1",
             [fileId],
@@ -418,10 +421,14 @@ export class BatchService {
       "SELECT file_id, result FROM mat_batch_items WHERE job_id=$1 AND result='pending' ORDER BY created_at",
       [jobId],
     );
+    // W3-002：job 级 filter.params（如 lang）透传入行命令——行级 ops 审计不再丢参数
+    const jr = await query<{ filter: { params?: Record<string, unknown> } | null }>(
+      'SELECT filter FROM mat_batch_jobs WHERE id=$1', [jobId]);
+    const params = jr.rows[0]?.filter?.params;
     for (const item of items.rows) {
       await executeCommand(
         'material.job.row_process',
-        { projectId, jobId, fileId: item.file_id },
+        { projectId, jobId, fileId: item.file_id, ...(params ? { params } : {}) },
         { ...ctx, projectId },
       );
     }
@@ -435,7 +442,11 @@ export class BatchService {
   async retryItem(projectId: string, jobId: string, fileId: string, ctx: CommandContext, opts: { autoRun?: boolean } = {}) {
     const r = await executeCommand('material.job.item_retry', { projectId, jobId, fileId }, { ...ctx, projectId });
     if (opts.autoRun !== false) {
-      executeCommand('material.job.row_process', { projectId, jobId, fileId }, { ...ctx, projectId }).catch(() => undefined);
+      // W3-002：重试行同口径透传 job filter.params
+      const jr = await query<{ filter: { params?: Record<string, unknown> } | null }>(
+        'SELECT filter FROM mat_batch_jobs WHERE id=$1', [jobId]);
+      const params = jr.rows[0]?.filter?.params;
+      executeCommand('material.job.row_process', { projectId, jobId, fileId, ...(params ? { params } : {}) }, { ...ctx, projectId }).catch(() => undefined);
     }
     return r;
   }
