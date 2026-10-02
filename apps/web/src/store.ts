@@ -9,7 +9,7 @@ interface SessionState {
   setProject: (id: string | null, name?: string | null) => void;
 }
 
-/** 当前项目（localStorage 持久化；项目页「进入」切换后整页刷新，各域 store 重新 init） */
+/** 当前项目（localStorage 持久化；项目页「进入」/新建为 SPA 切换不整页刷新——各域 store 各自 init 重读，跨页长驻件（助手 dock）须订阅本态变更重置，W4-001） */
 export const useSession = create<SessionState>((set) => ({
   projectId: localStorage.getItem(KEY),
   projectName: localStorage.getItem(`${KEY}.name`),

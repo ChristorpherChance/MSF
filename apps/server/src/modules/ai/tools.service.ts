@@ -42,7 +42,8 @@ const TOOLS: ToolDef[] = [
   {
     name: 'nav.goto',
     kind: 'nav',
-    description: '跳转到指定阶段页签',
+    // W4-003：枚举写进描述——模型此前不知道 rtm 可达，会把「打开 RTM」裁决成 /req 并误称无直达页签
+    description: '跳转到指定页签，tab 可选：material|req|design|proto|dev|test|delegate|tasks|settings|rtm（RTM 需求矩阵直达）',
     argsSchema: { tab: 'string' },
     required: ['tab'],
     async run(_c, _p, args) {

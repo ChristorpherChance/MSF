@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { mdHtml } from '../md-html';
+import { useSession } from '../store';
 import { Modal } from '../ui/Modal';
 import { Popover } from '../ui/Popover';
 import { ConfirmModal } from '../ui/ConfirmModal';
@@ -28,6 +29,12 @@ export function AssistantDock() {
   const location = useLocation();
 
   useEffect(() => { void s.init(); }, []);
+
+  // W4-001：SPA 内新建/切换项目无整页刷新——订阅会话项目变更，dock 重 init（init 内部对变更项目重置会话/消息/参考勾选）
+  const sessionProjectId = useSession((x) => x.projectId);
+  useEffect(() => {
+    if (sessionProjectId && sessionProjectId !== useDockStore.getState().projectId) void useDockStore.getState().init();
+  }, [sessionProjectId]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

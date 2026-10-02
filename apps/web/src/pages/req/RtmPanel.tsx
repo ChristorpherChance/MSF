@@ -207,8 +207,8 @@ function TraceModal({
         <div className="trace-col">
           <div className="trace-head">设计 DSG（implements）</div>
           {row.dsg.length > 0
-            ? row.dsg.map((d) => (
-                <span key={d} className={`rtm-node n-dsg${node === d ? ' hit' : ''}`}>{d}</span>
+            ? row.dsg.map((d, i) => (
+                <span key={`${d}-${i}`} className={`rtm-node n-dsg${node === d ? ' hit' : ''}`}>{d}</span>
               ))
             : <span className="mut">未登记</span>}
         </div>
@@ -253,7 +253,7 @@ function RtmRowView({
         ))}
         {row.req.map((r) => <span key={`${r}-op`} className="node-op">{nodeOps('req', r)}</span>)}
       </td>
-      <td>{row.dsg.map((d) => <button key={d} className="rtm-node n-dsg" title="点击追溯全链" onClick={() => onTrace(d)}>{d}</button>)}</td>
+      <td>{row.dsg.map((d, i) => <button key={`${d}-${i}`} className="rtm-node n-dsg" title="点击追溯全链" onClick={() => onTrace(d)}>{d}</button>)}</td>
       <td><span className={`tag st-${row.state}`}>{STATE_LABEL[row.state]}</span></td>
       <td className="mut">{row.state === 'uncovered' ? '需在 CRD 增加 CR 承接条目' : ''}</td>
     </tr>

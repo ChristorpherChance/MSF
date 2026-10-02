@@ -445,7 +445,7 @@ export class AiSessionsService implements OnModuleInit {
 \`\`\`msf-tool
 {"name":"工具名","args":{...}}
 \`\`\`
-- nav.goto：为用户打开某个页面。args: {"tab":"material|req|design|dev|test|tasks|delegate|settings"}。当用户说"打开/带我去/跳转到某页"时调用，正文同时说明已发起打开。
+- nav.goto：为用户打开某个页面。args: {"tab":"material|req|design|proto|dev|test|tasks|delegate|settings|rtm"}。当用户说"打开/带我去/跳转到某页"时调用，正文同时说明已发起打开。RTM 需求矩阵有直达页签：tab 用 "rtm"。
 - read_context：读取当前项目状态快照（各域条目计数）。args: {}。当需要最新项目数据回答"进展/状态"类问题时调用。
 - propose_next_step：按项目当前状态计算下一步建议清单。args: {}。当用户问"下一步该做什么"时调用。
 工具由系统在回复完成后执行，结果以工具卡随消息呈现；围栏块本身不会展示给用户。工具只有只读/导航能力，写操作仍须走人工路径。`);
