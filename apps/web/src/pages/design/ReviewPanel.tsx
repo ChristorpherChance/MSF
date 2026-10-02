@@ -97,7 +97,7 @@ function GroupBlock({ g, list }: { g: { key: string; label: string; desc: string
 }
 
 function SevDot({ sev }: { sev: string }) {
-  const color = sev === '高' ? 'var(--red, #c0392b)' : sev === '中' ? 'var(--orange, #b7950b)' : 'var(--ink2)';
+  const color = sev === '高' ? 'var(--red)' : sev === '中' ? 'var(--orange)' : 'var(--ink2)';
   return (
     <>
       <span className="sevdot" style={{ background: color }} />

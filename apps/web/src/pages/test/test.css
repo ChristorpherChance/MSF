@@ -14,15 +14,18 @@
 
 .qa-status {
   padding: 2px 8px;
-  border-radius: 4px;
+  border-radius: 999px;
   font-size: 12px;
-  background: var(--line);
+  background: var(--soft2);
+  color: var(--ink2);
+  border: 1px solid var(--line);
 }
 
-.qa-status-released { background: #2e7d32; color: #fff; }
-.qa-status-blocked { background: #c0392b; color: #fff; }
-.qa-status-executing { background: #b7950b; color: #fff; }
-.qa-status-reported { background: #1565c0; color: #fff; }
+/* 状态徽章统一全站 tag 语言：soft 底 + 彩字 + 彩边（白字实底在橙色上对比度不足，UI 美化专项） */
+.qa-status-released { background: var(--green-soft); color: var(--green); border-color: color-mix(in srgb, var(--green) 35%, transparent); }
+.qa-status-blocked { background: var(--red-soft); color: var(--red); border-color: color-mix(in srgb, var(--red) 40%, transparent); }
+.qa-status-executing { background: var(--orange-soft); color: var(--orange); border-color: color-mix(in srgb, var(--orange) 35%, transparent); }
+.qa-status-reported { background: var(--blue-soft); color: var(--blue); border-color: color-mix(in srgb, var(--blue) 30%, transparent); }
 
 .qa-facts {
   display: grid;
@@ -70,25 +73,27 @@
 
 .qa-tag {
   padding: 1px 8px;
-  border-radius: 4px;
+  border-radius: 999px;
   font-size: 12px;
-  background: var(--line);
+  background: var(--soft2);
+  color: var(--ink2);
+  border: 1px solid var(--line);
 }
 
-.qa-tag-pass { background: #2e7d32; color: #fff; }
-.qa-tag-fail { background: #c0392b; color: #fff; }
-.qa-tag-blocked { background: #b7950b; color: #fff; }
-.qa-tag-not-applicable { background: #6c7a80; color: #fff; }
+.qa-tag-pass { background: var(--green-soft); color: var(--green); border-color: color-mix(in srgb, var(--green) 35%, transparent); }
+.qa-tag-fail { background: var(--red-soft); color: var(--red); border-color: color-mix(in srgb, var(--red) 40%, transparent); }
+.qa-tag-blocked { background: var(--orange-soft); color: var(--orange); border-color: color-mix(in srgb, var(--orange) 35%, transparent); }
+.qa-tag-not-applicable { background: var(--soft2); color: var(--ink2); border-color: var(--line); }
 
-.qa-sev-P0 { background: #7b241c; color: #fff; }
-.qa-sev-P1 { background: #c0392b; color: #fff; }
-.qa-sev-P2 { background: #b7950b; color: #fff; }
-.qa-sev-P3 { background: #6c7a80; color: #fff; }
+.qa-sev-P0 { background: var(--red-soft); color: var(--red); border-color: var(--red); font-weight: 700; }
+.qa-sev-P1 { background: var(--red-soft); color: var(--red); border-color: color-mix(in srgb, var(--red) 40%, transparent); }
+.qa-sev-P2 { background: var(--orange-soft); color: var(--orange); border-color: color-mix(in srgb, var(--orange) 35%, transparent); }
+.qa-sev-P3 { background: var(--soft2); color: var(--ink2); border-color: var(--line); }
 
-.qa-st-closed { background: #2e7d32; color: #fff; }
-.qa-st-new { background: #c0392b; color: #fff; }
-.qa-st-confirmed, .qa-st-fixing { background: #b7950b; color: #fff; }
-.qa-st-pending_regression { background: #1565c0; color: #fff; }
+.qa-st-closed { background: var(--green-soft); color: var(--green); border-color: color-mix(in srgb, var(--green) 35%, transparent); }
+.qa-st-new { background: var(--red-soft); color: var(--red); border-color: color-mix(in srgb, var(--red) 40%, transparent); }
+.qa-st-confirmed, .qa-st-fixing { background: var(--orange-soft); color: var(--orange); border-color: color-mix(in srgb, var(--orange) 35%, transparent); }
+.qa-st-pending_regression { background: var(--blue-soft); color: var(--blue); border-color: color-mix(in srgb, var(--blue) 30%, transparent); }
 
 .qa-defect {
   border: 1px solid var(--line);
@@ -106,8 +111,8 @@
   font-size: 14px;
 }
 
-.qa-banner-pass { background: #e8f5e9; border: 1px solid #2e7d32; color: #1b5e20; }
-.qa-banner-fail { background: #fdedec; border: 1px solid #c0392b; color: #7b241c; }
+.qa-banner-pass { background: var(--green-soft); border: 1px solid color-mix(in srgb, var(--green) 45%, transparent); color: var(--green); }
+.qa-banner-fail { background: var(--red-soft); border: 1px solid color-mix(in srgb, var(--red) 45%, transparent); color: var(--red); }
 
 .qa-empty { padding: 8px 0; }
 
@@ -127,20 +132,21 @@
 .qa-modal-mask {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.35);
+  background: rgba(15, 23, 42, 0.4);
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 50;
+  z-index: 300;
 }
 
 .qa-modal {
-  background: var(--soft);
+  background: var(--canvas);
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius);
   padding: 16px;
   width: 480px;
   max-width: 92vw;
+  box-shadow: var(--shadow-modal);
 }
 
 .qa-modal textarea { width: 100%; margin: 8px 0; }
@@ -184,7 +190,7 @@
 .qa-evid-item:hover { background: var(--soft); }
 
 /* T6 basis 过期横幅 */
-.qa-banner-stale { background: #fff8eb; border: 1px solid #b7950b; color: #7a5b00; }
+.qa-banner-stale { background: var(--orange-soft); border: 1px solid color-mix(in srgb, var(--orange) 45%, transparent); color: var(--orange); }
 
 /* T7 豁免多选清单 */
 .qa-waiver {

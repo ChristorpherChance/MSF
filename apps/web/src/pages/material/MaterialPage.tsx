@@ -30,7 +30,7 @@ const OPS: Array<{ key: string; icon: string; label: string; kind?: JobKind }> =
 function SubTabs() {
   const { subTab, setSubTab, refresh, requestGuard } = useMaterialView();
   return (
-    <div className="subtabs" role="tablist">
+    <div className="mat-subtabs" role="tablist">
       {SUB_TABS.map((t) => (
         <button
           key={t.key}

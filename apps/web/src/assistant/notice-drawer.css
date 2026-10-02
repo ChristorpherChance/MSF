@@ -39,7 +39,7 @@
 .nd-item.unread { background: var(--blue-soft); cursor: pointer; }
 .nd-item.linked { cursor: pointer; }
 .nd-item.linked:hover { background: var(--soft2); }
-.nd-item.unread.linked:hover { background: #D6E9FA; }
+.nd-item.unread.linked:hover { background: color-mix(in srgb, var(--blue) 18%, transparent); }
 .nd-meta { color: var(--ink2); margin-bottom: 2px; font-size: 11.5px; display: flex; gap: 6px; align-items: center; }
 .nd-dot { color: var(--blue); }
 .nd-jump { margin-left: auto; color: var(--blue); }

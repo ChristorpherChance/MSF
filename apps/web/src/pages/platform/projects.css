@@ -44,9 +44,9 @@
 .pc-foot { display: flex; align-items: center; gap: 8px; margin-top: 2px; }
 .pc-date { flex: 1; font-size: 11.5px; color: var(--ink2); }
 
-.tag { display: inline-block; border-radius: 4px; padding: 1px 8px; font-size: 11.5px; background: var(--soft2); color: var(--ink2); }
-.tag-demo { background: var(--orange-soft); color: var(--orange); }
-.tag-current { background: var(--blue-soft); color: var(--blue); }
+/* .tag 基础定义已收编 tokens.css（U-A2），本页仅保留项目域派生色 */
+.tag-demo { background: var(--orange-soft); color: var(--orange); border-color: color-mix(in srgb, var(--orange) 35%, transparent); }
+.tag-current { background: var(--blue-soft); color: var(--blue); border-color: color-mix(in srgb, var(--blue) 30%, transparent); }
 
 /* 五段进度条（.proj-stagebar：五阶段各一段，达标绿/缺口橙/未评灰） */
 .proj-stagebar { display: flex; gap: 3px; height: 6px; }

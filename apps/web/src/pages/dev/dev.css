@@ -120,15 +120,17 @@
 .prog { height: 4px; border-radius: 2px; background: var(--soft2); overflow: hidden; margin-top: 7px; }
 .prog i { display: block; height: 100%; background: var(--blue); }
 
+/* 小徽章统一全站 soft 底+彩字语言（白字实底小字号对比度不足，UI 美化专项） */
 .dev-badge-block {
   display: inline-block; margin-left: 6px; padding: 0 6px;
-  font-size: 11px; border-radius: 4px; background: var(--red); color: #fff;
+  font-size: 11px; border-radius: 999px; background: var(--red-soft); color: var(--red);
+  border: 1px solid color-mix(in srgb, var(--red) 40%, transparent); font-weight: 700;
 }
-.dev-run { padding: 2px 8px; border-radius: 4px; font-size: 12px; background: var(--soft2); }
-.dev-run-running { background: var(--green); color: #fff; }
-.dev-run-blocked { background: var(--red); color: #fff; }
-.dev-run-awaiting-transfer { background: var(--orange); color: #fff; }
-.dev-run-taken-over, .dev-run-paused { background: var(--orange); color: #fff; }
+.dev-run { padding: 2px 8px; border-radius: 999px; font-size: 12px; background: var(--soft2); color: var(--ink2); border: 1px solid var(--line); }
+.dev-run-running { background: var(--green-soft); color: var(--green); border-color: color-mix(in srgb, var(--green) 35%, transparent); }
+.dev-run-blocked { background: var(--red-soft); color: var(--red); border-color: color-mix(in srgb, var(--red) 40%, transparent); }
+.dev-run-awaiting-transfer { background: var(--orange-soft); color: var(--orange); border-color: color-mix(in srgb, var(--orange) 35%, transparent); }
+.dev-run-taken-over, .dev-run-paused { background: var(--orange-soft); color: var(--orange); border-color: color-mix(in srgb, var(--orange) 35%, transparent); }
 .dev-ok { color: var(--green); }
 .dev-bad { color: var(--red); }
 .dev-drawer { margin-top: 12px; }

@@ -12,7 +12,7 @@
   background: none; cursor: pointer; text-align: left; font-size: 13px;
 }
 .book-row:hover { background: var(--soft); }
-.book-row.on { background: #eff6ff; border-color: var(--blue); }
+.book-row.on { background: var(--blue-soft); border-color: var(--blue); }
 .book-name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* —— 原型工作台 V19 —— */
@@ -70,10 +70,10 @@
 
 /* S5 追溯 details */
 .v19-trace { margin-top: 7px; border: 1px solid var(--line); border-radius: 8px; background: var(--soft); padding: 7px 9px; }
-.v19-trace summary { cursor: pointer; color: var(--blue, #1565c0); font-weight: 600; font-size: 13px; }
+.v19-trace summary { cursor: pointer; color: var(--blue); font-weight: 600; font-size: 13px; }
 
-/* S7 .proto-modal：94vw×92vh 旧版预览 */
-.modal.proto-modal { width: min(1280px, 94vw); height: 92vh; max-height: 92vh; display: flex; flex-direction: column; }
+/* S7 .proto-modal：94vw×92vh 旧版预览（作用于 .modal-mask 体系，特异性须高于 req.css 基础 .modal） */
+.modal-mask .modal.proto-modal { width: min(1280px, 94vw); height: 92vh; max-height: 92vh; display: flex; flex-direction: column; }
 .proto-modal-body { flex: 1; display: flex; gap: 10px; min-height: 0; margin-top: 8px; }
 .proto-modal-vers {
   width: 220px; flex: none; overflow-y: auto; border: 1px solid var(--line); border-radius: 8px;

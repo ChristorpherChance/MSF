@@ -1,12 +1,13 @@
 /* 需求页样式（LLD-6 §3.3；令牌取自 tokens.css） */
 
-/* 与 material 页同构的通用件（subtabs/doc-toolbar/doc-empty），本页自持避免跨页耦合 */
+/* 与 material 页同构的通用件（doc-toolbar/doc-empty）；.subtabs 胶囊页签为本页与设计页权威口径 */
 .subtabs { display: flex; gap: 8px; padding: 8px 16px; border-bottom: 1px solid var(--line); background: var(--canvas); }
 .subtabs button {
   border: 1px solid var(--line); background: none; border-radius: 999px;
   padding: 4px 14px; cursor: pointer; color: var(--ink2); font-size: 13px;
 }
 .subtabs button.on { background: var(--blue); border-color: var(--blue); color: #fff; }
+.subtabs button:not(.on):hover { border-color: var(--blue); color: var(--blue); }
 
 .doc-toolbar {
   display: flex; align-items: center; gap: 8px; padding: 8px 16px;
@@ -29,21 +30,16 @@
 }
 .req-toolbar .rsn { font-size: 12px; color: var(--ink2); flex-basis: 100%; }
 
-.tag {
-  display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px;
-  background: #eef2ff; color: var(--blue); border: 1px solid #dbe3ff;
-}
-.tag-ok { background: #ecfdf5; color: var(--green); border-color: #bbf7d0; }
-.tag-warn { background: #fffbeb; color: var(--orange); border-color: #fde68a; }
+/* 全站 .tag/.tag-ok/.tag-warn 权威定义已收编 tokens.css（U-A2 撞车修复），本页不再重复定义 */
 
 .req-banner {
   margin: 8px 16px 0; padding: 8px 14px; border-radius: 10px; font-size: 13px;
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
 }
-.req-banner.ok { background: #ecfdf5; color: var(--green); }
-.req-banner.warn { background: #fffbeb; color: var(--orange); }
-.req-banner.info { background: #eff6ff; color: var(--blue); }
-.req-banner.err { background: #fef2f2; color: var(--red); }
+.req-banner.ok { background: var(--green-soft); color: var(--green); }
+.req-banner.warn { background: var(--orange-soft); color: var(--orange); }
+.req-banner.info { background: var(--blue-soft); color: var(--blue); }
+.req-banner.err { background: var(--red-soft); color: var(--red); }
 
 .req-body { display: flex; flex: 1; min-height: 0; gap: 0; margin-top: 8px; }
 
@@ -61,7 +57,7 @@
 .toc-item:hover { background: var(--soft); }
 .toc-item.has-pend::after { content: ' ●'; color: var(--orange); }
 
-@keyframes req-flash { 0% { background: #fef3c7; } 100% { background: transparent; } }
+@keyframes req-flash { 0% { background: var(--orange-soft); } 100% { background: transparent; } }
 .sect.flash, .toc-item.flash { animation: req-flash 1.6s ease-out; }
 
 .doc-scroll { flex: 1; overflow-y: auto; padding: 16px; }
@@ -82,26 +78,26 @@
 .sec-ops { display: flex; gap: 8px; margin-top: 6px; align-items: center; }
 
 /* 待确认补丁高亮（pending-add/mod/del + 行内接受/拒绝） */
-.pending-add { border: 1px dashed var(--green); background: #f0fdf4; }
+.pending-add { border: 1px dashed var(--green); background: var(--green-soft); }
 .pending-bar {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-  border: 1px dashed var(--orange); background: #fffbeb;
+  border: 1px dashed var(--orange); background: var(--orange-soft);
   border-radius: 8px; padding: 6px 10px; margin-top: 8px; font-size: 12.5px;
 }
-.pending-bar.pending-del { border-color: var(--red); background: #fef2f2; }
-.pending-bar.pending-add { border-color: var(--green); background: #f0fdf4; }
+.pending-bar.pending-del { border-color: var(--red); background: var(--red-soft); }
+.pending-bar.pending-add { border-color: var(--green); background: var(--green-soft); }
 .pend-desc { flex: 1; min-width: 200px; overflow-wrap: anywhere; }
 .pend-desc em { color: var(--ink2); font-style: normal; }
 
-/* popover / 菜单 */
+/* popover / 菜单（U-A4：锚定式 popover 收编 .pop-wrap 作用域，避免与 ui.css 全局 fixed popover 撞车） */
 .pop-wrap { position: relative; }
-.popover {
+.pop-wrap .popover {
   position: absolute; top: calc(100% + 6px); left: 0; z-index: 30;
   background: var(--canvas); border: 1px solid var(--line);
-  border-radius: 10px; box-shadow: 0 8px 24px rgb(0 0 0 / 10%); padding: 10px 12px;
+  border-radius: 10px; box-shadow: var(--shadow-popover); padding: 10px 12px;
   min-width: 320px;
 }
-.popover.menu { min-width: 160px; display: flex; flex-direction: column; gap: 4px; }
+.pop-wrap .popover.menu { min-width: 160px; display: flex; flex-direction: column; gap: 4px; }
 .pop-head { display: flex; justify-content: space-between; align-items: center; }
 .pop-sub { font-size: 12px; color: var(--ink2); margin: 8px 0 4px; }
 .pop-tip { font-size: 12px; color: var(--ink2); margin: 6px 0; }
@@ -112,7 +108,7 @@
 
 /* 生成流式卡 */
 .gen-card {
-  margin: 8px 16px 0; border: 1px solid #dbe3ff; background: #f5f8ff;
+  margin: 8px 16px 0; border: 1px solid color-mix(in srgb, var(--blue) 25%, transparent); background: var(--blue-soft);
   border-radius: 10px; padding: 10px 14px;
 }
 .gen-head { display: flex; justify-content: space-between; align-items: center; }
@@ -122,24 +118,24 @@
   white-space: pre-wrap; margin: 8px 0 0; color: var(--ink);
 }
 
-/* modal */
+/* modal（U-A3：收编 .modal-mask 作用域，避免与 ui.css/material.css 的 .modal 撞车） */
 .modal-mask {
   position: fixed; inset: 0; background: rgb(15 23 42 / 40%); z-index: 50;
   display: flex; align-items: center; justify-content: center;
 }
-.modal {
+.modal-mask .modal {
   width: min(520px, 92vw); background: var(--canvas); border-radius: var(--radius);
-  padding: 18px 20px; box-shadow: 0 16px 48px rgb(0 0 0 / 18%);
+  padding: 18px 20px; box-shadow: var(--shadow-modal);
 }
-.modal h3 { margin: 0 0 8px; }
-.modal textarea {
+.modal-mask .modal h3 { margin: 0 0 8px; }
+.modal-mask .modal textarea {
   width: 100%; box-sizing: border-box; border: 1px solid var(--line);
   border-radius: 8px; padding: 8px; font: inherit;
 }
 .modal-ops { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
 .gate-box { border-radius: 8px; padding: 10px 12px; font-size: 13px; }
-.gate-box.ok { background: #ecfdf5; }
-.gate-box.err { background: #fef2f2; }
+.gate-box.ok { background: var(--green-soft); }
+.gate-box.err { background: var(--red-soft); }
 .gate-box ul { margin: 6px 0 0; padding-left: 18px; }
 .gate-box .err { color: var(--red); }
 .gate-box .mut, .mut { color: var(--ink2); }
@@ -152,7 +148,7 @@
 .act:hover { background: var(--soft); }
 .act.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
 .act.primary:hover { filter: brightness(1.06); }
-.act:disabled { opacity: 0.5; cursor: not-allowed; }
+/* 禁用态统一由 tokens.css 可读性规则承载（U-A6） */
 .act.mini { padding: 1px 6px; font-size: 11px; }
 
 /* ---------- RTM 面 ---------- */
@@ -163,7 +159,7 @@
   background: var(--canvas); border: 1px solid var(--line);
   border-radius: var(--radius); padding: 12px 14px;
 }
-.kpi-card.bad { border-color: #fecaca; background: #fef2f2; }
+.kpi-card.bad { border-color: color-mix(in srgb, var(--red) 40%, transparent); background: var(--red-soft); }
 .kpi-label { font-size: 12px; color: var(--ink2); }
 .kpi-value { font-size: 24px; font-weight: 600; margin: 2px 0; }
 .kpi-card.bad .kpi-value { color: var(--red); }
@@ -177,8 +173,8 @@
 .rtm-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .rtm-table th, .rtm-table td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
 .rtm-table th { color: var(--ink2); font-weight: 500; font-size: 12px; }
-tr.state-uncovered { background: #fff7ed; }
-tr.state-partial { background: #fffbeb; }
+tr.state-uncovered { background: var(--red-soft); }
+tr.state-partial { background: var(--orange-soft); }
 tr.state-deferred { opacity: 0.72; }
 
 .rtm-node {
@@ -192,7 +188,7 @@ tr.state-deferred { opacity: 0.72; }
 .n-r { background: var(--blue-soft); color: var(--blue); }
 .n-cr { background: var(--green-soft); color: var(--green); }
 .n-req { background: var(--orange-soft); color: var(--orange); }
-.n-dsg { background: #f1ebfa; color: #6b4fa3; }
+.n-dsg { background: var(--purple-soft); color: var(--purple); }
 .rtm-node.deferred { text-decoration: line-through; opacity: 0.6; }
 .node-op { display: inline-block; margin-right: 6px; }
 tr.row-flash { animation: rtm-flash 1.2s ease-in-out 2; }
@@ -207,17 +203,17 @@ tr.row-flash { animation: rtm-flash 1.2s ease-in-out 2; }
 .trace-head { font-size: 12px; color: var(--ink2); font-weight: 600; }
 .trace-arrow { color: var(--ink2); padding-top: 22px; }
 
-.st-covered { background: #ecfdf5; color: var(--green); border-color: #bbf7d0; }
-.st-partial { background: #fffbeb; color: var(--orange); border-color: #fde68a; }
-.st-uncovered { background: #fef2f2; color: var(--red); border-color: #fecaca; }
-.st-deferred { background: #f3f4f6; color: var(--ink2); border-color: var(--line); }
+.st-covered { background: var(--green-soft); color: var(--green); border-color: color-mix(in srgb, var(--green) 35%, transparent); }
+.st-partial { background: var(--orange-soft); color: var(--orange); border-color: color-mix(in srgb, var(--orange) 35%, transparent); }
+.st-uncovered { background: var(--red-soft); color: var(--red); border-color: color-mix(in srgb, var(--red) 40%, transparent); }
+.st-deferred { background: var(--soft2); color: var(--ink2); border-color: var(--line); }
 
 .dsg-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
 .dsg-card {
   border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px;
   display: flex; flex-direction: column; gap: 4px;
 }
-.dsg-card.reg { border-color: #bbf7d0; background: #f6fef9; }
+.dsg-card.reg { border-color: color-mix(in srgb, var(--green) 35%, transparent); background: var(--green-soft); }
 .dsg-prefix { font-family: var(--font-mono); font-size: 12px; color: var(--blue); }
 .dsg-name { font-size: 13px; }
 
@@ -268,10 +264,10 @@ tr.row-flash { animation: rtm-flash 1.2s ease-in-out 2; }
   border: 1px solid var(--line); background: var(--canvas); border-radius: 999px;
   padding: 1px 10px; font-size: 12px; cursor: pointer; color: var(--ink); white-space: nowrap;
 }
-.status-chip.ok { background: #ecfdf5; color: var(--green); border-color: #bbf7d0; }
-.status-chip.warn { background: #fffbeb; color: var(--orange); border-color: #fde68a; }
-.status-chip.info { background: #eff6ff; color: var(--blue); border-color: #dbe3ff; }
-.status-chip.err { background: #fef2f2; color: var(--red); border-color: #fecaca; }
+.status-chip.ok { background: var(--green-soft); color: var(--green); border-color: color-mix(in srgb, var(--green) 35%, transparent); }
+.status-chip.warn { background: var(--orange-soft); color: var(--orange); border-color: color-mix(in srgb, var(--orange) 35%, transparent); }
+.status-chip.info { background: var(--blue-soft); color: var(--blue); border-color: color-mix(in srgb, var(--blue) 30%, transparent); }
+.status-chip.err { background: var(--red-soft); color: var(--red); border-color: color-mix(in srgb, var(--red) 40%, transparent); }
 .status-chip.on { outline: 1px solid currentColor; }
 .chip-detail { min-width: 340px; max-width: 460px; font-size: 12.5px; line-height: 1.7; display: block; }
 .chip-detail-body { display: block; margin-top: 6px; white-space: pre-line; }
@@ -283,13 +279,13 @@ tr.row-flash { animation: rtm-flash 1.2s ease-in-out 2; }
 .kpi-ops { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 4px; }
 .kpi-ops .act.mini { font-size: 11px; padding: 2px 6px; }
 .plabel { font-size: 11px; font-weight: 600; margin-right: 8px; white-space: nowrap; }
-.plabel.add { color: var(--green, #16a34a); }
-.plabel.mod { color: var(--orange, #d97706); }
+.plabel.add { color: var(--green); }
+.plabel.mod { color: var(--orange); }
 .plabel.del { color: var(--red); }
 
 /* L2 补丁处置留痕 */
-.patch-trail { margin: 4px 0 10px; font-size: 12px; color: var(--muted, #64748b); }
+.patch-trail { margin: 4px 0 10px; font-size: 12px; color: var(--ink2); }
 .patch-trail summary { cursor: pointer; user-select: none; }
 .patch-trail-row { display: flex; align-items: baseline; gap: 8px; padding: 3px 0 3px 12px; }
 .patch-trail-row .pend-desc { flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 50%; }
-.patch-trail-row .rsn { color: var(--muted, #64748b); }
+.patch-trail-row .rsn { color: var(--ink2); }

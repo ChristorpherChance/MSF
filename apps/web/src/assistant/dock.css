@@ -67,7 +67,7 @@
   align-items: center;
   gap: 5px;
   background: var(--blue-soft);
-  color: #1A6BBB;
+  color: var(--blue-ink);
   border-radius: 6px;
   padding: 4px 8px;
   font-size: 12px;
@@ -181,7 +181,7 @@
 .toolcard .tc-head { background: var(--soft); padding: 6px 10px; display: flex; gap: 8px; align-items: center; font-weight: 600; }
 .toolcard .tc-body { padding: 8px 10px; color: var(--ink2); overflow-wrap: anywhere; }
 .toolcard .tag { display: inline-block; border-radius: 4px; padding: 0 6px; font-size: 11px; font-weight: 400; }
-.toolcard .tag.red { background: var(--red-soft, #FDECEC); color: var(--red); }
+.toolcard .tag.red { background: var(--red-soft); color: var(--red); }
 
 /* 任务卡/建议行动钮（tl-item 可点击时 hover 高亮） */
 .tasklist { border: 1px solid var(--line); border-radius: 8px; margin-top: 8px; overflow: hidden; }
@@ -195,8 +195,8 @@
 .timing-line { margin-top: 6px; padding-top: 5px; border-top: 1px dashed var(--line); color: var(--ink2); font-size: 11.5px; }
 
 /* 引用：消息内引用条 + 输入区引用块 */
-.msg-quote { border-left: 3px solid var(--blue); background: var(--blue-soft); border-radius: 4px; padding: 4px 8px; margin-bottom: 6px; font-size: 11.5px; color: #1A6BBB; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.quote-block { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; padding: 8px 10px; background: var(--blue-soft); border: 1px solid #C9E2F8; border-radius: 8px; font-size: 12px; }
+.msg-quote { border-left: 3px solid var(--blue); background: var(--blue-soft); border-radius: 4px; padding: 4px 8px; margin-bottom: 6px; font-size: 11.5px; color: var(--blue-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.quote-block { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; padding: 8px 10px; background: var(--blue-soft); border: 1px solid color-mix(in srgb, var(--blue) 25%, transparent); border-radius: 8px; font-size: 12px; }
 .quote-block .qb-main { font-weight: 700; white-space: nowrap; flex-shrink: 0; }
 .quote-block .qb-text { flex: 1; min-width: 0; color: var(--ink2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 

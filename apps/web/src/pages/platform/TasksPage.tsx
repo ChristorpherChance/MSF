@@ -113,7 +113,7 @@ export function TasksPage() {
         <h1 className="tasks-title">⚡ 任务中心</h1>
         <p className="tasks-sub">跨阶段 Task 汇总与事件流{projectName ? ` · 当前项目：${projectName}` : ''}</p>
         {error && (
-          <div className="card" style={{ borderColor: 'var(--bad, #c0392b)', padding: '10px 14px', marginBottom: 12 }}>
+          <div className="card" style={{ borderColor: 'var(--red)', padding: '10px 14px', marginBottom: 12 }}>
             ⚠ {error}（数据可能不完整；恢复后自动重试）
             <button className="sm ghost-link" style={{ marginLeft: 8 }} onClick={() => void load()}>↻ 重试</button>
           </div>

@@ -1,28 +1,35 @@
 /* 全局弹层设施（DSG-U02-5：层级 顶栏50 < 抽屉150 < 浮球200 < modal300 < popover400 < toast500） */
 
-/* modal：单实例替换式，点遮罩/Esc 关闭 */
+/* modal：单实例替换式，点遮罩/Esc 关闭（U-A3：收编 .modal-overlay 作用域，避免与 req/material 的 .modal 撞车） */
 .modal-overlay {
   position: fixed; inset: 0; z-index: 300;
   background: rgba(15, 23, 42, .4);
   display: flex; align-items: center; justify-content: center;
 }
-.modal {
+.modal-overlay .modal {
   background: var(--canvas); border-radius: 12px; box-shadow: var(--shadow-modal);
   width: 480px; max-width: 94vw; max-height: 88vh;
   display: flex; flex-direction: column;
 }
-.modal.wide { width: 680px; }
-.modal.wider { width: 780px; }
-.modal-head {
+.modal-overlay .modal.wide { width: 680px; }
+.modal-overlay .modal.wider { width: 780px; }
+.modal-overlay .modal-head {
   display: flex; align-items: center; gap: 8px;
   padding: 14px 18px; border-bottom: 1px solid var(--line);
   font-weight: 700; font-size: 15px;
 }
-.modal-head .modal-x { margin-left: auto; border: none; background: none; font-size: 16px; cursor: pointer; color: var(--ink2); }
-.modal-body { padding: 16px 18px; overflow-y: auto; font-size: 13.5px; }
-.modal-foot {
+.modal-overlay .modal-head .modal-x { margin-left: auto; border: none; background: none; font-size: 16px; cursor: pointer; color: var(--ink2); }
+.modal-overlay .modal-body { padding: 16px 18px; overflow-y: auto; font-size: 13.5px; }
+.modal-overlay .modal-foot {
   display: flex; justify-content: flex-end; gap: 8px;
   padding: 12px 18px; border-top: 1px solid var(--line);
+}
+/* 表单行（material 页删除确认等 ui Modal 场景自持；.msk 场景由 material.css 同款） */
+.modal-overlay .modal .form-row { margin-top: 10px; }
+.modal-overlay .modal .form-row label { display: block; font-size: 12px; color: var(--ink2); margin-bottom: 4px; }
+.modal-overlay .modal .form-row input {
+  width: 100%; box-sizing: border-box; padding: 6px 8px;
+  border: 1px solid var(--line); border-radius: 6px; font: inherit;
 }
 
 /* popover：锚点定位、点击外部关闭 */

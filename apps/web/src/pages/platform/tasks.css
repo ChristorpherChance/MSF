@@ -34,12 +34,12 @@
 .tt-time { color: var(--ink2); font-size: 12px; white-space: nowrap; }
 .tt-empty { text-align: center; color: var(--ink2); padding: 24px !important; font-size: 13px; }
 
-.tag { display: inline-block; border-radius: 4px; padding: 1px 8px; font-size: 11.5px; background: var(--soft2); color: var(--ink2); }
-.tag-material { background: var(--blue-soft); color: #1A6BBB; }
-.tag-req { background: var(--orange-soft); color: var(--orange); }
-.tag-design { background: #F1EBFA; color: #6B4FA3; }
-.tag-dev { background: var(--green-soft); color: var(--green); }
-.tag-test { background: var(--red-soft); color: var(--red); }
+/* .tag 基础定义已收编 tokens.css（U-A2），本页仅保留任务域派生色 */
+.tag-material { background: var(--blue-soft); color: var(--blue-ink); border-color: color-mix(in srgb, var(--blue) 30%, transparent); }
+.tag-req { background: var(--orange-soft); color: var(--orange); border-color: color-mix(in srgb, var(--orange) 35%, transparent); }
+.tag-design { background: var(--purple-soft); color: var(--purple); border-color: color-mix(in srgb, var(--purple) 30%, transparent); }
+.tag-dev { background: var(--green-soft); color: var(--green); border-color: color-mix(in srgb, var(--green) 35%, transparent); }
+.tag-test { background: var(--red-soft); color: var(--red); border-color: color-mix(in srgb, var(--red) 35%, transparent); }
 .tag-evt { font-family: var(--font-mono); font-size: 11px; }
 
 .task-st { font-size: 12px; }
@@ -48,10 +48,11 @@
 .task-st.st-bad { color: var(--red); }
 .task-st.st-idle { color: var(--ink2); }
 
-.prog { width: 90px; height: 4px; background: var(--soft2); border-radius: 2px; overflow: hidden; }
-.prog > i { display: block; height: 100%; background: var(--blue); border-radius: 2px; }
-.prog > i.ok { background: var(--green); }
-.prog > i.bad { background: var(--red); }
+/* 进度条收编表格作用域（U-A5：裸 .prog 与 material/dev 撞车，90px 宽度会串到看板/树行） */
+.tasks-table .prog { width: 90px; height: 4px; background: var(--soft2); border-radius: 2px; overflow: hidden; }
+.tasks-table .prog > i { display: block; height: 100%; background: var(--blue); border-radius: 2px; }
+.tasks-table .prog > i.ok { background: var(--green); }
+.tasks-table .prog > i.bad { background: var(--red); }
 
 .ghost-link { border: none; background: none; color: var(--blue); cursor: pointer; font-size: 12px; padding: 2px 6px; border-radius: 6px; }
 .ghost-link:hover { background: var(--blue-soft); }

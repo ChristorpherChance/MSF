@@ -14,6 +14,10 @@
   --orange-soft: #FBEBDE;
   --red: #E56458;
   --red-soft: #FCE9E7;
+  /* RTM DSG 节点紫（DSG-U01-6 R6 四色之一）与深一档文字蓝（浅蓝底上的可读文字色） */
+  --purple: #6B4FA3;
+  --purple-soft: #F1EBFA;
+  --blue-ink: #1A6BBB;
   --radius: 8px;
   --shadow: 0 1px 2px rgba(0, 0, 0, .05), 0 4px 12px rgba(0, 0, 0, .04);
   --shadow-modal: 0 12px 40px rgba(0, 0, 0, .18);
@@ -38,6 +42,33 @@ body {
 /* 基础控件（DSG-U01-5：聚焦态 蓝边+蓝晕；disabled 统一 opacity .45） */
 button { font-family: inherit; }
 button:disabled { opacity: .45; cursor: default; }
+/* 禁用态可读性加强（UI 美化专项 U-A6）：带文字的动作钮禁用不再洗白——
+   实心主钮改灰底深字，描边钮改浅灰底；icon-only 钮仍走上方 opacity 口径。
+   button. 前缀用于压过各页 .act:disabled{opacity:.5} 等同/低特异规则。 */
+button.act:disabled, button.sm:disabled, button.primary:disabled {
+  opacity: 1; cursor: not-allowed;
+  background: var(--soft); color: var(--ink2); border-color: var(--line);
+}
+button.act.primary:disabled, button.sm.primary:disabled, button.primary:disabled {
+  background: var(--soft2); color: var(--ink2); border-color: var(--line);
+}
+button.act.danger-ghost:disabled, button.sm.danger-ghost:disabled {
+  background: var(--soft); color: var(--ink2); border-color: var(--line);
+}
+/* 键盘可达性：按钮聚焦环（此前仅输入框有聚焦态） */
+button:focus-visible, a:focus-visible {
+  outline: 2px solid var(--blue); outline-offset: 1px; border-radius: 4px;
+}
+
+/* 全站共享 tag（UI 美化专项 U-A2：原 req/projects/tasks 三处定义撞车，归一为唯一权威） */
+.tag {
+  display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px;
+  background: var(--soft2); color: var(--ink2); border: 1px solid var(--line);
+}
+.tag-ok { background: var(--green-soft); color: var(--green); border-color: color-mix(in srgb, var(--green) 35%, transparent); }
+.tag-warn { background: var(--orange-soft); color: var(--orange); border-color: color-mix(in srgb, var(--orange) 35%, transparent); }
+.tag-info { background: var(--blue-soft); color: var(--blue); border-color: color-mix(in srgb, var(--blue) 30%, transparent); }
+.tag-err { background: var(--red-soft); color: var(--red); border-color: color-mix(in srgb, var(--red) 35%, transparent); }
 input[type='text'], textarea, select {
   font-family: inherit;
   font-size: 13px;

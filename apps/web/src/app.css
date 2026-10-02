@@ -42,7 +42,7 @@
 .topbar-logo:hover { color: var(--blue); }
 
 .badge-chip {
-  background: var(--blue-soft); color: #1A6BBB;
+  background: var(--blue-soft); color: var(--blue-ink);
   border-radius: 999px; padding: 2px 10px;
   font-size: 12px; font-weight: 600;
   text-decoration: none; white-space: nowrap;

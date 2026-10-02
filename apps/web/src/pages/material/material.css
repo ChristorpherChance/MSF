@@ -1,14 +1,14 @@
 /* 资料页布局（LLD-6 §3.2 DSG-U03-2 + §2 DSG-U02-3 三栏工作模式） */
 
-/* 子页签：📥 文件解析 / 🛠 内容解析 */
-.subtabs {
+/* 子页签：📥 文件解析 / 🛠 内容解析（U-A1：改名 .mat-subtabs，避免与 req.css 胶囊式 .subtabs 撞车出蓝底蓝字） */
+.mat-subtabs {
   display: flex;
   gap: 4px;
   padding: 8px 20px 0;
   background: var(--canvas);
   border-bottom: 1px solid var(--line);
 }
-.subtabs button {
+.mat-subtabs button {
   border: none;
   background: none;
   padding: 8px 14px;
@@ -17,7 +17,8 @@
   border-bottom: 2px solid transparent;
   font: inherit;
 }
-.subtabs button.on {
+.mat-subtabs button:hover { color: var(--ink); }
+.mat-subtabs button.on {
   color: var(--blue);
   border-bottom-color: var(--blue);
   font-weight: 600;
@@ -283,7 +284,7 @@ pre.md-src {
   border-color: var(--blue);
   color: #fff;
 }
-.doc-toolbar .act:disabled { opacity: 0.5; cursor: not-allowed; }
+/* 禁用态统一由 tokens.css 可读性规则承载（U-A6） */
 .mat-banner {
   padding: 8px 16px;
   font-size: 13px;
@@ -320,9 +321,8 @@ pre.md-src {
   border-color: var(--blue);
   color: #fff;
 }
-.batch-bar .act:disabled { opacity: 0.5; cursor: not-allowed; }
 
-/* 弹窗 */
+/* 弹窗（U-A3：.modal 收编 .msk 作用域，避免与 ui.css/req.css 的 .modal 撞车） */
 .msk {
   position: fixed;
   inset: 0;
@@ -332,7 +332,7 @@ pre.md-src {
   justify-content: center;
   z-index: 60;
 }
-.modal {
+.msk .modal {
   width: min(640px, 92vw);
   max-height: 84vh;
   overflow-y: auto;
@@ -340,17 +340,17 @@ pre.md-src {
   border-radius: var(--radius);
   border: 1px solid var(--line);
   padding: 20px 22px;
-  box-shadow: 0 12px 40px rgba(15, 18, 25, 0.25);
+  box-shadow: var(--shadow-modal);
 }
-.modal h3 { margin: 0 0 4px; }
-.modal .sub { color: var(--ink2); font-size: 13px; margin: 0 0 12px; }
-.modal .foot {
+.msk .modal h3 { margin: 0 0 4px; }
+.msk .modal .sub { color: var(--ink2); font-size: 13px; margin: 0 0 12px; }
+.msk .modal .foot {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
   margin-top: 16px;
 }
-.modal .foot .act {
+.msk .modal .foot .act {
   border: 1px solid var(--line);
   background: var(--canvas);
   border-radius: 8px;
@@ -358,13 +358,12 @@ pre.md-src {
   cursor: pointer;
   font: inherit;
 }
-.modal .foot .act.primary {
+.msk .modal .foot .act.primary {
   background: var(--blue);
   border-color: var(--blue);
   color: #fff;
 }
-.modal .foot .act.danger { color: var(--red); border-color: var(--red); }
-.modal .foot .act:disabled { opacity: 0.5; cursor: not-allowed; }
+.msk .modal .foot .act.danger { color: var(--red); border-color: var(--red); }
 .mrow {
   display: flex;
   align-items: center;
@@ -418,7 +417,7 @@ pre.md-src {
   gap: 2px;
   font-size: 15px;
 }
-.ops-col .opbtn span { font-size: 10px; color: var(--ink2); }
+.ops-col .opbtn span { font-size: 11px; color: var(--ink2); }
 .ops-col .opbtn.active { border-color: var(--blue); background: var(--blue-soft); }
 .ops-panel {
   width: 236px;
@@ -501,10 +500,10 @@ pre.md-src {
 .po-item:is(button):hover { background: var(--soft); }
 .po-item:is(button):disabled { opacity: 0.45; cursor: not-allowed; }
 
-/* 删除确认 modal 表单行 */
-.modal .form-row { margin-top: 10px; }
-.modal .form-row label { display: block; font-size: 12px; color: var(--ink2); margin-bottom: 4px; }
-.modal .form-row input {
+/* 删除确认 modal 表单行（.msk 作用域；ui Modal 场景由 ui.css 自持同款） */
+.msk .modal .form-row { margin-top: 10px; }
+.msk .modal .form-row label { display: block; font-size: 12px; color: var(--ink2); margin-bottom: 4px; }
+.msk .modal .form-row input {
   width: 100%;
   box-sizing: border-box;
   padding: 6px 8px;
