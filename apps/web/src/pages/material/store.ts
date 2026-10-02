@@ -146,10 +146,25 @@ export const useMaterialView = create<MaterialState>((set, get) => ({
           subTab === 'file' ? 'parsed' : 'content',
         );
       }
+      // W5-002：刷新不清勾选——仅剔除已不存在的节点（删除/换项目由 init 重置兜住），
+      // 「批量解析→接着批量定稿同一批」链路不再被迫重选
+      const alive = new Set<string>();
+      const walk = (nodes: TreeNode[]) => {
+        for (const nd of nodes) {
+          alive.add(nd.id);
+          if (nd.children) walk(nd.children);
+        }
+      };
+      walk(tree.originalTree);
+      walk(tree.parsedTree);
+      const checked = Object.fromEntries(
+        Object.entries(get().checked).filter(([id]) => alive.has(id)),
+      );
       set({
         originalTree: tree.originalTree,
         parsedTree: tree.parsedTree,
         detail,
+        checked,
         loading: false,
       });
     } catch (e) {

@@ -8,7 +8,7 @@ import { executeCommand, registerCommand, type CommandContext } from '../evidenc
  * ToolBridge 工具注册表（DSG-D08-3；A08-5/6；REQ-605/606/613）：
  * - 封闭注册表：未注册 TOOL_UNREGISTERED；参数校验失败 TOOL_ARGS_INVALID
  * - 越界工具（定稿/放行/写类）编排层直接拒绝：ai_tool_calls 记 denied + TOOL_DENIED（不执行、不转发）
- * - 允许集本期为只读三件套：nav.goto / read_context / propose_next_step（规则引擎，SQL 直读他域表）
+ * - 允许集为只读/导航四件套：nav.goto / read_context / doc.read / propose_next_step（SQL 直读他域表，不写）
  * - 一切调用经 ai.tool.invoke 命令：append-only 留痕（REQ-613）
  */
 
@@ -37,6 +37,11 @@ const ROUTES: Record<string, string> = {
   // W3-007：RTM 子页签直达（助手承诺「查看 RTM」落对页签）
   rtm: '/req?tab=rtm',
 };
+
+const DOC_REQ_KINDS = new Set(['crd', 'prd']);
+const DOC_DSG_KINDS = new Set(['hld', 'mod', 'alg', 'cls', 'db', 'api', 'ui', 'nfr']);
+/** doc.read 正文上限（字符）：防爆模型上下文（对齐会话参考注入的 12000 截断口径） */
+const DOC_READ_CAP = 12000;
 
 const TOOLS: ToolDef[] = [
   {
@@ -67,6 +72,46 @@ const TOOLS: ToolDef[] = [
         designDocsFinal: await one('SELECT count(*) AS n FROM dsg_documents WHERE project_id=$1 AND final_version_id IS NOT NULL'),
         devTasks: await one('SELECT count(*) AS n FROM dev_tasks WHERE project_id=$1'),
         testBatches: await one('SELECT count(*) AS n FROM tst_batches WHERE project_id=$1'),
+      };
+    },
+  },
+  {
+    name: 'doc.read',
+    kind: 'read',
+    // W5-001：助手此前读不到任何文档正文（read_context 只有计数），
+    // 「PRD 哪一节承接 X / REQ-00n 原话」类高频诉求只能拒答；补只读正文通道
+    description: '读取指定文档的当前稿正文（kind：crd|prd 需求文档；hld|mod|alg|cls|db|api|ui|nfr 设计册）。回答「文档里某条怎么写的/哪一节承接某需求」类问题前调用',
+    argsSchema: { kind: 'string' },
+    required: ['kind'],
+    async run(client, projectId, args) {
+      const kind = String(args['kind']);
+      const isReq = DOC_REQ_KINDS.has(kind);
+      if (!isReq && !DOC_DSG_KINDS.has(kind)) {
+        throw new DomainError('TOOL_ARGS_INVALID',
+          `kind 枚举 ${[...DOC_REQ_KINDS, ...DOC_DSG_KINDS].join('|')}`, 'kind');
+      }
+      // SQL 直读他域表（与 read_context 同口径，只读）；取当前稿，附定稿态供模型如实表述
+      const sql = isReq
+        ? `SELECT v.version_no, v.content, d.final_version_id IS NOT NULL AS finalized
+           FROM req_documents d JOIN req_versions v ON v.id = d.current_version_id
+           WHERE d.project_id = $1 AND d.doc_kind = $2`
+        : `SELECT v.version_no, v.content, d.final_version_id IS NOT NULL AS finalized
+           FROM dsg_documents d JOIN dsg_versions v ON v.id = d.current_version_id
+           WHERE d.project_id = $1 AND d.doc_kind = $2`;
+      const r = await client.query<{ version_no: number; content: string; finalized: boolean }>(
+        sql, [projectId, kind]);
+      const row = r.rows[0];
+      if (!row) return { kind, found: false, message: '该文档尚未生成' };
+      const truncated = row.content.length > DOC_READ_CAP;
+      return {
+        kind,
+        found: true,
+        finalized: row.finalized,
+        versionNo: row.version_no,
+        truncated,
+        content: truncated
+          ? `${row.content.slice(0, DOC_READ_CAP)}\n…（截断，全文共 ${row.content.length} 字）`
+          : row.content,
       };
     },
   },

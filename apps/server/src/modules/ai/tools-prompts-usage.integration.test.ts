@@ -51,17 +51,20 @@ describe('AI 工具桥/提示词/用量（集成，需 DB）', async () => {
     await pool.end();
   });
 
-  it('工具注册表：三件套可调用，结果落 ai_tool_calls(ok)', async () => {
+  it('工具注册表：四件套可调用，结果落 ai_tool_calls(ok)', async () => {
     const list = tools.list();
-    expect(list.tools.map((t) => t.name)).toEqual(['nav.goto', 'read_context', 'propose_next_step']);
+    expect(list.tools.map((t) => t.name)).toEqual(['nav.goto', 'read_context', 'doc.read', 'propose_next_step']);
     const nav = await tools.invoke(PID, { sessionId, toolName: 'nav.goto', args: { tab: 'dev' } }, CTX);
     expect(nav.result['route']).toBe('/dev');
     const ctx2 = await tools.invoke(PID, { sessionId, toolName: 'read_context' }, CTX);
     expect(ctx2.result).toHaveProperty('materials');
+    // W5-001：doc.read——空项目如实 found:false（不抛错，ok 留痕）
+    const doc = await tools.invoke(PID, { sessionId, toolName: 'doc.read', args: { kind: 'prd' } }, CTX);
+    expect(doc.result).toMatchObject({ kind: 'prd', found: false });
     const next = await tools.invoke(PID, { sessionId, toolName: 'propose_next_step' }, CTX);
     expect((next.result['suggestions'] as string[]).length).toBeGreaterThan(0);
     const calls = await tools.callsOfSession(PID, sessionId);
-    expect(calls.items.filter((c) => c.status === 'ok').length).toBe(3);
+    expect(calls.items.filter((c) => c.status === 'ok').length).toBe(4);
   });
 
   it('越界工具 denied 留痕 + TOOL_DENIED；未注册 TOOL_UNREGISTERED；参数错 TOOL_ARGS_INVALID', async () => {
@@ -73,9 +76,12 @@ describe('AI 工具桥/提示词/用量（集成，需 DB）', async () => {
       .rejects.toMatchObject({ code: 'TOOL_ARGS_INVALID' });
     await expect(tools.invoke(PID, { sessionId, toolName: 'nav.goto', args: { tab: 'bogus' } }, CTX))
       .rejects.toMatchObject({ code: 'TOOL_ARGS_INVALID' });
+    // W5-001：doc.read kind 枚举闭集（prototype 册不开放正文直读）
+    await expect(tools.invoke(PID, { sessionId, toolName: 'doc.read', args: { kind: 'prototype' } }, CTX))
+      .rejects.toMatchObject({ code: 'TOOL_ARGS_INVALID' });
     const calls = await tools.callsOfSession(PID, sessionId);
     expect(calls.items.filter((c) => c.status === 'denied').length).toBe(2);
-    expect(calls.items.filter((c) => c.status === 'failed').length).toBe(2);
+    expect(calls.items.filter((c) => c.status === 'failed').length).toBe(3);
   });
 
   it('提示词发布/版本/回滚（is_current 单点）', async () => {

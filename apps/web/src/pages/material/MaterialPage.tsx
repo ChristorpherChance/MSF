@@ -452,7 +452,7 @@ function BatchBar({ onFinalize }: { onFinalize: (ids: string[]) => void }) {
         } else {
           toast(`已受理 ${r.accepted} 个，解析中…`, 'success');
         }
-        clearChecked();
+        // W5-002：受理后保留勾选（refresh 仅剔除消失节点），解析完可接着定稿同一批
         if (r.accepted > 0) watchParse();
       } catch (e) {
         toast(e instanceof ApiError ? e.message : '批量解析失败', 'warn');
