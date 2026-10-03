@@ -12,7 +12,7 @@
 }
 
 .notice-drawer {
-  position: fixed; top: 52px; right: 0; bottom: 0; width: 360px; z-index: 150;
+  position: fixed; top: 0; right: 0; bottom: 0; width: 360px; z-index: 150;
   background: var(--canvas); border-left: 1px solid var(--line);
   box-shadow: var(--shadow-modal);
   display: flex; flex-direction: column;

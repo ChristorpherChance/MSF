@@ -2,7 +2,7 @@
 
 /* —— V1 两层导航 —— */
 /* 固定骨架：顶页签/左栏工作区不动，内容区内部滚动（对齐 material 页口径） */
-.v17-body { display: flex; align-items: stretch; height: calc(100vh - 170px); min-height: 0; gap: 0; }
+.v17-body { display: flex; align-items: stretch; height: calc(100vh - 154px); min-height: 0; gap: 0; }
 .v17-side {
   width: 238px; flex: none; border: 1px solid var(--line); border-radius: 10px 0 0 10px;
   background: var(--canvas); display: flex; flex-direction: column; overflow: hidden;

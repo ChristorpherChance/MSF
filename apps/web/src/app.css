@@ -1,4 +1,5 @@
-/* 应用骨架（DSG-U02-1：100vh 纵向 flex；body 不滚动，滚动只发生在 .app-view 与各面板内部） */
+/* 应用骨架 V2.0（差异登记：DSG-U02-1/2 顶栏骨架改左栏三栏，待 13 册回补；
+   body 不滚动，滚动只发生在 .app-view 与各面板内部——口径不变） */
 
 .app-shell {
   height: 100vh;
@@ -7,10 +8,17 @@
   overflow: hidden;
 }
 
-.app-main {
+.app-body {
   flex: 1;
   display: flex;
   min-height: 0;
+}
+
+.app-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .app-view {
@@ -19,64 +27,119 @@
   overflow-y: auto;
 }
 
-/* --- 顶栏（DSG-U02-2：52px；Logo→项目列表→五阶段 pill→…→🔔→⚙️→用户） --- */
-.app-topbar {
+/* ================= 一级列 Rail（68px ⇄ mini 44px 纯图标） ================= */
+.rail {
+  width: 68px;
+  flex: none;
   display: flex;
-  gap: 14px;
-  padding: 0 20px;
-  height: 52px;
-  flex-shrink: 0;
+  flex-direction: column;
   background: var(--canvas);
-  border-bottom: 1px solid var(--line);
-  align-items: center;
+  border-right: 1px solid var(--line);
+  transition: width .18s ease;
+  overflow: hidden;
   z-index: 50;
 }
+.rail.mini { width: 44px; }
 
-.topbar-logo {
-  font-weight: 700;
-  font-size: 15px;
-  color: var(--ink);
-  text-decoration: none;
-  white-space: nowrap;
+.rail-logo {
+  display: flex; align-items: center; justify-content: center;
+  height: 44px; flex: none;
+  font-size: 18px; text-decoration: none;
+  border-bottom: 1px solid var(--line);
 }
-.topbar-logo:hover { color: var(--blue); }
 
-.badge-chip {
+.rail-items { flex: 1; overflow-y: auto; padding: 6px 0; }
+.rail-sep { height: 1px; background: var(--line); margin: 6px 10px; }
+.rail-foot { flex: none; border-top: 1px solid var(--line); padding: 4px 0; }
+
+.rail-btn {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  width: 100%; padding: 8px 0 6px;
+  border: none; background: none; cursor: pointer;
+  color: var(--ink2); font-size: 11px;
+  position: relative; text-decoration: none;
+}
+.rail-btn .ic { font-size: 17px; line-height: 1; }
+.rail-btn .lbl { white-space: nowrap; }
+.rail.mini .rail-btn { padding: 10px 0; }
+.rail.mini .rail-btn .lbl { display: none; }
+.rail-btn:hover { background: var(--soft); color: var(--ink); }
+.rail-btn.active { color: var(--blue-ink); }
+.rail-btn.active::before {
+  content: ''; position: absolute; left: 0; top: 6px; bottom: 6px; width: 3px;
+  border-radius: 2px; background: var(--blue);
+}
+.rail-gap { position: absolute; top: 4px; right: 8px; font-size: 9px; }
+.rail-user { cursor: default; }
+.rail-user:hover { background: none; color: var(--ink2); }
+/* 通知铃在 rail 底部按 rail-btn 口径对齐（原 nb-btn 是顶栏尺寸；按钮内容仅 🔔+角标，mini 态天然兼容） */
+.rail-foot .nb-btn {
+  width: 100%; border: none; background: none; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  padding: 8px 0 6px; color: var(--ink2); font-size: 17px; position: relative;
+}
+.rail-foot .nb-btn:hover { background: var(--soft); color: var(--ink); }
+.rail-foot .nb-badge { position: absolute; top: 2px; right: 10px; }
+
+/* ================= 二级列 SubNav（168px，margin 收拢） ================= */
+.subnav {
+  width: 168px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  background: var(--canvas);
+  border-right: 1px solid var(--line);
+  transition: margin-left .18s ease;
+  overflow: hidden;
+}
+.subnav.closed { margin-left: -168px; }
+
+.subnav-head {
+  display: flex; align-items: center; gap: 6px;
+  padding: 12px 12px 8px; flex: none;
+  font-weight: 700; font-size: 13.5px; color: var(--ink);
+}
+.subnav-x {
+  margin-left: auto; border: none; background: none; cursor: pointer;
+  color: var(--ink2); font-size: 13px; padding: 2px 6px; border-radius: 6px;
+}
+.subnav-x:hover { background: var(--soft); color: var(--ink); }
+
+.subnav-proj {
+  margin: 0 10px 8px; padding: 6px 8px; flex: none;
+  border-radius: var(--radius); font-size: 11.5px; cursor: pointer; text-align: left;
   background: var(--blue-soft); color: var(--blue-ink);
-  border-radius: 999px; padding: 2px 10px;
-  font-size: 12px; font-weight: 600;
-  text-decoration: none; white-space: nowrap;
-  max-width: 200px; overflow: hidden; text-overflow: ellipsis;
+  border: 1px solid color-mix(in srgb, var(--blue) 25%, transparent);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
-.topbar-link {
-  color: var(--ink2); text-decoration: none; font-size: 13px;
-  padding: 4px 6px; border-radius: 6px; white-space: nowrap;
+.subnav-items { flex: 1; overflow-y: auto; padding: 0 8px 8px; }
+.subnav-btn {
+  display: flex; align-items: center; gap: 7px;
+  width: 100%; padding: 8px 10px; margin: 1px 0;
+  border: none; background: none; border-radius: var(--radius);
+  font-size: 13px; color: var(--ink2); cursor: pointer; text-align: left;
 }
-.topbar-link:hover { background: var(--soft2); color: var(--ink); }
-.topbar-link.active { color: var(--blue); font-weight: 600; }
+.subnav-btn:hover { background: var(--soft); color: var(--ink); }
+.subnav-btn.active { background: var(--blue-soft); color: var(--blue-ink); font-weight: 600; }
+.subnav-badge { margin-left: auto; }
 
-.topbar-chip {
-  border: 1px solid var(--line); background: var(--canvas);
-  border-radius: 999px; padding: 2px 10px; font-size: 12px;
-  cursor: pointer; color: var(--ink); white-space: nowrap;
+/* ================= 面包屑细条 CrumbBar（36px） ================= */
+.crumbbar {
+  display: flex; align-items: center; gap: 8px;
+  height: 36px; padding: 0 14px; flex: none;
+  background: var(--canvas); border-bottom: 1px solid var(--line);
+  font-size: 13px;
 }
-.topbar-chip:hover { border-color: var(--blue); }
-
-.topbar-user { font-size: 12px; color: var(--ink2); white-space: nowrap; }
-
-/* 阶段 pill（DSG-U01-6 ③：分段控件选中=白底+shadow；永远可点击，未达标带 ⛔ 提示点） */
-.stage-nav { display: flex; gap: 2px; background: var(--soft2); border-radius: 8px; padding: 2px; }
-.stage-pill {
-  padding: 3px 12px; border-radius: 6px; font-size: 12.5px;
-  color: var(--ink2); text-decoration: none; white-space: nowrap;
-  display: inline-flex; align-items: center; gap: 4px;
+.crumb-tgl {
+  border: none; background: none; cursor: pointer;
+  color: var(--ink2); font-size: 14px; padding: 3px 7px; border-radius: 6px;
 }
-.stage-pill:hover { color: var(--ink); }
-.stage-pill.active { background: var(--canvas); font-weight: 700; color: var(--ink); box-shadow: var(--shadow); }
-.stage-pill .pill-gap { font-size: 10px; }
+.crumb-tgl:hover { background: var(--soft); color: var(--ink); }
+.crumb { color: var(--ink2); }
+.crumb b { color: var(--ink); font-weight: 600; }
 
-/* 视口提示条（DSG-U05-4，可关闭） */
+/* 视口提示条（DSG-U05-4，可关闭；V2.0 起挂在 crumbbar 之下） */
 .viewport-hint {
   background: var(--orange-soft); color: var(--ink);
   font-size: 12.5px; padding: 6px 16px;

@@ -38,7 +38,7 @@
 /* --- 非阶段页：通高抽屉（顶栏下沿到窗口底，z-index 150） --- */
 .chat-gwrap {
   position: fixed;
-  top: 52px;
+  top: 0;
   right: 0;
   bottom: 0;
   z-index: 150;

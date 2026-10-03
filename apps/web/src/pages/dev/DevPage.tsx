@@ -6,22 +6,15 @@ import { QualityPanel } from './QualityPanel';
 import { RepoPanel } from './RepoPanel';
 import { StdPanel } from './StdPanel';
 import { devApi } from './api';
-import { attentionModel, RUN_STATUS_LABEL, useDevStore, type DevTopTab } from './store';
+import { RUN_STATUS_LABEL, useDevStore } from './store';
 import '../req/req.css';
 import '../design/design.css';
 import { GateBanner } from '../../ui/GateBanner';
 import { StatusChips, type StatusChipItem } from '../../ui/StatusChips';
 import './dev.css';
 
-const TABS: Array<{ key: DevTopTab; name: string; testid: string }> = [
-  { key: 'plan', name: '任务与计划', testid: 'dev-plan' },
-  { key: 'execute', name: '开发执行', testid: 'dev-execute' },
-  // 原型 viewDev 最终覆盖口径：顶页签为「开发自测」（LLD-6 §3.5 旧文本「质量验收」已被覆盖，差异已登记）
-  { key: 'quality', name: '开发自测', testid: 'dev-quality' },
-  { key: 'change', name: '变更管理', testid: 'dev-change' },
-];
-
-/** 开发页（LLD-6 §3.5：顶页签 + 左栏工作区两层导航；REQ-401~420） */
+/** 开发页（LLD-6 §3.5：左栏工作区两层导航；REQ-401~420）
+ *  V2.0：顶层页签已收编左侧二级列（layout/SubNav，testid 与 plan/change 徽随同迁移），本工具条只留状态 */
 export function DevPage() {
   const s = useDevStore();
   useEffect(() => {
@@ -39,7 +32,6 @@ export function DevPage() {
   const pendingImpacts = s.impacts.filter((i) => i.status === 'pending-assessment');
   // V2 整页空态：无任务且无计划（尚未识别）
   const empty = s.tasks.length === 0 && s.plans.length === 0;
-  const model = attentionModel(s);
 
   // 瞬时异常/回执收为图标点（与需求/设计页同口径：固定区只留操作，点开看详情）
   const flashItems: StatusChipItem[] = [];
@@ -62,21 +54,9 @@ export function DevPage() {
   return (
     <main className="proto-wrap">
       <GateBanner stage="dev" />
-      {/* V1 顶页签 */}
+      {/* V2.0 页内工具条（页签已迁二级列；留 StatusChips + 任务统计） */}
       <div className="doc-toolbar">
         <strong>开发</strong>
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            data-testid={t.testid}
-            className={s.topTab === t.key ? 'act' : ''}
-            onClick={() => void s.setTopTab(t.key)}
-          >
-            {t.name}
-            {t.key === 'change' && pendingImpacts.length > 0 && <span className="dev-badge-block">{pendingImpacts.length}</span>}
-            {t.key === 'plan' && model.needsHuman.length > 0 && <span className="dev-badge-block">{model.needsHuman.length}</span>}
-          </button>
-        ))}
         <StatusChips items={flashItems} />
         <span className="dsg-prefix">
           任务 {s.tasks.length} · 完成 {s.tasks.filter((t) => t.col === 'done').length}

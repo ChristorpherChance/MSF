@@ -1,34 +1,12 @@
 /* 资料页布局（LLD-6 §3.2 DSG-U03-2 + §2 DSG-U02-3 三栏工作模式） */
 
-/* 子页签：📥 文件解析 / 🛠 内容解析（U-A1：改名 .mat-subtabs，避免与 req.css 胶囊式 .subtabs 撞车出蓝底蓝字） */
-.mat-subtabs {
-  display: flex;
-  gap: 4px;
-  padding: 8px 20px 0;
-  background: var(--canvas);
-  border-bottom: 1px solid var(--line);
-}
-.mat-subtabs button {
-  border: none;
-  background: none;
-  padding: 8px 14px;
-  cursor: pointer;
-  color: var(--ink2);
-  border-bottom: 2px solid transparent;
-  font: inherit;
-}
-.mat-subtabs button:hover { color: var(--ink); }
-.mat-subtabs button.on {
-  color: var(--blue);
-  border-bottom-color: var(--blue);
-  font-weight: 600;
-}
+/* V2.0：子页签（📥 文件解析 / 🛠 内容解析）已收编左侧二级列，.mat-subtabs 样式删除 */
 
 /* 三栏：左栏 288px + 中央 doc-area + 右助手 dock */
 .mat-layout {
   display: flex;
   align-items: stretch;
-  height: calc(100vh - 96px);
+  height: calc(100vh - 36px);
   min-height: 0;
 }
 .panel-left {

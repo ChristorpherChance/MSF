@@ -3,22 +3,17 @@ import { useDockStore } from '../../assistant/dock-store';
 import { GateBanner } from '../../ui/GateBanner';
 import { DocPanel } from './DocPanel';
 import { RtmPanel } from './RtmPanel';
-import { useReqView, type ReqSubTab } from './store';
+import { useReqView } from './store';
 import './req.css';
 
-const SUB_TABS: Array<{ key: ReqSubTab; label: string }> = [
-  { key: 'crd', label: '📝 CRD' },
-  { key: 'prd', label: '📦 PRD' },
-  { key: 'rtm', label: '🔗 RTM' },
-];
-
-/** 需求页（route: /req；LLD-6 §3.3 DSG-U03-3，REQ-201~210） */
+/** 需求页（route: /req；LLD-6 §3.3 DSG-U03-3，REQ-201~210）
+ *  V2.0：页签条已收编左侧二级列（layout/SubNav），本页只渲染当前 subTab 面板 */
 export function ReqPage() {
   const { subTab, setSubTab, init } = useReqView();
   useEffect(() => {
     void init();
   }, [init]);
-  // 顶栏「🔗 RTM」入口：?tab=rtm 直达（DSG-U02-2）
+  // 「🔗 RTM」直达：?tab=rtm 一次性读入（DSG-U02-2；V2.0 起二级列 🔗 RTM 项即此入口）
   useEffect(() => {
     if (new URLSearchParams(window.location.search).get('tab') === 'rtm') void setSubTab('rtm');
   }, [setSubTab]);
@@ -30,19 +25,6 @@ export function ReqPage() {
   return (
     <main>
       <GateBanner stage="req" />
-      <div className="subtabs" role="tablist">
-        {SUB_TABS.map((t) => (
-          <button
-            key={t.key}
-            role="tab"
-            aria-selected={subTab === t.key}
-            className={subTab === t.key ? 'on' : ''}
-            onClick={() => void setSubTab(t.key)}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
       {subTab === 'rtm' ? <RtmPanel /> : <DocPanel kind={subTab} />}
     </main>
   );

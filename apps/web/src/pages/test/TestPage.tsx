@@ -3,7 +3,7 @@ import { BatchPlanPanel } from './BatchPlanPanel';
 import { RunPanel } from './RunPanel';
 import { DefectPanel } from './DefectPanel';
 import { ReportPanel } from './ReportPanel';
-import { useTstStore, type TstSubTab } from './store';
+import { useTstStore } from './store';
 import '../req/req.css';
 import '../design/design.css';
 import '../dev/dev.css';
@@ -11,19 +11,13 @@ import { GateBanner } from '../../ui/GateBanner';
 import { StatusChips, type StatusChipItem } from '../../ui/StatusChips';
 import './test.css';
 
-const TABS: Array<{ key: TstSubTab; name: string }> = [
-  { key: 'plan', name: '提测与计划' },
-  { key: 'run', name: '用例与执行' },
-  { key: 'defect', name: '缺陷与回归' },
-  { key: 'report', name: '报告与交付' },
-];
-
 const STATUS_NAME: Record<string, string> = {
   received: '已接收', planned: '已计划', approved: '已批准', executing: '执行中',
   reported: '已报告', released: '已放行', blocked: '已阻断',
 };
 
-/** 测试验收页（LLD-6 §3.6 四页签 + 批次条 .qa-batchbar；REQ-501~511） */
+/** 测试验收页（LLD-6 §3.6 四页签 + 批次条 .qa-batchbar；REQ-501~511）
+ *  V2.0：页签已收编左侧二级列（layout/SubNav，defect 未关闭计数徽随同迁移），本工具条只留状态 */
 export function TestPage() {
   const s = useTstStore();
   useEffect(() => {
@@ -31,7 +25,6 @@ export function TestPage() {
   }, []);
   if (!s.projectId) return <main style={{ padding: 24 }}>加载中…</main>;
 
-  const openDefects = s.defects.filter((d) => d.status !== 'closed').length;
   const env = s.batchDetail?.snapshot.environment as { os?: string; browser?: string } | undefined;
 
   // 瞬时异常/回执收为图标点（与需求/设计页同口径：固定区只留操作，点开看详情）
@@ -66,18 +59,9 @@ export function TestPage() {
           {env ? `环境 ${env.os ?? '—'} / ${env.browser ?? '—'}` : '环境 —（接收批次后固定）'}
         </span>
       </header>
+      {/* V2.0 页内工具条（页签已迁二级列；留 StatusChips） */}
       <div className="doc-toolbar">
         <strong>测试验收</strong>
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            className={s.subTab === t.key ? 'act' : ''}
-            onClick={() => void s.setSubTab(t.key)}
-          >
-            {t.name}
-            {t.key === 'defect' && openDefects > 0 && <span className="dev-badge-block">{openDefects}</span>}
-          </button>
-        ))}
         <StatusChips items={flashItems} />
         <span className="dsg-prefix">{s.loading ? '刷新中…' : ''}</span>
       </div>

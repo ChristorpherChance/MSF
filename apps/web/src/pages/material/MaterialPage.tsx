@@ -7,14 +7,9 @@ import { BatchFinalizeModal, ProcessJobModal } from './BatchModals';
 import { DetailView, ViewModeSwitch } from './DetailView';
 import { TreePanel } from './TreePanel';
 import { UploadZone } from './UploadZone';
-import { useMaterialView, type MaterialSubTab } from './store';
+import { useMaterialView } from './store';
 import { GateBanner, useStagesStore } from '../../ui/GateBanner';
 import './material.css';
-
-const SUB_TABS: Array<{ key: MaterialSubTab; label: string }> = [
-  { key: 'file', label: '📥 文件解析' },
-  { key: 'content', label: '🛠 内容解析' },
-];
 
 type JobKind = 'translate' | 'mask' | 'index';
 
@@ -27,34 +22,11 @@ const OPS: Array<{ key: string; icon: string; label: string; kind?: JobKind }> =
   { key: 'attach', icon: '📎', label: '附件' },
 ];
 
-function SubTabs() {
-  const { subTab, setSubTab, refresh, requestGuard } = useMaterialView();
-  return (
-    <div className="mat-subtabs" role="tablist">
-      {SUB_TABS.map((t) => (
-        <button
-          key={t.key}
-          role="tab"
-          aria-selected={subTab === t.key}
-          className={subTab === t.key ? 'on' : ''}
-          onClick={() =>
-            requestGuard(() => {
-              setSubTab(t.key);
-              void refresh();
-            })
-          }
-        >
-          {t.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
 /**
  * 资料页（route: /material；LLD-6 §3.2 DSG-U03-2，REQ-101~115）。
  * T1-19：批量弹窗与定稿交互（快照/复核/变化行提示与后端五态一致）。
  * W4：⬇下载 / 删除双向同步 modal / 行内进度条与失败原因 / ops-panel 展开表单 / v11Guard 三选 modal。
+ * V2.0：页签条（📥 文件解析/🛠 内容解析）已收编左侧二级列（layout/SubNav），GuardModal 拦截口径经 requestGuard 保留。
  */
 export function MaterialPage() {
   const { subTab, selectedFileId, loading, error, init } = useMaterialView();
@@ -80,7 +52,6 @@ export function MaterialPage() {
   return (
     <main>
       <GateBanner stage="material" />
-      <SubTabs />
       <div className="mat-layout">
         <aside className="panel-left">
           {subTab === 'file' && <UploadZone />}

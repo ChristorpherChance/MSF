@@ -2,7 +2,7 @@
 
 /* —— 文档面：分册左列表 —— */
 /* 固定骨架：分册栏/目录/正文各自内部滚动，工具栏不动（对齐 material 页口径） */
-.design-doc-layout { display: flex; align-items: stretch; height: calc(100vh - 130px); min-height: 0; overflow: hidden; }
+.design-doc-layout { display: flex; align-items: stretch; height: calc(100vh - 70px); min-height: 0; overflow: hidden; }
 .book-col { width: 200px; flex: none; border-right: 1px solid var(--line); padding: 12px 8px; display: flex; flex-direction: column; gap: 4px; overflow-y: auto; min-height: 0; }
 /* 嵌套的 req-doc 在固定容器内改为弹性填充（req.css 的视口固定高度仅用于需求页顶层） */
 .design-doc-layout .req-doc { height: auto; min-height: 0; }
