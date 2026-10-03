@@ -39,10 +39,11 @@ dock 工具全只读；改文档唯一通道是需求页「🔄 重新生成」�
 - 服务端流程（req/generate.service.ts 扩方法 `proposeEditsFromChat`）：
   1. 读当前文档有效内容（getDoc 同路径；**文档尚未生成** → 「文档还没有内容，请先在需求页生成初稿」）；
   2. 复用增量修订 prompt（`buildPrompt` 的修订分支）+ 用户 instruction，走 pi 网关**非 SSE 内部调用**（mock 模式回落确定性 mock 补丁——mock 产出约定含「命中既有节标题」与「全新节」两种形态，便于测 normalize 两分支，离线可测）；
-  3. `mdToPatches` 解析 → **normalizePatches 归一化**（新纯函数，落 platform/doc-sections.ts）：add 补丁标题命中既有节（先按锚点码 CR-nnn/REQ-nnn 匹配、再按标题精确匹配）→ 改写为 `{type:'modify', secId: 既有节 id, title: 原题, old: 既有节全文, new: 新正文}`（整节重写语义，applyPatch 的 old⊆md 校验天然兼容）；未命中保持 add。del 模型无法经 markdown 表达，本期不支持（页面手工删除能力已有）；**该归一化同时挂进需求页既有增量修订流（修复其「修改章节实为重复追加」的潜在缺陷，差异登记）**；
+  3. `mdToPatches` 解析 → **normalizePatches 归一化**（新纯函数，落 platform/doc-sections.ts）：add 补丁标题命中既有节（先按锚点码 CR-nnn/REQ-nnn 匹配、再按标题精确匹配）→ 改写为 `{type:'modify', secId: 既有节 id, title: 原题, old: 既有节 md, new: 新正文}`（整节重写语义；**old 必须取 splitSections 产出的节 md**——已 trim 且 `\n{3,}` 塌缩为 `\n\n`，不可从文档原文裸切，否则 accept 时 includes 校验失配；applyPatch 的 old⊆md 校验天然兼容整节替换）。注意不对称边界：mdToPatches 标题截 80 字符而 splitSections 不截，>80 字符的无锚点码节（如长大章标题）精确匹配会落空退回 add——CR/REQ 节走锚点码匹配不受影响，此边界登记为已知限制。del 模型无法经 markdown 表达，本期不支持（页面手工删除能力已有）；**该归一化同时挂进需求页既有增量修订流（修复其「修改章节实为重复追加」的潜在缺陷，差异登记）**；
   4. 落库走命令总线 `doc.propose-pending`（注意：命令名无域前缀；proposedBy='assistant'，留痕同现有生成流）。
 
-  **事务模型（关键）**：`ai.tool.invoke` 在命令事务内执行工具，而本工具含 10~30s 嵌套 LLM 调用——**绝不能在事务/池连接内跑 LLM**。故 runToolBlocks 对该工具走旁路：先调 service（LLM 调用无事务包裹 → 然后 `executeCommand('doc.propose-pending')` 独立事务落补丁）→ 成功后 `tools.record()` 补落 `ai_tool_calls` 行（sessionId+messageId 挂接同 invoke 口径）。补丁落库与工具留痕非同一事务是可接受口径：补丁本身即待确认草稿，留痕缺失风险由 record 失败重试一次+失败仅日志承担（与现有流末 error 帧口径一致）。其余只读工具仍走 invoke 不变。
+  **事务模型（关键）**：`ai.tool.invoke` 在命令事务内执行工具，而本工具含 10~30s 嵌套 LLM 调用——**绝不能在事务/池连接内跑 LLM**。且存在模块向约束：ReqModule 已 import AiModule 且未导出 GenerateService，AiSessionsService 直接注入 GenerateService 会构成 Nest 循环依赖（本仓刻意不用 forwardRef）。故采用**外部工具注册表**机制（platform 层新增 `registerExternalTool(name, handler)`，镜像 registerCommand 的注册表先例）：req 模块 onModuleInit 时把 `req.doc.propose_edits` 的 handler 注册进去；runToolBlocks 解析到工具块时先查外部注册表——命中则走旁路：handler 内部 LLM 调用无事务包裹 → `executeCommand('doc.propose-pending')` 独立事务落补丁 → 成功后补落 `ai_tool_calls` 行（record 需新增 public 变体：现 record() 为 private 且绑定 PoolClient，旁路在事务外，改用 pool query 直插，INSERT 语句原样平移，sessionId+messageId 挂接同 invoke 口径）；未命中注册表仍走 invoke 不变（其余只读工具口径不动）。补丁落库与工具留痕非同一事务是可接受口径：补丁本身即待确认草稿，留痕缺失风险由 record 失败重试一次+失败仅日志承担（与现有流末 error 帧口径一致）。**审计口径注**：旁路工具不产生 `ai.tool.invoke` 命令审计行，留痕=ai_tool_calls 行 + doc.propose-pending 命令审计行（测试断言按此两链）。
+  **用量口径**：嵌套 LLM 调用与生成流同口径落 `ai.usage.record`（purpose='generation'，generate.service.ts:308-312 先例）。
 
 - 前置守卫（沿用现有语义，失败=工具返回 ok:false + 人话原因，不新增错误码）：
   - 文档已定稿（VERSION_LOCKED）→ 「文档已定稿，请先在需求页解锁后再修改」；
@@ -92,6 +93,6 @@ dock 工具全只读；改文档唯一通道是需求页「🔄 重新生成」�
 ## 五、测试口径
 
 - server vitest：`buildCrossSessionDigest`（预算截断/排除本会话/排序）；`chat.history.read`（项目守卫/limit 封顶）；`proposeEditsFromChat`（mock 产补丁→normalize→propose-pending 落库留痕；未生成/定稿/未清补丁/基失配四分支拒绝）；`normalizePatches`（锚点码命中转 modify/标题命中转 modify/未命中保持 add/modify 的 old=既有节全文）；`deriveNumbering`（大章分组/无大章退化/码入括号/s0 跳过）。
-- 集成：既有 195+ 套件保持全绿；propose-pending 经工具路径的审计链断言。
+- 集成：既有 195+ 套件保持全绿；propose_edits 旁路的留痕断言=ai_tool_calls 行 + doc.propose-pending 命令审计行（旁路无 ai.tool.invoke 审计行，口径见 §二.1）。
 - 实机：①资料阶段聊「客户要双人同屏」→ 需求阶段问「客户对玩法有什么要求」AI 能引用；②dock「把 CR-002 改为支持手柄」→ 工具卡 → 前往审阅 → 高亮 → 逐条/全部接受拒绝；③CRD 重新生成 → 大章+编号目录 + 导出一致。
 - 门槛：双端 tsc、pnpm lint、check:deps、check-codes 零违规；差异登记（新工具×2、prompt 两段、导出编号注入）待 13 册回补。
