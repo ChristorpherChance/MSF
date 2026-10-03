@@ -88,6 +88,7 @@ export const COMMANDS = [
   'design.prototype.finalize', // 同名单元既是命令也是策略确认点（7 确认点之一）
   'design.prototype.upload', // 人工上传 HTML 初稿入库（V1.3 上传通道；同一套检查），差异登记
   'design.prototype.unlock', // W7-003：原型解除定稿（spec「⋯ 菜单解锁定稿」；解锁后基线实时失效，可重新生成）
+  'design.prototype.page_generate', // 页级 UI 原型生成 upsert（单页 AI 生成→MinIO 内容寻址→索引行；AI 在命令外），差异登记
   // M3 设计域：目录人工增删（A05-13）与评审结论（A05-3）
   'design.catalog.add-item',
   'design.catalog.remove-item',

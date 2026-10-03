@@ -30,9 +30,21 @@
 }
 .proto-preview {
   flex: 1; border: 1px solid var(--line); border-radius: 10px;
-  background: var(--canvas); min-height: 420px; display: flex; overflow: hidden;
+  background: var(--canvas); min-height: 420px; display: flex; flex-direction: column; overflow: hidden;
 }
 .proto-iframe { width: 100%; border: none; min-height: 560px; flex: 1; }
+
+/* 页清单行（页级原型生成：状态行 + 🎨 行内钮 + 进度/错误行内文本） */
+.pg-row { cursor: pointer; }
+.pg-row-main { display: flex; align-items: center; gap: 6px; }
+.pg-row-main .pg-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pg-row .fail-note { font-size: 11.5px; color: var(--red); }
+.proto-pages .toc-title { display: flex; align-items: center; gap: 6px; }
+.proto-pages .toc-title .mini {
+  border: 1px solid var(--line); background: var(--canvas); border-radius: 6px;
+  font-size: 11.5px; padding: 2px 8px; cursor: pointer; color: var(--ink2);
+}
+.proto-pages .toc-title .mini:hover:not(:disabled) { color: var(--blue); border-color: var(--blue); }
 
 /* —— 问题/评审/目录行 —— */
 .issue-row { display: flex; align-items: center; gap: 8px; padding: 6px 4px; font-size: 13px; border-bottom: 1px dashed var(--line); flex-wrap: wrap; }

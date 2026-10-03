@@ -12,6 +12,7 @@ import { deriveLinks, computeHealth } from '../platform/rtm-health.js';
 import { designContents } from '../platform/doc-contents.js';
 import { DesignDocsService } from './docs.service.js';
 import { CatalogService } from './catalog.service.js';
+import { composePrototype, extractPageParts, type AssemblePageInput } from './prototype-pages.js';
 
 /**
  * 原型四步流水（F02-2 状态机；A05-6/7/8/9/10/11；REQ-305~310）。
@@ -24,6 +25,8 @@ import { CatalogService } from './catalog.service.js';
 export interface GateIssue { code: string; message: string; target?: string | undefined }
 
 const sha256 = (s: string | Buffer) => createHash('sha256').update(s).digest('hex');
+/** 预览签发 content-type 覆盖（HTML 对象上传未带 Content-Type，签名时覆盖使浏览器渲染，差异登记） */
+const PROTO_HTML_CT = 'text/html; charset=utf-8';
 
 @Injectable()
 export class PrototypeService {
@@ -35,10 +38,12 @@ export class PrototypeService {
   ) {}
 
   onModuleInit(): void {
-    // A05-6 生成：门禁 PLAN_REQUIRED/PLAN_STALE/PROTOTYPE_DIRTY/PROTOTYPE_FINALIZED；HTML+manifest 落库
+    // A05-6 生成（汇总）：门禁 PLAN_REQUIRED/PLAN_STALE/PROTOTYPE_DIRTY/PROTOTYPE_FINALIZED；
+    // HTML+manifest 由服务层命令外拼装（dsg_prototype_pages 工作工件 + 占位回落），命令只登记版本（upload 先例）
     registerCommand('design.prototype.generate', async (client, payload, ctx) => {
-      const { projectId, planId, planFingerprint } = payload as {
+      const { projectId, planId, planFingerprint, html, manifest } = payload as {
         projectId: string; planId: string; planFingerprint: string;
+        html: string; manifest: { pages?: Array<{ placeholder?: boolean }> };
       };
       const issues = await this.gateIssues(client, projectId, 'generate');
       if (issues.length > 0) throw new DomainError('GATE_BLOCKED', '原型生成门禁未通过', 'prototype', { issues });
@@ -52,12 +57,10 @@ export class PrototypeService {
       if (plan.rows[0].plan_fingerprint !== planFingerprint.replace(/^sha256:/, '')) {
         throw new DomainError('VERSION_CONFLICT', '规划指纹不一致（存在并发变更）', planId);
       }
+      if (typeof html !== 'string' || !html.trim()) {
+        throw new DomainError('VALIDATION_FAILED', '汇总 HTML 必填', 'html');
+      }
       const doc = await this.ensurePrototypeDoc(client, projectId, ctx);
-      const items = await client.query<{ item_type: string; code: string; payload: Record<string, unknown>; required: boolean }>(
-        'SELECT item_type, code, payload, required FROM dsg_catalog_items WHERE project_id=$1 AND catalog_version=$2 ORDER BY item_type, code',
-        [projectId, plan.rows[0].catalog_version],
-      );
-      const { html, manifest } = buildPrototype(items.rows);
       const max = await client.query<{ v: number | null }>(
         'SELECT max(version_no) AS v FROM dsg_versions WHERE document_id=$1', [doc.id]);
       const vno = (max.rows[0]?.v ?? 0) + 1;
@@ -65,16 +68,19 @@ export class PrototypeService {
       const objectKey = `prototype/${projectId}/${doc.id}-v${vno}.html`;
       const contentFp = sha256(`${doc.id}:${sha256(html)}:${sha256(manifestStr)}`);
       const up = await this.docs.upstreamFingerprint(client, projectId, 'prd');
+      const pageN = (manifest.pages ?? []).filter((p) => !p.placeholder).length;
+      const phN = (manifest.pages ?? []).filter((p) => p.placeholder).length;
       const r = await client.query<{ id: string }>(
         `INSERT INTO dsg_versions (document_id, version_no, content, content_object_key, content_fingerprint, governing_fingerprint, refs, note, submitted_by)
-         VALUES ($1,$2,$3,$4,$5,$6,'[]','原型生成（目录驱动 mock）',$7) RETURNING id`,
-        [doc.id, vno, manifestStr, objectKey, contentFp, up.fingerprint ?? sha256('none'), ctx.actorId],
+         VALUES ($1,$2,$3,$4,$5,$6,'[]',$7,$8) RETURNING id`,
+        [doc.id, vno, manifestStr, objectKey, contentFp, up.fingerprint ?? sha256('none'),
+          `原型汇总（页原型 ${pageN} + 占位 ${phN}）`, ctx.actorId],
       );
       await client.query(
         'UPDATE dsg_documents SET current_version_id=$2, modified=false, updated_by=$3, updated_at=now() WHERE id=$1',
         [doc.id, r.rows[0]!.id, ctx.actorId],
       );
-      // HTML 对象写在命令外不幂等（对象键内容寻址由 versionId 唯一性保证，此处同事务外不可行——记录 key 由服务层落对象）
+      // 汇总 HTML 对象写在命令外不幂等（对象键由 versionId 唯一性保证；服务层先登记后落对象）
       return { prototypeVersionId: r.rows[0]!.id, v: vno, objectKey, htmlBytes: html.length };
     });
 
@@ -210,13 +216,44 @@ export class PrototypeService {
 
   // ---------- 命令入口薄封装 ----------
 
+  /**
+   * 汇总生成：命令外拼装（plan 目录条目 + dsg_prototype_pages 工作工件 + 占位回落）→ 命令登记版本 → 落对象。
+   * 竞态说明：汇总读页行期间某页刚好完成 → 本次 manifest 漏它，无数据损坏——check/finalize 门禁的
+   * 页滞后实时比对会亮 PROTOTYPE_DIRTY 提示重新汇总。
+   */
   async generate(projectId: string, planId: string, planFingerprint: string, ctx: CommandContext) {
+    const plan = await query<{ catalog_version: string }>('SELECT catalog_version FROM dsg_plans WHERE id=$1', [planId]);
+    if (!plan.rows[0]) throw new DomainError('NOT_FOUND', '规划不存在', planId);
+    const catalogVersion = plan.rows[0].catalog_version;
+    const items = await query<{ item_type: string; code: string; payload: Record<string, unknown> }>(
+      'SELECT item_type, code, payload FROM dsg_catalog_items WHERE project_id=$1 AND catalog_version=$2 ORDER BY item_type, code',
+      [projectId, catalogVersion],
+    );
+    // 仅汇总与当前 plan 同目录版本的页工件（旧目录版本生成的页视为未生成，占位回落）
+    const rows = await query<{ page_code: string; object_key: string; html_fingerprint: string; source: string }>(
+      'SELECT page_code, object_key, html_fingerprint, source FROM dsg_prototype_pages WHERE project_id=$1 AND catalog_version=$2',
+      [projectId, catalogVersion],
+    );
+    const warnings: string[] = [];
+    const assembled: AssemblePageInput[] = [];
+    for (const r of rows.rows) {
+      try {
+        const html = (await this.storage.getObject(r.object_key)).toString('utf8');
+        const parts = extractPageParts(html);
+        if (!parts) { warnings.push(`页面 ${r.page_code} 工件缺封装标记，已回落占位`); continue; }
+        assembled.push({ code: r.page_code, parts, objectKey: r.object_key, fingerprint: r.html_fingerprint, source: r.source });
+      } catch {
+        // 页行存在但对象缺失（历史 putObject 失败残留）：回落占位不阻断汇总
+        warnings.push(`页面 ${r.page_code} 工件对象缺失，已回落占位`);
+      }
+    }
+    const { html, manifest } = composePrototype(items.rows, assembled, warnings);
     const r = (await executeCommand('design.prototype.generate',
-      { projectId, planId, planFingerprint }, { ...ctx, projectId })) as {
+      { projectId, planId, planFingerprint, html, manifest }, { ...ctx, projectId })) as {
       prototypeVersionId: string; v: number; objectKey: string; htmlBytes: number;
     };
-    // 命令登记版本后写 HTML 对象（catalog 版本行不可变 → 重建确定性一致；对象写失败残留版本指向缺失对象，预览端报错可见）
-    await this.writePrototypeObject(projectId, planId, r.objectKey);
+    // 先登记后落对象（对象写失败残留版本指向缺失对象，预览端报错可见）
+    await this.storage.putObject(r.objectKey, Buffer.from(html, 'utf8'));
     return r;
   }
 
@@ -257,17 +294,6 @@ export class PrototypeService {
     };
   }
 
-  /** 生成命令内部产出 HTML——对象存储写入由命令返回 objectKey 后在此处完成（保证同事务登记先于对象写） */
-  async writePrototypeObject(projectId: string, planId: string, objectKey: string): Promise<void> {
-    const plan = await query<{ catalog_version: string }>('SELECT catalog_version FROM dsg_plans WHERE id=$1', [planId]);
-    const items = await query<{ item_type: string; code: string; payload: Record<string, unknown>; required: boolean }>(
-      'SELECT item_type, code, payload, required FROM dsg_catalog_items WHERE project_id=$1 AND catalog_version=$2 ORDER BY item_type, code',
-      [projectId, plan.rows[0]!.catalog_version],
-    );
-    const { html } = buildPrototype(items.rows);
-    await this.storage.putObject(objectKey, Buffer.from(html, 'utf8'));
-  }
-
   // ---------- 查询面 ----------
 
   /** 原型工作台状态（F02-2 状态派生：plan/plan-ready/generated/ready/finalized/stale） */
@@ -292,8 +318,31 @@ export class PrototypeService {
     const up = await this.docs.upstreamFingerprint(null, projectId, 'prd');
     const planStale = latestPlan && up.ok && latestPlan.governing_fingerprint !== up.fingerprint;
     if (planStale && status !== 'idle') status = 'stale';
+    // 页级原型工作态（差异登记）：none=未生成 / pending=已生成待汇总 / assembled=已入当前汇总版本
+    let pages: Array<{ code: string; title: string; state: 'none' | 'pending' | 'assembled'; source?: string }> = [];
+    if (latestPlan) {
+      const pageItems = await query<{ code: string; payload: Record<string, unknown> }>(
+        "SELECT code, payload FROM dsg_catalog_items WHERE project_id=$1 AND catalog_version=$2 AND item_type='page' ORDER BY code",
+        [projectId, latestPlan.catalog_version]);
+      const rows = await query<{ page_code: string; html_fingerprint: string; source: string }>(
+        'SELECT page_code, html_fingerprint, source FROM dsg_prototype_pages WHERE project_id=$1 AND catalog_version=$2',
+        [projectId, latestPlan.catalog_version]);
+      const recorded = d?.current_version_id ? await this.manifestFingerprints(null, d.current_version_id) : new Map<string, string>();
+      pages = pageItems.rows.map((pi) => {
+        const row = rows.rows.find((r) => r.page_code === pi.code);
+        const title = (pi.payload.title as string) ?? pi.code;
+        if (!row) return { code: pi.code, title, state: 'none' as const };
+        return {
+          code: pi.code, title, source: row.source,
+          state: (recorded.get(pi.code) === row.html_fingerprint ? 'assembled' : 'pending') as 'assembled' | 'pending',
+        };
+      });
+    }
+    const pagesStale = pages.some((p) => p.state === 'pending');
     return {
       status,
+      pages,
+      pagesStale,
       plan: latestPlan && {
         planId: latestPlan.id, complete: latestPlan.complete,
         fingerprint: `sha256:${latestPlan.plan_fingerprint}`,
@@ -311,8 +360,25 @@ export class PrototypeService {
     };
   }
 
-  /** A05-8 预览：签名 URL + 指纹（iframe 隔离由前端 sandbox 属性承载；独立子域为部署项）；v 指定版本号（S7 旧版预览） */
+  /** A05-8 预览：页级工作工件优先（最新生成含未汇总，内容寻址直签）→ 汇总版本整份+#hash 回落；v 指定旧版（S7） */
   async preview(projectId: string, pageId: string, v?: number): Promise<unknown> {
+    // 单页分流：最新 plan 目录版本下有页工件 → 直签单页对象（不带 hash；生成契约含同一套选态协议）
+    if (v === undefined) {
+      const plan = await query<{ catalog_version: string }>(
+        'SELECT catalog_version FROM dsg_plans WHERE project_id=$1 ORDER BY plan_no DESC LIMIT 1', [projectId]);
+      if (plan.rows[0]) {
+        const row = await query<{ object_key: string; html_fingerprint: string }>(
+          'SELECT object_key, html_fingerprint FROM dsg_prototype_pages WHERE project_id=$1 AND page_code=$2 AND catalog_version=$3',
+          [projectId, pageId, plan.rows[0].catalog_version]);
+        if (row.rows[0]) {
+          return {
+            previewUrl: await this.storage.presignedGet(row.rows[0].object_key, 300, undefined, PROTO_HTML_CT),
+            htmlFingerprint: `sha256:${row.rows[0].html_fingerprint}`,
+            sandbox: { iframe: true, csp: "default-src 'none'" },
+          };
+        }
+      }
+    }
     const doc = await query<{ current_version_id: string | null }>(
       "SELECT * FROM dsg_documents WHERE project_id=$1 AND doc_kind='prototype'", [projectId]);
     if (!doc.rows[0]) throw new DomainError('NOT_FOUND', '原型尚未生成', pageId);
@@ -329,7 +395,7 @@ export class PrototypeService {
       'SELECT * FROM dsg_versions WHERE id=$1', [verId]);
     if (!ver.rows[0]?.content_object_key) throw new DomainError('NOT_FOUND', '原型工件不存在', pageId);
     return {
-      previewUrl: `${await this.storage.presignedGet(ver.rows[0].content_object_key)}#${encodeURIComponent(pageId)}`,
+      previewUrl: `${await this.storage.presignedGet(ver.rows[0].content_object_key, 300, undefined, PROTO_HTML_CT)}#${encodeURIComponent(pageId)}`,
       htmlFingerprint: `sha256:${ver.rows[0].content_fingerprint}`,
       sandbox: { iframe: true, csp: "default-src 'none'" },
     };
@@ -369,7 +435,7 @@ export class PrototypeService {
   private async gateIssues(client: PoolClient | null, projectId: string, action: string): Promise<GateIssue[]> {
     const q = client ? client.query.bind(client) : query;
     const issues: GateIssue[] = [];
-    const plan = await q<{ id: string; governing_fingerprint: string; complete: boolean }>(
+    const plan = await q<{ id: string; governing_fingerprint: string; complete: boolean; catalog_version: string }>(
       'SELECT * FROM dsg_plans WHERE project_id=$1 ORDER BY plan_no DESC LIMIT 1', [projectId]);
     const latestPlan = plan.rows[0] ?? null;
     const doc = await q<{ id: string; current_version_id: string | null; final_version_id: string | null; modified: boolean }>(
@@ -394,6 +460,10 @@ export class PrototypeService {
       if (!latestPlan) issues.push({ code: 'PLAN_REQUIRED', message: '尚无原型规划' });
       if (!d?.current_version_id) issues.push({ code: 'PROTOTYPE_REQUIRED', message: '原型尚未生成' });
       if (d?.modified) issues.push({ code: 'PROTOTYPE_DIRTY', message: '原型已修改，须重新生成后再检查', target: d.id });
+      // 页滞后实时比对（页重生成不产生新版本，CHECK_STALE 抓不到——纯 DB 比对，复用 PROTOTYPE_DIRTY）
+      if (latestPlan && d?.current_version_id) {
+        issues.push(...await this.pageDriftIssues(client, projectId, latestPlan.catalog_version, d.current_version_id));
+      }
     }
     if (action === 'finalize') {
       if (!d?.current_version_id) issues.push({ code: 'PROTOTYPE_REQUIRED', message: '原型尚未生成' });
@@ -409,6 +479,10 @@ export class PrototypeService {
         }
       }
       if (d?.modified) issues.push({ code: 'PROTOTYPE_DIRTY', message: '原型已修改未定稿', target: d.id });
+      // 页滞后实时比对（定稿一个滞后汇总会冻结错误基线，必须拦）
+      if (latestPlan && d?.current_version_id) {
+        issues.push(...await this.pageDriftIssues(client, projectId, latestPlan.catalog_version, d.current_version_id));
+      }
     }
     if (action === 'develop') {
       // 基线有效 + RTM L0c=100%（REQ-310；复用 platform F06 实算）
@@ -432,6 +506,49 @@ export class PrototypeService {
         if (h.gaps.every((x) => x.code !== 'L0C_BELOW')) {
           issues.push({ code: 'RTM_HEALTH', message: `L0c=${(h.l0c * 100).toFixed(1)}% < 100%` });
         }
+      }
+    }
+    return issues;
+  }
+
+  /** 汇总版本 manifest 记录的页指纹（code → fingerprint；无 manifest/无页字段回落空 Map） */
+  private async manifestFingerprints(
+    client: PoolClient | null,
+    versionId: string,
+  ): Promise<Map<string, string>> {
+    const q = client ? client.query.bind(client) : query;
+    const ver = await q<{ content: string }>('SELECT content FROM dsg_versions WHERE id=$1', [versionId]);
+    try {
+      const manifest = JSON.parse(ver.rows[0]?.content ?? '{}') as {
+        pages?: Array<{ code: string; fingerprint?: string }>;
+      };
+      return new Map((manifest.pages ?? []).filter((p) => p.fingerprint).map((p) => [p.code, p.fingerprint!]));
+    } catch {
+      return new Map();
+    }
+  }
+
+  /**
+   * 页滞后实时比对（F02-2 失效由查询时判定、不写回 的同口径；纯 DB，不读 MinIO）：
+   * 页行指纹 ≠ 当前汇总版本 manifest 记录 → 页已更新未汇总；页行 catalog_version ≠ plan 锁定版本 → 依据已过期。
+   */
+  private async pageDriftIssues(
+    client: PoolClient | null,
+    projectId: string,
+    planCatalogVersion: string,
+    currentVersionId: string,
+  ): Promise<GateIssue[]> {
+    const q = client ? client.query.bind(client) : query;
+    const recorded = await this.manifestFingerprints(client, currentVersionId);
+    const rows = await q<{ page_code: string; html_fingerprint: string; catalog_version: string }>(
+      'SELECT page_code, html_fingerprint, catalog_version FROM dsg_prototype_pages WHERE project_id=$1',
+      [projectId]);
+    const issues: GateIssue[] = [];
+    for (const r of rows.rows) {
+      if (r.catalog_version !== planCatalogVersion) {
+        issues.push({ code: 'PROTOTYPE_DIRTY', message: `页面 ${r.page_code} 原型依据的目录版本已过期，须重新生成并汇总`, target: r.page_code });
+      } else if (recorded.get(r.page_code) !== r.html_fingerprint) {
+        issues.push({ code: 'PROTOTYPE_DIRTY', message: `页面 ${r.page_code} 原型已更新未汇总，须重新汇总生成`, target: r.page_code });
       }
     }
     return issues;
@@ -482,50 +599,14 @@ export class PrototypeService {
   }
 }
 
-/** mock 原型生成：目录页面×状态 → 带 data-page/data-state 标记的 HTML（检查据此静态比对） */
-function buildPrototype(items: Array<{ item_type: string; code: string; payload: Record<string, unknown> }>) {
-  const pages = items.filter((i) => i.item_type === 'page');
-  const states = items.filter((i) => i.item_type === 'state');
-  const body = pages.map((p) => {
-    const title = (p.payload.title as string) ?? p.code;
-    const statesHtml = states.map((s) =>
-      `    <section data-page="${p.code}" data-state="${s.code}"><h2>${title} · ${(s.payload.title as string) ?? s.code}</h2><p>（mock 原型内容，M6 真接后由 AI 生成完整交互）</p></section>`,
-    ).join('\n');
-    return `  <div data-page-block="${p.code}">\n${statesHtml}\n  </div>`;
-  }).join('\n');
-  // S3（DSG-U04-2）：选页选态协议——postMessage {type:'v19-prototype-select',pageId,stateId}
-  // 与 location.hash（#pageId/stateId）双通道，切换不重载 iframe
-  const navScript = `<script>
-(function(){
-  function show(pageId,stateId){
-    document.querySelectorAll('[data-page-block]').forEach(function(b){b.style.display=b.getAttribute('data-page-block')===pageId?'':'none';});
-    document.querySelectorAll('section[data-page]').forEach(function(s){
-      s.style.display=(s.getAttribute('data-page')===pageId&&(!stateId||s.getAttribute('data-state')===stateId))?'':'none';
-    });
-  }
-  window.prototypeNavigate=show;
-  window.addEventListener('message',function(e){var d=e.data||{};if(d.type==='v19-prototype-select')show(d.pageId,d.stateId);});
-  var h=(location.hash||'').replace(/^#/,'').split('/');
-  if(h[0])show(decodeURIComponent(h[0]),h[1]?decodeURIComponent(h[1]):null);
-})();
-</script>`;
-  const html = `<!doctype html><html><head><meta charset="utf-8"><title>客户原型（mock）</title>
-<style>body{font:14px/1.6 sans-serif;margin:16px}nav{margin-bottom:12px}section{padding:8px 0}</style></head>
-<body data-prototype="msf">
-<nav>${pages.map((p) => `<a href="#${p.code}">${(p.payload.title as string) ?? p.code}</a>`).join(' | ')}</nav>
-${body}
-${navScript}
-</body></html>`;
-  const manifest = {
-    pages: pages.map((p) => ({ code: p.code, title: (p.payload.title as string) ?? p.code })),
-    states: states.map((s) => ({ code: s.code, title: (s.payload.title as string) ?? s.code })),
-    generatedBy: 'mock',
-  };
-  return { html, manifest };
-}
+/** mock 原型生成已退役：页级生成见 prototype-pages.ts（buildMockPage），汇总拼装见 composePrototype */
 
-/** mock 检查：HTML 标记 vs 目录（缺失=issue；manual 条目=unverified 需人工，REQ-306/311） */
-function checkPrototype(
+/**
+ * 对应性检查：HTML 标记 vs 目录（缺失=issue；manual 条目=unverified 需人工，REQ-306/311）。
+ * 汇总产物（composePrototype）与人工上传共用本函数；页级单元测试复用，故导出。
+ * 注意：`data-page="X" data-state="Y"` 为定序 includes 匹配——生成契约钉死属性序。
+ */
+export function checkPrototype(
   html: string,
   items: Array<{ item_type: string; code: string; payload: Record<string, unknown> }>,
 ): { issues: Array<{ code: string; message: string; target: string }>; unverified: Array<{ code: string; message: string; target: string }> } {

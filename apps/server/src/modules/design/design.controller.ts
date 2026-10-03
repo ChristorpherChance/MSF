@@ -8,6 +8,7 @@ import { DesignDocsService, DESIGN_BOOKS, type DesignKind } from './docs.service
 import { DesignGenerateService } from './generate.service.js';
 import { CatalogService } from './catalog.service.js';
 import { PrototypeService } from './prototype.service.js';
+import { PrototypePagesService } from './prototype-pages.service.js';
 import { ReviewService } from './review.service.js';
 import { DesignExportService } from './export.service.js';
 import type { ExportFormat } from '../platform/doc-export.js';
@@ -23,6 +24,7 @@ export class DesignController {
     @Inject(DesignGenerateService) private readonly gen: DesignGenerateService,
     @Inject(CatalogService) private readonly catalog: CatalogService,
     @Inject(PrototypeService) private readonly proto: PrototypeService,
+    @Inject(PrototypePagesService) private readonly pages: PrototypePagesService,
     @Inject(ReviewService) private readonly reviews: ReviewService,
     @Inject(DesignExportService) private readonly exp: DesignExportService,
   ) {}
@@ -279,6 +281,37 @@ export class DesignController {
   @Get('prototype')
   prototypeStatus(@Param('projectId') projectId: string) {
     return this.proto.status(projectId);
+  }
+
+  /** 页级 UI 原型生成（POST-SSE 四帧协议同 A05-2；v1 一次性流，客户端断连即 abort；差异登记） */
+  @Post('prototype/pages/:pageCode\\:generate')
+  async generateProtoPage(
+    @Param('projectId') projectId: string,
+    @Param('pageCode') pageCode: string,
+    @Body() body: { instruction?: string },
+    @Req() req: Request, @Res() res: Response,
+  ) {
+    const ctx = this.actor(req, projectId);
+    const { operationId, source } = await this.pages.start(projectId, pageCode, body.instruction ?? '', ctx);
+    res.status(200);
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    const send = (data: unknown) => res.write(`data: ${JSON.stringify(data)}\n\n`);
+    send({ type: 'stream.start', operationId, source, pageCode });
+    // 客户端断连即 abort（res 'close' 先于 drive 完成=连接中断；完成后 ops 已删，abort 为安全空操作）
+    let finished = false;
+    res.on('close', () => { if (!finished) this.pages.abort(operationId); });
+    const result = await this.pages.drive(operationId, ctx, (text) => send({ type: 'stream.delta', text }));
+    finished = true;
+    if (result.status === 'done') {
+      send({ type: 'stream.done', operationId, pageCode, fingerprint: result.fingerprint });
+    } else if (result.status === 'stopped') {
+      send({ type: 'stream.done', operationId, pageCode, status: 'stopped' });
+    } else {
+      send({ type: 'stream.error', operationId, pageCode, code: result.error ?? 'INTERNAL', ...(result.errorMessage ? { message: result.errorMessage } : {}) });
+    }
+    res.end();
   }
 
   /** A05-8 预览地址 */

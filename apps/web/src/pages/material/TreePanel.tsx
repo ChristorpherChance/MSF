@@ -22,11 +22,25 @@ export function StatusTag({ status }: { status?: MatParseStatus | undefined }) {
   return <span className={`mat-tag ${m.cls}`}>{m.label}</span>;
 }
 
-/** 内容面独立状态（内容稿=独立版本，不显示文件解析阶段；实机走查修复） */
+/** 原始树两态（口径收敛：只显示 未解析/已解析；parsing 进度条与 failed 原因仍由行内元素承载） */
+function ParseStateTag({ status }: { status?: MatParseStatus | undefined }) {
+  if (!status) return null;
+  const parsed = status === 'parsed' || status === 'file_final' || status === 'content_final';
+  return <span className={`mat-tag ${parsed ? 'st-parsed' : 'st-pending'}`}>{parsed ? '已解析' : '未解析'}</span>;
+}
+
+/** 解析树两态（口径收敛：只显示 未定稿/已定稿） */
+function FileFinalTag({ status }: { status?: MatParseStatus | undefined }) {
+  if (!status) return null;
+  const fin = status === 'file_final' || status === 'content_final';
+  return <span className={`mat-tag ${fin ? 'st-file_final' : 'st-pending'}`}>{fin ? '已定稿' : '未定稿'}</span>;
+}
+
+/** 内容面两态（口径收敛：内容稿只显示 未定稿/已定稿） */
 const CONTENT_META: Record<'draft' | 'final' | 'none', { label: string; cls: string }> = {
-  none: { label: '待整理', cls: 'st-pending' },
-  draft: { label: '内容稿已保存', cls: 'st-parsed' },
-  final: { label: '内容已定稿', cls: 'st-content_final' },
+  none: { label: '未定稿', cls: 'st-pending' },
+  draft: { label: '未定稿', cls: 'st-pending' },
+  final: { label: '已定稿', cls: 'st-content_final' },
 };
 
 export function ContentTag({ status }: { status?: 'draft' | 'final' | 'none' | null | undefined }) {
@@ -65,7 +79,7 @@ function TriCheck({ ids }: { ids: string[] }) {
 /** 加密文件不可解析（原型：入口拦截 + 失败行引导删除后解密重传） */
 const isEncrypted = (n: TreeNode) => /encrypted|加密/i.test(n.failMsg ?? '');
 
-function FileRow({ node, showResults }: { node: TreeNode; showResults?: boolean | undefined }) {
+function FileRow({ node, showResults, origin }: { node: TreeNode; showResults?: boolean | undefined; origin?: boolean | undefined }) {
   const {
     selectedFileId, guardedSelect, refresh, projectId, checked, toggleCheck,
     setDeleteTarget, collapsed, toggleFolder, subTab,
@@ -155,7 +169,9 @@ function FileRow({ node, showResults }: { node: TreeNode; showResults?: boolean 
         </div>
         {subTab === 'content'
           ? <ContentTag status={node.contentStatus} />
-          : <StatusTag status={node.status} />}
+          : origin
+            ? <ParseStateTag status={node.status} />
+            : <FileFinalTag status={node.status} />}
         {node.status === 'failed' && !isEncrypted(node) && (
           <button
             className="mini"
@@ -424,7 +440,7 @@ function TreeNodeRow({
   return node.type === 'folder' ? (
     <FolderRow node={node} depth={depth} showResults={showResults} origin={origin} />
   ) : (
-    <FileRow node={node} showResults={showResults} />
+    <FileRow node={node} showResults={showResults} origin={origin} />
   );
 }
 

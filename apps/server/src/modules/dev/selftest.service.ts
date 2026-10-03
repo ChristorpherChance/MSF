@@ -228,8 +228,9 @@ export class DevSelftestService {
     const b = build.rows[0];
     const distinct = p.content_fingerprint !== b.ui_artifact_fingerprint;
     return {
-      prototypePreviewUrl: `${await this.storage.presignedGet(p.content_object_key!)}#${encodeURIComponent(pageId)}`,
-      buildPreviewUrl: await this.storage.presignedGet(b.ui_artifact_object_key),
+      // HTML 工件上传未带 Content-Type，签名时覆盖使 iframe 渲染而非下载（差异登记）
+      prototypePreviewUrl: `${await this.storage.presignedGet(p.content_object_key!, 300, undefined, 'text/html; charset=utf-8')}#${encodeURIComponent(pageId)}`,
+      buildPreviewUrl: await this.storage.presignedGet(b.ui_artifact_object_key, 300, undefined, 'text/html; charset=utf-8'),
       sameObjectGuard: {
         prototypeHtmlFingerprint: `sha256:${p.content_fingerprint}`,
         buildHtmlFingerprint: `sha256:${b.ui_artifact_fingerprint}`,

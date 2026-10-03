@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { ApiError } from '../../api';
-import { designApi, type BaselineItem, type CatalogGroup, type ProtoStatus } from './api';
+import { designApi, generateProtoPage, type BaselineItem, type CatalogGroup, type ProtoStatus } from './api';
 import { useDesignView } from './store';
 
 /**
@@ -14,11 +14,14 @@ export function PrototypePanel() {
   const [busyLabel, setBusyLabel] = useState<string | null>(null);
   const [pages_, setSel] = useState<{ pageId: string; stateId: string | null } | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [previewVer, setPreviewVer] = useState<string | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [verOpen, setVerOpen] = useState(false);
   const [finOpen, setFinOpen] = useState(false);
   const [unlockOpen, setUnlockOpen] = useState(false);
+  // 页级生成进度（会话态 DSG-D00 不落库；组件内 Map，不占全局 busyLabel 以免锁死命令条）
+  const [genMap, setGenMap] = useState<Record<string, { running: boolean; chars: number; error: string | null }>>({});
+  const [genAll, setGenAll] = useState(false);
+  const [genTick, setGenTick] = useState(0); // 页生成完成后 +1 → 强制重取预览 URL
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const baselines = useBaselines(projectId, proto?.status ?? null);
   const protoVers = useProtoVersions(projectId, proto?.prototype?.currentVersionId ?? null);
@@ -28,25 +31,59 @@ export function PrototypePanel() {
   const selPage = pages_?.pageId ?? pages[0]?.code ?? null;
   const selState = pages_?.stateId ?? states[0]?.code ?? null;
   const verId = proto?.prototype?.currentVersionId ?? null;
+  /** 可预览口径：有汇总版本，或任一页已生成（单页工件直签，A05-8 分流） */
+  const canPreview = verId !== null || (proto?.pages ?? []).some((p) => p.state !== 'none');
 
-  // 版本切换时重取预览 URL（同版本内选页选态走 postMessage，不重载 iframe）
+  // 选页/版本/页生成完成 → 重取预览 URL（单页工件直签时每页独立 URL，换页即换地址）
+  const previewFor = `${verId ?? 'nv'}:${selPage ?? ''}:${genTick}`;
   useEffect(() => {
-    setPreviewUrl(null);
-    setPreviewVer(null);
-  }, [verId]);
-  useEffect(() => {
-    if (!projectId || !selPage || !verId || previewVer === verId) return;
+    if (!projectId || !selPage || !canPreview) { setPreviewUrl(null); return; }
     let dead = false;
+    setPreviewUrl(null);
     designApi.preview(projectId, selPage)
-      .then((r) => { if (!dead) { setPreviewUrl(r.previewUrl); setPreviewVer(verId); } })
+      .then((r) => { if (!dead) setPreviewUrl(r.previewUrl); })
       .catch((e) => { if (!dead) setMsg(e instanceof ApiError ? `${e.code}: ${e.message}` : '预览加载失败'); });
     return () => { dead = true; };
-  }, [projectId, selPage, verId, previewVer]);
+  }, [projectId, previewFor, canPreview]);
 
-  /** S3（DSG-U04-2）：选页选态 → postMessage {type:'v19-prototype-select'}，iframe 不重载 */
+  /** S3（DSG-U04-2）：选页选态 → postMessage {type:'v19-prototype-select'}；换页伴随 URL 切换（单页工件），同页选态不重载 */
   const select = (pageId: string, stateId: string | null) => {
     setSel({ pageId, stateId });
     iframeRef.current?.contentWindow?.postMessage({ type: 'v19-prototype-select', pageId, stateId }, '*');
+  };
+
+  /** 页级生成（🎨 行内/✨ 全部共用）：SSE 四帧消费，行内进度+错误 */
+  const genOne = async (code: string): Promise<boolean> => {
+    if (!projectId) return false;
+    const patch = (p: Partial<{ running: boolean; chars: number; error: string | null }>) =>
+      setGenMap((m) => ({ ...m, [code]: { running: false, chars: 0, error: null, ...m[code], ...p } }));
+    patch({ running: true, chars: 0, error: null });
+    let ok = false;
+    try {
+      let chars = 0;
+      await generateProtoPage(projectId, code, (f) => {
+        if (f.type === 'stream.delta' && f.text) { chars += f.text.length; patch({ chars }); }
+        else if (f.type === 'stream.done') { ok = f.status !== 'stopped'; }
+        else if (f.type === 'stream.error') { patch({ error: `${f.code ?? '生成失败'}${f.message ? `：${f.message}` : ''}` }); }
+      });
+    } catch (e) {
+      patch({ error: e instanceof ApiError ? `${e.code}: ${e.message}` : '生成请求失败' });
+    }
+    patch({ running: false });
+    setGenTick((t) => t + 1);
+    void refreshProto();
+    return ok;
+  };
+
+  /** ✨ 全部生成：顺序循环单页 SSE（逐行落定；失败不中断后续页） */
+  const genAllPages = async () => {
+    setGenAll(true);
+    try {
+      for (const p of pages) await genOne(p.code);
+    } finally {
+      setGenAll(false);
+      void refreshProto();
+    }
   };
 
   if (error) return <div className="req-banner err">{error}</div>;
@@ -73,6 +110,7 @@ export function PrototypePanel() {
       <CommandBar
         proto={proto} busy={busyLabel !== null} run={run}
         currentBaseline={currentBaseline}
+        genAll={genAll}
         onOpenVersions={() => setVerOpen(true)}
         onFinalize={() => setFinOpen(true)}
         onUnlock={() => setUnlockOpen(true)}
@@ -99,24 +137,63 @@ export function PrototypePanel() {
 
       <div className="proto-main">
         <aside className="proto-pages" data-testid="prototype-page-list">
-          <div className="toc-title">客户原型范围 <span className="tag">{pages.length} 页</span></div>
-          {pages.map((p) => (
-            <button
-              key={p.code}
-              className={`toc-item${selPage === p.code ? ' sel' : ''}`}
-              onClick={() => select(p.code, selState)}
-            >
-              ▦ {(p.payload.title as string) ?? p.code}
-              <span className="mut" style={{ display: 'block', fontSize: 11 }}>{p.code}</span>
-            </button>
-          ))}
+          <div className="toc-title">
+            客户原型范围 <span className="tag">{pages.length} 页</span>
+            {pages.length > 0 && proto.status !== 'finalized' && (
+              <button
+                className="mini"
+                style={{ marginLeft: 'auto' }}
+                disabled={genAll || busyLabel !== null}
+                title="顺序生成全部页面的 UI 原型（已生成的页会重新生成）"
+                onClick={() => void genAllPages()}
+              >{genAll ? '生成中…' : '✨ 全部生成'}</button>
+            )}
+          </div>
+          {pages.map((p) => {
+            const pg = (proto.pages ?? []).find((x) => x.code === p.code);
+            const g = genMap[p.code];
+            return (
+              <div
+                key={p.code}
+                className={`toc-item pg-row${selPage === p.code ? ' sel' : ''}`}
+                role="button"
+                tabIndex={0}
+                onClick={() => select(p.code, selState)}
+                onKeyDown={(e) => { if (e.key === 'Enter') select(p.code, selState); }}
+              >
+                <div className="pg-row-main">
+                  <span className="pg-title">▦ {(p.payload.title as string) ?? p.code}</span>
+                  {proto.status !== 'finalized' && (
+                    <button
+                      className="mini"
+                      disabled={g?.running || genAll}
+                      title={pg && pg.state !== 'none' ? '重新生成页 UI 原型（AI）' : '生成页 UI 原型（AI）'}
+                      onClick={(e) => { e.stopPropagation(); void genOne(p.code); }}
+                    >{g?.running ? '…' : '🎨'}</button>
+                  )}
+                </div>
+                <span className="mut" style={{ display: 'block', fontSize: 11 }}>
+                  {p.code}
+                  {pg?.source && ` · ${pg.source === 'model' ? 'AI' : 'mock'}`}
+                  {g?.running
+                    ? ` · 生成中 ${(g.chars / 1024).toFixed(1)}K`
+                    : pg?.state === 'pending'
+                      ? ' · 待汇总'
+                      : pg?.state === 'assembled'
+                        ? ' · 已汇总'
+                        : ' · 未生成'}
+                </span>
+                {g?.error && <span className="fail-note" style={{ display: 'block' }}>⚠ {g.error}</span>}
+              </div>
+            );
+          })}
           {pages.length === 0 && <p className="pop-tip">规划后生成页面清单。</p>}
           <div className="book-col-foot">
             期望目录与实际 HTML 独立检查 · {(catalog?.groups.flow ?? []).length} 流程 · {(catalog?.groups.viewport ?? []).length} 视口
           </div>
         </aside>
         <div className="proto-preview">
-          {verId ? (
+          {canPreview ? (
             <>
               {/* S3 .v19-statebar：状态切换钮（postMessage 选页选态，不重载） */}
               {states.length > 0 && (
@@ -134,7 +211,7 @@ export function PrototypePanel() {
               )}
               {previewUrl ? (
                 <iframe
-                  key={verId}
+                  key={previewUrl}
                   ref={iframeRef}
                   title="原型预览"
                   sandbox="allow-scripts"
@@ -148,11 +225,11 @@ export function PrototypePanel() {
               )}
             </>
           ) : (
-            /* S6 空态：尚未生成客户原型（生成走命令条 ①②；上传=人工初稿入同一套检查） */
+            /* S6 空态：尚未生成客户原型（页面清单行内 🎨 单页生成 / ✨ 全部生成 → ② 汇总；上传=人工初稿入同一套检查） */
             <div className="v19-empty">
               <div>🖼️</div>
               <b>尚未生成客户原型</b>
-              <p>先让 AI 识别完整页面、流程、状态与来源（命令条 ① 识别规划 → ② 生成完整原型）；也可上传 HTML 初稿接受同一套对应性检查。</p>
+              <p>先让 AI 识别完整页面、流程、状态与来源（命令条 ① 识别规划），然后在左侧页面清单逐页 🎨 生成 UI 原型（或 ✨ 全部生成），最后 ② 汇总生成完整原型；也可上传 HTML 初稿接受同一套对应性检查。</p>
               <div className="gen-ops" style={{ justifyContent: 'center' }}>
                 <button className="act" disabled={busyLabel !== null} onClick={() => setUploadOpen(true)}>⬆ 上传 HTML 初稿</button>
               </div>
@@ -328,7 +405,8 @@ function KpiRow({ proto, pageCount, flowCount }: { proto: ProtoStatus; pageCount
   const checked = proto.latestCheck && proto.latestCheck.prototypeVersionId === proto.prototype?.currentVersionId;
   const next = !proto.plan ? '先识别规划'
     : proto.plan.stale ? '重新识别规划'
-    : !proto.prototype?.currentVersionId ? '生成完整原型'
+    : !proto.prototype?.currentVersionId ? '生成页原型并汇总'
+    : proto.pagesStale ? '重新汇总生成完整原型'
     : !checked ? '执行对应性检查'
     : proto.status !== 'finalized' ? '人工确认定稿'
     : '进入开发';
@@ -377,12 +455,14 @@ function useProtoVersions(projectId: string | null, currentVersionId: string | n
   return items;
 }
 
-/** 命令条：①规划 → ②生成 → ③检查 → ④人工定稿 + 导出基线 + 版本（S5/S7；逐步门禁实时求值） */
-function CommandBar({ proto, busy, run, currentBaseline, onOpenVersions, onFinalize, onUnlock }: {
+/** 命令条：①规划 → ②汇总 → ③检查 → ④人工定稿 + 导出基线 + 版本（S5/S7；逐步门禁实时求值） */
+function CommandBar({ proto, busy, run, currentBaseline, genAll, onOpenVersions, onFinalize, onUnlock }: {
   proto: ProtoStatus;
   busy: boolean;
   run: (label: string, fn: () => Promise<unknown>) => Promise<void>;
   currentBaseline: BaselineItem | null;
+  /** 页级全部生成进行中（禁用汇总，避免对半完成状态汇总） */
+  genAll: boolean;
   onOpenVersions: () => void;
   onFinalize: () => void;
   onUnlock: () => void;
@@ -394,9 +474,15 @@ function CommandBar({ proto, busy, run, currentBaseline, onOpenVersions, onFinal
     <div className="v19-command">
       <span className={`tag ${proto.status === 'finalized' ? 'tag-ok' : 'tag-warn'}`}>{statusLabel(proto)}</span>
       <button className="act primary" disabled={busy} onClick={() => void run('正在识别页面与业务流程…', () => designApi.plan(projectId))}>① AI 识别规划</button>
-      <button className="act" disabled={busy || !proto.plan || proto.plan.stale} onClick={() => void run('正在生成可交互原型…', async () => {
-        await designApi.protoGenerate(projectId, proto.plan!.planId, proto.plan!.fingerprint);
-      })}>② 生成完整原型</button>
+      <button
+        className="act"
+        disabled={busy || genAll || !proto.plan || proto.plan.stale}
+        title="将各页 UI 原型汇总为完整可交互原型（未生成页以占位块回落）"
+        onClick={() => void run('正在汇总生成完整原型…', async () => {
+          await designApi.protoGenerate(projectId, proto.plan!.planId, proto.plan!.fingerprint);
+        })}
+      >② 汇总生成完整原型</button>
+      {proto.pagesStale && <span className="tag tag-warn" title="有页面原型在汇总后更新，须重新汇总">页有更新待汇总</span>}
       <button className="act" disabled={busy || !verId} onClick={() => void run('正在检查页面、流程与来源对应性…', () => designApi.protoCheck(projectId, verId!))}>③ 对应性检查</button>
       <button
         className="act primary"

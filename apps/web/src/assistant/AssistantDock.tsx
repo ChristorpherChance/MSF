@@ -146,8 +146,7 @@ function DockInner({ global }: { global: boolean }) {
       <div className="chat-head">
         <div className="ch-row">
           <span className="ctx-chip" title={chip.title}>{chip.label}</span>
-          <button className="ghost sm" title="新建会话" onClick={() => void s.newSession()}>＋</button>
-          <SessionMenu />
+          <span style={{ flex: 1 }} />
           <button className="ghost sm" title="收拢（F1）" onClick={s.toggle}>⟶</button>
         </div>
         <div className="ch-row">
@@ -159,19 +158,8 @@ function DockInner({ global }: { global: boolean }) {
             {s.sessions.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
             {s.sessions.length === 0 && <option value="">（无会话）</option>}
           </select>
-          <div
-            className={`think-seg${thinkOff ? ' off' : ''}`}
-            title={thinkOff ? '当前模型不支持思考强度' : '思考强度：同一切换为该模型的推理参数，不切模型'}
-          >
-            {([['low', '低'], ['mid', '中'], ['high', '高']] as const).map(([v, label]) => (
-              <button
-                key={v}
-                className={s.thinkLevel === v ? 'active' : ''}
-                disabled={thinkOff}
-                onClick={() => s.setThinkLevel(v)}
-              >{label}</button>
-            ))}
-          </div>
+          <button className="ghost sm" title="新建会话" onClick={() => void s.newSession()}>＋</button>
+          <SessionMenu />
         </div>
         <div className="ch-row">
           <div className="usage-wrap" title={usage.title}>
@@ -251,16 +239,28 @@ function DockInner({ global }: { global: boolean }) {
         <div className="row">
           <RefPicker />
           <select
-            title="模型切换（仅已连通）"
-            value={sess?.model_id ?? ''}
-            disabled={!s.currentId}
+            title={s.currentId ? '模型切换（仅已连通）' : '模型预选（无会话时作为新建会话的绑定模型）'}
+            value={sess?.model_id ?? s.preferredModelId ?? ''}
             onChange={(e) => void s.setModel(e.target.value || null)}
           >
-            {!sess?.model_id && <option value="">默认（chat 路由）</option>}
+            {!(sess?.model_id ?? s.preferredModelId) && <option value="">默认（chat 路由）</option>}
             {chatModels(s.models).map((m) => (
               <option key={m.id} value={m.id}>{modelIcon(m)} {m.name}</option>
             ))}
           </select>
+          <div
+            className={`think-seg${thinkOff ? ' off' : ''}`}
+            title={thinkOff ? '当前模型不支持思考强度' : '思考强度：同一切换为该模型的推理参数，不切模型'}
+          >
+            {([['low', '低'], ['mid', '中'], ['high', '高']] as const).map(([v, label]) => (
+              <button
+                key={v}
+                className={s.thinkLevel === v ? 'active' : ''}
+                disabled={thinkOff}
+                onClick={() => s.setThinkLevel(v)}
+              >{label}</button>
+            ))}
+          </div>
           <span style={{ flex: 1 }} />
           <button
             className="primary"

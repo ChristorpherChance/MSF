@@ -47,6 +47,10 @@ export interface ProtoStatus {
   status: 'idle' | 'planning' | 'plan-ready' | 'generating' | 'generated' | 'checking' | 'ready' | 'finalized' | 'stale' | 'failed';
   plan: { planId: string; complete: boolean; fingerprint: string; catalogVersion: string; stale: boolean } | null;
   prototype: { docId: string; currentVersionId: string | null; finalized: boolean; modified: boolean } | null;
+  /** 页级原型工作态（差异登记）：none=未生成 / pending=已生成待汇总 / assembled=已入当前汇总版本 */
+  pages: Array<{ code: string; title: string; state: 'none' | 'pending' | 'assembled'; source?: string }>;
+  /** 存在「页已更新未汇总」 */
+  pagesStale: boolean;
   latestCheck: {
     reportId: string; runNo: number; passed: boolean; prototypeVersionId: string;
     issues: Array<{ code: string; message: string; target: string }>;
@@ -180,5 +184,15 @@ export async function generateDesignDoc(
 ): Promise<void> {
   await postSse(`${base(pid)}/docs/${kind}:generate`, body, (line) => {
     try { onFrame(JSON.parse(line) as GenFrame); } catch { /* 忽略非 JSON 心跳行 */ }
+  });
+}
+
+/** 页级 UI 原型 POST-SSE 生成（四帧协议同 generateDesignDoc；done 帧带 pageCode+fingerprint） */
+export async function generateProtoPage(
+  pid: string, pageCode: string,
+  onFrame: (f: GenFrame & { pageCode?: string; fingerprint?: string; status?: string }) => void,
+): Promise<void> {
+  await postSse(`${base(pid)}/prototype/pages/${encodeURIComponent(pageCode)}:generate`, {}, (line) => {
+    try { onFrame(JSON.parse(line) as GenFrame & { pageCode?: string; fingerprint?: string; status?: string }); } catch { /* 忽略非 JSON 心跳行 */ }
   });
 }

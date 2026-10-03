@@ -60,6 +60,8 @@ interface DockState {
   thinkLevel: 'low' | 'mid' | 'high';
   usage: { tokens_in: string; tokens_out: string; cost: string; calls: string } | null;
   models: ModelPublic[];
+  /** 模型偏好（localStorage 持久；无会话也可预选，新建会话时带上绑定；有会话时随 setModel 同步） */
+  preferredModelId: string | null;
   /** 草稿按上下文页签分存（S.chatDraft[ctx] 口径） */
   drafts: Record<string, string>;
   error: string | null;
@@ -108,6 +110,7 @@ export const useDockStore = create<DockState>((set, get) => ({
   thinkLevel: 'mid',
   usage: null,
   models: [],
+  preferredModelId: localStorage.getItem('msf.chatModel') || null,
   drafts: {},
   error: null,
   disconnected: false,
@@ -147,9 +150,11 @@ export const useDockStore = create<DockState>((set, get) => ({
   },
 
   newSession: async () => {
-    const { projectId: pid, ctx, thinkLevel } = get();
+    const { projectId: pid, ctx, thinkLevel, preferredModelId } = get();
     if (!pid) return;
-    const s = await assistantApi.create(pid, { ctx, thinkLevel });
+    // 预选模型随创建绑定（偏好可能已停用/断连——仅仍可用时携带，避免 create 400 断「恒有会话」链）
+    const usable = !!preferredModelId && chatModels(get().models).some((m) => m.id === preferredModelId);
+    const s = await assistantApi.create(pid, { ctx, thinkLevel, ...(usable ? { modelId: preferredModelId } : {}) });
     const sessions = await assistantApi.sessions(pid, ctx);
     set({ sessions });
     await get().selectSession(s.id);
@@ -165,6 +170,10 @@ export const useDockStore = create<DockState>((set, get) => ({
   },
 
   setModel: async (modelId) => {
+    // 偏好本地持久先行：无会话时也可预选（新建会话带上）；有会话则同时绑定服务端
+    if (modelId) localStorage.setItem('msf.chatModel', modelId);
+    else localStorage.removeItem('msf.chatModel');
+    set({ preferredModelId: modelId });
     const { projectId: pid, currentId } = get();
     if (!pid || !currentId) return;
     await assistantApi.setModel(pid, currentId, modelId);
@@ -297,19 +306,20 @@ export const useDockStore = create<DockState>((set, get) => ({
   },
 }));
 
-/** 当前会话绑定模型；未绑定回落首个可用模型（chat 路由默认口径由服务端兜底） */
-export function currentModel(s: Pick<DockState, 'models' | 'sessions' | 'currentId'>): ModelPublic | null {
+/** 当前生效模型：会话绑定 → 本地偏好 → 首个可用（chat 路由默认口径由服务端兜底） */
+export function currentModel(s: Pick<DockState, 'models' | 'sessions' | 'currentId' | 'preferredModelId'>): ModelPublic | null {
   const sess = s.sessions.find((x) => x.id === s.currentId);
   const avail = chatModels(s.models);
-  if (sess?.model_id) {
-    const bound = s.models.find((m) => m.id === sess.model_id);
+  const id = sess?.model_id ?? s.preferredModelId;
+  if (id) {
+    const bound = s.models.find((m) => m.id === id);
     if (bound) return bound;
   }
   return avail[0] ?? null;
 }
 
 /** 用量条（usageInfo 口径：会话消息字符/2 估算 tokens ÷ 模型窗口；纯指示不拦截） */
-export function dockUsage(s: Pick<DockState, 'messages' | 'streaming' | 'models' | 'sessions' | 'currentId'>): DockUsage {
+export function dockUsage(s: Pick<DockState, 'messages' | 'streaming' | 'models' | 'sessions' | 'currentId' | 'preferredModelId'>): DockUsage {
   const m = currentModel(s);
   const win = m?.context_window ?? 32768;
   let chars = s.messages.reduce((a, x) => a + (x.content || '').length, 0);

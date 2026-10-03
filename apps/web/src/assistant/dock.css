@@ -149,8 +149,10 @@
   font-family: inherit; box-sizing: border-box;
 }
 .chat-input textarea:focus { border-color: var(--blue); box-shadow: 0 0 0 2px var(--blue-soft); outline: none; }
-.chat-input .row { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.chat-input .row { display: flex; align-items: center; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
 .chat-input select { font-size: 12px; padding: 4px 6px; max-width: 170px; }
+/* 输入行并入 think-seg 后允许换行+模型下拉可缩（dock 最小 300px 不溢出） */
+.chat-input .row select { flex: 1 1 110px; min-width: 0; }
 
 /* --- 欢迎卡 --- */
 .welcome { padding: 18px 4px; text-align: center; }

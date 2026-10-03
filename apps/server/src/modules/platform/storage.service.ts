@@ -71,11 +71,13 @@ export class StorageService {
   /**
    * 短时签名直链（A03-7 source 视图，REQ-113）。
    * downloadName：附 response-content-disposition（RFC 5987 编码，支持中文文件名），浏览器下载落盘为该名。
+   * contentType：附 response-content-type 覆盖——HTML 原型对象上传未带 Content-Type（minio putObject 流式不探测），
+   * 预览签发时覆盖为 text/html 使浏览器渲染而非下载（对存量对象同样生效，差异登记）。
    */
-  async presignedGet(objectKey: string, expirySeconds = 300, downloadName?: string): Promise<string> {
-    const respHeaders = downloadName
-      ? { 'response-content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(downloadName)}` }
-      : undefined;
-    return this.client.presignedGetObject(this.bucket, objectKey, expirySeconds, respHeaders);
+  async presignedGet(objectKey: string, expirySeconds = 300, downloadName?: string, contentType?: string): Promise<string> {
+    const respHeaders: Record<string, string> = {};
+    if (downloadName) respHeaders['response-content-disposition'] = `attachment; filename*=UTF-8''${encodeURIComponent(downloadName)}`;
+    if (contentType) respHeaders['response-content-type'] = contentType;
+    return this.client.presignedGetObject(this.bucket, objectKey, expirySeconds, Object.keys(respHeaders).length > 0 ? respHeaders : undefined);
   }
 }
