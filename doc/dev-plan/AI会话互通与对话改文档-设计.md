@@ -36,23 +36,27 @@ dock 工具全只读；改文档唯一通道是需求页「🔄 重新生成」�
 **1. 新工具 `req.doc.propose_edits`**（注册进 tools 允许集；不在 WRITE_TOOLS 拒绝名单——它不直写文档，产出的是待确认补丁，人工确认后才生效，符合「人工定稿不可自动化」）：
 
 - args：`{ kind: 'crd'|'prd', instruction: string }`（instruction 截 2000 字）。
-- 服务端流程（新 AiDocEditService 或 req/generate.service 扩方法）：
-  1. 读当前文档有效内容（getDoc 同路径）；
-  2. 复用增量修订 prompt（`buildPrompt` 的修订分支）+ 用户 instruction，走 pi 网关**非 SSE 内部调用**（mock 模式回落确定性 mock 补丁，离线可测）；
-  3. `mdToPatches` 解析产补丁集；
-  4. 走命令总线 `req.doc.propose-pending`（proposedBy='assistant'，留痕同现有生成流）。
+- 服务端流程（req/generate.service.ts 扩方法 `proposeEditsFromChat`）：
+  1. 读当前文档有效内容（getDoc 同路径；**文档尚未生成** → 「文档还没有内容，请先在需求页生成初稿」）；
+  2. 复用增量修订 prompt（`buildPrompt` 的修订分支）+ 用户 instruction，走 pi 网关**非 SSE 内部调用**（mock 模式回落确定性 mock 补丁——mock 产出约定含「命中既有节标题」与「全新节」两种形态，便于测 normalize 两分支，离线可测）；
+  3. `mdToPatches` 解析 → **normalizePatches 归一化**（新纯函数，落 platform/doc-sections.ts）：add 补丁标题命中既有节（先按锚点码 CR-nnn/REQ-nnn 匹配、再按标题精确匹配）→ 改写为 `{type:'modify', secId: 既有节 id, title: 原题, old: 既有节全文, new: 新正文}`（整节重写语义，applyPatch 的 old⊆md 校验天然兼容）；未命中保持 add。del 模型无法经 markdown 表达，本期不支持（页面手工删除能力已有）；**该归一化同时挂进需求页既有增量修订流（修复其「修改章节实为重复追加」的潜在缺陷，差异登记）**；
+  4. 落库走命令总线 `doc.propose-pending`（注意：命令名无域前缀；proposedBy='assistant'，留痕同现有生成流）。
+
+  **事务模型（关键）**：`ai.tool.invoke` 在命令事务内执行工具，而本工具含 10~30s 嵌套 LLM 调用——**绝不能在事务/池连接内跑 LLM**。故 runToolBlocks 对该工具走旁路：先调 service（LLM 调用无事务包裹 → 然后 `executeCommand('doc.propose-pending')` 独立事务落补丁）→ 成功后 `tools.record()` 补落 `ai_tool_calls` 行（sessionId+messageId 挂接同 invoke 口径）。补丁落库与工具留痕非同一事务是可接受口径：补丁本身即待确认草稿，留痕缺失风险由 record 失败重试一次+失败仅日志承担（与现有流末 error 帧口径一致）。其余只读工具仍走 invoke 不变。
+
 - 前置守卫（沿用现有语义，失败=工具返回 ok:false + 人话原因，不新增错误码）：
-  - 文档已定稿 → 「文档已定稿，请先在需求页解锁/定稿态不可改」；
+  - 文档已定稿（VERSION_LOCKED）→ 「文档已定稿，请先在需求页解锁后再修改」；
   - 存在未处置补丁（assertNoPendings 单批闸）→ 「有 N 条待确认补丁，请先在需求页处置后再提新修改」；
   - 补丁基指纹失配 PATCH_BASE_STALE → 「文档已被其它操作变更，请刷新后重试」；
   - AI 产出 0 补丁/解析失败 → 「未产出有效修改，可换种说法重试」。
 - 结果：`{ ok, patchCount, route: '/req' }`。
+- **ToolDef.kind 类型扩展**：现为 `'read' | 'nav'`，本工具增 `'propose'` 档（提案型写：不直写文档，产物必经人工确认）——类型与工具卡图标分档同步扩展。
 
 **2. 前端**：ToolCards 对 `req.doc.propose_edits` 成功卡渲染「✓ 已提交 N 条修改建议」+「前往审阅 →」钮（复用 nav.goto 卡的跳转模式，点击才跳，不静默跳页）；失败卡显原因。
 
 **3. 能力边界文案改写**（buildPrompt【能力边界】段）：「你没有写权限……」→「你不能直接修改文档/定稿/放行；但可以通过 ```msf-tool req.doc.propose_edits``` 提交修改建议，以高亮补丁形式交由用户确认后生效」。【可用工具】段补该工具的调用格式与示例。
 
-**4. 时序**：工具在流末 runToolBlocks 同步执行（嵌套 AI 调用约 10~30s），SSE 保持到 finish——与生成流时长同级，无可疑挂起；工具卡状态随 `ai.message.finish` 落库后渲染。
+**4. 时序**：工具在流末 runToolBlocks 执行；propose_edits 经旁路（LLM 在外、命令在内，见上），SSE 保持到 finish——与生成流时长同级；工具卡状态随 `ai.message.finish` 落库后渲染。
 
 ## 三、需求文档章节编号（大章生成约定 + 渲染层派生编号）
 
@@ -68,7 +72,7 @@ dock 工具全只读；改文档唯一通道是需求页「🔄 重新生成」�
 - 大章命名引导：背景与目标/功能需求/非功能需求等（模型按内容归类）；
 - 增量修订：新增需求节落在合适大章之后（add 补丁文末追加的现有语义不变，编号渲染层派生故无需重排）；编号顺延规则不变。
 
-**2. 派生编号纯函数** `deriveNumbering(secs)`（packages/shared，前后端共用）：
+**2. 派生编号纯函数** `deriveNumbering(secs)`（packages/shared，前后端共用；输入类型取最小形状 `{ id: string; title: string }[]`——web 侧消费的是 API 返回的 secs 而非 server 内部 DocSection，共享包只依赖该最小结构）：
 
 - 输入 splitSections 的节列；标题命中 `/^[一二三四五六七八九十]+、/` 判大章（章计数 +1、节计数清零）；其余节组内计数；
 - 输出每节 `displayTitle`：有大章 → `2.1 浏览器即开即玩（CR-001）`（CR/REQ 码从标题首词提取入括号）；无大章（存量文档）→ 退化纯序号 `1. 浏览器即开即玩（CR-001）`；s0 文首不编号。
@@ -81,13 +85,13 @@ dock 工具全只读；改文档唯一通道是需求页「🔄 重新生成」�
 | 场景 | 行为 |
 | --- | --- |
 | chat.history.read 会话不存在/跨项目 | 工具 failed + 人话消息（不落码） |
-| propose_edits 文档已定稿/有未清补丁/基失配/零补丁 | 工具 ok:false + 对应人话（不落码）；ai_tool_calls 留痕 |
+| propose_edits 文档未生成/已定稿/有未清补丁/基失配/零补丁 | 工具 ok:false + 对应人话（不落码）；ai_tool_calls 留痕 |
 | 嵌套 AI 调用失败 | classifyAiError 既有归类进工具结果消息 |
 | 摘要注入 SQL 失败 | catch 静默降级（该块省略），不阻断聊天主链 |
 
 ## 五、测试口径
 
-- server vitest：`buildCrossSessionDigest`（预算截断/排除本会话/排序）；`chat.history.read`（项目守卫/limit 封顶）；`propose_edits` 服务（mock 产补丁→propose-pending 落库留痕；定稿/未清补丁/基失配三分支拒绝）；`deriveNumbering`（大章分组/无大章退化/码入括号/s0 跳过）。
+- server vitest：`buildCrossSessionDigest`（预算截断/排除本会话/排序）；`chat.history.read`（项目守卫/limit 封顶）；`proposeEditsFromChat`（mock 产补丁→normalize→propose-pending 落库留痕；未生成/定稿/未清补丁/基失配四分支拒绝）；`normalizePatches`（锚点码命中转 modify/标题命中转 modify/未命中保持 add/modify 的 old=既有节全文）；`deriveNumbering`（大章分组/无大章退化/码入括号/s0 跳过）。
 - 集成：既有 195+ 套件保持全绿；propose-pending 经工具路径的审计链断言。
 - 实机：①资料阶段聊「客户要双人同屏」→ 需求阶段问「客户对玩法有什么要求」AI 能引用；②dock「把 CR-002 改为支持手柄」→ 工具卡 → 前往审阅 → 高亮 → 逐条/全部接受拒绝；③CRD 重新生成 → 大章+编号目录 + 导出一致。
 - 门槛：双端 tsc、pnpm lint、check:deps、check-codes 零违规；差异登记（新工具×2、prompt 两段、导出编号注入）待 13 册回补。
