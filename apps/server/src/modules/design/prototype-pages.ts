@@ -65,8 +65,12 @@ export const NAV_SCRIPT = `<script>
     var blk=t.closest('[data-page-block]');
     if(blk)show(blk.getAttribute('data-page-block'),t.getAttribute('data-show-state'));
   });
-  var h=(location.hash||'').replace(/^#/,'').split('/');
-  if(h[0]){show(decodeURIComponent(h[0]),h[1]?decodeURIComponent(h[1]):null);}
+  function fromHash(){
+    var h=(location.hash||'').replace(/^#/,'').split('/');
+    if(h[0])show(decodeURIComponent(h[0]),h[1]?decodeURIComponent(h[1]):null);
+  }
+  window.addEventListener('hashchange',fromHash);
+  if(location.hash){fromHash();}
   else{
     var b=document.querySelector('[data-page-block]');
     var s=document.querySelector('section[data-page]');

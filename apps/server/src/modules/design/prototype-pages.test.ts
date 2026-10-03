@@ -102,6 +102,8 @@ describe('ensureNavScript（模型产物协议层补齐）', () => {
     const once = ensureNavScript('<html><body>x</body></html>');
     expect(once).toContain('data-show-state');
     expect(once).toContain("closest('[data-page-block]')");
+    // 汇总文档内 <a href="#页码"> 页间导航依赖 hashchange（初载解析之外必须再挂监听）
+    expect(once).toContain('hashchange');
   });
 });
 
