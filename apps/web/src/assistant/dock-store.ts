@@ -7,6 +7,7 @@ import {
   sendMessageSse,
   type AiMessageRow,
   type AiSessionRow,
+  type UsageBreakdown,
 } from './api';
 
 /** 助手 dock 会话态（DSG-U02-4；DSG-D00 开合/选择为客户端会话态） */
@@ -56,9 +57,11 @@ interface DockState {
   sessions: AiSessionRow[];
   currentId: string | null;
   messages: AiMessageRow[];
-  streaming: { messageId: string; text: string; paused: boolean } | null;
+  streaming: { messageId: string; text: string; paused: boolean; startedAt: number } | null;
   thinkLevel: 'low' | 'mid' | 'high';
   usage: { tokens_in: string; tokens_out: string; cost: string; calls: string } | null;
+  /** 用量分解（统计面板：当前会话/分上下文/分会话）；随 refreshUsage 同刷 */
+  breakdown: UsageBreakdown | null;
   models: ModelPublic[];
   /** 模型偏好（localStorage 持久；无会话也可预选，新建会话时带上绑定；有会话时随 setModel 同步） */
   preferredModelId: string | null;
@@ -111,6 +114,7 @@ export const useDockStore = create<DockState>((set, get) => ({
   streaming: null,
   thinkLevel: 'mid',
   usage: null,
+  breakdown: null,
   models: [],
   preferredModelId: localStorage.getItem('msf.chatModel') || null,
   drafts: {},
@@ -245,7 +249,7 @@ export const useDockStore = create<DockState>((set, get) => ({
     try {
       await sendMessageSse(pid, currentId, { content, thinkLevel, referenceFileIds, referenceFingerprints }, (f) => {
         if (f.type === 'stream.start' && f.operationId) {
-          set({ streaming: { messageId: f.operationId, text: '', paused: false } });
+          set({ streaming: { messageId: f.operationId, text: '', paused: false, startedAt: Date.now() } });
         } else if (f.type === 'stream.delta' && f.text) {
           acc += f.text;
           const st = get().streaming;
@@ -318,8 +322,9 @@ export const useDockStore = create<DockState>((set, get) => ({
   refreshUsage: async () => {
     const pid = get().projectId;
     if (!pid) return;
-    const r = await assistantApi.usage(pid);
-    set({ usage: r.totals });
+    // 统计面板与顶栏用量同源自刷：breakdown 含 totals，单次请求口径一致
+    const bd = await assistantApi.usageBreakdown(pid);
+    set({ usage: bd.totals, breakdown: bd });
   },
 
   refreshModels: async () => {

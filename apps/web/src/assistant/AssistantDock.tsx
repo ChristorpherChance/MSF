@@ -100,6 +100,17 @@ function Resizer() {
   return <div className="chat-resizer" onMouseDown={onDown} />;
 }
 
+/** 生成中读秒（2026-10-04 用户反馈：生成中无活动感知）——1s 跳动，暂停时冻结计时口径=仍计墙钟 */
+function Elapsed({ since }: { since: number }) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const sec = Math.max(0, Math.floor((now - since) / 1000));
+  return <span className="elapsed">⏱ {sec >= 60 ? `${Math.floor(sec / 60)}m${sec % 60}s` : `${sec}s`}</span>;
+}
+
 function DockInner({ global }: { global: boolean }) {
   const s = useDockStore();
   const location = useLocation();
@@ -166,6 +177,7 @@ function DockInner({ global }: { global: boolean }) {
             <div className="usage-bar"><i style={{ width: `${usage.pct}%`, background: usage.color }} /></div>
             <span className="usage-txt">{usage.pct}%</span>
           </div>
+          <UsagePanel />
         </div>
       </div>
 
@@ -206,6 +218,7 @@ function DockInner({ global }: { global: boolean }) {
         <div className="chat-ctl">
           <span className="status">
             {s.streaming.paused ? '⏸ 已暂停（上下文已保留，可继续）' : '⚡ 生成中…'}
+            <Elapsed since={s.streaming.startedAt} />
           </span>
           {s.streaming.paused
             ? <button className="sm primary" onClick={() => void s.control('resume')}>▶ 继续</button>
@@ -346,8 +359,87 @@ function RefPicker() {
   );
 }
 
-/** ⋯ 会话菜单（DSG-U02-4：重命名/删除；W8 启用） */
-function SessionMenu() {
+/** 📊 token 用量统计面板（2026-10-04 用户诉求：当前对话/项目累计/分上下文/分会话分别统计） */
+function UsagePanel() {
+  const s = useDockStore();
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [open]);
+
+  const bd = s.breakdown;
+  const fmtTok = (v: string) => {
+    const n = Number(v);
+    return n >= 10000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+  };
+  const fmtCost = (v: string) => `$${Number(v).toFixed(4)}`;
+  const ctxLabel = (ctx: string | null) =>
+    ctx === null ? '文档生成等（无会话）' : (CTX_LABEL[ctx as keyof typeof CTX_LABEL] ?? ctx);
+  const cur = bd?.bySession.find((x) => x.session_id === s.currentId);
+
+  return (
+    <div className="dock-menu-wrap" ref={wrapRef}>
+      <button
+        className="ghost sm"
+        title="token 用量统计（当前对话 / 分上下文 / 分会话 / 项目累计）"
+        onClick={() => { setOpen(!open); if (!open) void s.refreshUsage(); }}
+      >📊</button>
+      {open && (
+        <div className="dock-menu usage-pop">
+          {!bd && <div className="up-empty">加载中…</div>}
+          {bd && (
+            <>
+              <div className="up-sec">当前对话</div>
+              {cur ? (
+                <div className="up-row">
+                  <span>{cur.name ?? cur.code ?? '本对话'}</span>
+                  <span>入 {fmtTok(cur.tokens_in)} · 出 {fmtTok(cur.tokens_out)} · {fmtCost(cur.cost)} · {cur.calls} 次</span>
+                </div>
+              ) : (
+                <div className="up-empty">本对话暂无计量记录（发送一条消息后产生）</div>
+              )}
+              <div className="up-sec">分上下文</div>
+              {bd.byCtx.length === 0 && <div className="up-empty">暂无用量</div>}
+              {bd.byCtx.map((r) => (
+                <div className="up-row" key={r.ctx ?? '_none'}>
+                  <span>{ctxLabel(r.ctx)}</span>
+                  <span>入 {fmtTok(r.tokens_in)} · 出 {fmtTok(r.tokens_out)} · {fmtCost(r.cost)} · {r.calls} 次</span>
+                </div>
+              ))}
+              <div className="up-sec">分会话</div>
+              {bd.bySession.length === 0 && <div className="up-empty">暂无会话用量</div>}
+              {bd.bySession.map((r) => (
+                <div className="up-row" key={r.session_id}>
+                  <span className={r.session_id === s.currentId ? 'up-cur' : undefined}>
+                    {r.name ?? '已删除会话'} <em>{r.code ?? ''}</em>
+                  </span>
+                  <span>入 {fmtTok(r.tokens_in)} · 出 {fmtTok(r.tokens_out)} · {fmtCost(r.cost)} · {r.calls} 次</span>
+                </div>
+              ))}
+              <div className="up-sec">项目累计</div>
+              <div className="up-row up-total">
+                <span>总计</span>
+                <span>
+                  入 {fmtTok(bd.totals?.tokens_in ?? '0')} · 出 {fmtTok(bd.totals?.tokens_out ?? '0')}
+                  · {fmtCost(bd.totals?.cost ?? '0')} · {bd.totals?.calls ?? 0} 次
+                </span>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** ⋯ 会话菜单（DSG-U02-4：重命名/删除；W8 启用） */function SessionMenu() {
   const s = useDockStore();
   const [open, setOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);

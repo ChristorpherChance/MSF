@@ -69,6 +69,55 @@ describe('AI 工具桥/提示词/用量（集成，需 DB）', async () => {
     expect(calls.items.filter((c) => c.status === 'ok').length).toBe(4);
   });
 
+  it('doc.read 根修（5.1 看不到）：草稿优先+界面编号注入+anchor 定向读+sections 清单', async () => {
+    // 预删防残留（UNIQUE(project_id, doc_kind)）
+    await query('DELETE FROM req_drafts WHERE document_id IN (SELECT id FROM req_documents WHERE project_id=$1)', [PID]);
+    await query('UPDATE req_documents SET current_version_id=NULL WHERE project_id=$1', [PID]);
+    await query('DELETE FROM req_versions WHERE document_id IN (SELECT id FROM req_documents WHERE project_id=$1)', [PID]);
+    await query('DELETE FROM req_documents WHERE project_id=$1', [PID]);
+    const docId = (await query<{ id: string }>(
+      `INSERT INTO req_documents (project_id, doc_kind, created_by) VALUES ($1,'crd','t') RETURNING id`, [PID])).rows[0]!.id;
+    const vContent = ['# CRD', '', '## 一、背景与目标', '', '背景。', '',
+      '## 二、功能需求', '', '引言。', '', '## CR-001 浏览器即开即玩', '', '承接：R-001 旧文。'].join('\n');
+    const vid = (await query<{ id: string }>(
+      `INSERT INTO req_versions (document_id, version_no, content, content_fingerprint, governing_fingerprint, submitted_by)
+       VALUES ($1,1,$2,'fp','gfp','t') RETURNING id`, [docId, vContent])).rows[0]!.id;
+    await query('UPDATE req_documents SET current_version_id=$2 WHERE id=$1', [docId, vid]);
+    // 草稿含版本没有的尾部新节（模拟「截断+只读当前稿」看不到的场景）
+    const draft = `${vContent}\n\n## 五、待确认事项\n\n待确认表。\n\n## CR-015 免登录双人游戏\n\n承接：R-015 细则（仅草稿）。`;
+    await query(
+      `INSERT INTO req_drafts (document_id, base_version_id, base_content_fingerprint, content, created_by)
+       VALUES ($1,$2,'fp',$3,'t')`, [docId, vid, draft]);
+    try {
+      // ① 全文读：草稿优先（版本没有的 CR-015 可见）+ 界面编号注入 + modified 标记 + sections 清单
+      const full = await tools.invoke(PID, { sessionId, toolName: 'doc.read', args: { kind: 'crd' } }, CTX);
+      expect(full.result['found']).toBe(true);
+      expect(full.result['modified']).toBe(true);
+      expect(String(full.result['content'])).toContain('R-015 细则（仅草稿）'); // 草稿优先
+      expect(String(full.result['content'])).toContain('## 2.1 浏览器即开即玩（CR-001）'); // 界面编号注入
+      expect(full.result['sections']).toContain('3.1 免登录双人游戏（CR-015）');
+      // ② anchor 定向读：编号「3.1」命中草稿尾部节（修复前 12000 截断+无编号双落空）
+      const anchored = await tools.invoke(PID, { sessionId, toolName: 'doc.read', args: { kind: 'crd', anchor: '3.1' } }, CTX);
+      expect(anchored.result['anchorFound']).toBe(true);
+      expect(anchored.result['sectionTitle']).toBe('3.1 免登录双人游戏（CR-015）');
+      expect(String(anchored.result['content'])).toContain('仅草稿');
+      // 大章序 + 锚点码两形态
+      const ch = await tools.invoke(PID, { sessionId, toolName: 'doc.read', args: { kind: 'crd', anchor: '第三章' } }, CTX);
+      expect(ch.result['sectionTitle']).toBe('五、待确认事项');
+      const code = await tools.invoke(PID, { sessionId, toolName: 'doc.read', args: { kind: 'crd', anchor: 'CR-001' } }, CTX);
+      expect(code.result['sectionTitle']).toBe('2.1 浏览器即开即玩（CR-001）');
+      // ③ 未命中：anchorFound:false 人话 + sections 清单自助重试（不落码）
+      const miss = await tools.invoke(PID, { sessionId, toolName: 'doc.read', args: { kind: 'crd', anchor: '9.9' } }, CTX);
+      expect(miss.result['anchorFound']).toBe(false);
+      expect(String(miss.result['message'])).toContain('9.9');
+    } finally {
+      await query('DELETE FROM req_drafts WHERE document_id=$1', [docId]);
+      await query('UPDATE req_documents SET current_version_id=NULL WHERE id=$1', [docId]);
+      await query('DELETE FROM req_versions WHERE document_id=$1', [docId]);
+      await query('DELETE FROM req_documents WHERE id=$1', [docId]);
+    }
+  });
+
   it('chat.history.read：按编号读他会话消息（项目守卫/limit 封顶/不存在人话）', async () => {
     // 造目标会话 + 两条 done 消息
     // 预删防残留：此前失败轮可能留下 ss_t9 撞唯一约束
@@ -190,6 +239,22 @@ describe('AI 工具桥/提示词/用量（集成，需 DB）', async () => {
     expect(Number(row.cost)).toBeCloseTo(0.003, 6);
     await expect(usage.assertProject('00000000-0000-0000-0000-000000000099'))
       .rejects.toMatchObject({ code: 'NOT_FOUND' });
+    // breakdown：分上下文/分会话/总量三视图（dock 统计面板数据源）
+    // ss_t1 会话（ctx=req）挂 1 行会话用量 + 2 行无会话用量（t6_usage，ctx 落 null 桶）
+    await query('DELETE FROM ai_usage WHERE project_id=$1 AND purpose=$2', [PID, 'chat']); // 预删防上轮残留
+    await query(
+      `INSERT INTO ai_usage (project_id, session_id, model_id, purpose, tokens_in, tokens_out, duration_ms, cost)
+       VALUES ($1,$2,$3,'chat',10,5,100,0.0001)`, [PID, sessionId, mid]);
+    const bd = await usage.breakdown(PID);
+    expect(Number(bd.totals!.calls)).toBeGreaterThanOrEqual(3);
+    const reqCtx = bd.byCtx.find((r) => r.ctx === 'req')!;
+    expect(Number(reqCtx.tokens_in)).toBe(10);
+    const nullCtx = bd.byCtx.find((r) => r.ctx === null)!; // 文档生成等直落账（session_id NULL）
+    expect(Number(nullCtx.tokens_in)).toBe(300);
+    const sess = bd.bySession.find((r) => r.session_id === sessionId)!;
+    expect(sess.code).toBe('ss_t1');
+    expect(Number(sess.tokens_out)).toBe(5);
+    await query('DELETE FROM ai_usage WHERE project_id=$1 AND purpose=$2', [PID, 'chat']);
   });
 
   it('req.doc.propose_edits：list 可见 kind=propose；误入 invoke 路径防御性失败留痕（旁路未接线）', async () => {

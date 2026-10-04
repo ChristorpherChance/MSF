@@ -137,7 +137,7 @@ function normTitle(t: string): string {
 /** 标题命中查找：锚点码（补丁标题任意位置）优先，标题精确其次，编号剥离后精确/后缀兜底
  *  （后缀兜底：模型把「五、待确认事项」写成「第五章 待确认事项」——剥离编号后「待确认事项」≠原标题，
  *   但原标题以它结尾；限 ≥4 字符防短词误命中） */
-function findSection(patchTitle: string | undefined, secs: DocSection[]): number {
+export function findSection(patchTitle: string | undefined, secs: DocSection[]): number {
   if (!patchTitle) return -1;
   const code = CODE_ANYWHERE_RE.exec(patchTitle)?.[0];
   if (code) {
@@ -200,4 +200,55 @@ export function buildNumberGuide(content: string): string {
     ...lines,
     '用户按编号（如「第五章」「5.7 节」）指代章节时，按上表定位；你的输出标题必须原样使用右侧原始标题，禁止添加任何编号前缀。',
   ].join('\n');
+}
+
+/** 「第 N 章/节」锚点词形：N 支持中文数字或阿拉伯数字（「第五章」「第5章」「五」） */
+const ANCHOR_CHAPTER_RE = /^第?([一二三四五六七八九十]+|\d+)章$/;
+
+/** 中文数字 → 整数（十以内直查；「十一」~「十九」=10+尾；更大序数文档场景不出现，解析不出返回 null） */
+function cnOrdinal(s: string): number | null {
+  const D: Record<string, number> = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
+  if (s === '十') return 10;
+  if (s.startsWith('十')) { const t = D[s.slice(1)]; return t ? 10 + t : null; }
+  return D[s] ?? null;
+}
+
+/**
+ * 章节锚点定位（doc.read 定向读 / 用户「5.1 节」「第五章」指代口径）：
+ * ① 派生编号 token 精确命中（display 首词「5.1」「2.」⇢ 锚点「5.1」「2」，忽略尾部 .、与「节」字后缀）；
+ * ② 大章序命中（「第五章」「第5章」「五」⇢ 第 5 个大章节——deriveNumbering 的章序=出现序）；
+ * ③ 回落 findSection 原始标题口径（锚点码/精确/编号剥离）。
+ * 仅 token 精确比较，不做前缀——防「5.1」误命中「5.10」。
+ */
+export function findSectionByAnchor(anchor: string, secs: DocSection[]): number {
+  const a = anchor.trim().replace(/节\s*$/, '').trim(); // 「5.1 节」「5.1节」→ 本体；章类词形保留给 ②
+  if (!a) return -1;
+  const disp = new Map(deriveNumbering(secs).map((n) => [n.id, n]));
+  // ① 编号 token 命中（跳过无标题节与大章——大章 display 是原标题不是数字）
+  const tok = a.replace(/[.、\s]+$/, '');
+  if (/^\d+(?:\.\d+)*$/.test(tok)) {
+    const idx = secs.findIndex((s) => {
+      const d = disp.get(s.id);
+      if (!d || d.chapter || !d.display) return false;
+      const head = d.display.split(/\s+/)[0]!.replace(/[.、]+$/, '');
+      return head === tok;
+    });
+    if (idx >= 0) return idx;
+  }
+  // ② 大章序（「第五章」「第5章」「五」——对章类节数出现序）
+  const cm = ANCHOR_CHAPTER_RE.exec(a) ?? (/^([一二三四五六七八九十]+)$/.exec(a));
+  if (cm) {
+    const n = /^\d+$/.test(cm[1]!) ? Number(cm[1]) : cnOrdinal(cm[1]!);
+    if (n !== null && n >= 1) {
+      let ord = 0;
+      for (let i = 0; i < secs.length; i++) {
+        if (disp.get(secs[i]!.id)?.chapter) {
+          ord += 1;
+          if (ord === n) return i;
+        }
+      }
+    }
+  }
+  // ③ 原始标题口径
+  return findSection(a, secs);
 }

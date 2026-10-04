@@ -85,4 +85,38 @@ export class AiUsageService {
     const r = await query('SELECT 1 FROM projects WHERE id=$1', [projectId]);
     if (!r.rows[0]) throw new DomainError('NOT_FOUND', '项目不存在', projectId);
   }
+
+  /**
+   * 项目用量分解（dock 统计面板，2026-10-04 用户诉求：当前会话/累计/分上下文分别统计）：
+   * - byCtx：ai_usage LEFT JOIN ai_sessions 按 ctx 分组；session_id NULL（文档生成等 ai.usage.record
+   *   直落账）或会话已删（计量留账不删）的行 ctx 为 null → 前端标「文档生成等」
+   * - bySession：按会话分组（已删会话 code/name 为 null → 前端标「已删除会话」）
+   * - 只读直查，不经命令（与 ofProject/summary 同口径）
+   */
+  async breakdown(projectId: string) {
+    const totals = await query<{
+      calls: string; tokens_in: string; tokens_out: string; cost: string;
+    }>(
+      `SELECT count(*) AS calls, coalesce(sum(tokens_in),0) AS tokens_in,
+              coalesce(sum(tokens_out),0) AS tokens_out, coalesce(sum(cost),0) AS cost
+       FROM ai_usage WHERE project_id=$1`, [projectId]);
+    const byCtx = await query<{
+      ctx: string | null; calls: string; tokens_in: string; tokens_out: string; cost: string;
+    }>(
+      `SELECT s.ctx, count(*) AS calls, coalesce(sum(u.tokens_in),0) AS tokens_in,
+              coalesce(sum(u.tokens_out),0) AS tokens_out, coalesce(sum(u.cost),0) AS cost
+       FROM ai_usage u LEFT JOIN ai_sessions s ON s.id = u.session_id
+       WHERE u.project_id=$1 GROUP BY s.ctx ORDER BY cost DESC`, [projectId]);
+    const bySession = await query<{
+      session_id: string; code: string | null; name: string | null; ctx: string | null;
+      calls: string; tokens_in: string; tokens_out: string; cost: string;
+    }>(
+      `SELECT u.session_id, s.code, s.name, s.ctx, count(*) AS calls,
+              coalesce(sum(u.tokens_in),0) AS tokens_in,
+              coalesce(sum(u.tokens_out),0) AS tokens_out, coalesce(sum(u.cost),0) AS cost
+       FROM ai_usage u LEFT JOIN ai_sessions s ON s.id = u.session_id
+       WHERE u.project_id=$1 AND u.session_id IS NOT NULL
+       GROUP BY u.session_id, s.code, s.name, s.ctx ORDER BY cost DESC`, [projectId]);
+    return { totals: totals.rows[0], byCtx: byCtx.rows, bySession: bySession.rows };
+  }
 }

@@ -465,7 +465,7 @@ export class AiSessionsService implements OnModuleInit {
 \`\`\`
 - nav.goto：为用户打开某个页面。args: {"tab":"material|req|design|proto|dev|test|tasks|delegate|settings|rtm"}。当用户说"打开/带我去/跳转到某页"时调用，正文同时说明已发起打开。RTM 需求矩阵有直达页签：tab 用 "rtm"。
 - read_context：读取当前项目状态快照（各域条目计数）。args: {}。当需要最新项目数据回答"进展/状态"类问题时调用。
-- doc.read：读取指定文档的当前稿正文。args: {"kind":"crd|prd|hld|mod|alg|cls|db|api|ui|nfr"}。当用户问"文档里某条怎么写的/REQ 编号原话/哪一节承接某需求"时调用；返回含 finalized（是否已定稿）与 versionNo，回答时如实说明依据的版本与定稿态。返回 found:false 表示该文档尚未生成。
+- doc.read：读取指定文档正文（与界面同口径：草稿优先、章节标题带界面编号——「5.1 节」类指代按返回的编号对应）。args: {"kind":"crd|prd|hld|mod|alg|cls|db|api|ui|nfr","anchor":"5.1"}（anchor 可选：章节编号如「5.1」「第五章」、标题或 CR 编号，定向读单节不截断；用户按编号/章节名指代时务必带 anchor）。当用户问"文档里某条怎么写的/某节内容/REQ 编号原话/哪一节承接某需求"时调用；返回含 finalized（是否已定稿）、modified（是否有未提交草稿）、versionNo 与 sections 章节清单，回答时如实说明依据的版本与定稿态。found:false 表示该文档尚未生成；anchorFound:false 表示章节未命中，按 sections 清单修正后重试。
 - chat.history.read：读取本项目其它阶段会话的最近消息。args: {"sessionCode":"ss_3","limit":20}（limit 封顶 50）。当【他阶段会话】摘要不够、需要了解客户在其它阶段聊过的细节时调用。
 - propose_next_step：按项目当前状态计算下一步建议清单。args: {}。当用户问"下一步该做什么"时调用。
 - req.doc.propose_edits：提交 CRD/PRD 修改建议（高亮补丁，用户确认后才生效）。args: {"kind":"crd|prd","instruction":"要改什么"}（instruction 截 2000 字）。当用户要求修改需求文档内容时调用；调用后在正文说明"已发起修改建议提交（结果见下方工具卡），提交成功时请到需求页确认"。

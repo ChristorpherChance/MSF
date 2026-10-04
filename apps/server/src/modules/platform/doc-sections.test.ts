@@ -274,3 +274,47 @@ describe('buildNumberGuide（增量修订 prompt 编号对照表）', () => {
     expect(buildNumberGuide('只有前言，没有章节。')).toBe('');
   });
 });
+
+describe('findSectionByAnchor（doc.read 定向读：「5.1 节」「第五章」指代口径）', () => {
+  const secs = () => splitSections([
+    '前言。', '',
+    '## 一、背景与目标', '', '背景。', '',
+    '## 二、功能需求', '', '引言。', '',
+    '## CR-001 浏览器即开即玩', '', '承接：R-001', '',
+    '## CR-002 双人同屏', '', '承接：R-002', '',
+    '## 五、待确认事项', '', '待确认表。', '',
+    '## CR-015 免登录的网页版双人游戏', '', '承接：R-015 细则。',
+  ].join('\n'));
+  // 编号布局：一、(章1) 二、(章2) 2.1=CR-001 2.2=CR-002 五、(章3) 3.1=CR-015
+
+  it('数字编号 token 命中：「5.1」式多级编号与平铺序号（忽略「节」后缀与尾部点）', async () => {
+    const { findSectionByAnchor } = await import('./doc-sections.js');
+    const s = secs();
+    expect(s[findSectionByAnchor('2.1', s)]!.title).toBe('CR-001 浏览器即开即玩');
+    expect(s[findSectionByAnchor('2.2 节', s)]!.title).toBe('CR-002 双人同屏');
+    expect(s[findSectionByAnchor('3.1', s)]!.title).toBe('CR-015 免登录的网页版双人游戏');
+  });
+
+  it('大章序命中：「第五章」「第5章」→ 第 5 个大章节；「一」→ 首个大章', async () => {
+    const { findSectionByAnchor } = await import('./doc-sections.js');
+    const s = splitSections([
+      '## 一、背景', '', 'a', '',
+      '## 二、范围', '', 'b', '',
+      '## 三、功能', '', 'c', '',
+      '## 四、非功能', '', 'd', '',
+      '## 五、待确认事项', '', 'e',
+    ].join('\n'));
+    expect(s[findSectionByAnchor('第五章', s)]!.title).toBe('五、待确认事项');
+    expect(s[findSectionByAnchor('第5章', s)]!.title).toBe('五、待确认事项');
+    expect(s[findSectionByAnchor('一', s)]!.title).toBe('一、背景');
+  });
+
+  it('回落原始标题口径：锚点码/原标题精确；落空返回 -1（不做前缀误命中）', async () => {
+    const { findSectionByAnchor } = await import('./doc-sections.js');
+    const s = secs();
+    expect(s[findSectionByAnchor('CR-015', s)]!.title).toBe('CR-015 免登录的网页版双人游戏');
+    expect(s[findSectionByAnchor('五、待确认事项', s)]!.title).toBe('五、待确认事项');
+    expect(findSectionByAnchor('9.9', s)).toBe(-1);
+    expect(findSectionByAnchor('第九章', s)).toBe(-1);
+  });
+});

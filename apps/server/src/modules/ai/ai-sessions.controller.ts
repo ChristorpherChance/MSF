@@ -204,6 +204,12 @@ export class AiSessionsController {
     });
   }
 
+  @Get('usage/breakdown')
+  async usageBreakdown(@Param('projectId') projectId: string) {
+    await this.usage.assertProject(projectId);
+    return this.usage.breakdown(projectId);
+  }
+
   // ---- 委派（A08-8） ----
 
   @Get('delegations')

@@ -59,7 +59,21 @@ export const assistantApi = {
   usage: (pid: string) =>
     api.get<{ totals: { tokens_in: string; tokens_out: string; cost: string; calls: string } | null }>(
       `/api/v1/projects/${pid}/ai/usage`),
+  /** 用量分解（dock 统计面板）：总量 + 分上下文 + 分会话 */
+  usageBreakdown: (pid: string) =>
+    api.get<UsageBreakdown>(`/api/v1/projects/${pid}/ai/usage/breakdown`),
 };
+
+export interface UsageBreakdown {
+  totals: { tokens_in: string; tokens_out: string; cost: string; calls: string } | null;
+  /** ctx null = 文档生成等无会话直落账调用 */
+  byCtx: Array<{ ctx: string | null; calls: string; tokens_in: string; tokens_out: string; cost: string }>;
+  /** code/name null = 会话已删（计量留账不删） */
+  bySession: Array<{
+    session_id: string; code: string | null; name: string | null; ctx: string | null;
+    calls: string; tokens_in: string; tokens_out: string; cost: string;
+  }>;
+}
 
 /** POST-SSE：逐帧回调（含 stream.start 的 operationId，流控寻址用） */
 export async function sendMessageSse(

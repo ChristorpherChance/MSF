@@ -3,6 +3,12 @@ import type { PoolClient } from 'pg';
 import { DomainError } from '@msf/shared';
 import { query } from '../../db/pool.js';
 import { executeCommand, registerCommand, type CommandContext } from '../evidence/command-bus.js';
+import {
+  findSectionByAnchor,
+  splitSections,
+  withNumberedTitles,
+} from '../platform/doc-sections.js';
+import { deriveNumbering } from '@msf/shared';
 
 /**
  * ToolBridge 工具注册表（DSG-D08-3；A08-5/6；REQ-605/606/613）：
@@ -79,9 +85,12 @@ const TOOLS: ToolDef[] = [
     name: 'doc.read',
     kind: 'read',
     // W5-001：助手此前读不到任何文档正文（read_context 只有计数），
-    // 「PRD 哪一节承接 X / REQ-00n 原话」类高频诉求只能拒答；补只读正文通道
-    description: '读取指定文档的当前稿正文（kind：crd|prd 需求文档；hld|mod|alg|cls|db|api|ui|nfr 设计册）。回答「文档里某条怎么写的/哪一节承接某需求」类问题前调用',
-    argsSchema: { kind: 'string' },
+    // 「PRD 哪一节承接 X / REQ-00n 原话」类高频诉求只能拒答；补只读正文通道。
+    // 2026-10-04「5.1 看不到」根修：①草稿优先（与 UI getDoc 同口径——UI 展示草稿，只读 current_version
+    // 会看不到用户刚改的）；②标题注入 UI 派生编号（withNumberedTitles——模型与界面共享编号坐标，
+    // 「5.1 节」才有所指）；③anchor 定向读单节（截断不再切掉尾部章节）；④始终附 sections 章节清单
+    description: '读取指定文档正文（与界面同口径：草稿优先、章节标题带界面编号）。args.kind：crd|prd 需求文档；hld|mod|alg|cls|db|api|ui|nfr 设计册；args.anchor 可选——章节编号（如「5.1」「第五章」）或标题/CR 编号，定向读单节。回答「文档里某条怎么写的/某节内容/哪一节承接某需求」类问题前调用',
+    argsSchema: { kind: 'string', anchor: 'string' },
     required: ['kind'],
     async run(client, projectId, args) {
       const kind = String(args['kind']);
@@ -90,28 +99,59 @@ const TOOLS: ToolDef[] = [
         throw new DomainError('TOOL_ARGS_INVALID',
           `kind 枚举 ${[...DOC_REQ_KINDS, ...DOC_DSG_KINDS].join('|')}`, 'kind');
       }
-      // SQL 直读他域表（与 read_context 同口径，只读）；取当前稿，附定稿态供模型如实表述
+      // SQL 直读他域表（与 read_context 同口径，只读）；草稿优先=与界面展示口径一致，附定稿/未提交态供模型如实表述
       const sql = isReq
-        ? `SELECT v.version_no, v.content, d.final_version_id IS NOT NULL AS finalized
-           FROM req_documents d JOIN req_versions v ON v.id = d.current_version_id
+        ? `SELECT v.version_no, COALESCE(dr.content, v.content) AS content,
+                  d.final_version_id IS NOT NULL AS finalized, dr.id IS NOT NULL AS modified
+           FROM req_documents d
+           JOIN req_versions v ON v.id = d.current_version_id
+           LEFT JOIN req_drafts dr ON dr.document_id = d.id
            WHERE d.project_id = $1 AND d.doc_kind = $2`
-        : `SELECT v.version_no, v.content, d.final_version_id IS NOT NULL AS finalized
-           FROM dsg_documents d JOIN dsg_versions v ON v.id = d.current_version_id
+        : `SELECT v.version_no, COALESCE(dr.content, v.content) AS content,
+                  d.final_version_id IS NOT NULL AS finalized, dr.id IS NOT NULL AS modified
+           FROM dsg_documents d
+           JOIN dsg_versions v ON v.id = d.current_version_id
+           LEFT JOIN dsg_drafts dr ON dr.document_id = d.id
            WHERE d.project_id = $1 AND d.doc_kind = $2`;
-      const r = await client.query<{ version_no: number; content: string; finalized: boolean }>(
-        sql, [projectId, kind]);
+      const r = await client.query<{
+        version_no: number; content: string; finalized: boolean; modified: boolean;
+      }>(sql, [projectId, kind]);
       const row = r.rows[0];
       if (!row) return { kind, found: false, message: '该文档尚未生成' };
-      const truncated = row.content.length > DOC_READ_CAP;
+      // 章节清单（始终附）：界面显示编号口径，截断/定向读时模型据此自助定位
+      const secs = splitSections(row.content);
+      const disp = new Map(deriveNumbering(secs).map((n) => [n.id, n.display]));
+      const all = secs.filter((s) => s.title !== '').map((s) => disp.get(s.id) || s.title);
+      const sections = all.length > 60 ? [...all.slice(0, 60), `…（共 ${all.length} 节）`] : all;
+      const base = {
+        kind, found: true, finalized: row.finalized, versionNo: row.version_no,
+        modified: row.modified, sections,
+      };
+      // anchor 定向读：编号/章序/标题/锚点码统一走 findSectionByAnchor（与补丁定位同族口径）
+      const anchor = typeof args['anchor'] === 'string' ? args['anchor'].trim() : '';
+      if (anchor) {
+        const idx = findSectionByAnchor(anchor, secs);
+        if (idx < 0) {
+          return { ...base, anchor, anchorFound: false, message: `未找到「${anchor}」对应章节（可用章节见 sections）` };
+        }
+        const s = secs[idx]!;
+        const title = disp.get(s.id) || s.title;
+        const cut = s.md.length > DOC_READ_CAP;
+        return {
+          ...base, anchor, anchorFound: true, sectionTitle: title,
+          truncated: cut,
+          content: `${title ? `## ${title}\n\n` : ''}${cut ? `${s.md.slice(0, DOC_READ_CAP)}\n…（节内截断，全文共 ${s.md.length} 字）` : s.md}`,
+        };
+      }
+      // 全文读：标题注入界面派生编号（「5.1 节」类指代据此可答）；截断时指引 anchor 定向读
+      const numbered = withNumberedTitles(row.content);
+      const truncated = numbered.length > DOC_READ_CAP;
       return {
-        kind,
-        found: true,
-        finalized: row.finalized,
-        versionNo: row.version_no,
+        ...base,
         truncated,
         content: truncated
-          ? `${row.content.slice(0, DOC_READ_CAP)}\n…（截断，全文共 ${row.content.length} 字）`
-          : row.content,
+          ? `${numbered.slice(0, DOC_READ_CAP)}\n…（截断，全文共 ${numbered.length} 字；可用 anchor 参数按章节定向读取，章节清单见 sections）`
+          : numbered,
       };
     },
   },
