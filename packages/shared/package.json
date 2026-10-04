@@ -7,11 +7,17 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
+      "import": "./dist/esm/index.js",
       "default": "./dist/index.js"
+    },
+    "./doc-numbering": {
+      "types": "./dist/doc-numbering.d.ts",
+      "import": "./dist/esm/doc-numbering.js",
+      "default": "./dist/doc-numbering.js"
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && tsc -p tsconfig.build.esm.json",
     "dev": "tsc -p tsconfig.build.json --watch",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --coverage",

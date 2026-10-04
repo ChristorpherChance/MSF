@@ -59,8 +59,8 @@ describe('buildCrossSessionDigest', () => {
   });
 
   it('未知 ctx 原样呈现；无摘录的会话跳过', () => {
-    const out = buildCrossSessionDigest([row('proto', 'ss_7', ['原型要换肤']), row('req', 'ss_8', [])]);
-    expect(out).toContain('[proto] ss_7');
+    const out = buildCrossSessionDigest([row('legacy', 'ss_7', ['原型要换肤']), row('req', 'ss_8', [])]);
+    expect(out).toContain('[legacy] ss_7');
     expect(out).not.toContain('ss_8');
   });
 });
@@ -347,7 +347,7 @@ describe('normalizePatches', () => {
     const out = normalizePatches(patches, splitSections(DOC));
     expect(out).toHaveLength(1);
     expect(out[0]!.type).toBe('modify');
-    expect(out[0]!.secId).toBe('s1');
+    expect(out[0]!.secId).toBe('s2'); // splitSections：空文首节先占 s0，filter 不重编号，故 CR-001=s2
     expect(out[0]!.old).toBe('承接：R-001\n\n旧正文。');
     expect(out[0]!.new).toContain('新正文。');
   });
@@ -356,7 +356,7 @@ describe('normalizePatches', () => {
     const patches = mdToPatches('## 一、背景与目标\n\n新背景。');
     const out = normalizePatches(patches, splitSections(DOC));
     expect(out[0]!.type).toBe('modify');
-    expect(out[0]!.secId).toBe('s0');
+    expect(out[0]!.secId).toBe('s1'); // 一、背景与目标=s1（s0 为空文首节占位，已过滤不重编号）
   });
 
   it('未命中保持 add；空正文节不转（modify 的 old⊆md 校验对空 old 必败，保 add 由人工处置）', () => {
@@ -498,6 +498,8 @@ describe('对话改文档/归一化（集成，需 DB）', async () => {
     await query('UPDATE req_documents SET current_version_id=NULL, final_version_id=NULL WHERE project_id=$1', [PID]);
     await query('DELETE FROM req_versions WHERE document_id IN (SELECT id FROM req_documents WHERE project_id=$1)', [PID]);
     await query('DELETE FROM req_documents WHERE project_id=$1', [PID]);
+    await query('DELETE FROM rtm_links WHERE project_id=$1', [PID]);   // commit 触发 RTM 派生，不删撞外键
+    await query('DELETE FROM rtm_health WHERE project_id=$1', [PID]);
     await query('DELETE FROM projects WHERE id=$1', [PID]);
     await pool.end();
   });

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { deriveNumbering } from '@msf/shared';
+import { deriveNumbering } from '@msf/shared/doc-numbering';
 import { mdHtml } from '../../md-html';
 import { ApiError } from '../../api';
 import { Modal } from '../../ui/Modal';
