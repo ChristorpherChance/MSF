@@ -15,7 +15,8 @@ export interface NumberedSection {
 }
 
 const CHAPTER_RE = /^[一二三四五六七八九十]+、/;
-const CODE_RE = /^(?:CR|REQ)-\d{3}\s*/;
+/** 行首锚点码（CR/REQ-nnn，\b 挡住 CR-0012 之类伪码）；与 doc-sections 的 ANCHOR_CODE_RE 口径一致 */
+const CODE_RE = /^((?:CR|REQ)-\d{3}\b)\s*/;
 
 export function deriveNumbering(secs: Array<{ id: string; title: string }>): NumberedSection[] {
   const hasChapter = secs.some((s) => CHAPTER_RE.test(s.title));
@@ -29,7 +30,7 @@ export function deriveNumbering(secs: Array<{ id: string; title: string }>): Num
       section = 0;
       return { id: s.id, display: s.title, chapter: true };
     }
-    const code = /^((?:CR|REQ)-\d{3})/.exec(s.title)?.[1];
+    const code = CODE_RE.exec(s.title)?.[1];
     const body = s.title.replace(CODE_RE, '').trim();
     const suffix = code ? `（${code}）` : '';
     if (hasChapter && chapter > 0) {

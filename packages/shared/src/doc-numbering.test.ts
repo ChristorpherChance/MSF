@@ -38,4 +38,12 @@ describe('deriveNumbering', () => {
     expect(out[0]!.display).toBe('1. 修订说明');
     expect(out[2]!.display).toBe('1.1 登录（REQ-001）');
   });
+
+  it('四位以上数字的伪锚点码不提取（CR-0012 按无码节处理）', () => {
+    const out = deriveNumbering([
+      { id: 's0', title: '一、功能需求' },
+      { id: 's1', title: 'CR-0012 误植' },
+    ]);
+    expect(out[1]!.display).toBe('1.1 CR-0012 误植');
+  });
 });
