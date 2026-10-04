@@ -1,6 +1,6 @@
 /** normalizePatches 单测：mdToPatches 恒产 add 的归一化（锚点码命中/标题命中转 modify，未命中保持 add） */
 import { describe, expect, it } from 'vitest';
-import { applyPatch, mdToPatches, normalizePatches, splitSections } from './doc-sections.js';
+import { applyPatch, joinSections, mdToPatches, normalizePatches, splitSections, type DocSection } from './doc-sections.js';
 
 const DOC = [
   '## 一、背景与目标',
@@ -125,6 +125,57 @@ describe('applyPatch add + after 落位', () => {
     expect(secs.map((s) => s.title)).toEqual([
       '', '一、背景与目标', '二、功能需求', 'CR-001 门户首页', 'CR-002 界面检索', '三、非功能需求',
     ]);
+  });
+});
+
+describe('applyPatch modify/del secId 错位回退重定位（add 中段插入后混合批按序接受，I-1）', () => {
+  const mixedBase = () => splitSections([
+    '前言。', '',
+    '## CR-001 甲', '', '甲文。', '',
+    '## CR-002 乙', '', '乙文。',
+  ].join('\n'));
+  /** 模拟 accept-pending 真实链路：每次 accept 对当前内容重切分，位置性 id 重派 */
+  const resplit = (secs: DocSection[]) => splitSections(joinSections(secs));
+
+  it('混合批链式：add 大章（after=\'\'）后两条 modify 按库存 secId 错位 → 回退锚点码命中，三条全成且结构正确', () => {
+    let secs = mixedBase(); // s0 前言 / s1 CR-001 甲 / s2 CR-002 乙——normalizePatches 按此刻位置产 secId
+    let out = applyPatch(secs, { type: 'add', secId: 's0', title: '一、背景与目标', new: '背景。', after: '' });
+    expect(out).not.toBeNull();
+    secs = resplit(out!); // 重切分后 s1=一、背景与目标 / s2=CR-001 甲 / s3=CR-002 乙——库存 secId 全错位
+    out = applyPatch(secs, { type: 'modify', secId: 's1', title: 'CR-001 甲', old: '甲文。', new: '甲文修订。' });
+    expect(out).not.toBeNull();
+    secs = resplit(out!);
+    out = applyPatch(secs, { type: 'modify', secId: 's2', title: 'CR-002 乙', old: '乙文。', new: '乙文修订。' });
+    expect(out).not.toBeNull();
+    secs = resplit(out!);
+    expect(secs.map((s) => s.title)).toEqual(['', '一、背景与目标', 'CR-001 甲', 'CR-002 乙']);
+    expect(secs[2]!.md).toBe('甲文修订。');
+    expect(secs[3]!.md).toBe('乙文修订。');
+  });
+
+  it('del 同样回退：库存 secId 错位 → 按标题锚点码重定位删除', () => {
+    let secs = mixedBase();
+    let out = applyPatch(secs, { type: 'add', secId: 's0', title: '一、背景与目标', new: '背景。', after: '' });
+    secs = resplit(out!); // s2=CR-001 甲（库存 del 的 secId='s2' 指向错节）
+    out = applyPatch(secs, { type: 'del', secId: 's2', title: 'CR-002 乙', old: '乙文。' });
+    expect(out).not.toBeNull();
+    expect(out!.map((s) => s.title)).toEqual(['', '一、背景与目标', 'CR-001 甲']);
+  });
+
+  it('回退候选仍须 old⊆md：锚点码/标题命中但 old 不在候选节 → null（防错节静默命中）', () => {
+    const secs = mixedBase();
+    expect(applyPatch(secs, { type: 'modify', secId: 's9', title: 'CR-001 甲', old: '不存在的旧文。', new: 'x' })).toBeNull();
+    expect(applyPatch(secs, { type: 'del', secId: 's9', title: 'CR-002 乙', old: '不存在的旧文。' })).toBeNull();
+    // 无 title 可回退且 secId 落空 → null（维持原语义）
+    expect(applyPatch(secs, { type: 'modify', secId: 's9', old: '甲文。', new: 'x' })).toBeNull();
+  });
+
+  it('secId 命中且 old 吻合时不走回退（既有路径零变化）', () => {
+    const secs = mixedBase();
+    const out = applyPatch(secs, { type: 'modify', secId: 's1', title: 'CR-001 甲', old: '甲文。', new: '甲文修订。' });
+    expect(out).not.toBeNull();
+    expect(out!.map((s) => s.title)).toEqual(['', 'CR-001 甲', 'CR-002 乙']);
+    expect(out![1]!.md).toBe('甲文修订。');
   });
 });
 

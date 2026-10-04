@@ -460,6 +460,27 @@ describe('ReqDocs/Rtm/Generate（集成，需 DB+MinIO）', async () => {
       await docs.acceptPatch(PID4, 'crd', p2.patchIds[0]!, CTX4);
       d = (await docs.getDoc(PID4, 'crd')) as unknown as DocView;
       expect(d.secs.map((s) => s.title).at(-1)).toBe('四、附录');
+      // I-1 混合批：add 大章（after='' 文首插入，既有节位置后移、重切分 id 重派）+ 两条 modify 既有节
+      // （secId 按 propose 时刻位置产：s3=CR-001/s4=CR-002）按序 accept——修复前 add 后库存 secId 错位 → PATCH_BASE_STALE 卡死
+      const fp3 = d.contentFingerprint.replace(/^sha256:/, '');
+      expect(d.secs.map((s) => s.id)).toEqual(['s0', 's1', 's2', 's3', 's4', 's5', 's6']); // 钉住 propose 时刻位置口径
+      const mixed = (await executeCommand('doc.propose-pending', {
+        projectId: PID4, kind: 'crd',
+        patches: [
+          { type: 'add', secId: 's0', title: '零、总体说明', new: '总体。', after: '' },
+          { type: 'modify', secId: 's3', title: 'CR-001 门户首页', old: '承接：R-001', new: '承接：R-001、R-003' },
+          { type: 'modify', secId: 's4', title: 'CR-002 界面检索', old: '承接：R-002', new: '承接：R-002、R-004' },
+        ],
+        targetFingerprint: fp3, proposedBy: 'assistant',
+      }, CTX4)) as { patchIds: string[] };
+      for (const id of mixed.patchIds) await docs.acceptPatch(PID4, 'crd', id, CTX4);
+      d = (await docs.getDoc(PID4, 'crd')) as unknown as DocView;
+      expect(d.secs.map((s) => s.title)).toEqual([
+        '', '零、总体说明', '一、背景与目标', '二、功能需求', 'CR-001 门户首页', 'CR-002 界面检索', '三、非功能需求', '四、附录',
+      ]);
+      expect(d.secs.find((s) => s.title === 'CR-001 门户首页')!.md).toContain('R-003');
+      expect(d.secs.find((s) => s.title === 'CR-002 界面检索')!.md).toContain('R-004');
+      expect(d.secs.find((s) => s.title === '二、功能需求')!.md).not.toContain('承接'); // 未误落错节
     } finally {
       await query('DELETE FROM req_pendings WHERE document_id IN (SELECT id FROM req_documents WHERE project_id=$1)', [PID4]);
       await query('DELETE FROM req_drafts WHERE document_id IN (SELECT id FROM req_documents WHERE project_id=$1)', [PID4]);

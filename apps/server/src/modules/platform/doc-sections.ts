@@ -83,7 +83,6 @@ export interface EditPatch {
 
 /** 应用补丁到章节集；modify/del 要求 old 文本仍在该节内容中（否则调用方判 PATCH_BASE_STALE） */
 export function applyPatch(secs: DocSection[], patch: EditPatch): DocSection[] | null {
-  const idx = secs.findIndex((s) => s.id === patch.secId);
   if (patch.type === 'add') {
     // id 只是标识、顺序由数组位置决定：中段插入不重排既有 id
     const next: DocSection = {
@@ -101,15 +100,28 @@ export function applyPatch(secs: DocSection[], patch: EditPatch): DocSection[] |
     if (anchor < 0) return [...secs, next]; // 锚点落空：退化文末追加
     return [...secs.slice(0, anchor + 1), next, ...secs.slice(anchor + 1)];
   }
+  // modify/del 定位（I-1）：secId 是 propose 时刻的位置性 id——混合批中 add 中段插入后既有节位置后移、
+  // accept 时重切分 id 重派，库存 secId 可能指向错节。secId 失配（节不存在、或 old 不在该节、或 modify 无 old）
+  // 按补丁 title 回退重定位（锚点码优先、标题精确其次）；候选节仍须 old⊆md 校验通过，否则 null（防错节静默命中）。
+  const fits = (i: number): boolean =>
+    i >= 0 && (patch.type === 'del' || !!patch.old) && (!patch.old || secs[i]!.md.includes(patch.old));
+  let idx = secs.findIndex((s) => s.id === patch.secId);
+  if (!fits(idx)) {
+    idx = -1;
+    if (patch.title) {
+      const code = ANCHOR_CODE_RE.exec(patch.title)?.[0];
+      const byCode = code ? secs.findIndex((s) => ANCHOR_CODE_RE.exec(s.title)?.[0] === code) : -1;
+      const cand = byCode >= 0 ? byCode : secs.findIndex((s) => s.title === patch.title);
+      if (fits(cand)) idx = cand;
+    }
+  }
   if (idx < 0) return null;
   const target = secs[idx]!;
   if (patch.type === 'del') {
-    if (patch.old && !target.md.includes(patch.old)) return null;
     return secs.filter((_, i) => i !== idx);
   }
-  // modify
-  if (!patch.old || !target.md.includes(patch.old)) return null;
-  const md = target.md.replace(patch.old, patch.new ?? '');
+  // modify（fits 已保证 old 非空且 old⊆md）
+  const md = target.md.replace(patch.old!, patch.new ?? '');
   return secs.map((s, i) => (i === idx ? { ...s, md } : s));
 }
 
