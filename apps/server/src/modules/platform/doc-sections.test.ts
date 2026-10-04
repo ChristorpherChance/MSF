@@ -68,7 +68,19 @@ describe('withNumberedTitles（导出注入）', () => {
     ].join('\n'));
     expect(out).toContain('## 一、功能需求');
     expect(out).toContain('## 1.1 浏览器即开即玩（CR-001）');
+    expect(out).toContain('引言。'); // 大章正文保全
     expect(out).toContain('承接：R-001');
     expect(out).not.toContain('## CR-001 浏览器即开即玩\n'); // 原标题被替换
+  });
+
+  it('无大章（存量平铺文档）退化纯序号，锚点码仍入括号', async () => {
+    const { withNumberedTitles } = await import('./doc-sections.js');
+    const out = withNumberedTitles([
+      '## CR-001 浏览器即开即玩', '', '承接：R-001', '',
+      '## CR-002 双人同屏', '', '承接：R-002',
+    ].join('\n'));
+    expect(out).toContain('## 1. 浏览器即开即玩（CR-001）');
+    expect(out).toContain('## 2. 双人同屏（CR-002）');
+    expect(out).toContain('承接：R-002'); // 正文不动
   });
 });

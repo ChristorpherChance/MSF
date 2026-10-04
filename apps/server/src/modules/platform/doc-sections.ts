@@ -125,7 +125,7 @@ export function normalizePatches(patches: EditPatch[], existing: DocSection[]): 
   });
 }
 
-/** 导出用：节标题注入派生编号后与原文同构重组（与前端渲染同函数同口径；存储内容不动） */
+/** 导出用：节标题注入派生编号后与 joinSections 规范形同构重组（与前端渲染同函数同口径；存储内容不动） */
 export function withNumberedTitles(content: string): string {
   const secs = splitSections(content);
   const disp = new Map(deriveNumbering(secs).map((n) => [n.id, n.display]));
