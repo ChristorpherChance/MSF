@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { deriveNumbering } from '@msf/shared/doc-numbering';
 import { mdHtml } from '../../md-html';
@@ -330,6 +330,18 @@ function RefsPopover({ kind, onClose }: { kind: DocKind; onClose: () => void }) 
  */
 function GenCard() {
   const { gen, controlGenerate } = useReqView();
+  // 完成后默认收拢（实机反馈：整篇生成 19+ 章节 Task 卡全展开把正文顶出首屏，且不能收拢）
+  const [collapsed, setCollapsed] = useState(false);
+  const wasRunning = useRef(false);
+  useEffect(() => {
+    if (gen.running) {
+      wasRunning.current = true;
+      setCollapsed(false);
+    } else if (wasRunning.current) {
+      wasRunning.current = false;
+      setCollapsed(true);
+    }
+  }, [gen.running]);
   const sections = useMemo(() => {
     const heads = [...gen.streamText.matchAll(/^##\s+(.+)$/gm)].map((m) => m[1]!.trim());
     return heads;
@@ -356,8 +368,13 @@ function GenCard() {
             <button className="act" disabled={!gen.operationId} onClick={() => void controlGenerate('stop')}>⏹ 停止</button>
           </span>
         )}
+        {!gen.running && sections.length > 0 && (
+          <button className="act mini" onClick={() => setCollapsed((c) => !c)}>
+            {collapsed ? `▸ 展开明细（${sections.length} 章节）` : '▾ 收拢明细'}
+          </button>
+        )}
       </div>
-      {sections.length > 0 && (
+      {!collapsed && sections.length > 0 && (
         <div className="tasklist">
           <div className="tl-head">章节 Task（实时）· {sections.length}</div>
           {sections.map((s, i) => (
@@ -373,10 +390,12 @@ function GenCard() {
           ))}
         </div>
       )}
-      <details className="gen-raw">
-        <summary>查看原始输出流</summary>
-        <pre className="gen-stream">{gen.streamText || '等待模型输出…'}</pre>
-      </details>
+      {!collapsed && (
+        <details className="gen-raw">
+          <summary>查看原始输出流</summary>
+          <pre className="gen-stream">{gen.streamText || '等待模型输出…'}</pre>
+        </details>
+      )}
       {!gen.running && !gen.error && (
         <p className="pop-tip">生成结果为待确认补丁（不落稿），请在下方逐条接受/拒绝后提交版本。</p>
       )}
@@ -438,13 +457,31 @@ function TocCol() {
 
 /** 纸面：h1 + 状态 + 章节（待确认补丁高亮 + 行内接受/拒绝） */
 function Paper({ kind, readonly }: { kind: DocKind; readonly: boolean }) {
-  const { doc, viewMode, patches, tocFlash } = useReqView();
+  const { doc, viewMode, patches, tocFlash, patchFocus, flashPatch, clearPatchFocus } = useReqView();
   // 派生编号（渲染层注入，存储零改动）：与目录栏同口径（hooks 规则：须在任何早退之前）
   const numbered = useMemo(() => (doc ? new Map(deriveNumbering(doc.secs).map((n) => [n.id, n])) : null), [doc]);
+  // 跨页「前往审阅」定位：补丁就绪后滚动到第一条待确认补丁并闪高亮（消费 patchFocus 触发器）
+  useEffect(() => {
+    if (!patchFocus) return;
+    const first = patches.find((p) => p.status === 'pending');
+    if (!first) return; // 补丁未就绪（loadDoc 在途）——等下一轮 patches 变化再消费
+    clearPatchFocus();
+    requestAnimationFrame(() => {
+      document.getElementById(`patch-${first.patchId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      flashPatch(first.patchId);
+    });
+  }, [patchFocus, patches, clearPatchFocus, flashPatch]);
   if (!doc) return null;
   const pendBySec = new Map(patches.filter((p) => p.status === 'pending').map((p) => [p.secId, p]));
   const appended = patches.filter((p) => p.status === 'pending' && p.type === 'add');
   const pendCount = pendBySec.size + appended.length;
+  // 页内定位：点击「补丁 ×N」滚动到第一条待确认补丁（实机反馈：补丁行内高亮在长文档中找不到）
+  const locateFirstPending = () => {
+    const first = patches.find((p) => p.status === 'pending');
+    if (!first) return;
+    document.getElementById(`patch-${first.patchId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    flashPatch(first.patchId);
+  };
 
   if (viewMode === 'source') {
     const full = doc.secs.map((s) => (s.title ? `## ${s.title}\n\n${s.md}` : s.md)).join('\n\n');
@@ -469,7 +506,13 @@ function Paper({ kind, readonly }: { kind: DocKind; readonly: boolean }) {
             <span className="tag tag-warn" title="工作区有未提交修改；工具栏「⬆ 版本提交」生成新版本">已修改未提交</span>
           )}
           {pendCount > 0 && (
-            <span className="tag tag-warn" title="待确认补丁：在下方各章节行内逐条接受或拒绝（REQ-205）">补丁 ×{pendCount}</span>
+            <button
+              className="tag tag-warn tag-btn"
+              title="待确认补丁：在下方各章节行内逐条接受或拒绝（REQ-205）。点击定位到第一条待确认补丁"
+              onClick={locateFirstPending}
+            >
+              补丁 ×{pendCount} → 点击定位
+            </button>
           )}
           {pendCount > 1 && !readonly && <PatchBulk kind={kind} />}
         </h1>
@@ -648,7 +691,7 @@ function PatchBulk({ kind }: { kind: DocKind }) {
 
 /** 待确认补丁行内条（REQ-205；modify/del 高亮旧→新；L2：拒绝可填处置理由，落库留痕） */
 function PendingBar({ kind, patch }: { kind: DocKind; patch: PatchItem }) {
-  const { projectId, refresh } = useReqView();
+  const { projectId, refresh, patchFlash } = useReqView();
   const [msg, setMsg] = useState<string | null>(null);
   const [rejectOpen, setRejectOpen] = useState(false);
   const [reason, setReason] = useState('');
@@ -664,7 +707,10 @@ function PendingBar({ kind, patch }: { kind: DocKind; patch: PatchItem }) {
     act(() => reqApi.rejectPatch(projectId, kind, patch.patchId, reason.trim() || undefined));
   };
   return (
-    <div className={`pending-bar pending-${patch.type === 'modify' ? 'mod' : patch.type === 'del' ? 'del' : 'add'}`}>
+    <div
+      id={`patch-${patch.patchId}`}
+      className={`pending-bar pending-${patch.type === 'modify' ? 'mod' : patch.type === 'del' ? 'del' : 'add'}${patchFlash === patch.patchId ? ' flash' : ''}`}
+    >
       <span className={`plabel ${patch.type === 'modify' ? 'mod' : patch.type}`}>
         ● 待确认·{patch.type === 'add' ? '新增' : patch.type === 'del' ? '删除' : '修改'}
       </span>

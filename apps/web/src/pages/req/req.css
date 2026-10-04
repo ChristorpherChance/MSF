@@ -85,6 +85,15 @@
 .pending-bar.pending-add { border-color: var(--green); background: var(--green-soft); }
 .pend-desc { flex: 1; min-width: 200px; overflow-wrap: anywhere; }
 .pend-desc em { color: var(--ink2); font-style: normal; }
+/* 补丁定位闪高亮（点击「补丁 ×N」/ dock「前往审阅」）：与 .sect.flash 同构的瞬时提示 */
+.pending-bar.flash { animation: patchFlash 1.6s ease-out; box-shadow: 0 0 0 2px var(--orange); }
+@keyframes patchFlash {
+  0% { box-shadow: 0 0 0 4px var(--orange); }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+/* h1 内可点击 tag（补丁定位入口） */
+.tag-btn { cursor: pointer; font: inherit; }
+.tag-btn:hover { filter: brightness(0.96); }
 
 /* popover / 菜单（U-A4：锚定式 popover 收编 .pop-wrap 作用域，避免与 ui.css 全局 fixed popover 撞车） */
 .pop-wrap { position: relative; }
@@ -236,8 +245,8 @@ tr.row-flash { animation: rtm-flash 1.2s ease-in-out 2; }
 .v-tl-main { flex: 1; display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
 .v-tl-main .tag { margin-left: 6px; }
 
-/* R3 章节 Task 实时卡（原型 .tasklist） */
-.tasklist { margin: 8px 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+/* R3 章节 Task 实时卡（原型 .tasklist）；限高内滚——整篇生成 19+ 章节不全量撑高卡片把正文顶出首屏 */
+.tasklist { margin: 8px 0; border: 1px solid var(--line); border-radius: 8px; max-height: 264px; overflow-y: auto; }
 .tl-head { font-size: 12px; font-weight: 700; color: var(--ink2); padding: 6px 10px; background: var(--soft); }
 .tl-item { display: flex; align-items: center; gap: 8px; padding: 6px 10px; font-size: 12.5px; border-top: 1px solid var(--line); }
 .tl-item .st { flex: none; }

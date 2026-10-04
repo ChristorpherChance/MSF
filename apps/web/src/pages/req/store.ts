@@ -45,6 +45,10 @@ interface ReqViewState {
   error: string | null;
   gen: GenState;
   tocFlash: string | null;
+  /** 待确认补丁闪高亮（patchId；与 tocFlash 同构的瞬时 UI 态） */
+  patchFlash: string | null;
+  /** 跨页「前往审阅」定位触发（时间戳；Paper 消费后清除） */
+  patchFocus: number | null;
 
   init: () => Promise<void>;
   setSubTab: (t: ReqSubTab) => Promise<void>;
@@ -53,6 +57,10 @@ interface ReqViewState {
   refreshRtm: () => Promise<void>;
   loadDoc: (v?: number) => Promise<void>;
   flashToc: (secId: string) => void;
+  flashPatch: (patchId: string) => void;
+  /** dock 工具卡「前往审阅」：切到目标文档页签并触发补丁定位（patchFocus 由 Paper 消费） */
+  focusPatches: (tab?: 'crd' | 'prd') => Promise<void>;
+  clearPatchFocus: () => void;
   startGenerate: (instruction?: string) => Promise<void>;
   controlGenerate: (action: 'pause' | 'resume' | 'stop') => Promise<void>;
 }
@@ -73,6 +81,8 @@ export const useReqView = create<ReqViewState>((set, get) => ({
   error: null,
   gen: { operationId: null, running: false, paused: false, streamText: '', error: null, source: null },
   tocFlash: null,
+  patchFlash: null,
+  patchFocus: null,
 
   init: async () => {
     const p = await ensureProject();
@@ -133,6 +143,21 @@ export const useReqView = create<ReqViewState>((set, get) => ({
       if (get().tocFlash === secId) set({ tocFlash: null });
     }, 1600);
   },
+
+  flashPatch: (patchId) => {
+    set({ patchFlash: patchId });
+    setTimeout(() => {
+      if (get().patchFlash === patchId) set({ patchFlash: null });
+    }, 1600);
+  },
+
+  focusPatches: async (tab) => {
+    // 先切页签（loadDoc 拉最新补丁），再置定位触发；Paper 在补丁就绪后滚动+闪高亮
+    if (tab && get().subTab !== tab) await get().setSubTab(tab);
+    set({ patchFocus: Date.now() });
+  },
+
+  clearPatchFocus: () => set({ patchFocus: null }),
 
   /** A04-4 POST-SSE 生成：参考=已挂接 refs（REQ-114 定稿资料）；流式帧增量渲染 */
   startGenerate: async (instruction) => {

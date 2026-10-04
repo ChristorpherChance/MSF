@@ -286,7 +286,7 @@ export class GenerateService {
     kind: 'crd' | 'prd',
     instruction: string,
     ctx: CommandContext,
-  ): Promise<{ ok: boolean; patchCount?: number; route?: string; reason?: string }> {
+  ): Promise<{ ok: boolean; patchCount?: number; route?: string; kind?: 'crd' | 'prd'; reason?: string }> {
     const doc = await query<{ id: string; final_version_id: string | null; current_version_id: string | null }>(
       'SELECT id, final_version_id, current_version_id FROM req_documents WHERE project_id=$1 AND doc_kind=$2',
       [projectId, kind]);
@@ -353,7 +353,7 @@ export class GenerateService {
       const r = (await executeCommand('doc.propose-pending', {
         projectId, kind, patches, targetFingerprint: sha256Text(effective), proposedBy: 'assistant',
       }, { ...ctx, projectId })) as { patchIds: string[] };
-      return { ok: true, patchCount: r.patchIds.length, route: '/req' };
+      return { ok: true, patchCount: r.patchIds.length, route: '/req', kind };
     } catch (e) {
       // 竞态兜底（命令内 FOR UPDATE 重查命中守卫）：与守卫链同口径翻人话不落码
       if (e instanceof DomainError && e.code === 'PATCH_BASE_STALE') {

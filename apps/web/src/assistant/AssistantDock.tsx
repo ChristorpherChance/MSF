@@ -506,11 +506,12 @@ function ToolCards({ calls }: { calls: ToolCallRow[] }) {
         const navRoute = t.toolName === 'nav.goto' && t.status === 'ok'
           ? (t.resultSummary as { route?: string } | null)?.route
           : undefined;
-        // 与 navRoute 同模式：route 从结果读（服务端返回 /req，不硬编码）
-        const rs = t.resultSummary as { ok?: boolean; route?: string } | null;
+        // 与 navRoute 同模式：route 从结果读（服务端返回 /req，不硬编码）；kind 用于落到目标文档页签+补丁定位
+        const rs = t.resultSummary as { ok?: boolean; route?: string; kind?: string } | null;
         const reviewRoute = t.toolName === 'req.doc.propose_edits' && t.status === 'ok' && rs?.ok === true
           ? rs?.route
           : undefined;
+        const reviewKind = rs?.kind === 'prd' ? 'prd' : 'crd';
         return (
           <div key={i} className="toolcard">
             <div className="tc-head">
@@ -525,7 +526,12 @@ function ToolCards({ calls }: { calls: ToolCallRow[] }) {
             )}
             {reviewRoute && (
               <div className="tc-body">
-                <button className="act mini primary" onClick={() => navigate(reviewRoute)}>前往审阅 →</button>
+                <button
+                  className="act mini primary"
+                  onClick={() => navigate(`${reviewRoute}?tab=${reviewKind}&focus=pending&_=${Date.now()}`)}
+                >
+                  前往审阅 →
+                </button>
               </div>
             )}
           </div>

@@ -13,7 +13,8 @@
 7. **构建基建（T16 实机抓修）**：`@msf/shared` 原只产 CJS，web 首次运行时导入 `deriveNumbering` 白屏（vite 不预打包 workspace 链接包）→ 双构建：新增 `tsconfig.build.esm.json`（module ESNext/Bundler → dist/esm），package.json exports 加 `import` 条件 + `./doc-numbering` 子路径导出（绕开 index 整包求值 fingerprint.ts 的 node:crypto）；DocPanel 改子路径导入。存储/接口零变更。
 8. **生成基准口径（T16 实机抓修，既有缺陷）**：`GenerateService.start()` 基准原只取当前版本内容，与 propose-pending/accept-pending 的「草稿优先」口径不一致——草稿有未提交修改时重新生成必然 PATCH_BASE_STALE。修为 start() 同口径草稿优先（差异针对 LLD-6 §3.3 生成链基准定义，实机前未被任何用例命中）。
 9. **add 补丁落位（T16 实机抓修，既有缺陷）**：`EditPatch` 原无位置字段、applyPatch 的 add 恒 append 文末——整篇重生成的新增大章全部堆到文末逆序，文档结构乱。修：`EditPatch.after?` 落位锚点（''=文首前言之后；非空=插到同名标题节后；落空退化 append 不抛错；缺席=维持 append 兼容），mdToPatches 按模型输出顺序产 after。差异针对 LLD-4 D04 补丁模型（DSG-C04-4 edit_patch 增可选字段，向后兼容）。
-10. **补丁批次顺序（T16 实机抓修，既有缺陷，schema 演进）**：propose-pending 单事务逐条 INSERT，`created_at DEFAULT now()` 取事务开始时间全批同值，listPatches `ORDER BY created_at` 乱序 → 链式 after 锚点被接受顺序打乱。修：迁移 0025 加 `seq` 列（req_pendings + design 域 dsg_pendings 同治），propose 写批内序号，listPatches 改 `ORDER BY created_at, seq`。差异针对 D04-4 表结构（只加列不动旧数据）。
+10. **补丁批次顺序（T16 实机抓修，既有缺陷，schema 演进）**：propose-pending 单事务逐条 INSERT，`created_at DEFAULT now()` 取事务开始时间全批同值，listPatches `ORDER BY created_at` 乱序 → 链式 after 锚点被接受顺序打乱。修：迁移 0025 加 `seq` 列（req_pendings + design 域 dsg_pendings 同治），propose 写批内序号，listPatches 改 `ORDER BY created_at, seq` 双列排序。差异针对 D04-4 表结构（只加列不动旧数据）。
+11. **实机复验 UX 抓修（2026-10-04 用户反馈，待 13 册下轮基线回补）**：①生成卡完成后默认收拢（`▸ 展开明细（N 章节）` 切换）+ tasklist 限高 264px 内滚——整篇生成 19+ 章节 Task 卡全展开把正文顶出首屏且不可收拢；②补丁可发现性——h1「补丁 ×N」改可点按钮（点击定位第一条待确认补丁+闪高亮），dock 工具卡「前往审阅 →」跳 `/req?tab=<kind>&focus=pending`（propose_edits 结果补 `kind` 字段；ReqPage 改 useSearchParams 响应式读入，Paper 消费 patchFocus 触发器滚动+闪高亮；nonce 参数防同 URL 导航不重触发）。新增 UI 细节（补丁定位入口/生成卡收拢）待回补 LLD-6 §3.3。
 
 ## 已知限制
 
