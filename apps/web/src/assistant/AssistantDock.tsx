@@ -506,6 +506,11 @@ function ToolCards({ calls }: { calls: ToolCallRow[] }) {
         const navRoute = t.toolName === 'nav.goto' && t.status === 'ok'
           ? (t.resultSummary as { route?: string } | null)?.route
           : undefined;
+        // 与 navRoute 同模式：route 从结果读（服务端返回 /req，不硬编码）
+        const reviewRoute = t.toolName === 'req.doc.propose_edits' && t.status === 'ok'
+          && (t.resultSummary as { ok?: boolean } | null)?.ok === true
+          ? (t.resultSummary as { route?: string } | null)?.route
+          : undefined;
         return (
           <div key={i} className="toolcard">
             <div className="tc-head">
@@ -516,6 +521,11 @@ function ToolCards({ calls }: { calls: ToolCallRow[] }) {
             {navRoute && (
               <div className="tc-body">
                 <button className="act mini primary" onClick={() => navigate(navRoute)}>打开 →</button>
+              </div>
+            )}
+            {reviewRoute && (
+              <div className="tc-body">
+                <button className="act mini primary" onClick={() => navigate(reviewRoute)}>前往审阅 →</button>
               </div>
             )}
           </div>
@@ -531,6 +541,10 @@ function summarizeTool(t: ToolCallRow): string {
     const o = r as Record<string, unknown>;
     if (typeof o.reason === 'string') return o.reason;
     if (typeof o.error === 'string') return o.error;
+    // req.doc.propose_edits 成功卡：「已提交 N 条修改建议」（失败走既有 reason 分支）
+    if (o.ok === true && typeof o.patchCount === 'number') {
+      return `已提交 ${o.patchCount} 条修改建议（高亮补丁，待你确认后生效）`;
+    }
     if (typeof o.head === 'string') return o.head;
     return JSON.stringify(o).slice(0, 200);
   }
