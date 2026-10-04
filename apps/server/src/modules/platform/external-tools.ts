@@ -13,12 +13,18 @@ export interface ExternalToolCall {
   args: Record<string, unknown>;
 }
 
+/**
+ * 契约（编排层 runToolBlocks 旁路按此留痕）：
+ * - resolve 出 `{ ok: false, ... }` → ai_tool_calls.status='failed'（resultSummary=返回值原文）
+ * - resolve 其它对象（含 `{ ok: true }` / 无 ok 字段）→ status='ok'
+ * - 抛错 → status='failed'，resultSummary={ error: message }
+ * - 返回 undefined/非对象属类型违规（编排层按 ok 读取，留痕形状未定义，勿依赖）
+ */
 export type ExternalToolHandler = (
   projectId: string,
   call: ExternalToolCall,
   ctx: CommandContext,
 ) => Promise<Record<string, unknown>>;
-
 const handlers = new Map<string, ExternalToolHandler>();
 
 /** 注册外部工具 handler（启动期；重复注册拒绝） */

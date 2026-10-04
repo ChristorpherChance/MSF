@@ -274,31 +274,35 @@ describe('AI 会话/消息/流式管线（集成，需 DB）', async () => {
   it('外部工具旁路：命中注册表走 handler（无事务）+ recordDirect 成功/失败两路留痕；未命中走 invoke 不变', async () => {
     const { registerExternalTool, resetExternalTools } = await import('../platform/external-tools.js');
     resetExternalTools();
-    let called = 0;
-    registerExternalTool('test.echo', async (_p, call) => { called += 1; return { ok: true, echo: call.args['x'] }; });
-    registerExternalTool('test.boom', async () => { throw new Error('boom'); });
-    provider.nextChunks = [
-      '```msf-tool\n{"name":"test.echo","args":{"x":1}}\n```',
-      '```msf-tool\n{"name":"test.boom","args":{}}\n```',
-      '```msf-tool\n{"name":"nav.goto","args":{"tab":"req"}}\n```',
-    ];
-    const { messageId } = await sessions.send(PID, sessionId, { content: '触发旁路' }, CTX);
-    const c = await sessions.drive(messageId, () => {}, { ctx: CTX });
-    expect(c.status).toBe('done');
-    expect(called).toBe(1);
-    const msgs = await sessions.messages(PID, sessionId);
-    const aiMsg = msgs.items.find((m) => m.id === messageId)! as unknown as {
-      toolCalls: Array<{ toolName: string; status: string; resultSummary: unknown }>;
-    };
-    const echo = aiMsg.toolCalls.find((t) => t.toolName === 'test.echo');
-    const boom = aiMsg.toolCalls.find((t) => t.toolName === 'test.boom');
-    const nav = aiMsg.toolCalls.find((t) => t.toolName === 'nav.goto');
-    expect(echo?.status).toBe('ok');
-    expect((echo?.resultSummary as { echo: number }).echo).toBe(1);
-    expect(boom?.status).toBe('failed');
-    expect(String((boom?.resultSummary as { error: string }).error)).toContain('boom');
-    expect(nav?.status).toBe('ok'); // 未命中注册表走 invoke 不变
-    resetExternalTools();
+    // try/finally：中途断言失败也不残留注册态（外部工具 Map 为模块级，残留会污染本进程其它用例）
+    try {
+      let called = 0;
+      registerExternalTool('test.echo', async (_p, call) => { called += 1; return { ok: true, echo: call.args['x'] }; });
+      registerExternalTool('test.boom', async () => { throw new Error('boom'); });
+      provider.nextChunks = [
+        '```msf-tool\n{"name":"test.echo","args":{"x":1}}\n```',
+        '```msf-tool\n{"name":"test.boom","args":{}}\n```',
+        '```msf-tool\n{"name":"nav.goto","args":{"tab":"req"}}\n```',
+      ];
+      const { messageId } = await sessions.send(PID, sessionId, { content: '触发旁路' }, CTX);
+      const c = await sessions.drive(messageId, () => {}, { ctx: CTX });
+      expect(c.status).toBe('done');
+      expect(called).toBe(1);
+      const msgs = await sessions.messages(PID, sessionId);
+      const aiMsg = msgs.items.find((m) => m.id === messageId)! as unknown as {
+        toolCalls: Array<{ toolName: string; status: string; resultSummary: unknown }>;
+      };
+      const echo = aiMsg.toolCalls.find((t) => t.toolName === 'test.echo');
+      const boom = aiMsg.toolCalls.find((t) => t.toolName === 'test.boom');
+      const nav = aiMsg.toolCalls.find((t) => t.toolName === 'nav.goto');
+      expect(echo?.status).toBe('ok');
+      expect((echo?.resultSummary as { echo: number }).echo).toBe(1);
+      expect(boom?.status).toBe('failed');
+      expect(String((boom?.resultSummary as { error: string }).error)).toContain('boom');
+      expect(nav?.status).toBe('ok'); // 未命中注册表走 invoke 不变
+    } finally {
+      resetExternalTools();
+    }
   });
 
   it('会话级模型：create/set-model 校验，发送按会话绑定模型落戳（优先于 chat 路由）', async () => {

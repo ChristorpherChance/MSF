@@ -385,6 +385,8 @@ export class AiSessionsService implements OnModuleInit {
   /**
    * W2-053：解析回复中的 ```msf-tool 围栏块，逐个经 ai.tool.invoke 编排执行（封顶 3 个，
    * 调用挂 session_id+message_id——前端工具卡按消息聚合的前提），返回剔除围栏后的正文。
+   * 命中外部工具注册表（external-tools.ts）的工具走旁路：handler 无事务执行（含嵌套 LLM
+   * 的工具绝不在命令事务内跑）+ recordDirect 留痕 ai_tool_calls；未命中经 ai.tool.invoke。
    * 单块失败不阻断：denied/args_invalid 已在命令内留痕，非法 JSON 块忽略。
    */
   async runToolBlocks(
