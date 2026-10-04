@@ -407,6 +407,8 @@ function TocCol() {
 
   // 派生编号（渲染层注入，存储零改动）：大章加粗、节缩进一层
   const numbered = useMemo(() => (doc ? new Map(deriveNumbering(doc.secs).map((n) => [n.id, n])) : null), [doc]);
+  // 存量平铺文档（无大章）无层级可言——sub 缩进仅在有章文档生效，否则回到改造前形态
+  const hasChapter = !!numbered && [...numbered.values()].some((n) => n.chapter);
 
   if (!doc) return null;
   const jump = (secId: string) => {
@@ -423,7 +425,7 @@ function TocCol() {
         return (
           <button
             key={s.id}
-            className={`toc-item${n?.chapter ? ' chapter' : ' sub'}${tocFlash === s.id ? ' flash' : ''}${s.pending ? ' has-pend' : ''}${activeSec === s.id ? ' act-sec' : ''}`}
+            className={`toc-item${n?.chapter ? ' chapter' : hasChapter ? ' sub' : ''}${tocFlash === s.id ? ' flash' : ''}${s.pending ? ' has-pend' : ''}${activeSec === s.id ? ' act-sec' : ''}`}
             onClick={() => jump(s.id)}
           >
             {n?.display || s.title}
