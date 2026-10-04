@@ -4,8 +4,9 @@ import { DomainError } from '@msf/shared';
 import { query } from '../../db/pool.js';
 import { executeCommand, registerCommand, type CommandContext } from '../evidence/command-bus.js';
 import { mdToPatches, normalizePatches, sha256Text, splitSections, type EditPatch } from '../platform/doc-sections.js';
-import { AI_PROVIDER, type AiProvider } from '../ai/ai-provider.interface.js';
+import { AI_PROVIDER, type AiProvider, type AiUsage } from '../ai/ai-provider.interface.js';
 import { classifyAiError, sanitizeAiError } from '../ai/stream-pipeline.js';
+import { registerExternalTool } from '../platform/external-tools.js';
 
 /**
  * 文档 AI 生成（A04-4/5；REQ-202/114/115；F02-12 流式控制）。
@@ -75,6 +76,15 @@ export class GenerateService {
         [projectId, kind, genState],
       );
       return { genState };
+    });
+    // 对话改文档旁路（嵌套 LLM 绝不在 ai.tool.invoke 命令事务内跑——注册进外部工具注册表，
+    // ai 编排层流末命中走旁路：本 handler 无事务 → doc.propose-pending 独立事务）
+    registerExternalTool('req.doc.propose_edits', async (projectId, call, ctx) => {
+      const kind = String(call.args['kind'] ?? '');
+      if (kind !== 'crd' && kind !== 'prd') return { ok: false, reason: 'kind 枚举 crd|prd' };
+      const instruction = String(call.args['instruction'] ?? '').trim();
+      if (!instruction) return { ok: false, reason: 'instruction 必填（描述要改什么）' };
+      return this.proposeEditsFromChat(projectId, kind, instruction, ctx);
     });
   }
 
@@ -261,6 +271,94 @@ export class GenerateService {
       return { status: 'failed', error: e instanceof DomainError ? e.code : 'INTERNAL' };
     }
   }
+
+  /**
+   * 对话改文档（dock req.doc.propose_edits 旁路 handler）：
+   * 读当前有效稿 → 复用增量修订 prompt 走 AI_PROVIDER 非 SSE 内部调用（mock 回落确定性两形态产出）
+   * → mdToPatches → normalizePatches → doc.propose-pending 落库（独立事务，proposedBy='assistant'）。
+   * 守卫失败/AI 零产出一律 { ok:false, reason 人话 }（不落码；ai_tool_calls 留痕由编排层 recordDirect 负责）。
+   */
+  async proposeEditsFromChat(
+    projectId: string,
+    kind: 'crd' | 'prd',
+    instruction: string,
+    ctx: CommandContext,
+  ): Promise<{ ok: boolean; patchCount?: number; route?: string; reason?: string }> {
+    const doc = await query<{ id: string; final_version_id: string | null; current_version_id: string | null }>(
+      'SELECT id, final_version_id, current_version_id FROM req_documents WHERE project_id=$1 AND doc_kind=$2',
+      [projectId, kind]);
+    const d = doc.rows[0];
+    if (!d || !d.current_version_id) {
+      return { ok: false, reason: '文档还没有内容，请先在需求页生成初稿后再提修改' };
+    }
+    if (d.final_version_id && d.final_version_id === d.current_version_id) {
+      return { ok: false, reason: '文档已定稿，请先在需求页 ⋯ 菜单解锁后再修改' };
+    }
+    const pend = await query<{ n: string }>(
+      `SELECT count(*) AS n FROM req_pendings p JOIN req_documents d2 ON d2.id=p.document_id
+       WHERE d2.project_id=$1 AND d2.doc_kind=$2 AND p.status='pending'`, [projectId, kind]);
+    const pendN = Number(pend.rows[0]?.n ?? 0);
+    if (pendN > 0) {
+      return { ok: false, reason: `有 ${pendN} 条待确认补丁，请先在需求页处置后再提新修改` };
+    }
+    const cur = await query<{ content: string }>(
+      `SELECT v.content FROM req_versions v JOIN req_documents d2 ON d2.current_version_id=v.id
+       WHERE d2.project_id=$1 AND d2.doc_kind=$2`, [projectId, kind]);
+    const draft = await query<{ content: string }>(
+      `SELECT t.content FROM req_drafts t JOIN req_documents d2 ON d2.id=t.document_id
+       WHERE d2.project_id=$1 AND d2.doc_kind=$2`, [projectId, kind]);
+    const effective = draft.rows[0]?.content ?? cur.rows[0]?.content ?? '';
+    if (!effective.trim()) {
+      return { ok: false, reason: '文档还没有内容，请先在需求页生成初稿后再提修改' };
+    }
+    const cut = instruction.slice(0, 2000);
+    const t0 = Date.now();
+    let text: string;
+    let modelId: string | undefined;
+    let usage: AiUsage | undefined;
+    if (this.ai?.kind === 'pi') {
+      try {
+        const session = await this.ai.createSession({ projectId, purpose: 'generation' });
+        const existingCodes = [...new Set(effective.match(kind === 'crd' ? /\bCR-\d{3}\b/g : /\bREQ-\d{3}\b/g) ?? [])].sort();
+        const { deltas, result } = session.stream(buildPrompt(kind, cut, [], existingCodes, effective, ''));
+        for await (const d2 of deltas) void d2; // 非 SSE 内部调用：delta 排干不转发
+        const res = await result;
+        text = res.text;
+        modelId = res.modelId;
+        usage = res.usage;
+      } catch (e) {
+        const raw = e instanceof Error ? e.message : String(e);
+        console.error(`[req] propose_edits AI 调用失败: ${raw}`);
+        return { ok: false, reason: `AI 调用失败：${sanitizeAiError(raw)}` };
+      }
+    } else {
+      text = buildMockChatEdit(kind, effective, cut);
+    }
+    const patches = normalizePatches(mdToPatches(text), splitSections(effective));
+    if (patches.length === 0) {
+      return { ok: false, reason: '未产出有效修改，可换种说法重试' };
+    }
+    // 用量与生成流同口径（purpose='generation'），先于落补丁（失败即整单失败，不留半截补丁）
+    if (modelId && usage) {
+      await executeCommand('ai.usage.record', {
+        projectId, modelId, purpose: 'generation',
+        tokensIn: usage.inputTokens, tokensOut: usage.outputTokens,
+        durationMs: Date.now() - t0, cost: usage.cost ?? 0,
+      }, { projectId, actorKind: 'assistant', actorId: 'pi' });
+    }
+    try {
+      const r = (await executeCommand('doc.propose-pending', {
+        projectId, kind, patches, targetFingerprint: sha256Text(effective), proposedBy: 'assistant',
+      }, { ...ctx, projectId })) as { patchIds: string[] };
+      return { ok: true, patchCount: r.patchIds.length, route: '/req' };
+    } catch (e) {
+      if (e instanceof DomainError && e.code === 'PATCH_BASE_STALE') {
+        return { ok: false, reason: '文档已被其它操作变更，请刷新后重试' };
+      }
+      throw e;
+    }
+  }
+
   /**
    * 真接驱动：经 AI_PROVIDER（purpose='generation'）流式生成；pause 缓冲、stop 中止；
    * 完成后按章节切补丁，用量经 ai.usage.record 落账（REQ-612）。
@@ -386,4 +484,18 @@ function buildMock(
     ...patches.map((p) => `\n## ${p.title}\n\n${p.new}\n`),
   ];
   return { chunks, patches };
+}
+
+/** mock 对话修订产出（确定性两形态：命中既有节标题→normalize 转 modify + 全新节→add，离线可测两分支） */
+function buildMockChatEdit(kind: 'crd' | 'prd', effective: string, instruction: string): string {
+  const re = kind === 'crd' ? /\bCR-\d{3}\b/ : /\bREQ-\d{3}\b/;
+  const hit = splitSections(effective).find((s) => re.test(s.title));
+  const codes = [...effective.matchAll(kind === 'crd' ? /\bCR-(\d{3})\b/g : /\bREQ-(\d{3})\b/g)]
+    .map((m) => Number(m[1]));
+  const next = `${kind === 'crd' ? 'CR' : 'REQ'}-${String((codes.length > 0 ? Math.max(...codes) : 0) + 1).padStart(3, '0')}`;
+  const note = instruction || '按对话要求调整';
+  const parts: string[] = [];
+  if (hit) parts.push(`## ${hit.title}\n\n${hit.md}\n\n（mock 对话修订：${note}）`);
+  parts.push(`## ${next} 对话补充条目\n\n承接：见对话上下文\n\n（mock 对话新增：${note}）`);
+  return parts.join('\n\n');
 }
