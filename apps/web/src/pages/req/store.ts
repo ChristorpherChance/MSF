@@ -221,3 +221,22 @@ export const useReqView = create<ReqViewState>((set, get) => ({
 }));
 
 export { KINDS };
+
+// 对话改文档回环（实机反馈抓修）：dock 提案成功广播 msf:req-proposed → 本页自动切到目标文档并重拉，
+// 补丁行内高亮即时可见，不留「须手动刷新」窗口（window 事件解耦 assistant→pages/req 导入方向）
+if (typeof window !== 'undefined') {
+  window.addEventListener('msf:req-proposed', ((ev: Event) => {
+    const kind = (ev as CustomEvent<{ kind?: string }>).detail?.kind;
+    const s = useReqView.getState();
+    if (!s.projectId) return;
+    void (async () => {
+      if (kind === 'crd' || kind === 'prd') {
+        if (s.subTab !== kind) await s.setSubTab(kind);
+        else await s.refresh();
+      } else if (s.subTab !== 'rtm') {
+        await s.refresh();
+      }
+      toast('AI 已提交修改建议，正文已刷新——请在行内高亮处逐条处置（接受 / 改后接受 / 拒绝）', 'success');
+    })();
+  }) as EventListener);
+}

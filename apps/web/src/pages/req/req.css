@@ -95,6 +95,35 @@
 .tag-btn { cursor: pointer; font: inherit; }
 .tag-btn:hover { filter: brightness(0.96); }
 
+/* 补丁处置常驻横幅（吸附正文顶部；有 pending 即显——定位 + 批量全收/全拒） */
+.patch-banner {
+  position: sticky; top: 0; z-index: 15;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin: 8px 16px 0; padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--orange) 40%, transparent);
+  background: var(--orange-soft); border-radius: 10px;
+  font-size: 12.5px; box-shadow: var(--shadow-popover);
+}
+.patch-banner .pb-text { flex: 1; min-width: 220px; }
+
+/* 补丁修改对比（字符级 diff：删=红底删除线，增=绿底下划线——一眼看出改了哪） */
+.pend-diff {
+  flex-basis: 100%; margin-top: 6px; padding: 8px 10px;
+  background: var(--canvas); border: 1px solid var(--line); border-radius: 8px;
+  font-size: 12.5px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere;
+  max-height: 220px; overflow-y: auto;
+}
+.pend-diff del { background: var(--red-soft); color: var(--red); text-decoration: line-through; border-radius: 3px; padding: 0 2px; }
+.pend-diff ins { background: var(--green-soft); color: var(--green); text-decoration: underline; border-radius: 3px; padding: 0 2px; }
+
+/* 改后接受：内联编辑提案新文 */
+.pend-edit { flex-basis: 100%; margin-top: 6px; }
+.pend-edit textarea {
+  width: 100%; box-sizing: border-box; font: inherit; font-size: 12.5px; line-height: 1.7;
+  border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; resize: vertical;
+}
+.pend-edit-ops { display: flex; align-items: center; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
+
 /* popover / 菜单（U-A4：锚定式 popover 收编 .pop-wrap 作用域，避免与 ui.css 全局 fixed popover 撞车） */
 .pop-wrap { position: relative; }
 .pop-wrap .popover {

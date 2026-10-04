@@ -89,7 +89,9 @@ interface DockState {
   setQuote: (text: string | null) => void;
   loadRefCandidates: () => Promise<void>;
   toggleRef: (fileId: string, on: boolean) => void;
-  send: () => Promise<void>;
+  send: (override?: string) => Promise<void>;
+  /** 程序化发消息（拒绝补丁回喂 AI 等场景）：无会话则先新建，复用 send 管道但不消费草稿 */
+  sendText: (text: string) => Promise<void>;
   control: (action: 'pause' | 'resume' | 'stop') => Promise<void>;
   refreshUsage: () => Promise<void>;
   refreshModels: () => Promise<void>;
@@ -217,21 +219,24 @@ export const useDockStore = create<DockState>((set, get) => ({
     set({ refSel: on ? [...new Set([...cur, fileId])] : cur.filter((x) => x !== fileId) });
   },
 
-  send: async () => {
+  send: async (override) => {
     const { projectId: pid, currentId, ctx, drafts, thinkLevel, quote, refSel, refCandidates } = get();
-    const input = drafts[ctx] ?? '';
+    const programmatic = override !== undefined; // 程序化消息：不消费草稿/引用块/参考勾选
+    const input = programmatic ? override : (drafts[ctx] ?? '');
     if (!pid || !currentId || (!input.trim() && !quote) || get().streaming) return;
     // D5 引用块：拼 `> 引用行` 前缀（每行加 >），服务端按纯文本存
-    const quotePrefix = quote
+    const quotePrefix = !programmatic && quote
       ? quote.text.split('\n').map((l) => `> ${l}`).join('\n') + '\n\n'
       : '';
     const content = (quotePrefix + input.trim()).trim();
     // W2-035：勾选参考随消息提交（指纹快照，服务端 REQ-114/115 校验+登记）
-    const referenceFileIds = refSel;
-    const referenceFingerprints = Object.fromEntries(
+    const referenceFileIds = programmatic ? [] : refSel;
+    const referenceFingerprints = programmatic ? {} : Object.fromEntries(
       refCandidates.filter((c) => refSel.includes(c.fileId)).map((c) => [c.fileId, c.contentFingerprint]),
     );
-    set({ drafts: { ...drafts, [ctx]: '' }, quote: null, error: null, disconnected: false });
+    set(programmatic
+      ? { error: null, disconnected: false }
+      : { drafts: { ...drafts, [ctx]: '' }, quote: null, error: null, disconnected: false });
     set({ messages: [...get().messages, {
       id: `local-${Date.now()}`, role: 'user', content, status: 'done',
       created_at: new Date().toISOString(), durationMs: null, cost: null, toolCalls: [],
@@ -256,6 +261,17 @@ export const useDockStore = create<DockState>((set, get) => ({
       });
       const messages = await assistantApi.messages(pid, currentId);
       set({ streaming: null, messages });
+      // 对话改文档回环：本轮回复含 propose_edits 成功提案 → 广播事件，需求页监听后自刷新补丁
+      // （window 事件解耦 assistant→pages/req 导入方向；detail.kind 供目标页签判定）
+      const last = messages[messages.length - 1];
+      const propose = last?.toolCalls?.find(
+        (t) => t.toolName === 'req.doc.propose_edits'
+          && (t.resultSummary as { ok?: boolean } | null | undefined)?.ok === true,
+      );
+      if (propose) {
+        const kind = (propose.resultSummary as { kind?: string }).kind;
+        window.dispatchEvent(new CustomEvent('msf:req-proposed', { detail: { kind } }));
+      }
       await get().refreshUsage();
     } catch (e) {
       // SSE 断线/失败：行内提示 + 错误条（DSG-U02-7）
@@ -283,6 +299,11 @@ export const useDockStore = create<DockState>((set, get) => ({
       setTimeout(retry, 3000);
       window.addEventListener('online', retry, { once: true });
     }
+  },
+
+  sendText: async (text) => {
+    if (!get().currentId) await get().newSession(); // 恒有会话：拒绝回喂可能发生在尚无会话时
+    await get().send(text);
   },
 
   control: async (action) => {

@@ -132,8 +132,11 @@ export const reqApi = {
     api.post(`${base(pid)}/docs/${kind}/versions/${v}:switch`, {}),
   listPatches: (pid: string, kind: DocKind) =>
     api.get<{ items: PatchItem[] }>(`${base(pid)}/docs/${kind}/patches`),
-  acceptPatch: (pid: string, kind: DocKind, patchId: string, reason?: string) =>
-    api.post(`${base(pid)}/docs/${kind}/patches/${patchId}:accept`, reason ? { reason } : {}),
+  acceptPatch: (pid: string, kind: DocKind, patchId: string, reason?: string, newText?: string) =>
+    api.post(`${base(pid)}/docs/${kind}/patches/${patchId}:accept`, {
+      ...(reason ? { reason } : {}),
+      ...(newText !== undefined ? { newText } : {}),
+    }),
   rejectPatch: (pid: string, kind: DocKind, patchId: string, reason?: string) =>
     api.post(`${base(pid)}/docs/${kind}/patches/${patchId}:reject`, reason ? { reason } : {}),
   addReference: (pid: string, kind: DocKind, fileId: string) =>

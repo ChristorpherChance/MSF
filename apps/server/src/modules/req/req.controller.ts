@@ -185,8 +185,8 @@ export class ReqController {
 
   @Post('docs/:kind/patches/:patchId\\:accept')
   @HttpCode(200)
-  acceptPatch(@Param('projectId') projectId: string, @Param('kind') kind: string, @Param('patchId') patchId: string, @Body() body: { reason?: string }, @Req() req: Request) {
-    return this.docs.acceptPatch(projectId, this.assertKind(kind), patchId, this.actor(req, projectId), body?.reason);
+  acceptPatch(@Param('projectId') projectId: string, @Param('kind') kind: string, @Param('patchId') patchId: string, @Body() body: { reason?: string; newText?: string }, @Req() req: Request) {
+    return this.docs.acceptPatch(projectId, this.assertKind(kind), patchId, this.actor(req, projectId), body?.reason, body?.newText);
   }
 
   @Post('docs/:kind/patches/:patchId\\:reject')

@@ -10,7 +10,9 @@ import { toast } from '../../ui/toast';
 import { downloadFile } from '../../ui/download';
 import { useStagesStore } from '../../ui/GateBanner';
 import { reqApi, type DocKind, type HealthView, type PatchItem } from './api';
+import { diffText } from './diff';
 import { useReqView, type ViewMode } from './store';
+import { useDockStore } from '../../assistant/dock-store';
 
 /** CRD/PRD 文档工作面（LLD-6 §3.3：工具栏 + 横幅 + 目录栏 216px + 纸面 820px） */
 export function DocPanel({ kind }: { kind: DocKind }) {
@@ -492,6 +494,8 @@ function Paper({ kind, readonly }: { kind: DocKind; readonly: boolean }) {
 
   return (
     <div className="doc-scroll">
+      {/* 待确认补丁常驻横幅（吸附正文顶部）：定位 + 批量处置；有条数即显，不再藏进 h1 */}
+      <PatchBulk kind={kind} readonly={readonly} />
       <div className="paper">
         {/* 文档状态在正文标题呈现（原型口径：tag 随版本号，不占工具栏） */}
         <h1>
@@ -514,7 +518,6 @@ function Paper({ kind, readonly }: { kind: DocKind; readonly: boolean }) {
               补丁 ×{pendCount} → 点击定位
             </button>
           )}
-          {pendCount > 1 && !readonly && <PatchBulk kind={kind} />}
         </h1>
         <PatchTrail patches={patches} />
         {doc.secs.map((s) => (
@@ -641,15 +644,20 @@ function SectionEditor({ kind, secId, md, readonly }: { kind: DocKind; secId: st
   );
 }
 
-/** 补丁批量处置（U-016）：整篇生成产出数十条补丁时一键全收/全拒；逐条调用既有命令（逐条审计），二次确认 */
-function PatchBulk({ kind }: { kind: DocKind }) {
-  const { projectId, patches, refresh } = useReqView();
+/** 补丁处置常驻横幅（实机反馈抓修：原只在 h1 且 ≥2 条才显，找不到批量入口）——
+ *  有 pending 即吸附正文顶部：定位 + 逐条引导 + 批量全收/全拒（逐条命令，逐条审计），二次确认 */
+function PatchBulk({ kind, readonly }: { kind: DocKind; readonly: boolean }) {
+  const { projectId, patches, refresh, flashPatch } = useReqView();
   const [busy, setBusy] = useState(false);
   const [confirmOp, setConfirmOp] = useState<'accept' | 'reject' | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   if (!projectId) return null;
   const pending = patches.filter((p) => p.status === 'pending');
-  if (pending.length < 2) return null;
+  if (pending.length === 0) return null;
+  const locate = () => {
+    document.getElementById(`patch-${pending[0]!.patchId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    flashPatch(pending[0]!.patchId);
+  };
   const run = async (op: 'accept' | 'reject') => {
     setBusy(true);
     setMsg(null);
@@ -670,11 +678,19 @@ function PatchBulk({ kind }: { kind: DocKind }) {
     }
   };
   return (
-    <span className="patch-bulk">
-      <button className="act primary sm" disabled={busy} title="逐条接受全部待确认补丁（逐条留审计）"
-        onClick={() => setConfirmOp('accept')}>✓ 全部接受</button>
-      <button className="act sm" disabled={busy} title="逐条拒绝全部待确认补丁"
-        onClick={() => setConfirmOp('reject')}>✕ 全部拒绝</button>
+    <div className="patch-banner">
+      <span className="pb-text">
+        ⚠ {pending.length} 条待确认补丁：AI 提案不落稿，须在文中高亮处逐条处置
+      </span>
+      <button className="act sm" onClick={locate}>↓ 定位第一条</button>
+      {!readonly && (
+        <>
+          <button className="act primary sm" disabled={busy} title="逐条接受全部待确认补丁（逐条留审计）"
+            onClick={() => setConfirmOp('accept')}>✓ 全部接受</button>
+          <button className="act sm" disabled={busy} title="逐条拒绝全部待确认补丁"
+            onClick={() => setConfirmOp('reject')}>✕ 全部拒绝</button>
+        </>
+      )}
       {msg && <span className="rsn err">{msg}</span>}
       {confirmOp && (
         <ConfirmModal
@@ -685,16 +701,25 @@ function PatchBulk({ kind }: { kind: DocKind }) {
           onConfirm={() => void run(confirmOp)}
         />
       )}
-    </span>
+    </div>
   );
 }
 
-/** 待确认补丁行内条（REQ-205；modify/del 高亮旧→新；L2：拒绝可填处置理由，落库留痕） */
+/** 待确认补丁行内条（REQ-205；L2：拒绝可填处置理由，落库留痕）。
+ *  实机反馈抓修：①modify/del 直接渲染字符级 diff（红删绿增，一眼看出改了哪）；
+ *  ②「改后接受」内联编辑提案新文后并入（服务端 newText 覆盖，审计留痕）；
+ *  ③拒绝弹窗加「拒绝并请 AI 修订」——结构化拒绝理由回喂 dock 会话，AI 修订后重新提案 */
 function PendingBar({ kind, patch }: { kind: DocKind; patch: PatchItem }) {
   const { projectId, refresh, patchFlash } = useReqView();
   const [msg, setMsg] = useState<string | null>(null);
   const [rejectOpen, setRejectOpen] = useState(false);
   const [reason, setReason] = useState('');
+  const [editOpen, setEditOpen] = useState(false);
+  const [editText, setEditText] = useState(patch.new ?? '');
+  const diffSegs = useMemo(
+    () => (patch.type === 'modify' ? diffText(patch.old ?? '', patch.new ?? '') : null),
+    [patch.type, patch.old, patch.new],
+  );
   if (!projectId) return null;
   const act = (fn: () => Promise<unknown>) => {
     setMsg(null);
@@ -702,9 +727,32 @@ function PendingBar({ kind, patch }: { kind: DocKind; patch: PatchItem }) {
       .catch((e) => setMsg(e instanceof ApiError ? `${e.code}: ${e.message}` : '操作失败'))
       .finally(() => void refresh());
   };
-  const doReject = () => {
+  /** 拒绝；feedback=true 时把拒绝理由结构化回喂 dock（AI 修订后重新提案，闭环对话改文档） */
+  const doReject = (feedback: boolean) => {
     setRejectOpen(false);
-    act(() => reqApi.rejectPatch(projectId, kind, patch.patchId, reason.trim() || undefined));
+    const r = reason.trim();
+    setMsg(null);
+    void reqApi.rejectPatch(projectId, kind, patch.patchId, r || undefined)
+      .then(async () => {
+        if (!feedback) return;
+        useDockStore.setState({ open: true });
+        await useDockStore.getState().setCtx('req');
+        const clip = (s?: string | null, n = 300) => {
+          const t = s ?? '';
+          return t.length > n ? `${t.slice(0, n)}…` : t;
+        };
+        await useDockStore.getState().sendText([
+          `我刚才拒绝了你在《${kind === 'crd' ? 'CRD' : 'PRD'}》文档的一条修改提案。`,
+          patch.title ? `章节：${patch.title}` : '',
+          `提案类型：${patch.type === 'add' ? '新增' : patch.type === 'del' ? '删除' : '修改'}`,
+          patch.old ? `原文：${clip(patch.old)}` : '',
+          patch.new ? `提案新文：${clip(patch.new)}` : '',
+          `拒绝理由：${r || '（未填写）'}`,
+          '请按拒绝理由修订后重新提案（使用 req.doc.propose_edits 工具，只提交修订后的内容）。',
+        ].filter(Boolean).join('\n'));
+      })
+      .catch((e) => setMsg(e instanceof ApiError ? `${e.code}: ${e.message}` : '操作失败'))
+      .finally(() => void refresh());
   };
   return (
     <div
@@ -715,21 +763,56 @@ function PendingBar({ kind, patch }: { kind: DocKind; patch: PatchItem }) {
         ● 待确认·{patch.type === 'add' ? '新增' : patch.type === 'del' ? '删除' : '修改'}
       </span>
       <span className="pend-desc">
-        {patch.type === 'add' ? `「${patch.title ?? '章节'}」` : patch.type === 'del' ? `「${patch.old ?? ''}」` : `${patch.old ?? ''} → ${patch.new ?? ''}`}
+        {patch.type === 'add' ? `「${patch.title ?? '章节'}」` : `「${patch.title ?? patch.secId}」`}
         <em>（{patch.source === 'ai' ? 'AI 提案' : patch.source}）</em>
       </span>
       <button className="act primary" onClick={() => act(() => reqApi.acceptPatch(projectId, kind, patch.patchId))}>✓ 接受</button>
+      {patch.type !== 'del' && (
+        <button className="act" title="先编辑提案新文，再以编辑后的文本并入草稿（留「改后接受」痕）"
+          onClick={() => setEditOpen(!editOpen)}>✎ 改后接受</button>
+      )}
       <button className="act" onClick={() => setRejectOpen(true)}>✕ 拒绝</button>
       {msg && <span className="rsn err">{msg}</span>}
+      {/* 修改对比：字符级 diff，删=红底删除线 / 增=绿底下划线 */}
+      {diffSegs && (
+        <div className="pend-diff">
+          {diffSegs.map((s, i) =>
+            s.type === 'same' ? <span key={i}>{s.text}</span>
+              : s.type === 'del' ? <del key={i}>{s.text}</del>
+                : <ins key={i}>{s.text}</ins>)}
+        </div>
+      )}
+      {patch.type === 'del' && patch.old && (
+        <div className="pend-diff"><del>{patch.old}</del></div>
+      )}
+      {editOpen && (
+        <div className="pend-edit">
+          <textarea
+            value={editText}
+            rows={Math.min(12, Math.max(3, editText.split('\n').length + 1))}
+            onChange={(e) => setEditText(e.target.value)}
+          />
+          <div className="pend-edit-ops">
+            <button
+              className="act primary sm"
+              disabled={!editText.trim()}
+              onClick={() => { setEditOpen(false); act(() => reqApi.acceptPatch(projectId, kind, patch.patchId, undefined, editText)); }}
+            >✓ 以编辑后的文本接受</button>
+            <button className="act sm" onClick={() => { setEditOpen(false); setEditText(patch.new ?? ''); }}>取消</button>
+            <span className="rsn">并入草稿的是编辑后的文本，非 AI 原文（裁决留痕记「改后接受」）</span>
+          </div>
+        </div>
+      )}
       {rejectOpen && (
         <div className="msk" onClick={() => setRejectOpen(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <h3>拒绝补丁</h3>
-            <p className="sub">拒绝 = 丢弃本提案（不落稿）。可填写处置理由，随裁决落库留痕。</p>
+            <p className="sub">拒绝 = 丢弃本提案（不落稿）。可填写处置理由，随裁决落库留痕；「请 AI 修订」会把理由回喂给 AI 会话，由 AI 修订后重新提案。</p>
             <textarea value={reason} rows={3} placeholder="处置理由（可选）：为什么拒绝这条提案" onChange={(e) => setReason(e.target.value)} />
             <div className="foot">
               <button className="act" onClick={() => setRejectOpen(false)}>取消</button>
-              <button className="act danger" onClick={doReject}>✕ 确认拒绝</button>
+              <button className="act" title="拒绝并把理由发给 AI，请其修订后重新提案" onClick={() => doReject(true)}>✕ 拒绝并请 AI 修订</button>
+              <button className="act danger" onClick={() => doReject(false)}>✕ 确认拒绝</button>
             </div>
           </div>
         </div>

@@ -530,4 +530,54 @@ describe('ReqDocs/Rtm/Generate（集成，需 DB+MinIO）', async () => {
       await query('DELETE FROM projects WHERE id=$1', [PID5]);
     }
   });
+
+  it('改后接受：accept-pending 带 newText 覆盖提案新文再并入（审计 reason 记「改后接受」；del 补丁拒绝覆盖）', async () => {
+    const PID6 = '00000000-0000-0000-0000-0000000000ff';
+    const CTX6 = { projectId: PID6, actorKind: 'human' as const, actorId: 'local' };
+    await query("INSERT INTO projects (id, name) VALUES ($1, 'accept-override') ON CONFLICT (id) DO NOTHING", [PID6]);
+    try {
+      await docs.listDocs(PID6, CTX6); // 自举模板 v1
+      let d = (await docs.getDoc(PID6, 'crd')) as unknown as DocView;
+      // 既有节 CR-001，提案 modify 其正文
+      await docs.saveDraft(PID6, 'crd', {
+        secId: d.secs[0]!.id,
+        md: ['引言。', '', '## CR-001 门户', '', '承接：R-001', '', '## CR-002 检索', '', '承接：R-002'].join('\n'),
+        baseVersion: d.cur, baseFingerprint: d.contentFingerprint,
+      }, CTX6);
+      d = (await docs.getDoc(PID6, 'crd')) as unknown as DocView;
+      const fp = d.contentFingerprint.replace(/^sha256:/, '');
+      const proposed = (await executeCommand('doc.propose-pending', {
+        projectId: PID6, kind: 'crd',
+        patches: [
+          { type: 'modify', secId: 's1', title: 'CR-001 门户', old: '承接：R-001', new: '承接：R-001、R-009' },
+          { type: 'del', secId: 's2', title: 'CR-002 检索', old: '承接：R-002' },
+        ],
+        targetFingerprint: fp, proposedBy: 'assistant',
+      }, CTX6)) as { patchIds: string[] };
+      // 人工编辑新文后接受：落稿内容=覆盖文，而非提案原文
+      await docs.acceptPatch(PID6, 'crd', proposed.patchIds[0]!, CTX6, undefined, '承接：R-001、R-009（人工修订：仅首页）');
+      d = (await docs.getDoc(PID6, 'crd')) as unknown as DocView;
+      const sec1 = d.secs.find((s) => s.title === 'CR-001 门户')!;
+      expect(sec1.md).toContain('仅首页');
+      expect(sec1.md).not.toContain('承接：R-001、R-009\n'); // 提案原文未落稿（覆盖生效）
+      // 决策留痕：reason 记「改后接受」
+      const row = await query<{ status: string; reason: string | null }>(
+        `SELECT status, reason FROM req_pendings WHERE id=$1`, [proposed.patchIds[0]!]);
+      expect(row.rows[0]!.status).toBe('accepted');
+      expect(row.rows[0]!.reason).toContain('改后接受');
+      // del 补丁无新文：覆盖拒绝（VALIDATION_FAILED）；不带 newText 时 del 正常接受
+      await expect(docs.acceptPatch(PID6, 'crd', proposed.patchIds[1]!, CTX6, undefined, 'x'))
+        .rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+      await expect(docs.acceptPatch(PID6, 'crd', proposed.patchIds[1]!, CTX6)).resolves.toBeTruthy();
+      const row2 = await query<{ status: string }>(`SELECT status FROM req_pendings WHERE id=$1`, [proposed.patchIds[1]!]);
+      expect(row2.rows[0]!.status).toBe('accepted');
+    } finally {
+      await query('DELETE FROM req_pendings WHERE document_id IN (SELECT id FROM req_documents WHERE project_id=$1)', [PID6]);
+      await query('DELETE FROM req_drafts WHERE document_id IN (SELECT id FROM req_documents WHERE project_id=$1)', [PID6]);
+      await query('UPDATE req_documents SET current_version_id=NULL, final_version_id=NULL WHERE project_id=$1', [PID6]);
+      await query('DELETE FROM req_versions WHERE document_id IN (SELECT id FROM req_documents WHERE project_id=$1)', [PID6]);
+      await query('DELETE FROM req_documents WHERE project_id=$1', [PID6]);
+      await query('DELETE FROM projects WHERE id=$1', [PID6]);
+    }
+  });
 });
