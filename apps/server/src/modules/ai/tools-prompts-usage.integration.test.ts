@@ -110,6 +110,14 @@ describe('AI 工具桥/提示词/用量（集成，需 DB）', async () => {
       const miss = await tools.invoke(PID, { sessionId, toolName: 'doc.read', args: { kind: 'crd', anchor: '9.9' } }, CTX);
       expect(miss.result['anchorFound']).toBe(false);
       expect(String(miss.result['message'])).toContain('9.9');
+      // ④ offset 分页续读（整篇重写前模型拿齐全文的通道）：跳过前缀 + 越界人话
+      const p1 = await tools.invoke(PID, { sessionId, toolName: 'doc.read', args: { kind: 'crd', offset: 10 } }, CTX);
+      expect(p1.result['offset']).toBe(10);
+      expect(String(p1.result['content']).startsWith('一、背景与目标')).toBe(true); // '# CRD\n\n## ' 10 字符被跳过
+      expect(p1.result['truncated']).toBe(false); // 短文不截断
+      const over = await tools.invoke(PID, { sessionId, toolName: 'doc.read', args: { kind: 'crd', offset: 999999 } }, CTX);
+      expect(over.result['truncated']).toBe(false);
+      expect(String(over.result['message'])).toContain('已超全文末尾');
     } finally {
       await query('DELETE FROM req_drafts WHERE document_id=$1', [docId]);
       await query('UPDATE req_documents SET current_version_id=NULL WHERE id=$1', [docId]);

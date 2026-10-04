@@ -297,7 +297,9 @@ export class AiSessionsService implements OnModuleInit {
     if (cursor) { params.push(cursor); where += ` AND created_at < $${params.length}`; }
     params.push(limit + 1);
     const r = await query<MessageRow>(
-      `SELECT * FROM ai_messages WHERE ${where} ORDER BY created_at DESC LIMIT $${params.length}`, params);
+      // 同事务插入的 user+ai 两行 created_at 同值（事务时间戳），须用 role 定序：
+      // DESC 中 ai 排前 → 前端 reverse 后 user 在上（同刻对=一轮对话的固定次序）
+      `SELECT * FROM ai_messages WHERE ${where} ORDER BY created_at DESC, (role='ai') DESC LIMIT $${params.length}`, params);
     const rows = r.rows.slice(0, limit);
     // W8 富消息卡：ai 消息附耗时/成本（ai_usage）与工具调用摘要（ai_tool_calls）
     const ids = rows.filter((m) => m.role === 'ai').map((m) => m.id);
@@ -465,10 +467,10 @@ export class AiSessionsService implements OnModuleInit {
 \`\`\`
 - nav.goto：为用户打开某个页面。args: {"tab":"material|req|design|proto|dev|test|tasks|delegate|settings|rtm"}。当用户说"打开/带我去/跳转到某页"时调用，正文同时说明已发起打开。RTM 需求矩阵有直达页签：tab 用 "rtm"。
 - read_context：读取当前项目状态快照（各域条目计数）。args: {}。当需要最新项目数据回答"进展/状态"类问题时调用。
-- doc.read：读取指定文档正文（与界面同口径：草稿优先、章节标题带界面编号——「5.1 节」类指代按返回的编号对应）。args: {"kind":"crd|prd|hld|mod|alg|cls|db|api|ui|nfr","anchor":"5.1"}（anchor 可选：章节编号如「5.1」「第五章」、标题或 CR 编号，定向读单节不截断；用户按编号/章节名指代时务必带 anchor）。当用户问"文档里某条怎么写的/某节内容/REQ 编号原话/哪一节承接某需求"时调用；返回含 finalized（是否已定稿）、modified（是否有未提交草稿）、versionNo 与 sections 章节清单，回答时如实说明依据的版本与定稿态。found:false 表示该文档尚未生成；anchorFound:false 表示章节未命中，按 sections 清单修正后重试。
+- doc.read：读取指定文档正文（与界面同口径：草稿优先、章节标题带界面编号——「5.1 节」类指代按返回的编号对应）。args: {"kind":"crd|prd|hld|mod|alg|cls|db|api|ui|nfr","anchor":"5.1","offset":0}（anchor 可选：章节编号如「5.1」「第五章」、标题或 CR 编号，定向读单节不截断，用户按编号/章节名指代时务必带 anchor；offset 可选：全文被截断时从第 N 字符续读，截断时返回里会给出 nextOffset）。当用户问"文档里某条怎么写的/某节内容/REQ 编号原话/哪一节承接某需求"时调用；返回含 finalized（是否已定稿）、modified（是否有未提交草稿）、versionNo 与 sections 章节清单，回答时如实说明依据的版本与定稿态。found:false 表示该文档尚未生成；anchorFound:false 表示章节未命中，按 sections 清单修正后重试。
 - chat.history.read：读取本项目其它阶段会话的最近消息。args: {"sessionCode":"ss_3","limit":20}（limit 封顶 50）。当【他阶段会话】摘要不够、需要了解客户在其它阶段聊过的细节时调用。
 - propose_next_step：按项目当前状态计算下一步建议清单。args: {}。当用户问"下一步该做什么"时调用。
-- req.doc.propose_edits：提交 CRD/PRD 修改建议（高亮补丁，用户确认后才生效）。args: {"kind":"crd|prd","instruction":"要改什么"}（instruction 截 2000 字）。当用户要求修改需求文档内容时调用；调用后在正文说明"已发起修改建议提交（结果见下方工具卡），提交成功时请到需求页确认"。
+- req.doc.propose_edits：提交 CRD/PRD 修改建议（高亮补丁，用户确认后才生效）。args: {"kind":"crd|prd","instruction":"要改什么","mode":"patch"}（instruction 截 2000 字；mode 默认 patch=只改涉及章节。用户要求"整篇重写/完全重新写/彻底删除某章"时 mode 用 "rewrite"：以当前全文为基线重写整篇，产一条「整篇重写」补丁，同样经用户确认后生效；rewrite 前先用 doc.read 拿齐全文）。当用户要求修改需求文档内容时调用；调用后在正文说明"已发起修改建议提交（结果见下方工具卡），提交成功时请到需求页确认"。
 工具由系统在回复完成后执行，结果以工具卡随消息呈现；围栏块本身不会展示给用户。除 req.doc.propose_edits 的提案通道外，写操作仍须走人工路径。`);
     if (referenceFileIds.length > 0) {
       const refs = await query<{ name: string; body_md: string }>(

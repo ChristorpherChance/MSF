@@ -59,7 +59,7 @@ describe('对话改文档/归一化（集成，需 DB）', async () => {
     await pool.end();
   });
 
-  interface DocView { cur: number; contentFingerprint: string; secs: Array<{ id: string; title: string; md: string }> }
+  interface DocView { cur: number; contentFingerprint: string; modified: boolean; secs: Array<{ id: string; title: string; md: string }> }
   const view = async (kind: 'crd' | 'prd') => (await docs.getDoc(PID, kind)) as unknown as DocView;
   /** 写入两节 CR 内容并提交为新版本（清 modified，让指纹/补丁流可预期） */
   async function seedSections(): Promise<void> {
@@ -147,6 +147,51 @@ describe('对话改文档/归一化（集成，需 DB）', async () => {
     await query('DELETE FROM ai_tool_calls WHERE session_id=$1', [sid]);
     await query('DELETE FROM ai_sessions WHERE id=$1', [sid]);
     await query('DELETE FROM projects WHERE id=$1', [PID2]);
+  });
+
+  it('rewrite 模式：整篇重写产单条 replace 补丁，接受后整篇替换（删除章节的表达通道）', async () => {
+    // mock 通道：整篇重写注记 + 保留全文骨架
+    const ok = await gen.proposeEditsFromChat(PID, 'crd', '彻底重写', CTX, 'rewrite');
+    expect(ok).toEqual({ ok: true, patchCount: 1, route: '/req', kind: 'crd' });
+    let patches = (await docs.listPatches(PID, 'crd')) as {
+      items: Array<{ patchId: string; type: string; secId: string; status: string; new?: string }>;
+    };
+    let pend = patches.items.filter((p) => p.status === 'pending');
+    expect(pend).toHaveLength(1);
+    expect(pend[0]!.type).toBe('replace');
+    expect(pend[0]!.secId).toBe('s0');
+    expect(pend[0]!.new).toContain('mock 整篇重写');
+    // 接受：整篇替换落草稿（undo 栈自带）
+    await docs.acceptPatch(PID, 'crd', pend[0]!.patchId, CTX);
+    let d = await view('crd');
+    expect(d.secs[0]!.md).toContain('mock 整篇重写：彻底重写');
+    expect(d.secs.some((s) => s.title === 'CR-001 门户首页')).toBe(true); // 骨架保留
+    // undo 回基点（草稿消亡回 clean）——W2-024：草稿期接受的补丁回转 pending，须处置干净
+    await docs.undo(PID, 'crd', CTX);
+    d = await view('crd');
+    expect(d.modified).toBe(false);
+    expect(d.secs[0]!.md).not.toContain('mock 整篇重写');
+    const revived = (await docs.listPatches(PID, 'crd')) as { items: Array<{ patchId: string; status: string }> };
+    for (const p of revived.items.filter((x) => x.status === 'pending')) {
+      await docs.rejectPatch(PID, 'crd', p.patchId, CTX, 'undo 回转处置');
+    }
+    // fakePi 通道：模型整篇输出 → 单条 replace（第五章消失类诉求——输出不含的节被整替删除）
+    fakePi.text = '# CRD\n\n## 一、背景\n\n重写后背景。\n\n## CR-001 门户首页\n\n承接：R-001（重写）。';
+    const ok2 = await genPi.proposeEditsFromChat(PID, 'crd', '重写并只保留第一章', CTX, 'rewrite');
+    expect(ok2).toMatchObject({ ok: true, patchCount: 1 });
+    patches = (await docs.listPatches(PID, 'crd')) as {
+      items: Array<{ patchId: string; type: string; secId: string; status: string; new?: string }>;
+    };
+    pend = patches.items.filter((p) => p.status === 'pending');
+    expect(pend).toHaveLength(1);
+    expect(pend[0]!.type).toBe('replace');
+    expect(pend[0]!.new).toContain('重写后背景');
+    expect(pend[0]!.new).not.toContain('CR-002'); // 模型未输出的节=删除语义
+    await docs.rejectPatch(PID, 'crd', pend[0]!.patchId, CTX, 'rewrite 验证完毕');
+    // mode 枚举校验（旁路 handler 层人话不落码）
+    const { getExternalTool } = await import('../platform/external-tools.js');
+    const handler = getExternalTool('req.doc.propose_edits')!;
+    expect((await handler(PID, { args: { kind: 'crd', instruction: 'x', mode: 'bogus' } }, CTX))['ok']).toBe(false);
   });
 
   it('旁路 handler 参数校验：kind 枚举/instruction 必填（人话不落码）', async () => {

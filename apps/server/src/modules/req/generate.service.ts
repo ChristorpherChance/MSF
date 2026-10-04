@@ -84,7 +84,10 @@ export class GenerateService {
       if (kind !== 'crd' && kind !== 'prd') return { ok: false, reason: 'kind 枚举 crd|prd' };
       const instruction = String(call.args['instruction'] ?? '').trim();
       if (!instruction) return { ok: false, reason: 'instruction 必填（描述要改什么）' };
-      return this.proposeEditsFromChat(projectId, kind, instruction, ctx);
+      // mode：patch=增量补丁（默认）；rewrite=整篇重写（产单条 replace 补丁，同样人工确认后生效）
+      const modeRaw = String(call.args['mode'] ?? 'patch');
+      if (modeRaw !== 'patch' && modeRaw !== 'rewrite') return { ok: false, reason: 'mode 枚举 patch|rewrite' };
+      return this.proposeEditsFromChat(projectId, kind, instruction, ctx, modeRaw);
     });
   }
 
@@ -279,6 +282,8 @@ export class GenerateService {
    * 对话改文档（dock req.doc.propose_edits 旁路 handler）：
    * 读当前有效稿 → 复用增量修订 prompt 走 AI_PROVIDER 非 SSE 内部调用（mock 回落确定性两形态产出）
    * → mdToPatches → normalizePatches → doc.propose-pending 落库（独立事务，proposedBy='assistant'）。
+   * mode='rewrite'：整篇重写 prompt（当前全文为基线入 prompt）→ 单条 replace 补丁（整篇替换，
+   * 仍走 pending 人工确认——「彻底删除第五章+整篇重写」类诉求的通道，del 无法经 markdown 表达）。
    * 守卫失败/AI 零产出一律 { ok:false, reason 人话 }（不落码；ai_tool_calls 留痕由编排层 recordDirect 负责）。
    */
   async proposeEditsFromChat(
@@ -286,6 +291,7 @@ export class GenerateService {
     kind: 'crd' | 'prd',
     instruction: string,
     ctx: CommandContext,
+    mode: 'patch' | 'rewrite' = 'patch',
   ): Promise<{ ok: boolean; patchCount?: number; route?: string; kind?: 'crd' | 'prd'; reason?: string }> {
     const doc = await query<{ id: string; final_version_id: string | null; current_version_id: string | null }>(
       'SELECT id, final_version_id, current_version_id FROM req_documents WHERE project_id=$1 AND doc_kind=$2',
@@ -323,7 +329,11 @@ export class GenerateService {
       try {
         const session = await this.ai.createSession({ projectId, purpose: 'generation' });
         const existingCodes = [...new Set(effective.match(kind === 'crd' ? /\bCR-\d{3}\b/g : /\bREQ-\d{3}\b/g) ?? [])].sort();
-        const { deltas, result } = session.stream(buildPrompt(kind, cut, [], existingCodes, effective, ''));
+        // rewrite：整篇重写 prompt——当前全文为基线入 prompt（增量 prompt 只让模型输出变化节，无法表达整篇重写/删除）
+        const prompt = mode === 'rewrite'
+          ? buildRewritePrompt(kind, cut, existingCodes, effective)
+          : buildPrompt(kind, cut, [], existingCodes, effective, '');
+        const { deltas, result } = session.stream(prompt);
         for await (const d2 of deltas) void d2; // 非 SSE 内部调用：delta 排干不转发
         const res = await result;
         text = res.text;
@@ -335,10 +345,15 @@ export class GenerateService {
         return { ok: false, reason: `AI 调用失败：${sanitizeAiError(raw)}` };
       }
     } else {
-      text = buildMockChatEdit(kind, effective, cut);
+      text = mode === 'rewrite'
+        ? buildMockChatRewrite(kind, effective, cut)
+        : buildMockChatEdit(kind, effective, cut);
     }
-    const patches = normalizePatches(mdToPatches(text), splitSections(effective));
-    if (patches.length === 0) {
+    // rewrite：模型输出即重写后全文 → 单条 replace 补丁（不过 mdToPatches/normalizePatches）
+    const patches: EditPatch[] = mode === 'rewrite'
+      ? [{ type: 'replace', secId: 's0', title: '整篇重写', new: text.trim() }]
+      : normalizePatches(mdToPatches(text), splitSections(effective));
+    if (patches.length === 0 || (mode === 'rewrite' && !patches[0]!.new?.trim())) {
       return { ok: false, reason: '未产出有效修改，可换种说法重试' };
     }
     // 用量与生成流同口径（purpose='generation'），先于落补丁（token 已真实消耗，usage 独立命令留存属预期；补丁落库失败则整单失败不留半截补丁）
@@ -496,6 +511,30 @@ function buildMock(
     ...patches.map((p) => `\n## ${p.title}\n\n${p.new}\n`),
   ];
   return { chunks, patches };
+}
+
+/** 整篇重写 prompt（mode='rewrite'）：当前全文为基线入 prompt，输出重写后的完整文档（从 h1 到末节一节不漏）。
+ *  与增量 prompt 的关键差异：明确要求整篇重出（增量 prompt 恰好禁止整篇重出），
+ *  用户指示删除/合并的章节不再输出——「彻底删除第五章」类诉求的通道 */
+function buildRewritePrompt(
+  kind: 'crd' | 'prd',
+  instruction: string,
+  existingCodes: string[],
+  currentContent: string,
+): string {
+  return [
+    `你是软件工厂的需求分析助手。本次是${kind === 'crd' ? '客户需求文档（CRD）' : '产品需求文档（PRD）'}的**整篇重写**：以当前文档全文为基线、按用户指示输出重写后的**完整文档**（从一级标题到最后一节，一节不漏，不复述思考过程，只输出文档本体）。`,
+    `要求：中文 markdown；先按内容归类出若干大章，大章标题形如 \`## 一、背景与目标\`（必须用中文数字序号+顿号；不要用"第X章"或阿拉伯数字编号）；每条需求单独一个 \`## \` 章节，标题形如 \`${kind === 'crd' ? 'CR' : 'REQ'}-001 简明标题\`（锚点码必须在标题内，格式不变）；条目正文含承接来源与需求描述、验收要点。`,
+    `保留仍然有效的既有锚点码与编号；新增条目必须使用未占用编号（已占用：${existingCodes.join('、') || '无'}），在最大编号后顺延。用户指示删除/合并的章节不再输出，其承接关系在保留章节中说明。`,
+    `用户指示：${instruction}`,
+    `【当前文档全文（重写基线）】\n\n${currentContent}`,
+  ].join('\n\n');
+}
+
+/** mock 整篇重写产出（确定性：保留全文骨架+重写注记——离线可测 replace 补丁通道） */
+function buildMockChatRewrite(kind: 'crd' | 'prd', effective: string, instruction: string): string {
+  const note = (instruction || '整篇重写').replace(/\s*\n+\s*/g, ' ');
+  return `# ${kind === 'crd' ? '客户需求文档（CRD）' : '产品需求文档（PRD）'}\n\n（mock 整篇重写：${note}）\n\n${effective}`;
 }
 
 /** mock 对话修订产出（确定性两形态：命中既有节标题→normalize 转 modify + 全新节→add，离线可测两分支） */

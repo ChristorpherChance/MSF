@@ -166,6 +166,63 @@ describe('ReqDocs/Rtm/Generate（集成，需 DB+MinIO）', async () => {
     ).rejects.toMatchObject({ code: 'POLICY_MANUAL_REQUIRED' });
   });
 
+  it('编辑态增删章节：add 定位插入/校验守卫，del 二次守卫+undo 恢复', async () => {
+    let d = await view('crd');
+    const s0 = d.secs[0]!.id; // 文首
+    const s1 = d.secs[1]!.id; // CR-001
+    // 增：s0 下方插入新节
+    const add = (await docs.addSection(PID, 'crd', {
+      secId: s0, title: 'CR-900 新增章节', md: '新节正文', baseVersion: d.cur, baseFingerprint: d.contentFingerprint,
+    }, CTX)) as { title: string };
+    expect(add.title).toBe('CR-900 新增章节');
+    d = await view('crd');
+    expect(d.secs.map((s) => s.title)).toEqual(['', 'CR-900 新增章节', 'CR-001 门户首页']);
+    expect(d.secs[1]!.md).toBe('新节正文');
+    const sNew = d.secs[1]!.id;
+    // 增守卫：空标题 / md 带节标题 / 指纹失配
+    await expect(docs.addSection(PID, 'crd', {
+      secId: s0, title: '  ', baseVersion: d.cur, baseFingerprint: d.contentFingerprint,
+    }, CTX)).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+    await expect(docs.addSection(PID, 'crd', {
+      secId: s0, title: 'x', md: '## 夹带标题', baseVersion: d.cur, baseFingerprint: d.contentFingerprint,
+    }, CTX)).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+    await expect(docs.addSection(PID, 'crd', {
+      secId: s0, title: 'x', baseVersion: d.cur, baseFingerprint: 'sha256:bad',
+    }, CTX)).rejects.toMatchObject({ code: 'VERSION_CONFLICT' });
+    await expect(docs.addSection(PID, 'crd', {
+      secId: 's999', title: 'x', baseVersion: d.cur, baseFingerprint: d.contentFingerprint,
+    }, CTX)).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    // 删：新节整节移除
+    const del = (await docs.delSection(PID, 'crd', {
+      secId: sNew, baseVersion: d.cur, baseFingerprint: d.contentFingerprint,
+    }, CTX)) as { removedTitle: string };
+    expect(del.removedTitle).toBe('CR-900 新增章节');
+    d = await view('crd');
+    expect(d.secs.map((s) => s.title)).toEqual(['', 'CR-001 门户首页']);
+    // undo 恢复被删节（写草稿自带 undo 栈）
+    await docs.undo(PID, 'crd', CTX);
+    d = await view('crd');
+    expect(d.secs.map((s) => s.title)).toEqual(['', 'CR-900 新增章节', 'CR-001 门户首页']);
+    // 删守卫：s0 文首不可删 / 不存在节 / 至少保留一节（删到只剩 s0+一节时拒绝再删章节）
+    await expect(docs.delSection(PID, 'crd', {
+      secId: s0, baseVersion: d.cur, baseFingerprint: d.contentFingerprint,
+    }, CTX)).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+    await expect(docs.delSection(PID, 'crd', {
+      secId: 's999', baseVersion: d.cur, baseFingerprint: d.contentFingerprint,
+    }, CTX)).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    await docs.delSection(PID, 'crd', { secId: sNew, baseVersion: d.cur, baseFingerprint: d.contentFingerprint }, CTX);
+    d = await view('crd');
+    await expect(docs.delSection(PID, 'crd', {
+      secId: s1, baseVersion: d.cur, baseFingerprint: d.contentFingerprint,
+    }, CTX)).rejects.toMatchObject({ code: 'VALIDATION_FAILED' }); // 只剩 s0+CR-001，再删即清空
+    // 收尾：undo 两步回起点（先恢复被删节、再撤销增节→草稿消亡回 clean），后续用例状态不受污染
+    await docs.undo(PID, 'crd', CTX);
+    await docs.undo(PID, 'crd', CTX);
+    d = await view('crd');
+    expect(d.modified).toBe(false);
+    expect(d.secs.map((s) => s.title)).toEqual(['', 'CR-001 门户首页']);
+  });
+
   it('待确认补丁：propose→accept 落草稿入 undo 栈→reject；from 失配 PATCH_BASE_STALE', async () => {
     const d0 = await view('crd');
     const fp = d0.contentFingerprint.replace(/^sha256:/, '');

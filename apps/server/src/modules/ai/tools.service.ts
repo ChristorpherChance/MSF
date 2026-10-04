@@ -89,8 +89,8 @@ const TOOLS: ToolDef[] = [
     // 2026-10-04「5.1 看不到」根修：①草稿优先（与 UI getDoc 同口径——UI 展示草稿，只读 current_version
     // 会看不到用户刚改的）；②标题注入 UI 派生编号（withNumberedTitles——模型与界面共享编号坐标，
     // 「5.1 节」才有所指）；③anchor 定向读单节（截断不再切掉尾部章节）；④始终附 sections 章节清单
-    description: '读取指定文档正文（与界面同口径：草稿优先、章节标题带界面编号）。args.kind：crd|prd 需求文档；hld|mod|alg|cls|db|api|ui|nfr 设计册；args.anchor 可选——章节编号（如「5.1」「第五章」）或标题/CR 编号，定向读单节。回答「文档里某条怎么写的/某节内容/哪一节承接某需求」类问题前调用',
-    argsSchema: { kind: 'string', anchor: 'string' },
+    description: '读取指定文档正文（与界面同口径：草稿优先、章节标题带界面编号）。args.kind：crd|prd 需求文档；hld|mod|alg|cls|db|api|ui|nfr 设计册；args.anchor 可选——章节编号（如「5.1」「第五章」）或标题/CR 编号，定向读单节；args.offset 可选——全文被截断时从第 N 字符续读（截断返回会给 nextOffset）。回答「文档里某条怎么写的/某节内容/哪一节承接某需求」类问题前调用',
+    argsSchema: { kind: 'string', anchor: 'string', offset: 'number' },
     required: ['kind'],
     async run(client, projectId, args) {
       const kind = String(args['kind']);
@@ -143,15 +143,24 @@ const TOOLS: ToolDef[] = [
           content: `${title ? `## ${title}\n\n` : ''}${cut ? `${s.md.slice(0, DOC_READ_CAP)}\n…（节内截断，全文共 ${s.md.length} 字）` : s.md}`,
         };
       }
-      // 全文读：标题注入界面派生编号（「5.1 节」类指代据此可答）；截断时指引 anchor 定向读
+      // 全文读：标题注入界面派生编号（「5.1 节」类指代据此可答）；
+      // offset 分页续读（截断返回 nextOffset，模型可接力拿齐全文——整篇重写前的取齐通道）
       const numbered = withNumberedTitles(row.content);
-      const truncated = numbered.length > DOC_READ_CAP;
+      const offset = Math.max(0, Math.trunc(Number(args['offset'] ?? 0) || 0));
+      if (offset >= numbered.length && numbered.length > 0) {
+        return { ...base, offset, truncated: false, content: '', message: `offset ${offset} 已超全文末尾（全文共 ${numbered.length} 字）` };
+      }
+      const slice = numbered.slice(offset, offset + DOC_READ_CAP);
+      const next = offset + DOC_READ_CAP;
+      const truncated = next < numbered.length;
       return {
         ...base,
+        offset,
         truncated,
+        ...(truncated ? { nextOffset: next } : {}),
         content: truncated
-          ? `${numbered.slice(0, DOC_READ_CAP)}\n…（截断，全文共 ${numbered.length} 字；可用 anchor 参数按章节定向读取，章节清单见 sections）`
-          : numbered,
+          ? `${slice}\n…（截断，全文共 ${numbered.length} 字；用 offset=${next} 续读，或用 anchor 参数按章节定向读取，章节清单见 sections）`
+          : slice,
       };
     },
   },

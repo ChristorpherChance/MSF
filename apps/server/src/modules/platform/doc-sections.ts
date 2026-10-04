@@ -69,9 +69,10 @@ export function joinSections(secs: DocSection[]): string {
     .join('\n\n');
 }
 
-/** 编辑补丁（DSG-C04-4 edit_patch：定位+最小变更，禁止全文重写） */
+/** 编辑补丁（DSG-C04-4 edit_patch：定位+最小变更；replace=整篇重写提案——
+ *  对话改文档 mode:'rewrite' 专用，仍走 pending 人工确认，不直接落稿） */
 export interface EditPatch {
-  type: 'add' | 'modify' | 'del';
+  type: 'add' | 'modify' | 'del' | 'replace';
   secId: string;
   title?: string;
   old?: string;
@@ -81,8 +82,13 @@ export interface EditPatch {
   after?: string;
 }
 
-/** 应用补丁到章节集；modify/del 要求 old 文本仍在该节内容中（否则调用方判 PATCH_BASE_STALE） */
+/** 应用补丁到章节集；modify/del 要求 old 文本仍在该节内容中（否则调用方判 PATCH_BASE_STALE）；
+ *  replace 无定位依赖——new 非空即整篇替换（空 new 返回 null 防误清空全文） */
 export function applyPatch(secs: DocSection[], patch: EditPatch): DocSection[] | null {
+  if (patch.type === 'replace') {
+    if (!patch.new?.trim()) return null;
+    return splitSections(patch.new);
+  }
   if (patch.type === 'add') {
     // id 只是标识、顺序由数组位置决定：中段插入不重排既有 id
     const next: DocSection = {

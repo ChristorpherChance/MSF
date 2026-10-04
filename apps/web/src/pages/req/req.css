@@ -74,8 +74,20 @@
 }
 .sec-ops { display: flex; gap: 8px; margin-top: 6px; align-items: center; }
 
+/* 编辑态章节增删入口（每节底部；增=弹窗输标题，删=二次确认） */
+.sec-struct-ops { display: flex; gap: 8px; margin-top: 4px; align-items: center; }
+.sec-struct-ops .act { color: var(--ink2); }
+.sec-title-input {
+  width: 100%; box-sizing: border-box; margin-top: 8px; padding: 8px 10px;
+  border: 1px solid var(--line); border-radius: var(--radius); font-size: 13px;
+  background: var(--canvas); color: var(--ink);
+}
+.sec-title-input:focus { outline: 2px solid var(--blue-soft); border-color: var(--blue); }
+
 /* 待确认补丁高亮（pending-add/mod/del + 行内接受/拒绝） */
 .pending-add { border: 1px dashed var(--green); background: var(--green-soft); }
+.pending-replace { border: 1px dashed var(--blue); background: var(--blue-soft); }
+.plabel.replace { color: var(--blue-ink); }
 .pending-bar {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   border: 1px dashed var(--orange); background: var(--orange-soft);

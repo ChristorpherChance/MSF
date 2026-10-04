@@ -151,6 +151,23 @@ describe('AI 会话/消息/流式管线（集成，需 DB）', async () => {
       .rejects.toMatchObject({ code: 'FORBIDDEN' });
   });
 
+  it('消息排序：同事务同刻的 user+ai 对，DESC 返回 ai 在前（前端 reverse 后 user 在上）', async () => {
+    // ai.message.send 同事务插入 user+ai 两行，created_at 同为事务时间戳——
+    // 无 tiebreaker 时 DESC 次序不确定，曾致「AI 回复压到我的问题上方」
+    const s = await sessions.create(PID, { ctx: 'req', name: '排序' }, CTX) as { id: string };
+    await query(
+      `INSERT INTO ai_messages (session_id, role, content, status)
+       VALUES ($1,'user','问题本体','done'),($1,'ai','回复本体','done')`, [s.id]);
+    const msgs = await sessions.messages(PID, s.id);
+    expect(msgs.items.map((m) => m.role)).toEqual(['ai', 'user']);
+    expect(msgs.items[0]!.content).toBe('回复本体');
+    // 与真实发送链同口径复核：send 完成后首条仍是 ai 在 DESC 首位
+    await sessions.send(PID, s.id, { content: '再发一轮' }, CTX);
+    await new Promise((r) => setTimeout(r, 1200)); // mock 流终结
+    const after = await sessions.messages(PID, s.id);
+    expect(after.items.map((m) => m.role).slice(0, 2)).toEqual(['ai', 'user']);
+  });
+
   it('W8 ⋯ 菜单：重命名留痕；删除随消息清空且越域拒绝', async () => {
     const s = await sessions.create(PID, { ctx: 'req', name: '待改名' }, CTX) as { id: string };
     await sessions.send(PID, s.id, { content: 'hello' }, CTX);

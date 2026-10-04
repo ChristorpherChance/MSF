@@ -60,7 +60,7 @@ export interface VersionItem {
 export interface PatchItem {
   patchId: string;
   secId: string;
-  type: 'add' | 'modify' | 'del';
+  type: 'add' | 'modify' | 'del' | 'replace';
   title?: string;
   old?: string;
   new?: string;
@@ -118,6 +118,12 @@ export const reqApi = {
     api.get<DocView>(`${base(pid)}/docs/${kind}${v !== undefined ? `?v=${v}` : ''}`),
   saveDraft: (pid: string, kind: DocKind, secId: string, md: string, baseVersion: number, baseFingerprint: string) =>
     api.post(`${base(pid)}/docs/${kind}/draft`, { secId, md, baseVersion, baseFingerprint }),
+  /** 编辑态增节：在 secId 节下方插入新章节 */
+  addSection: (pid: string, kind: DocKind, secId: string, title: string, baseVersion: number, baseFingerprint: string) =>
+    api.post(`${base(pid)}/docs/${kind}/sections`, { secId, title, baseVersion, baseFingerprint }),
+  /** 编辑态删节：整节移除（服务端守卫：s0 不可删、至少保留一节） */
+  delSection: (pid: string, kind: DocKind, secId: string, baseVersion: number, baseFingerprint: string) =>
+    api.post(`${base(pid)}/docs/${kind}/sections/${secId}:delete`, { baseVersion, baseFingerprint }),
   undo: (pid: string, kind: DocKind) => api.post(`${base(pid)}/docs/${kind}:undo`, {}),
   redo: (pid: string, kind: DocKind) => api.post(`${base(pid)}/docs/${kind}:redo`, {}),
   commit: (pid: string, kind: DocKind, note: string, baseVersion: number) =>

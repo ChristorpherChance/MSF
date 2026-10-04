@@ -66,6 +66,31 @@ export class ReqController {
     return this.docs.saveDraft(projectId, this.assertKind(kind), body, this.actor(req, projectId));
   }
 
+  /** 编辑态增节：在 secId 节下方插入新章节（命令型，写草稿自带 undo） */
+  @Post('docs/:kind/sections')
+  @HttpCode(200)
+  addSection(
+    @Param('projectId') projectId: string,
+    @Param('kind') kind: string,
+    @Body() body: { secId: string; title: string; md?: string; baseVersion: number; baseFingerprint: string },
+    @Req() req: Request,
+  ) {
+    return this.docs.addSection(projectId, this.assertKind(kind), body, this.actor(req, projectId));
+  }
+
+  /** 编辑态删节：整节移除（命令型；s0 文首不可删，至少保留一节） */
+  @Post('docs/:kind/sections/:secId\\:delete')
+  @HttpCode(200)
+  delSection(
+    @Param('projectId') projectId: string,
+    @Param('kind') kind: string,
+    @Param('secId') secId: string,
+    @Body() body: { baseVersion: number; baseFingerprint: string },
+    @Req() req: Request,
+  ) {
+    return this.docs.delSection(projectId, this.assertKind(kind), { secId, ...body }, this.actor(req, projectId));
+  }
+
   /** A04-4 文档 AI 生成（POST-SSE，fetch+ReadableStream 消费，A01-6） */
   @Post('docs/:kind\\:generate')
   async generate(

@@ -107,6 +107,63 @@ export class ReqDocsService {
       return { modified: true, contentFingerprint: `sha256:${sha256Text(content)}` };
     });
 
+    // 编辑态增节：在 secId 节下方插入新节（title 必填、不得带 ## 前缀；写草稿自带 undo 栈）
+    registerCommand('doc.section.add', async (client, payload, ctx) => {
+      const { projectId, kind, secId, title, md, baseVersion, baseFingerprint } = payload as {
+        projectId: string; kind: 'crd' | 'prd'; secId: string; title: string; md?: string;
+        baseVersion: number; baseFingerprint: string;
+      };
+      const t = (title ?? '').trim().replace(/^#+\s*/, '');
+      if (!t) throw new DomainError('VALIDATION_FAILED', '章节标题不能为空', secId);
+      if (/^#{2,6}\s/m.test(md ?? '')) {
+        throw new DomainError('VALIDATION_FAILED', '新增章节的内容不得包含章节标题（## 及更深）', secId);
+      }
+      const doc = await this.lockDoc(client, projectId, kind);
+      this.assertEditable(doc, ctx);
+      const cur = await this.currentVersion(client, doc);
+      const draft = await this.loadDraft(client, doc.id);
+      const effective = draft?.content ?? cur?.content ?? '';
+      this.assertLock(baseVersion, baseFingerprint, cur, effective);
+      const secs = splitSections(effective);
+      const si = secs.findIndex((s) => s.id === secId);
+      if (si < 0) throw new DomainError('NOT_FOUND', '章节不存在', secId);
+      const next = [...secs.slice(0, si + 1), { id: `s${si + 1}`, title: t, md: (md ?? '').trim() }, ...secs.slice(si + 1)];
+      const content = joinSections(next);
+      await this.writeDraft(client, doc, cur, draft, content, ctx);
+      await this.assertInvariants(client, doc.id);
+      return { modified: true, title: t, contentFingerprint: `sha256:${sha256Text(content)}` };
+    });
+
+    // 编辑态删节：整节移除（s0 文首不可删——清空请用编辑；至少保留一节；写草稿自带 undo 栈）
+    registerCommand('doc.section.del', async (client, payload, ctx) => {
+      const { projectId, kind, secId, baseVersion, baseFingerprint } = payload as {
+        projectId: string; kind: 'crd' | 'prd'; secId: string;
+        baseVersion: number; baseFingerprint: string;
+      };
+      if (secId === 's0') {
+        throw new DomainError('VALIDATION_FAILED', '文首部分不可删除（如需清空请直接编辑其内容）', secId);
+      }
+      const doc = await this.lockDoc(client, projectId, kind);
+      this.assertEditable(doc, ctx);
+      const cur = await this.currentVersion(client, doc);
+      const draft = await this.loadDraft(client, doc.id);
+      const effective = draft?.content ?? cur?.content ?? '';
+      this.assertLock(baseVersion, baseFingerprint, cur, effective);
+      const secs = splitSections(effective);
+      const si = secs.findIndex((s) => s.id === secId);
+      if (si < 0) throw new DomainError('NOT_FOUND', '章节不存在', secId);
+      if (secs.length <= 2) { // s0 之外仅剩一节时删除即清空全文
+        throw new DomainError('VALIDATION_FAILED', '文档至少保留一个章节', secId);
+      }
+      const removed = secs[si]!;
+      const next = [...secs.slice(0, si), ...secs.slice(si + 1)];
+      const content = joinSections(next);
+      if (content === effective) throw new DomainError('NO_CHANGE', '内容无变化', secId);
+      await this.writeDraft(client, doc, cur, draft, content, ctx);
+      await this.assertInvariants(client, doc.id);
+      return { modified: true, removedTitle: removed.title, contentFingerprint: `sha256:${sha256Text(content)}` };
+    });
+
     registerCommand('doc.undo', async (client, payload, ctx) => {
       const { projectId, kind } = payload as { projectId: string; kind: 'crd' | 'prd' };
       const doc = await this.lockDoc(client, projectId, kind);
@@ -505,6 +562,14 @@ export class ReqDocsService {
 
   async saveDraft(projectId: string, kind: 'crd' | 'prd', input: { secId: string; md: string; baseVersion: number; baseFingerprint: string }, ctx: CommandContext) {
     return executeCommand('doc.save-html', { projectId, kind, ...input }, { ...ctx, projectId });
+  }
+  /** 编辑态增节：在 secId 节下方插入（W-用户反馈：编辑态无法新增章节） */
+  async addSection(projectId: string, kind: 'crd' | 'prd', input: { secId: string; title: string; md?: string; baseVersion: number; baseFingerprint: string }, ctx: CommandContext) {
+    return executeCommand('doc.section.add', { projectId, kind, ...input }, { ...ctx, projectId });
+  }
+  /** 编辑态删节：整节移除（s0 文首不可删；至少保留一节） */
+  async delSection(projectId: string, kind: 'crd' | 'prd', input: { secId: string; baseVersion: number; baseFingerprint: string }, ctx: CommandContext) {
+    return executeCommand('doc.section.del', { projectId, kind, ...input }, { ...ctx, projectId });
   }
   async undo(projectId: string, kind: 'crd' | 'prd', ctx: CommandContext) {
     return executeCommand('doc.undo', { projectId, kind }, { ...ctx, projectId });

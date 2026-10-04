@@ -318,3 +318,29 @@ describe('findSectionByAnchor（doc.read 定向读：「5.1 节」「第五章�
     expect(findSectionByAnchor('第九章', s)).toBe(-1);
   });
 });
+
+describe('applyPatch replace（对话改文档 mode:rewrite 整篇重写补丁）', () => {
+  const base = () => splitSections([
+    '# CRD', '', '前言。', '',
+    '## 一、背景', '', 'a', '',
+    '## 五、待确认事项', '', '待确认表。', '',
+    '## CR-001 条目', '', '承接：R-001',
+  ].join('\n'));
+
+  it('整篇替换：new 重切分为章节集（第五章消失=rewrite 表达删除的通道）', () => {
+    const next = applyPatch(base(), {
+      type: 'replace', secId: 's0', title: '整篇重写',
+      new: ['# CRD', '', '前言 v2。', '', '## 一、背景', '', 'a2', '', '## CR-001 条目', '', '承接：R-001 修订'].join('\n'),
+    });
+    expect(next).not.toBeNull();
+    expect(next!.map((s) => s.title)).toEqual(['', '一、背景', 'CR-001 条目']);
+    expect(joinSections(next!)).toContain('前言 v2。');
+    expect(joinSections(next!)).not.toContain('待确认');
+  });
+
+  it('空 new 拒绝（防误清空全文）；replace 经 normalizePatches 原样透传', () => {
+    expect(applyPatch(base(), { type: 'replace', secId: 's0', new: '  ' })).toBeNull();
+    const p = { type: 'replace' as const, secId: 's0', title: '整篇重写', new: '# X' };
+    expect(normalizePatches([p], base())).toEqual([p]);
+  });
+});

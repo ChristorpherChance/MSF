@@ -474,9 +474,11 @@ function Paper({ kind, readonly }: { kind: DocKind; readonly: boolean }) {
     });
   }, [patchFocus, patches, clearPatchFocus, flashPatch]);
   if (!doc) return null;
-  const pendBySec = new Map(patches.filter((p) => p.status === 'pending').map((p) => [p.secId, p]));
+  // replace=整篇重写补丁不挂节（secId 恒 s0 但语义是全文替换）——专属块渲染在正文最上方
+  const pendBySec = new Map(patches.filter((p) => p.status === 'pending' && p.type !== 'replace').map((p) => [p.secId, p]));
   const appended = patches.filter((p) => p.status === 'pending' && p.type === 'add');
-  const pendCount = pendBySec.size + appended.length;
+  const replaces = patches.filter((p) => p.status === 'pending' && p.type === 'replace');
+  const pendCount = pendBySec.size + appended.length + replaces.length;
   // 页内定位：点击「补丁 ×N」滚动到第一条待确认补丁（实机反馈：补丁行内高亮在长文档中找不到）
   const locateFirstPending = () => {
     const first = patches.find((p) => p.status === 'pending');
@@ -520,6 +522,11 @@ function Paper({ kind, readonly }: { kind: DocKind; readonly: boolean }) {
           )}
         </h1>
         <PatchTrail patches={patches} />
+        {replaces.map((p) => (
+          <section key={p.patchId} className="sect pending-replace-sec">
+            <PendingBar kind={kind} patch={p} />
+          </section>
+        ))}
         {doc.secs.map((s) => (
           <section key={s.id} id={`sec-${s.id}`} className={`sect${tocFlash === s.id ? ' flash' : ''}`}>
             {/* 补丁条在章节标题之前（原型口径：pending-bar → h2 → 正文） */}
@@ -528,7 +535,10 @@ function Paper({ kind, readonly }: { kind: DocKind; readonly: boolean }) {
             {viewMode === 'preview' ? (
               <div className="md" dangerouslySetInnerHTML={{ __html: mdHtml(s.md) }} />
             ) : (
-              <SectionEditor kind={kind} secId={s.id} md={s.md} readonly={readonly} />
+              <>
+                <SectionEditor kind={kind} secId={s.id} md={s.md} readonly={readonly} />
+                {!readonly && <SectionOps kind={kind} secId={s.id} title={numbered?.get(s.id)?.display || s.title} />}
+              </>
             )}
           </section>
         ))}
@@ -644,6 +654,82 @@ function SectionEditor({ kind, secId, md, readonly }: { kind: DocKind; secId: st
   );
 }
 
+/** 编辑态章节增删（用户反馈：编辑态无法新增/删除章节）——
+ *  增=标题弹窗后插入本节下方；删=二次确认（s0 文首不可删，服务端守卫至少保留一节）；
+ *  两者均写草稿自带 undo 栈（工具栏 ↩ 可撤销），乐观锁同 save-draft 口径 */
+function SectionOps({ kind, secId, title }: { kind: DocKind; secId: string; title: string }) {
+  const { projectId, doc, refresh } = useReqView();
+  const [addOpen, setAddOpen] = useState(false);
+  const [delOpen, setDelOpen] = useState(false);
+  const [newTitle, setNewTitle] = useState('');
+  const [msg, setMsg] = useState<string | null>(null);
+  if (!projectId || !doc) return null;
+  const add = () => {
+    const t = newTitle.trim();
+    if (!t) return;
+    void reqApi.addSection(projectId, kind, secId, t, doc.cur, doc.contentFingerprint)
+      .then(() => {
+        setAddOpen(false);
+        setNewTitle('');
+        toast(`已在下方新增章节「${t}」（可 ↩ 撤销）`, 'success');
+      })
+      .catch((e) => {
+        setAddOpen(false);
+        setMsg(e instanceof ApiError ? `${e.code}: ${e.message}` : '新增章节失败');
+      })
+      .finally(() => void refresh());
+  };
+  const del = () => {
+    void reqApi.delSection(projectId, kind, secId, doc.cur, doc.contentFingerprint)
+      .then(() => toast(`已删除章节「${title}」（可 ↩ 撤销）`, 'success'))
+      .catch((e) => setMsg(e instanceof ApiError ? `${e.code}: ${e.message}` : '删除章节失败'))
+      .finally(() => void refresh());
+  };
+  return (
+    <div className="sec-struct-ops">
+      <button className="act sm" onClick={() => { setMsg(null); setAddOpen(true); }}>
+        ＋ 在下方新增章节
+      </button>
+      {secId !== 's0' && (
+        <button className="act sm" title="整节删除（写草稿，可 ↩ 撤销）" onClick={() => { setMsg(null); setDelOpen(true); }}>
+          ✕ 删除本节
+        </button>
+      )}
+      {msg && <span className="rsn err">{msg}</span>}
+      {addOpen && (
+        <Modal
+          title="在下方新增章节"
+          onClose={() => setAddOpen(false)}
+          footer={
+            <>
+              <button className="sm" onClick={() => setAddOpen(false)}>取消</button>
+              <button className="sm primary" disabled={!newTitle.trim()} onClick={add}>新增章节</button>
+            </>
+          }
+        >
+          <p>将在「{title || '文首'}」下方插入一个新章节（写入草稿，可 ↩ 撤销；保存后同其它章节一样逐节编辑）。</p>
+          <input
+            className="sec-title-input"
+            value={newTitle}
+            placeholder="章节标题（不含编号前缀，编号由界面自动派生）"
+            onChange={(e) => setNewTitle(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') add(); }}
+          />
+        </Modal>
+      )}
+      {delOpen && (
+        <ConfirmModal
+          title="删除本节"
+          body={`将整节删除「${title}」。\n删除写入草稿（可 ↩ 撤销），文档提交新版本后仍可经历史版本回看。`}
+          confirmLabel="删除本节"
+          onClose={() => setDelOpen(false)}
+          onConfirm={del}
+        />
+      )}
+    </div>
+  );
+}
+
 /** 补丁处置常驻横幅（实机反馈抓修：原只在 h1 且 ≥2 条才显，找不到批量入口）——
  *  有 pending 即吸附正文顶部：定位 + 逐条引导 + 批量全收/全拒（逐条命令，逐条审计），二次确认 */
 function PatchBulk({ kind, readonly }: { kind: DocKind; readonly: boolean }) {
@@ -710,15 +796,22 @@ function PatchBulk({ kind, readonly }: { kind: DocKind; readonly: boolean }) {
  *  ②「改后接受」内联编辑提案新文后并入（服务端 newText 覆盖，审计留痕）；
  *  ③拒绝弹窗加「拒绝并请 AI 修订」——结构化拒绝理由回喂 dock 会话，AI 修订后重新提案 */
 function PendingBar({ kind, patch }: { kind: DocKind; patch: PatchItem }) {
-  const { projectId, refresh, patchFlash } = useReqView();
+  const { projectId, doc, refresh, patchFlash } = useReqView();
   const [msg, setMsg] = useState<string | null>(null);
   const [rejectOpen, setRejectOpen] = useState(false);
   const [reason, setReason] = useState('');
   const [editOpen, setEditOpen] = useState(false);
   const [editText, setEditText] = useState(patch.new ?? '');
+  // replace=整篇重写：对比基线是当前全文（草稿优先同服务端口径），逐块 md 预览
+  const fullText = useMemo(
+    () => (doc ? doc.secs.map((s) => (s.title ? `## ${s.title}\n\n${s.md}` : s.md)).filter((t) => t.trim() !== '').join('\n\n') : ''),
+    [doc],
+  );
   const diffSegs = useMemo(
-    () => (patch.type === 'modify' ? diffText(patch.old ?? '', patch.new ?? '') : null),
-    [patch.type, patch.old, patch.new],
+    () => (patch.type === 'modify' ? diffText(patch.old ?? '', patch.new ?? '')
+      : patch.type === 'replace' ? diffText(fullText, patch.new ?? '')
+        : null),
+    [patch.type, patch.old, patch.new, fullText],
   );
   if (!projectId) return null;
   const act = (fn: () => Promise<unknown>) => {
@@ -744,7 +837,7 @@ function PendingBar({ kind, patch }: { kind: DocKind; patch: PatchItem }) {
         await useDockStore.getState().sendText([
           `我刚才拒绝了你在《${kind === 'crd' ? 'CRD' : 'PRD'}》文档的一条修改提案。`,
           patch.title ? `章节：${patch.title}` : '',
-          `提案类型：${patch.type === 'add' ? '新增' : patch.type === 'del' ? '删除' : '修改'}`,
+          `提案类型：${patch.type === 'add' ? '新增' : patch.type === 'del' ? '删除' : patch.type === 'replace' ? '整篇重写' : '修改'}`,
           patch.old ? `原文：${clip(patch.old)}` : '',
           patch.new ? `提案新文：${clip(patch.new)}` : '',
           `拒绝理由：${r || '（未填写）'}`,
@@ -757,13 +850,15 @@ function PendingBar({ kind, patch }: { kind: DocKind; patch: PatchItem }) {
   return (
     <div
       id={`patch-${patch.patchId}`}
-      className={`pending-bar pending-${patch.type === 'modify' ? 'mod' : patch.type === 'del' ? 'del' : 'add'}${patchFlash === patch.patchId ? ' flash' : ''}`}
+      className={`pending-bar pending-${patch.type === 'modify' ? 'mod' : patch.type === 'del' ? 'del' : patch.type === 'replace' ? 'replace' : 'add'}${patchFlash === patch.patchId ? ' flash' : ''}`}
     >
       <span className={`plabel ${patch.type === 'modify' ? 'mod' : patch.type}`}>
-        ● 待确认·{patch.type === 'add' ? '新增' : patch.type === 'del' ? '删除' : '修改'}
+        ● 待确认·{patch.type === 'add' ? '新增' : patch.type === 'del' ? '删除' : patch.type === 'replace' ? '整篇重写' : '修改'}
       </span>
       <span className="pend-desc">
-        {patch.type === 'add' ? `「${patch.title ?? '章节'}」` : `「${patch.title ?? patch.secId}」`}
+        {patch.type === 'add' ? `「${patch.title ?? '章节'}」`
+          : patch.type === 'replace' ? '「全文替换（下为整篇对比）」'
+            : `「${patch.title ?? patch.secId}」`}
         <em>（{patch.source === 'ai' ? 'AI 提案' : patch.source}）</em>
       </span>
       <button className="act primary" onClick={() => act(() => reqApi.acceptPatch(projectId, kind, patch.patchId))}>✓ 接受</button>

@@ -48,6 +48,8 @@ export const COMMANDS = [
   'material.job.item_retry',
   // M2 需求域：文档生命周期（LLD-3 DSG-C10-2(b)，F02-1 状态机迁移一一对应）
   'doc.save-html',
+  'doc.section.add', // 编辑态增节（写草稿自带 undo 栈）
+  'doc.section.del', // 编辑态删节（s0 不可删；至少保留一节）
   'doc.undo',
   'doc.redo',
   'doc.switch-version',
