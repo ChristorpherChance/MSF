@@ -93,3 +93,31 @@ export function applyPatch(secs: DocSection[], patch: EditPatch): DocSection[] |
   const md = target.md.replace(patch.old, patch.new ?? '');
   return secs.map((s, i) => (i === idx ? { ...s, md } : s));
 }
+
+/** 锚点码（CR-nnn/REQ-nnn）——标题首词提取，归一化优先匹配键 */
+const ANCHOR_CODE_RE = /^(?:CR|REQ)-\d{3}\b/;
+
+/**
+ * AI 增量补丁归一化（修复「修改章节实为重复追加」缺陷）：
+ * mdToPatches 恒产 add——标题命中既有节（锚点码优先、标题精确其次）即改写为整节 modify
+ * （old=splitSections 产出的节 md，已 trim+\n{3,} 塌缩，不可从原文裸切，否则 accept 时 includes 失配）。
+ * 未命中保持 add。已知限制：mdToPatches 标题截 80 字符而 splitSections 不截，
+ * >80 字符的无锚点码节精确匹配落空退回 add（CR/REQ 节走锚点码不受影响）。
+ */
+export function normalizePatches(patches: EditPatch[], existing: DocSection[]): EditPatch[] {
+  const byCode = new Map<string, DocSection>();
+  const byTitle = new Map<string, DocSection>();
+  for (const s of existing) {
+    const code = ANCHOR_CODE_RE.exec(s.title)?.[0];
+    if (code && !byCode.has(code)) byCode.set(code, s);
+    if (s.title && !byTitle.has(s.title)) byTitle.set(s.title, s);
+  }
+  return patches.map((p) => {
+    if (p.type !== 'add' || !p.title) return p;
+    const code = ANCHOR_CODE_RE.exec(p.title)?.[0];
+    const target = (code ? byCode.get(code) : undefined) ?? byTitle.get(p.title);
+    // 空正文节不转：modify 的 old⊆md 校验对空 old 必败（PATCH_BASE_STALE 误伤），保 add 由人工处置
+    if (!target || target.md.trim() === '') return p;
+    return { type: 'modify', secId: target.id, title: target.title, old: target.md, new: p.new ?? '' };
+  });
+}
