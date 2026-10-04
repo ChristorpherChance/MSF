@@ -51,7 +51,7 @@ describe('AI 工具桥/提示词/用量（集成，需 DB）', async () => {
     await pool.end();
   });
 
-  it('工具注册表：四件套可调用，结果落 ai_tool_calls(ok)', async () => {
+  it('工具注册表：五件套可调用，结果落 ai_tool_calls(ok)', async () => {
     const list = tools.list();
     expect(list.tools.map((t) => t.name)).toEqual(['nav.goto', 'read_context', 'doc.read', 'chat.history.read', 'propose_next_step']);
     const nav = await tools.invoke(PID, { sessionId, toolName: 'nav.goto', args: { tab: 'dev' } }, CTX);
@@ -69,12 +69,21 @@ describe('AI 工具桥/提示词/用量（集成，需 DB）', async () => {
 
   it('chat.history.read：按编号读他会话消息（项目守卫/limit 封顶/不存在人话）', async () => {
     // 造目标会话 + 两条 done 消息
+    // 预删防残留：此前失败轮可能留下 ss_t9 撞唯一约束
+    const stale = await query<{ id: string }>(
+      'SELECT id FROM ai_sessions WHERE project_id=$1 AND code=$2', [PID, 'ss_t9']);
+    for (const r of stale.rows) {
+      await query('DELETE FROM ai_messages WHERE session_id=$1', [r.id]);
+      await query('DELETE FROM ai_sessions WHERE id=$1', [r.id]);
+    }
     const target = (await query<{ id: string }>(
       `INSERT INTO ai_sessions (project_id, code, ctx, name, created_by)
        VALUES ($1,'ss_t9','material','资料深读','t') RETURNING id`, [PID])).rows[0]!.id;
+    // 两条独立事务：created_at DEFAULT now()=事务时间戳，同事务插入会同刻、次序退化为随机 id 排序（flaky）
     await query(
-      `INSERT INTO ai_messages (session_id, role, content, status) VALUES
-       ($1,'user','客户要双人同屏','done'), ($1,'ai','已记录','done')`, [target]);
+      `INSERT INTO ai_messages (session_id, role, content, status) VALUES ($1,'user','客户要双人同屏','done')`, [target]);
+    await query(
+      `INSERT INTO ai_messages (session_id, role, content, status) VALUES ($1,'ai','已记录','done')`, [target]);
     const r = await tools.invoke(PID, { sessionId, toolName: 'chat.history.read', args: { sessionCode: 'ss_t9' } }, CTX);
     expect(r.result['found']).toBe(true);
     const msgs = r.result['messages'] as Array<{ role: string; content: string }>;

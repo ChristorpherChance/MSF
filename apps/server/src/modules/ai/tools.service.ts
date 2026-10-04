@@ -124,7 +124,8 @@ const TOOLS: ToolDef[] = [
     required: ['sessionCode'],
     async run(client, projectId, args) {
       const code = String(args['sessionCode']);
-      const limit = Math.min(50, Math.max(1, Number(args['limit'] ?? 20) || 20));
+      // Math.trunc：limit 小数直传会被 PG 拒（LIMIT 只收整型）
+      const limit = Math.min(50, Math.max(1, Math.trunc(Number(args['limit'] ?? 20) || 20)));
       // 项目守卫：project_id+code 双条件，跨项目会话天然查不到（不落码，人话返回）
       const s = await client.query<{ id: string; name: string; ctx: string }>(
         'SELECT id, name, ctx FROM ai_sessions WHERE project_id=$1 AND code=$2', [projectId, code]);
