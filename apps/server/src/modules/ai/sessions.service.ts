@@ -5,6 +5,7 @@ import { query } from '../../db/pool.js';
 import { lockCodeGen } from '../../db/seq.js';
 import { executeCommand, registerCommand, type CommandContext } from '../evidence/command-bus.js';
 import { buildCrossSessionDigest } from '../platform/cross-session-digest.js';
+import { getExternalTool } from '../platform/external-tools.js';
 import { AI_PROVIDER, type AiProvider, type AiUsage } from './ai-provider.interface.js';
 import type { ModelRow } from './models.service.js';
 import { AiModelsService } from './models.service.js';
@@ -402,6 +403,19 @@ export class AiSessionsService implements OnModuleInit {
       try {
         const call = JSON.parse(raw) as { name?: string; args?: Record<string, unknown> };
         if (!call.name) continue;
+        // 外部工具旁路：含嵌套 LLM 的工具绝不在 ai.tool.invoke 命令事务内跑——
+        // handler 无事务执行（内部命令独立事务），recordDirect 补落 ai_tool_calls（成功/失败两路留痕）
+        const external = getExternalTool(call.name);
+        if (external) {
+          const p = { sessionId, messageId, toolName: call.name, args: call.args ?? {} };
+          try {
+            const result = await external(projectId, { sessionId, messageId, args: call.args ?? {} }, ctx);
+            await this.tools.recordDirect(p, result['ok'] === false ? 'failed' : 'ok', result);
+          } catch (e) {
+            await this.tools.recordDirect(p, 'failed', { error: e instanceof Error ? e.message : String(e) });
+          }
+          continue;
+        }
         await this.tools
           .invoke(projectId, { sessionId, messageId, toolName: call.name, args: call.args ?? {} }, ctx)
           .catch(() => undefined);
