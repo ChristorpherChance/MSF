@@ -11,6 +11,7 @@ import { ReqDocsService } from './docs.service.js';
 import { GenerateService, genTiming } from './generate.service.js';
 import { RtmService } from './rtm.service.js';
 import { ReqExportService } from './export.service.js';
+import { sha256Text } from '../platform/doc-sections.js';
 import { createHash } from 'node:crypto';
 
 const PID = '00000000-0000-0000-0000-0000000000f1';
@@ -377,6 +378,44 @@ describe('ReqDocs/Rtm/Generate（集成，需 DB+MinIO）', async () => {
       await query('DELETE FROM mat_uploads WHERE project_id=$1', [PID2]);
       await query('DELETE FROM mat_files WHERE project_id=$1', [PID2]);
       await query('DELETE FROM projects WHERE id=$1', [PID2]);
+    }
+  });
+
+  it('T16 回归：草稿有未提交修改时重新生成——基准取草稿优先（不再 PATCH_BASE_STALE）', async () => {
+    const PID3 = '00000000-0000-0000-0000-0000000000fc';
+    const CTX3 = { projectId: PID3, actorKind: 'human' as const, actorId: 'local' };
+    await query("INSERT INTO projects (id, name) VALUES ($1, 't16-draft-base') ON CONFLICT (id) DO NOTHING", [PID3]);
+    try {
+      // 自举模板 v1（已有提交版本）
+      await docs.listDocs(PID3, CTX3);
+      const d0 = (await docs.getDoc(PID3, 'crd')) as unknown as DocView;
+      // 改一节存草稿 → 草稿≠版本（未提交修改）
+      await docs.saveDraft(PID3, 'crd', {
+        secId: d0.secs[0]!.id, md: '引言：草稿未提交修改',
+        baseVersion: d0.cur, baseFingerprint: d0.contentFingerprint,
+      }, CTX3);
+      const draftRow = await query<{ content: string }>(
+        `SELECT t.content FROM req_drafts t JOIN req_documents d2 ON d2.id=t.document_id
+         WHERE d2.project_id=$1 AND d2.doc_kind='crd'`, [PID3]);
+      const draftFp = sha256Text(draftRow.rows[0]!.content);
+      // 重新生成（增量指令，mock 分支）：drive 落 propose-pending，基准必须是草稿而非版本
+      const { operationId } = await gen.start(PID3, 'crd', {
+        referenceFileIds: [], referenceFingerprints: {}, instruction: '重新生成一版',
+      }, CTX3);
+      const fin = await gen.drive(operationId, CTX3, () => {});
+      expect(fin.status).toBe('done'); // 修复前：failed / PATCH_BASE_STALE
+      const pend = await query<{ target_fingerprint: string }>(
+        `SELECT p.target_fingerprint FROM req_pendings p JOIN req_documents d2 ON d2.id=p.document_id
+         WHERE d2.project_id=$1 AND d2.doc_kind='crd'`, [PID3]);
+      expect(pend.rows.length).toBeGreaterThan(0);
+      expect([...new Set(pend.rows.map((r) => r.target_fingerprint))]).toEqual([draftFp]);
+    } finally {
+      await query('DELETE FROM req_pendings WHERE document_id IN (SELECT id FROM req_documents WHERE project_id=$1)', [PID3]);
+      await query('DELETE FROM req_drafts WHERE document_id IN (SELECT id FROM req_documents WHERE project_id=$1)', [PID3]);
+      await query('UPDATE req_documents SET current_version_id=NULL, final_version_id=NULL WHERE project_id=$1', [PID3]);
+      await query('DELETE FROM req_versions WHERE document_id IN (SELECT id FROM req_documents WHERE project_id=$1)', [PID3]);
+      await query('DELETE FROM req_documents WHERE project_id=$1', [PID3]);
+      await query('DELETE FROM projects WHERE id=$1', [PID3]);
     }
   });
 });

@@ -139,7 +139,10 @@ export class GenerateService {
           `SELECT content FROM req_versions v JOIN req_documents d ON d.current_version_id=v.id
            WHERE d.project_id=$1 AND d.doc_kind=$2`, [projectId, kind])
       : { rows: [] as Array<{ content: string }> };
-    const effective = cur.rows[0]?.content ?? '';
+    // T16：基准与 doc.propose-pending/doc.accept-pending 同口径——草稿优先（草稿有未提交修改时不再 PATCH_BASE_STALE）
+    const draft = await query<{ content: string }>(
+      'SELECT content FROM req_drafts WHERE document_id=$1', [d.id]);
+    const effective = draft.rows[0]?.content ?? cur.rows[0]?.content ?? '';
     // W2-030：挂接集合快照（发起时 DB 实况，流末复验比对增/删挂接）
     const refSetRows = await query<{ file_id: string }>(
       `SELECT DISTINCT f.id AS file_id FROM req_doc_refs r
