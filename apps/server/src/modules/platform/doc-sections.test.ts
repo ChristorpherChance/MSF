@@ -44,6 +44,8 @@ describe('normalizePatches', () => {
     const p2 = mdToPatches('## CR-001 空节\n\n补内容');
     const out2 = normalizePatches(p2, splitSections(emptyDoc));
     expect(out2[0]!.type).toBe('add'); // CR-001 节 md 为空 → 不转 modify
+    const bare = normalizePatches(mdToPatches('## CR-002 检索'), splitSections(DOC));
+    expect(bare[0]!.type).toBe('add'); // 裸标题（空 new）不转 modify——防整节正文被清空
   });
 
   it('归一化后的 modify 可被 applyPatch 接受（old 取自 splitSections 节 md，includes 校验必过）', async () => {

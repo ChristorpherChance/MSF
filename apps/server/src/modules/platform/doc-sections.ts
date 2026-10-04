@@ -103,6 +103,7 @@ const ANCHOR_CODE_RE = /^(?:CR|REQ)-\d{3}\b/;
  * （old=splitSections 产出的节 md，已 trim+\n{3,} 塌缩，不可从原文裸切，否则 accept 时 includes 失配）。
  * 未命中保持 add。已知限制：mdToPatches 标题截 80 字符而 splitSections 不截，
  * >80 字符的无锚点码节精确匹配落空退回 add（CR/REQ 节走锚点码不受影响）。
+ * 标题改写不生效（modify 仅替换正文，标题保持原标题）。
  */
 export function normalizePatches(patches: EditPatch[], existing: DocSection[]): EditPatch[] {
   const byCode = new Map<string, DocSection>();
@@ -116,8 +117,9 @@ export function normalizePatches(patches: EditPatch[], existing: DocSection[]): 
     if (p.type !== 'add' || !p.title) return p;
     const code = ANCHOR_CODE_RE.exec(p.title)?.[0];
     const target = (code ? byCode.get(code) : undefined) ?? byTitle.get(p.title);
-    // 空正文节不转：modify 的 old⊆md 校验对空 old 必败（PATCH_BASE_STALE 误伤），保 add 由人工处置
-    if (!target || target.md.trim() === '') return p;
+    // 空正文节不转：modify 的 old⊆md 校验对空 old 必败（PATCH_BASE_STALE 误伤），保 add 由人工处置；
+    // 空 new 同守：裸标题（无正文）转 modify 会把整节正文清空（数据损失镜像面），保 add
+    if (!target || target.md.trim() === '' || (p.new ?? '').trim() === '') return p;
     return { type: 'modify', secId: target.id, title: target.title, old: target.md, new: p.new ?? '' };
   });
 }
