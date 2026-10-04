@@ -8,7 +8,7 @@ import { executeCommand, registerCommand, type CommandContext } from '../evidenc
  * ToolBridge 工具注册表（DSG-D08-3；A08-5/6；REQ-605/606/613）：
  * - 封闭注册表：未注册 TOOL_UNREGISTERED；参数校验失败 TOOL_ARGS_INVALID
  * - 越界工具（定稿/放行/写类）编排层直接拒绝：ai_tool_calls 记 denied + TOOL_DENIED（不执行、不转发）
- * - 允许集为只读/导航五件套：nav.goto / read_context / doc.read / chat.history.read / propose_next_step（SQL 直读他域表，不写）
+ * - 允许集为只读/导航/提案六件套：nav.goto / read_context / doc.read / chat.history.read / propose_next_step / req.doc.propose_edits（前五个 SQL 直读他域表，不写；提案件经旁路产出高亮补丁，人工确认后生效）
  * - 一切调用经 ai.tool.invoke 命令：append-only 留痕（REQ-613）
  */
 
