@@ -28,3 +28,5 @@
 - applyPatch 回退重定位残留面：secId 命中的节恰好也含短 old 时不回退（normalizePatches 产 modify 的 old 为整节全文，实际不命中）；锚点码命中但 old 校验失败时不再试精确标题（与 normalizePatches 同优先级约定）——e9c4900 复审 m-1/m-2 登记。
 - 整篇重生成不产 del：模型输出不含的既有节不会被删，旧节残留尾部待人工处置（保守设计，防误删）——T16 实机确认语义，登记。
 - ↩ 撤销一条 accept 会把该补丁复活为 pending（审计一致性设计）——批量撤销后 pendings 回归，重新生成会被 assertNoPendings 拦（人话提示），先处置再生成即可——T16 实机确认语义，登记。
+- 外部工具旁路先查注册表即执行，绕开 WRITE_TOOLS 拒绝名单与 TOOLS 允许集校验（两道闸只在 ai.tool.invoke 命令路径内）：当前注册表仅 req.doc.propose_edits 无现实暴露面，未来新增旁路工具时须在旁路入口补名单校验，否则 REQ-606 越界拦截会被静默击穿——终审 Minor-1 登记。
+- mdToPatches 跳过 parts[0]：整篇重生成时模型输出的开头总述/前言静默丢弃不成补丁，s0 前言永远保留旧文且补丁列表无线索（代码 docstring 已注明有意为之；如需更新前言须手工编辑）——终审 Minor-2 登记。
