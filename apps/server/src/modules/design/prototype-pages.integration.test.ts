@@ -13,7 +13,8 @@ import { PrototypeService } from './prototype.service.js';
 import { PrototypePagesService } from './prototype-pages.service.js';
 import { wrapPageEnvelope } from './prototype-pages.js';
 
-const PID = '00000000-0000-0000-0000-0000000000f4';
+// fb：与 test.integration.test.ts 的 f4 撞车隔离（共享 PID 并发跑全量套件互踩，单跑均绿）
+const PID = '00000000-0000-0000-0000-0000000000fb';
 const CTX = { projectId: PID, actorKind: 'human' as const, actorId: 'local' };
 const MODEL_ID = '00000000-0000-0000-0000-00000000aa24';
 
