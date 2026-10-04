@@ -106,15 +106,24 @@
 }
 .patch-banner .pb-text { flex: 1; min-width: 220px; }
 
-/* 补丁修改对比（字符级 diff：删=红底删除线，增=绿底下划线——一眼看出改了哪） */
+/* 补丁修改对比（行级 diff 逐块 md 预览：删块红底红边，增块绿底绿边，同块原样——一眼看出改了哪几行） */
 .pend-diff {
-  flex-basis: 100%; margin-top: 6px; padding: 8px 10px;
-  background: var(--canvas); border: 1px solid var(--line); border-radius: 8px;
-  font-size: 12.5px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere;
-  max-height: 220px; overflow-y: auto;
+  flex-basis: 100%; margin-top: 6px;
+  border: 1px solid var(--line); border-radius: 8px; overflow: hidden;
+  font-size: 12.5px; max-height: 320px; overflow-y: auto;
 }
-.pend-diff del { background: var(--red-soft); color: var(--red); text-decoration: line-through; border-radius: 3px; padding: 0 2px; }
-.pend-diff ins { background: var(--green-soft); color: var(--green); text-decoration: underline; border-radius: 3px; padding: 0 2px; }
+.pend-diff .pd-block { padding: 6px 12px 6px 34px; position: relative; background: var(--canvas); }
+.pend-diff .pd-block + .pd-block { border-top: 1px dashed var(--line); }
+.pend-diff .pd-block::before {
+  position: absolute; left: 12px; top: 6px; font-weight: 700; font-size: 12px;
+}
+.pend-diff .pd-block.del { background: var(--red-soft); box-shadow: inset 3px 0 0 var(--red); }
+.pend-diff .pd-block.del::before { content: '−'; color: var(--red); }
+.pend-diff .pd-block.add { background: var(--green-soft); box-shadow: inset 3px 0 0 var(--green); }
+.pend-diff .pd-block.add::before { content: '+'; color: var(--green); }
+.pend-diff .pd-block.same { color: var(--ink2); }
+.pend-diff .pd-block .md > :first-child { margin-top: 0; }
+.pend-diff .pd-block .md > :last-child { margin-bottom: 0; }
 
 /* 改后接受：内联编辑提案新文 */
 .pend-edit { flex-basis: 100%; margin-top: 6px; }

@@ -3,7 +3,7 @@ import { Inject, Injectable, Optional } from '@nestjs/common';
 import { DomainError } from '@msf/shared';
 import { query } from '../../db/pool.js';
 import { executeCommand, registerCommand, type CommandContext } from '../evidence/command-bus.js';
-import { mdToPatches, normalizePatches, sha256Text, splitSections, type EditPatch } from '../platform/doc-sections.js';
+import { mdToPatches, normalizePatches, sha256Text, splitSections, buildNumberGuide, type EditPatch } from '../platform/doc-sections.js';
 import { AI_PROVIDER, type AiProvider, type AiUsage } from '../ai/ai-provider.interface.js';
 import { classifyAiError, sanitizeAiError } from '../ai/stream-pipeline.js';
 import { registerExternalTool } from '../platform/external-tools.js';
@@ -455,6 +455,8 @@ function buildPrompt(
     // #10：增量修订编号撞车防控
     existingCodes.length ? `本文档已占用编号：${existingCodes.join('、')}；新增条目必须使用未占用编号（在最大编号后顺延），不得复用。` : '',
     ...(instruction ? [`用户指示：${instruction}`] : []),
+    // 第五章改不到位根修：UI 派生编号模型不可见 → 注入编号对照表（仅增量修订/对话改文档；整篇生成无基线不注入）
+    ...(incremental ? [buildNumberGuide(currentContent)] : []),
     ...(upstreamCrd ? [`【上游输入：CRD 定稿稿（PRD 的权威输入，逐条承接）】\n\n${upstreamCrd}`] : []),
     ...(incremental ? [`【当前文档内容（增量修订的基线；未提及的章节保持不变，不要输出）】\n\n${currentContent}`] : []),
     refs,

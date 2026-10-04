@@ -97,8 +97,9 @@ export function applyPatch(secs: DocSection[], patch: EditPatch): DocSection[] |
       return [...secs.slice(0, at), next, ...secs.slice(at)];
     }
     const anchor = secs.findIndex((s) => s.title === patch.after);
-    if (anchor < 0) return [...secs, next]; // 锚点落空：退化文末追加
-    return [...secs.slice(0, anchor + 1), next, ...secs.slice(anchor + 1)];
+    const at2 = anchor >= 0 ? anchor : findSection(patch.after, secs); // 编号前缀/章号形态容错（与 modify 定位同口径）
+    if (at2 < 0) return [...secs, next]; // 锚点落空：退化文末追加
+    return [...secs.slice(0, at2 + 1), next, ...secs.slice(at2 + 1)];
   }
   // modify/del 定位（I-1）：secId 是 propose 时刻的位置性 id——混合批中 add 中段插入后既有节位置后移、
   // accept 时重切分 id 重派，库存 secId 可能指向错节。secId 失配（节不存在、或 old 不在该节、或 modify 无 old）
@@ -107,13 +108,9 @@ export function applyPatch(secs: DocSection[], patch: EditPatch): DocSection[] |
     i >= 0 && (patch.type === 'del' || !!patch.old) && (!patch.old || secs[i]!.md.includes(patch.old));
   let idx = secs.findIndex((s) => s.id === patch.secId);
   if (!fits(idx)) {
-    idx = -1;
-    if (patch.title) {
-      const code = ANCHOR_CODE_RE.exec(patch.title)?.[0];
-      const byCode = code ? secs.findIndex((s) => ANCHOR_CODE_RE.exec(s.title)?.[0] === code) : -1;
-      const cand = byCode >= 0 ? byCode : secs.findIndex((s) => s.title === patch.title);
-      if (fits(cand)) idx = cand;
-    }
+    // secId 失配回退重定位：findSection 统一口径（锚点码任意位置→标题精确→编号剥离精确），候选仍须 old⊆md 校验
+    const cand = findSection(patch.title, secs);
+    idx = fits(cand) ? cand : -1;
   }
   if (idx < 0) return null;
   const target = secs[idx]!;
@@ -127,27 +124,50 @@ export function applyPatch(secs: DocSection[], patch: EditPatch): DocSection[] |
 
 /** 锚点码（CR-nnn/REQ-nnn）——标题首词提取，归一化优先匹配键 */
 const ANCHOR_CODE_RE = /^(?:CR|REQ)-\d{3}\b/;
+/** 补丁标题容错：锚点码任意位置提取（模型学 UI 编号格式输出「5.7 单局限时（CR-006）」时码在尾部） */
+const CODE_ANYWHERE_RE = /(?:^|\b)(?:CR|REQ)-\d{3}\b/;
+/** 补丁标题容错：剥离 UI 派生编号前缀（「5.7 」「5.7.1 」「第五章 」「第三章、」——渲染层编号模型学样输出） */
+const NUMBER_PREFIX_RE = /^(?:\d+(?:\.\d+)*|第[一二三四五六七八九十百零]+[章节])[、.．\s]+/;
+
+/** 补丁标题归一化：剥离派生编号前缀（存储标题永不带编号，编号是渲染层派生物） */
+function normTitle(t: string): string {
+  return t.replace(NUMBER_PREFIX_RE, '').trim();
+}
+
+/** 标题命中查找：锚点码（补丁标题任意位置）优先，标题精确其次，编号剥离后精确/后缀兜底
+ *  （后缀兜底：模型把「五、待确认事项」写成「第五章 待确认事项」——剥离编号后「待确认事项」≠原标题，
+ *   但原标题以它结尾；限 ≥4 字符防短词误命中） */
+function findSection(patchTitle: string | undefined, secs: DocSection[]): number {
+  if (!patchTitle) return -1;
+  const code = CODE_ANYWHERE_RE.exec(patchTitle)?.[0];
+  if (code) {
+    const byCode = secs.findIndex((s) => ANCHOR_CODE_RE.exec(s.title)?.[0] === code);
+    if (byCode >= 0) return byCode;
+  }
+  const exact = secs.findIndex((s) => s.title === patchTitle);
+  if (exact >= 0) return exact;
+  const stripped = normTitle(patchTitle);
+  if (stripped === patchTitle) return -1;
+  const strippedExact = secs.findIndex((s) => s.title === stripped);
+  if (strippedExact >= 0) return strippedExact;
+  if (stripped.length < 4) return -1;
+  return secs.findIndex((s) => s.title !== '' && s.title.endsWith(stripped));
+}
 
 /**
  * AI 增量补丁归一化（修复「修改章节实为重复追加」缺陷）：
- * mdToPatches 恒产 add——标题命中既有节（锚点码优先、标题精确其次）即改写为整节 modify
- * （old=splitSections 产出的节 md，已 trim+\n{3,} 塌缩，不可从原文裸切，否则 accept 时 includes 失配）。
+ * mdToPatches 恒产 add——标题命中既有节即改写为整节 modify（命中口径=findSection：
+ * 锚点码任意位置优先、标题精确其次、剥离 UI 派生编号前缀后精确兜底；
+ * old=splitSections 产出的节 md，已 trim+\n{3,} 塌缩，不可从原文裸切，否则 accept 时 includes 失配）。
  * 未命中保持 add。已知限制：mdToPatches 标题截 80 字符而 splitSections 不截，
  * >80 字符的无锚点码节精确匹配落空退回 add（CR/REQ 节走锚点码不受影响）。
  * 标题改写不生效（modify 仅替换正文，标题保持原标题）。
  */
 export function normalizePatches(patches: EditPatch[], existing: DocSection[]): EditPatch[] {
-  const byCode = new Map<string, DocSection>();
-  const byTitle = new Map<string, DocSection>();
-  for (const s of existing) {
-    const code = ANCHOR_CODE_RE.exec(s.title)?.[0];
-    if (code && !byCode.has(code)) byCode.set(code, s);
-    if (s.title && !byTitle.has(s.title)) byTitle.set(s.title, s);
-  }
   return patches.map((p) => {
     if (p.type !== 'add' || !p.title) return p;
-    const code = ANCHOR_CODE_RE.exec(p.title)?.[0];
-    const target = (code ? byCode.get(code) : undefined) ?? byTitle.get(p.title);
+    const hit = findSection(p.title, existing);
+    const target = hit >= 0 ? existing[hit]! : undefined;
     // 空正文节不转：modify 的 old⊆md 校验对空 old 必败（PATCH_BASE_STALE 误伤），保 add 由人工处置；
     // 空 new 同守：裸标题（无正文）转 modify 会把整节正文清空（数据损失镜像面），保 add
     if (!target || target.md.trim() === '' || (p.new ?? '').trim() === '') return p;
@@ -160,4 +180,24 @@ export function withNumberedTitles(content: string): string {
   const secs = splitSections(content);
   const disp = new Map(deriveNumbering(secs).map((n) => [n.id, n.display]));
   return joinSections(secs.map((s) => (s.title && disp.get(s.id) ? { ...s, title: disp.get(s.id)! } : s)));
+}
+
+/**
+ * 增量修订/对话改文档 prompt 用「章节编号对照表」（2026-10-04 第五章改不到位根修）：
+ * UI 编号是渲染层派生物，模型收到的正文是原始标题——用户按「第五章」「5.7 节」说话时模型无从对应，
+ * 学样输出编号开头标题又会落空成 add 重复节。注入对照表让模型与用户共享同一套编号坐标，
+ * 并约束输出必须用右侧原始标题（匹配层 findSection 另有编号剥离兜底，双保险）。
+ */
+export function buildNumberGuide(content: string): string {
+  const secs = splitSections(content);
+  const disp = new Map(deriveNumbering(secs).map((n) => [n.id, n.display]));
+  const lines = secs
+    .filter((s) => s.title !== '')
+    .map((s) => `- ${disp.get(s.id) || s.title} ⇢ 原始标题「${s.title}」`);
+  if (lines.length === 0) return '';
+  return [
+    '【章节编号对照（用户在界面上看到的编号 ⇢ 存储原始标题）】',
+    ...lines,
+    '用户按编号（如「第五章」「5.7 节」）指代章节时，按上表定位；你的输出标题必须原样使用右侧原始标题，禁止添加任何编号前缀。',
+  ].join('\n');
 }

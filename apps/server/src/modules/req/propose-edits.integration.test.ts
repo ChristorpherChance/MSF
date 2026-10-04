@@ -98,7 +98,7 @@ describe('对话改文档/归一化（集成，需 DB）', async () => {
     expect(none.reason).toContain('还没有内容');
     // 正常提案（mock：命中既有节=modify + 全新节=add 两形态）
     const ok = await gen.proposeEditsFromChat(PID, 'crd', '把 CR-001 改为支持手柄，并补一条验收', CTX);
-    expect(ok).toEqual({ ok: true, patchCount: 2, route: '/req' });
+    expect(ok).toEqual({ ok: true, patchCount: 2, route: '/req', kind: 'crd' }); // kind 供 dock 工具卡「前往审阅」定位页签（7572c2f 增补）
     const patches = (await docs.listPatches(PID, 'crd')) as {
       items: Array<{ patchId: string; type: string; secId: string; status: string; source: string }>;
     };

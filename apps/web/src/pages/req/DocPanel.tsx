@@ -773,17 +773,20 @@ function PendingBar({ kind, patch }: { kind: DocKind; patch: PatchItem }) {
       )}
       <button className="act" onClick={() => setRejectOpen(true)}>✕ 拒绝</button>
       {msg && <span className="rsn err">{msg}</span>}
-      {/* 修改对比：字符级 diff，删=红底删除线 / 增=绿底下划线 */}
+      {/* 修改对比：行级 diff 逐块 md 预览（删块红底 / 增块绿底 / 同块原样——表格加粗都是真渲染） */}
       {diffSegs && (
         <div className="pend-diff">
-          {diffSegs.map((s, i) =>
-            s.type === 'same' ? <span key={i}>{s.text}</span>
-              : s.type === 'del' ? <del key={i}>{s.text}</del>
-                : <ins key={i}>{s.text}</ins>)}
+          {diffSegs.map((b, i) => (
+            <div key={i} className={`pd-block ${b.type}`}>
+              <div className="md" dangerouslySetInnerHTML={{ __html: mdHtml(b.text) }} />
+            </div>
+          ))}
         </div>
       )}
       {patch.type === 'del' && patch.old && (
-        <div className="pend-diff"><del>{patch.old}</del></div>
+        <div className="pend-diff">
+          <div className="pd-block del"><div className="md" dangerouslySetInnerHTML={{ __html: mdHtml(patch.old) }} /></div>
+        </div>
       )}
       {editOpen && (
         <div className="pend-edit">

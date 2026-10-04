@@ -204,3 +204,73 @@ describe('withNumberedTitles（导出注入）', () => {
     expect(out).toContain('承接：R-002'); // 正文不动
   });
 });
+
+describe('第五章改不到位根修：补丁标题容错（模型学 UI 编号格式输出时仍命中 modify 不追加重复节）', () => {
+  const base = () => splitSections([
+    '前言。', '',
+    '## 五、待确认事项', '', '待确认表旧文。', '',
+    '## CR-006 单局限时与超时胜负', '', '承接：R-006。每局限时 3 分钟。',
+  ].join('\n'));
+
+  it('normalizePatches：编号开头标题「5.7 单局限时与超时胜负（CR-006）」（码在尾部）锚点码命中既有节转 modify', () => {
+    const out = normalizePatches(
+      [{ type: 'add', secId: 's0', title: '5.7 单局限时与超时胜负（CR-006）', new: '承接：R-006。每局限时 4 分钟。' }],
+      base(),
+    );
+    expect(out[0]!.type).toBe('modify'); // 修复前：add（追加重复节，原文不动=「改不到位」）
+    expect(out[0]!.secId).toBe('s2');
+    expect(out[0]!.title).toBe('CR-006 单局限时与超时胜负'); // 归一为存储标题
+  });
+
+  it('normalizePatches：中文章号「第五章 待确认事项」剥离编号前缀后标题精确命中转 modify', () => {
+    const out = normalizePatches(
+      [{ type: 'add', secId: 's0', title: '第五章 待确认事项', new: '待确认表新文。' }],
+      base(),
+    );
+    expect(out[0]!.type).toBe('modify');
+    expect(out[0]!.secId).toBe('s1');
+  });
+
+  it('normalizePatches：纯数字编号「5. 待确认事项」同样剥离命中；无编号前缀标题行为不变', () => {
+    const out = normalizePatches(
+      [{ type: 'add', secId: 's0', title: '5. 待确认事项', new: 'x。' }, { type: 'add', secId: 's0', title: '五、待确认事项', new: 'y。' }],
+      base(),
+    );
+    expect(out[0]!.type).toBe('modify');
+    expect(out[1]!.type).toBe('modify');
+    expect(out[1]!.title).toBe('五、待确认事项');
+  });
+
+  it('applyPatch 回退重定位同口径：secId 错位+编号标题仍命中；after 锚点编号剥离后命中', () => {
+    let secs = base();
+    const out = applyPatch(secs, { type: 'modify', secId: 's9', title: '5.7 单局限时与超时胜负（CR-006）', old: '承接：R-006。每局限时 3 分钟。', new: '承接：R-006。每局限时 4 分钟。' });
+    expect(out).not.toBeNull();
+    expect(out![2]!.md).toContain('4 分钟');
+    const out2 = applyPatch(secs, { type: 'add', secId: 's0', title: '六、附录', new: '附录。', after: '第五章 待确认事项' });
+    expect(out2).not.toBeNull();
+    expect(out2!.map((s) => s.title)).toEqual(['', '五、待确认事项', '六、附录', 'CR-006 单局限时与超时胜负']);
+    secs = out2!;
+    expect(secs.length).toBe(4);
+  });
+});
+
+describe('buildNumberGuide（增量修订 prompt 编号对照表）', () => {
+  it('输出 UI 显示编号 ⇢ 原始标题 对照行，并附「禁止编号前缀」约束', async () => {
+    const { buildNumberGuide } = await import('./doc-sections.js');
+    const guide = buildNumberGuide([
+      '前言。', '',
+      '## 一、功能需求', '', '引言。', '',
+      '## CR-001 浏览器即开即玩', '', '承接：R-001',
+    ].join('\n'));
+    expect(guide).toContain('一、功能需求 ⇢ 原始标题「一、功能需求」');
+    expect(guide).toContain('1.1 浏览器即开即玩（CR-001） ⇢ 原始标题「CR-001 浏览器即开即玩」');
+    expect(guide).toContain('禁止添加任何编号前缀');
+    expect(guide).not.toContain('前言'); // 无标题节不入表
+  });
+
+  it('空文档/无标题节 → 空串（prompt 不注入空段）', async () => {
+    const { buildNumberGuide } = await import('./doc-sections.js');
+    expect(buildNumberGuide('')).toBe('');
+    expect(buildNumberGuide('只有前言，没有章节。')).toBe('');
+  });
+});
