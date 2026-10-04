@@ -18,17 +18,23 @@ export function sha256Text(s: string): string {
   return createHash('sha256').update(s.normalize('NFC'), 'utf8').digest('hex');
 }
 
-/** AI 真接产出 → 章节补丁（`## ` 切分，标题截 80 字符；需求/设计两域生成共用） */
+/** AI 真接产出 → 章节补丁（`## ` 切分，标题截 80 字符；需求/设计两域生成共用）。
+ *  `## ` 前的 h1/前言不成补丁（前言不属于任何节）；
+ *  每条 add 带 after 落位锚点 = 模型输出文本中的前一节标题，首节 after=''（文首） */
 export function mdToPatches(text: string): EditPatch[] {
   const patches: EditPatch[] = [];
-  for (const part of text.split(/^## /m)) {
-    const t = part.trim();
+  let prevTitle = '';
+  const parts = text.split(/^## /m);
+  for (let i = 0; i < parts.length; i++) {
+    if (i === 0) continue; // parts[0] 是首个 `## ` 之前的前言/h1（文本以 ## 起时为空串），不成节
+    const t = parts[i]!.trim();
     if (!t) continue;
     const nl = t.indexOf('\n');
     const title = (nl < 0 ? t : t.slice(0, nl)).replace(/^#+\s*/, '').trim().slice(0, 80);
     const body = nl < 0 ? '' : t.slice(nl + 1).trim();
     if (!title) continue;
-    patches.push({ type: 'add', secId: 's0', title, new: body });
+    patches.push({ type: 'add', secId: 's0', title, new: body, after: prevTitle });
+    prevTitle = title;
   }
   return patches;
 }
@@ -70,18 +76,30 @@ export interface EditPatch {
   title?: string;
   old?: string;
   new?: string;
+  /** add 落位锚点：undefined=文末追加（向后兼容默认）；''=文首（无标题前言之后、首个有标题节之前）；
+   *  非空=插到该标题节之后，锚点落空退化文末（不抛错、不阻塞人工处置）。modify/del 不消费 */
+  after?: string;
 }
 
 /** 应用补丁到章节集；modify/del 要求 old 文本仍在该节内容中（否则调用方判 PATCH_BASE_STALE） */
 export function applyPatch(secs: DocSection[], patch: EditPatch): DocSection[] | null {
   const idx = secs.findIndex((s) => s.id === patch.secId);
   if (patch.type === 'add') {
+    // id 只是标识、顺序由数组位置决定：中段插入不重排既有 id
     const next: DocSection = {
       id: `s${secs.length}`,
       title: patch.title ?? '',
       md: patch.new ?? '',
     };
-    return [...secs, next];
+    if (patch.after === undefined) return [...secs, next]; // 缺席：维持文末追加（既有调用方零影响）
+    if (patch.after === '') {
+      const firstTitled = secs.findIndex((s) => s.title !== '');
+      const at = firstTitled < 0 ? secs.length : firstTitled;
+      return [...secs.slice(0, at), next, ...secs.slice(at)];
+    }
+    const anchor = secs.findIndex((s) => s.title === patch.after);
+    if (anchor < 0) return [...secs, next]; // 锚点落空：退化文末追加
+    return [...secs.slice(0, anchor + 1), next, ...secs.slice(anchor + 1)];
   }
   if (idx < 0) return null;
   const target = secs[idx]!;

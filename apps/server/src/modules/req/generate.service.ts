@@ -461,7 +461,7 @@ function buildPrompt(
   ].filter(Boolean).join('\n\n');
 }
 
-/** 生成稿按 `## ` 章节切分为补丁（目录/前言段同样成补丁，标题截 80 字符） */
+/** 生成稿按 `## ` 章节切分为补丁（标题截 80 字符；## 前的 h1/前言不成补丁；add 带 after 落位锚点=前一节标题） */
 /** mock 生成器：目录先行 → 章节补丁（CRD 含 R/CR 锚点，PRD 含 CR/REQ/DSG 锚点，供 RTM 派生演示） */
 function buildMock(
   kind: 'crd' | 'prd',

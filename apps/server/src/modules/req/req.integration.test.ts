@@ -418,4 +418,55 @@ describe('ReqDocs/Rtm/Generate（集成，需 DB+MinIO）', async () => {
       await query('DELETE FROM projects WHERE id=$1', [PID3]);
     }
   });
+
+  it('T16b 回归：整篇重生成大章补丁带 after 锚点 → 逐条 accept 按模型输出顺序落位（不文末逆序堆叠）', async () => {
+    const PID4 = '00000000-0000-0000-0000-0000000000fd';
+    const CTX4 = { projectId: PID4, actorKind: 'human' as const, actorId: 'local' };
+    await query("INSERT INTO projects (id, name) VALUES ($1, 't16-add-after') ON CONFLICT (id) DO NOTHING", [PID4]);
+    try {
+      await docs.listDocs(PID4, CTX4); // 自举模板 v1
+      let d = (await docs.getDoc(PID4, 'crd')) as unknown as DocView;
+      // 既有文档：前言 + CR-001 + CR-002（s0 为全文口，允许整篇替换式写入）
+      await docs.saveDraft(PID4, 'crd', {
+        secId: d.secs[0]!.id,
+        md: ['初稿引言。', '', '## CR-001 门户首页', '', '承接：R-001', '', '## CR-002 界面检索', '', '承接：R-002'].join('\n'),
+        baseVersion: d.cur, baseFingerprint: d.contentFingerprint,
+      }, CTX4);
+      d = (await docs.getDoc(PID4, 'crd')) as unknown as DocView;
+      const fp = d.contentFingerprint.replace(/^sha256:/, '');
+      // 模型整篇重出的三条大章 add（带 after 落位锚点），走 doc.propose-pending → accept-pending 真实命令链路
+      const proposed = (await executeCommand('doc.propose-pending', {
+        projectId: PID4, kind: 'crd',
+        patches: [
+          { type: 'add', secId: 's0', title: '一、背景与目标', new: '背景。', after: '' },
+          { type: 'add', secId: 's0', title: '二、功能需求', new: '功能引言。', after: '一、背景与目标' },
+          { type: 'add', secId: 's0', title: '三、非功能需求', new: '性能。', after: 'CR-002 界面检索' },
+        ],
+        targetFingerprint: fp, proposedBy: 'assistant',
+      }, CTX4)) as { patchIds: string[] };
+      expect(proposed.patchIds).toHaveLength(3);
+      for (const id of proposed.patchIds) await docs.acceptPatch(PID4, 'crd', id, CTX4);
+      d = (await docs.getDoc(PID4, 'crd')) as unknown as DocView;
+      expect(d.secs.map((s) => s.title)).toEqual([
+        '', '一、背景与目标', '二、功能需求', 'CR-001 门户首页', 'CR-002 界面检索', '三、非功能需求',
+      ]);
+      // 锚点落空退化：append 文末不抛错、不阻塞人工处置
+      const fp2 = d.contentFingerprint.replace(/^sha256:/, '');
+      const p2 = (await executeCommand('doc.propose-pending', {
+        projectId: PID4, kind: 'crd',
+        patches: [{ type: 'add', secId: 's0', title: '四、附录', new: '附录。', after: '不存在的大章' }],
+        targetFingerprint: fp2, proposedBy: 'assistant',
+      }, CTX4)) as { patchIds: string[] };
+      await docs.acceptPatch(PID4, 'crd', p2.patchIds[0]!, CTX4);
+      d = (await docs.getDoc(PID4, 'crd')) as unknown as DocView;
+      expect(d.secs.map((s) => s.title).at(-1)).toBe('四、附录');
+    } finally {
+      await query('DELETE FROM req_pendings WHERE document_id IN (SELECT id FROM req_documents WHERE project_id=$1)', [PID4]);
+      await query('DELETE FROM req_drafts WHERE document_id IN (SELECT id FROM req_documents WHERE project_id=$1)', [PID4]);
+      await query('UPDATE req_documents SET current_version_id=NULL, final_version_id=NULL WHERE project_id=$1', [PID4]);
+      await query('DELETE FROM req_versions WHERE document_id IN (SELECT id FROM req_documents WHERE project_id=$1)', [PID4]);
+      await query('DELETE FROM req_documents WHERE project_id=$1', [PID4]);
+      await query('DELETE FROM projects WHERE id=$1', [PID4]);
+    }
+  });
 });
