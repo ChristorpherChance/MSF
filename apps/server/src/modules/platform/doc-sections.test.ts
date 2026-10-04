@@ -58,3 +58,17 @@ describe('normalizePatches', () => {
     expect(joinSections(applied!)).not.toContain('承接：R-002\n\n承接：R-002'); // 不重复追加
   });
 });
+
+describe('withNumberedTitles（导出注入）', () => {
+  it('标题注入派生编号、正文不动、RTM 锚点码保留在括号内', async () => {
+    const { withNumberedTitles } = await import('./doc-sections.js');
+    const out = withNumberedTitles([
+      '## 一、功能需求', '', '引言。', '',
+      '## CR-001 浏览器即开即玩', '', '承接：R-001',
+    ].join('\n'));
+    expect(out).toContain('## 一、功能需求');
+    expect(out).toContain('## 1.1 浏览器即开即玩（CR-001）');
+    expect(out).toContain('承接：R-001');
+    expect(out).not.toContain('## CR-001 浏览器即开即玩\n'); // 原标题被替换
+  });
+});

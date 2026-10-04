@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { deriveNumbering } from '@msf/shared';
 
 /**
  * 文档章节拆分/组装与文本指纹（纯函数）。
@@ -122,4 +123,11 @@ export function normalizePatches(patches: EditPatch[], existing: DocSection[]): 
     if (!target || target.md.trim() === '' || (p.new ?? '').trim() === '') return p;
     return { type: 'modify', secId: target.id, title: target.title, old: target.md, new: p.new ?? '' };
   });
+}
+
+/** 导出用：节标题注入派生编号后与原文同构重组（与前端渲染同函数同口径；存储内容不动） */
+export function withNumberedTitles(content: string): string {
+  const secs = splitSections(content);
+  const disp = new Map(deriveNumbering(secs).map((n) => [n.id, n.display]));
+  return joinSections(secs.map((s) => (s.title && disp.get(s.id) ? { ...s, title: disp.get(s.id)! } : s)));
 }
