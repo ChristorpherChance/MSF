@@ -490,4 +490,44 @@ describe('ReqDocs/Rtm/Generate（集成，需 DB+MinIO）', async () => {
       await query('DELETE FROM projects WHERE id=$1', [PID4]);
     }
   });
+
+  it('T16 实机抓修：同批补丁 created_at 事务同值 → seq 列钉住 listPatches 提案顺序（不乱序）', async () => {
+    const PID5 = '00000000-0000-0000-0000-0000000000fe';
+    const CTX5 = { projectId: PID5, actorKind: 'human' as const, actorId: 'local' };
+    await query("INSERT INTO projects (id, name) VALUES ($1, 't16-pendings-seq') ON CONFLICT (id) DO NOTHING", [PID5]);
+    // 测试基建不自动跑迁移（vitest 直测 dev 库，迁移走 pnpm migrate/dist）→ 兜底手工 ALTER，与 0025 幂等同形
+    await query('ALTER TABLE req_pendings ADD COLUMN IF NOT EXISTS seq int');
+    try {
+      await docs.listDocs(PID5, CTX5); // 自举模板 v1
+      const d = (await docs.getDoc(PID5, 'crd')) as unknown as DocView;
+      const fp = d.contentFingerprint.replace(/^sha256:/, '');
+      // 单事务一批提 3 条（模拟整篇重生成批）：created_at 在 pg 中取事务开始时间 → 全同值
+      const proposed = (await executeCommand('doc.propose-pending', {
+        projectId: PID5, kind: 'crd',
+        patches: [
+          { type: 'add', secId: 's0', title: '一、批序甲', new: '甲。', after: '' },
+          { type: 'add', secId: 's0', title: '二、批序乙', new: '乙。', after: '一、批序甲' },
+          { type: 'add', secId: 's0', title: '三、批序丙', new: '丙。', after: '二、批序乙' },
+        ],
+        targetFingerprint: fp, proposedBy: 'assistant',
+      }, CTX5)) as { patchIds: string[] };
+      expect(proposed.patchIds).toHaveLength(3);
+      // 钉死 seq 列值 = 批内序号 0,1,2（修复前列不存在 → 红）
+      const seqs = await query<{ seq: number | null }>(
+        `SELECT p.seq FROM req_pendings p JOIN req_documents d2 ON d2.id=p.document_id
+         WHERE d2.project_id=$1 ORDER BY p.seq`, [PID5]);
+      expect(seqs.rows.map((r) => r.seq)).toEqual([0, 1, 2]);
+      // listPatches 返回序 == 提案数组序（修复前 ORDER BY created_at 同值不稳 → 大概率红）
+      const list = (await docs.listPatches(PID5, 'crd')) as { items: Array<{ patchId: string; title: string }> };
+      expect(list.items.map((x) => x.title)).toEqual(['一、批序甲', '二、批序乙', '三、批序丙']);
+      expect(list.items.map((x) => x.patchId)).toEqual(proposed.patchIds);
+    } finally {
+      await query('DELETE FROM req_pendings WHERE document_id IN (SELECT id FROM req_documents WHERE project_id=$1)', [PID5]);
+      await query('DELETE FROM req_drafts WHERE document_id IN (SELECT id FROM req_documents WHERE project_id=$1)', [PID5]);
+      await query('UPDATE req_documents SET current_version_id=NULL, final_version_id=NULL WHERE project_id=$1', [PID5]);
+      await query('DELETE FROM req_versions WHERE document_id IN (SELECT id FROM req_documents WHERE project_id=$1)', [PID5]);
+      await query('DELETE FROM req_documents WHERE project_id=$1', [PID5]);
+      await query('DELETE FROM projects WHERE id=$1', [PID5]);
+    }
+  });
 });

@@ -246,10 +246,11 @@ export class DesignDocsService {
         throw new DomainError('PATCH_BASE_STALE', '补丁目标指纹与当前内容不一致', doc.id);
       }
       const ids: string[] = [];
-      for (const patch of patches) {
+      // seq = 批内序号（0 起）：created_at 单事务同值，与需求域同构（T16 实机抓修）
+      for (const [seq, patch] of patches.entries()) {
         const r = await client.query<{ id: string }>(
-          'INSERT INTO dsg_pendings (document_id, patch, target_fingerprint, proposed_by) VALUES ($1,$2,$3,$4) RETURNING id',
-          [doc.id, JSON.stringify(patch), targetFingerprint, proposedBy],
+          'INSERT INTO dsg_pendings (document_id, patch, target_fingerprint, proposed_by, seq) VALUES ($1,$2,$3,$4,$5) RETURNING id',
+          [doc.id, JSON.stringify(patch), targetFingerprint, proposedBy, seq],
         );
         ids.push(r.rows[0]!.id);
       }
@@ -349,7 +350,7 @@ export class DesignDocsService {
       viewing = v;
     }
     const pendings = await query<{ id: string; patch: EditPatch }>(
-      "SELECT id, patch FROM dsg_pendings WHERE document_id=$1 AND status='pending' ORDER BY created_at",
+      "SELECT id, patch FROM dsg_pendings WHERE document_id=$1 AND status='pending' ORDER BY created_at, seq",
       [doc.id],
     );
     const secs = splitSections(secsContent).map((s) => ({
@@ -392,7 +393,7 @@ export class DesignDocsService {
   async listPatches(projectId: string, kind: string): Promise<unknown> {
     const doc = await this.getDocRow(projectId, kind);
     const r = await query<{ id: string; patch: EditPatch; status: string; proposed_by: string }>(
-      'SELECT id, patch, status, proposed_by FROM dsg_pendings WHERE document_id=$1 ORDER BY created_at', [doc.id]);
+      'SELECT id, patch, status, proposed_by FROM dsg_pendings WHERE document_id=$1 ORDER BY created_at, seq', [doc.id]);
     return {
       items: r.rows.map((x) => ({
         patchId: x.id, secId: x.patch.secId, type: x.patch.type, title: x.patch.title,
