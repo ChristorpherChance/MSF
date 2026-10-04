@@ -8,7 +8,7 @@ import { executeCommand, registerCommand, type CommandContext } from '../evidenc
  * ToolBridge 工具注册表（DSG-D08-3；A08-5/6；REQ-605/606/613）：
  * - 封闭注册表：未注册 TOOL_UNREGISTERED；参数校验失败 TOOL_ARGS_INVALID
  * - 越界工具（定稿/放行/写类）编排层直接拒绝：ai_tool_calls 记 denied + TOOL_DENIED（不执行、不转发）
- * - 允许集为只读/导航四件套：nav.goto / read_context / doc.read / propose_next_step（SQL 直读他域表，不写）
+ * - 允许集为只读/导航五件套：nav.goto / read_context / doc.read / chat.history.read / propose_next_step（SQL 直读他域表，不写）
  * - 一切调用经 ai.tool.invoke 命令：append-only 留痕（REQ-613）
  */
 
@@ -112,6 +112,33 @@ const TOOLS: ToolDef[] = [
         content: truncated
           ? `${row.content.slice(0, DOC_READ_CAP)}\n…（截断，全文共 ${row.content.length} 字）`
           : row.content,
+      };
+    },
+  },
+  {
+    name: 'chat.history.read',
+    kind: 'read',
+    // 跨阶段互通深读通道：摘要块只有最近 2 条用户消息，需要细节时模型按会话编号自主深读
+    description: '读取本项目其它阶段会话的最近消息（跨阶段读侧互通）。args.sessionCode 为会话编号（如 ss_3，见【他阶段会话】块）；limit 默认 20 封顶 50。当需要了解客户在其它阶段聊过的细节时调用',
+    argsSchema: { sessionCode: 'string', limit: 'number' },
+    required: ['sessionCode'],
+    async run(client, projectId, args) {
+      const code = String(args['sessionCode']);
+      const limit = Math.min(50, Math.max(1, Number(args['limit'] ?? 20) || 20));
+      // 项目守卫：project_id+code 双条件，跨项目会话天然查不到（不落码，人话返回）
+      const s = await client.query<{ id: string; name: string; ctx: string }>(
+        'SELECT id, name, ctx FROM ai_sessions WHERE project_id=$1 AND code=$2', [projectId, code]);
+      if (!s.rows[0]) return { found: false, message: `会话 ${code} 不存在（编号形如 ss_3，见【他阶段会话】块）` };
+      const msgs = await client.query<{ role: string; content: string }>(
+        `SELECT role, content FROM ai_messages
+         WHERE session_id=$1 AND status='done' AND role IN ('user','ai')
+         ORDER BY created_at DESC, id DESC LIMIT $2`, [s.rows[0].id, limit]);
+      return {
+        found: true, sessionCode: code, name: s.rows[0].name, ctx: s.rows[0].ctx,
+        messages: msgs.rows.reverse().map((m) => ({
+          role: m.role,
+          content: m.content.length > 1500 ? `${m.content.slice(0, 1500)}…` : m.content,
+        })),
       };
     },
   },

@@ -53,7 +53,7 @@ describe('AI 工具桥/提示词/用量（集成，需 DB）', async () => {
 
   it('工具注册表：四件套可调用，结果落 ai_tool_calls(ok)', async () => {
     const list = tools.list();
-    expect(list.tools.map((t) => t.name)).toEqual(['nav.goto', 'read_context', 'doc.read', 'propose_next_step']);
+    expect(list.tools.map((t) => t.name)).toEqual(['nav.goto', 'read_context', 'doc.read', 'chat.history.read', 'propose_next_step']);
     const nav = await tools.invoke(PID, { sessionId, toolName: 'nav.goto', args: { tab: 'dev' } }, CTX);
     expect(nav.result['route']).toBe('/dev');
     const ctx2 = await tools.invoke(PID, { sessionId, toolName: 'read_context' }, CTX);
@@ -65,6 +65,29 @@ describe('AI 工具桥/提示词/用量（集成，需 DB）', async () => {
     expect((next.result['suggestions'] as string[]).length).toBeGreaterThan(0);
     const calls = await tools.callsOfSession(PID, sessionId);
     expect(calls.items.filter((c) => c.status === 'ok').length).toBe(4);
+  });
+
+  it('chat.history.read：按编号读他会话消息（项目守卫/limit 封顶/不存在人话）', async () => {
+    // 造目标会话 + 两条 done 消息
+    const target = (await query<{ id: string }>(
+      `INSERT INTO ai_sessions (project_id, code, ctx, name, created_by)
+       VALUES ($1,'ss_t9','material','资料深读','t') RETURNING id`, [PID])).rows[0]!.id;
+    await query(
+      `INSERT INTO ai_messages (session_id, role, content, status) VALUES
+       ($1,'user','客户要双人同屏','done'), ($1,'ai','已记录','done')`, [target]);
+    const r = await tools.invoke(PID, { sessionId, toolName: 'chat.history.read', args: { sessionCode: 'ss_t9' } }, CTX);
+    expect(r.result['found']).toBe(true);
+    const msgs = r.result['messages'] as Array<{ role: string; content: string }>;
+    expect(msgs.map((m) => m.role)).toEqual(['user', 'ai']); // 时间正序
+    expect(msgs[0]!.content).toBe('客户要双人同屏');
+    // limit 封顶 50 不报错；不存在会话 → found:false 人话（不抛码）
+    const cap = await tools.invoke(PID, { sessionId, toolName: 'chat.history.read', args: { sessionCode: 'ss_t9', limit: 999 } }, CTX);
+    expect(cap.result['found']).toBe(true);
+    const none = await tools.invoke(PID, { sessionId, toolName: 'chat.history.read', args: { sessionCode: 'ss_nope' } }, CTX);
+    expect(none.result['found']).toBe(false);
+    expect(String(none.result['message'])).toContain('ss_nope');
+    await query('DELETE FROM ai_messages WHERE session_id=$1', [target]);
+    await query('DELETE FROM ai_sessions WHERE id=$1', [target]);
   });
 
   it('越界工具 denied 留痕 + TOOL_DENIED；未注册 TOOL_UNREGISTERED；参数错 TOOL_ARGS_INVALID', async () => {
