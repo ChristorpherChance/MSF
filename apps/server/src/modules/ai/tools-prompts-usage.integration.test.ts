@@ -53,7 +53,9 @@ describe('AI 工具桥/提示词/用量（集成，需 DB）', async () => {
 
   it('工具注册表：五件套可调用，结果落 ai_tool_calls(ok)', async () => {
     const list = tools.list();
-    expect(list.tools.map((t) => t.name)).toEqual(['nav.goto', 'read_context', 'doc.read', 'chat.history.read', 'propose_next_step']);
+    expect(list.tools.map((t) => t.name)).toEqual([
+      'nav.goto', 'read_context', 'doc.read', 'chat.history.read', 'propose_next_step', 'req.doc.propose_edits',
+    ]);
     const nav = await tools.invoke(PID, { sessionId, toolName: 'nav.goto', args: { tab: 'dev' } }, CTX);
     expect(nav.result['route']).toBe('/dev');
     const ctx2 = await tools.invoke(PID, { sessionId, toolName: 'read_context' }, CTX);
@@ -188,5 +190,20 @@ describe('AI 工具桥/提示词/用量（集成，需 DB）', async () => {
     expect(Number(row.cost)).toBeCloseTo(0.003, 6);
     await expect(usage.assertProject('00000000-0000-0000-0000-000000000099'))
       .rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+
+  it('req.doc.propose_edits：list 可见 kind=propose；误入 invoke 路径防御性失败留痕（旁路未接线）', async () => {
+    const meta = tools.list().tools.find((t) => t.name === 'req.doc.propose_edits');
+    expect(meta?.kind).toBe('propose');
+    // 防御分支：正常路径经外部注册表旁路，invoke 直接命中=旁路未接线 → ok:false 人话（不落稿）
+    const r = await tools.invoke(PID, { sessionId, toolName: 'req.doc.propose_edits', args: { kind: 'crd', instruction: 'x' } }, CTX);
+    expect((r.result as { ok: boolean }).ok).toBe(false);
+    expect(String((r.result as { reason: string }).reason)).toContain('旁路');
+    // recordDirect 旁路留痕：pool 直插同 INSERT 口径
+    await tools.recordDirect({ sessionId, toolName: 'req.doc.propose_edits', args: { kind: 'crd' } }, 'failed', { error: '探针' });
+    const rows = await tools.callsOfSession(PID, sessionId);
+    expect(rows.items.some((c) => c.tool_name === 'req.doc.propose_edits'
+      && c.status === 'failed'
+      && String((c.result_summary as { error?: string }).error).includes('探针'))).toBe(true);
   });
 });

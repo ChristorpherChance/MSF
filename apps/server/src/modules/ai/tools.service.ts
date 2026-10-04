@@ -14,7 +14,7 @@ import { executeCommand, registerCommand, type CommandContext } from '../evidenc
 
 interface ToolDef {
   name: string;
-  kind: 'read' | 'nav';
+  kind: 'read' | 'nav' | 'propose';
   description: string;
   /** JSON Schema 简式：required 键 + 各键类型 */
   argsSchema: Record<string, 'string' | 'number' | 'boolean'>;
@@ -169,6 +169,18 @@ const TOOLS: ToolDef[] = [
       return { suggestions };
     },
   },
+  {
+    name: 'req.doc.propose_edits',
+    kind: 'propose', // 提案型写：不直写文档，产物=待确认高亮补丁，必经人工确认（人工定稿不可自动化口径不破）
+    description: '提交需求文档（CRD/PRD）修改建议：产出待确认高亮补丁，经用户在需求页逐条/批量确认后才生效（你不直接改文档）。当用户要求修改 CRD/PRD 内容时调用。args.instruction 描述要改什么（截 2000 字）',
+    argsSchema: { kind: 'string', instruction: 'string' },
+    required: ['kind', 'instruction'],
+    async run() {
+      // 防御性兜底：本工具含嵌套 LLM，正常路径经外部注册表旁路执行（绝不在命令事务内跑 LLM）；
+      // 走到命令内=旁路未接线，拒绝执行并留痕（不落稿）
+      return { ok: false, reason: 'propose 类工具须经会话流旁路执行（旁路未接线），本次未产生任何修改' };
+    },
+  },
 ];
 
 const byName = new Map(TOOLS.map((t) => [t.name, t]));
@@ -232,6 +244,30 @@ export class AiToolsService implements OnModuleInit {
     await client.query(
       'INSERT INTO ai_tool_calls (session_id, message_id, tool_name, args, result_summary, status) VALUES ($1,$2,$3,$4,$5,$6)',
       [p.sessionId, p.messageId ?? null, p.toolName, JSON.stringify(p.args ?? {}), JSON.stringify(result), status]);
+  }
+
+  /**
+   * 旁路留痕（外部工具不走 ai.tool.invoke 命令事务，事务外无法复用 record 的 PoolClient）：
+   * pool 直插同 INSERT 口径；失败重试一次，再失败仅日志（补丁本体已是待确认草稿，
+   * 留痕缺失不阻断主链——与流末 error 帧口径一致）。
+   */
+  async recordDirect(
+    p: { sessionId?: string; messageId?: string; toolName?: string; args?: Record<string, unknown> },
+    status: 'ok' | 'denied' | 'failed',
+    result: Record<string, unknown>,
+  ): Promise<void> {
+    if (!p.sessionId) return;
+    const sql = 'INSERT INTO ai_tool_calls (session_id, message_id, tool_name, args, result_summary, status) VALUES ($1,$2,$3,$4,$5,$6)';
+    const params = [p.sessionId, p.messageId ?? null, p.toolName, JSON.stringify(p.args ?? {}), JSON.stringify(result), status];
+    try {
+      await query(sql, params);
+    } catch {
+      try {
+        await query(sql, params);
+      } catch (e2) {
+        console.error(`[ai] recordDirect 留痕失败 tool=${p.toolName ?? '?'}: ${e2 instanceof Error ? e2.message : String(e2)}`);
+      }
+    }
   }
 
   /** 注册表元数据（A08-5 工具清单展示） */
