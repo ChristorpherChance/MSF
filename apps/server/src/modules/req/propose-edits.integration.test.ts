@@ -124,9 +124,12 @@ describe('对话改文档/归一化（集成，需 DB）', async () => {
     const { getExternalTool } = await import('../platform/external-tools.js');
     const { AiToolsService } = await import('../ai/tools.service.js');
     const tools = new AiToolsService();
+    await query("DELETE FROM ai_sessions WHERE project_id=$1 AND code='ss_pe'", [PID]); // 预删防残留（幂等口径同 24bd2c7）
     const sid = (await query<{ id: string }>(
       `INSERT INTO ai_sessions (project_id, code, ctx, name, created_by)
        VALUES ($1,'ss_pe','req','旁路留痕','t') RETURNING id`, [PID])).rows[0]!.id;
+    const auditBefore = Number((await query<{ n: string }>(
+      "SELECT count(*) AS n FROM audit_log WHERE project_id=$1 AND command='doc.propose-pending'", [PID])).rows[0]!.n);
     const handler = getExternalTool('req.doc.propose_edits')!;
     const result = await handler(PID, { sessionId: sid, args: { kind: 'crd', instruction: '留痕探针' } }, CTX);
     await tools.recordDirect({ sessionId: sid, toolName: 'req.doc.propose_edits', args: { kind: 'crd' } },
@@ -137,7 +140,7 @@ describe('对话改文档/归一化（集成，需 DB）', async () => {
     expect(calls.rows[0]!.status).toBe('ok');
     const audit = await query<{ n: string }>(
       "SELECT count(*) AS n FROM audit_log WHERE project_id=$1 AND command='doc.propose-pending'", [PID]);
-    expect(Number(audit.rows[0]!.n)).toBeGreaterThan(0);
+    expect(Number(audit.rows[0]!.n) - auditBefore).toBe(1); // 本次 handler 恰落一行（不被前序用例审计行混淆）
     // 清理本用例补丁与探针会话
     const rest = (await docs.listPatches(PID, 'crd')) as { items: Array<{ patchId: string; status: string }> };
     for (const p of rest.items.filter((x) => x.status === 'pending')) await docs.rejectPatch(PID, 'crd', p.patchId, CTX, '清理');

@@ -338,7 +338,7 @@ export class GenerateService {
     if (patches.length === 0) {
       return { ok: false, reason: '未产出有效修改，可换种说法重试' };
     }
-    // 用量与生成流同口径（purpose='generation'），先于落补丁（失败即整单失败，不留半截补丁）
+    // 用量与生成流同口径（purpose='generation'），先于落补丁（token 已真实消耗，usage 独立命令留存属预期；补丁落库失败则整单失败不留半截补丁）
     if (modelId && usage) {
       await executeCommand('ai.usage.record', {
         projectId, modelId, purpose: 'generation',
@@ -352,8 +352,15 @@ export class GenerateService {
       }, { ...ctx, projectId })) as { patchIds: string[] };
       return { ok: true, patchCount: r.patchIds.length, route: '/req' };
     } catch (e) {
+      // 竞态兜底（命令内 FOR UPDATE 重查命中守卫）：与守卫链同口径翻人话不落码
       if (e instanceof DomainError && e.code === 'PATCH_BASE_STALE') {
         return { ok: false, reason: '文档已被其它操作变更，请刷新后重试' };
+      }
+      if (e instanceof DomainError && e.code === 'VERSION_LOCKED') {
+        return { ok: false, reason: '文档已定稿，请先在需求页 ⋯ 菜单解锁后再修改' };
+      }
+      if (e instanceof DomainError && e.code === 'INVALID_STATE') {
+        return { ok: false, reason: '有待确认补丁，请先在需求页处置后再提新修改' };
       }
       throw e;
     }
@@ -493,7 +500,7 @@ function buildMockChatEdit(kind: 'crd' | 'prd', effective: string, instruction: 
   const codes = [...effective.matchAll(kind === 'crd' ? /\bCR-(\d{3})\b/g : /\bREQ-(\d{3})\b/g)]
     .map((m) => Number(m[1]));
   const next = `${kind === 'crd' ? 'CR' : 'REQ'}-${String((codes.length > 0 ? Math.max(...codes) : 0) + 1).padStart(3, '0')}`;
-  const note = instruction || '按对话要求调整';
+  const note = (instruction || '按对话要求调整').replace(/\s*\n+\s*/g, ' '); // 压平换行：含换行的指令会切出多余节
   const parts: string[] = [];
   if (hit) parts.push(`## ${hit.title}\n\n${hit.md}\n\n（mock 对话修订：${note}）`);
   parts.push(`## ${next} 对话补充条目\n\n承接：见对话上下文\n\n（mock 对话新增：${note}）`);
