@@ -3,7 +3,7 @@ import { Inject, Injectable, Optional } from '@nestjs/common';
 import { DomainError } from '@msf/shared';
 import { query } from '../../db/pool.js';
 import { executeCommand, registerCommand, type CommandContext } from '../evidence/command-bus.js';
-import { mdToPatches, sha256Text, type EditPatch } from '../platform/doc-sections.js';
+import { mdToPatches, normalizePatches, sha256Text, splitSections, type EditPatch } from '../platform/doc-sections.js';
 import { AI_PROVIDER, type AiProvider } from '../ai/ai-provider.interface.js';
 import { classifyAiError, sanitizeAiError } from '../ai/stream-pipeline.js';
 
@@ -302,7 +302,8 @@ export class GenerateService {
       // op 为共享可变态（pause/resume/stop 由外部改写），await 期间可能已被停止——绕开 TS 控制流收窄再判
       const afterResult: string = op.status;
       if (afterResult === 'stopped') return { status: 'stopped' };
-      const patches = mdToPatches(res.text);
+      // 归一化：命中既有节的 add 转整节 modify（修复「修改=重复追加」；增量修订与对话改文档共用）
+      const patches = normalizePatches(mdToPatches(res.text), splitSections(real.currentContent));
       if (patches.length === 0) return { status: 'failed', error: 'INTERNAL' };
       if (res.modelId) {
         await executeCommand('ai.usage.record', {
