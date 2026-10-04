@@ -371,6 +371,7 @@ erDiagram
 | status | text | NOT NULL DEFAULT 'pending' CHECK IN ('pending','accepted','rejected','stale') | |
 | decided_by / decided_at | text / timestamptz | | 人工裁决 |
 | reason | text | | 处置理由（接受/拒绝时可选填写，随裁决落库；已裁决补丁在 UI「处置留痕」回放）（R-04-1，2026-09-29 增列） |
+| seq | int | | 批内序号（0 起）：propose 单事务逐条插入时 `created_at` 取事务开始时间全批同值，列表排序以 (created_at, seq) 双列保底提案序；旧行 seq 为 NULL 排同组尾部（pg 升序默认 NULL 排尾，行为安全）（2026-10-04 增列，迁移 0025；设计域同构表 `dsg_pendings` 同批同治） |
 | created_at | | NOT NULL | |
 
 索引：`(document_id, status)`。承接 REQ-205、REQ-613、BR-07。
@@ -1456,3 +1457,4 @@ WHERE t.handoff_fingerprint = $1 AND r.report_fingerprint = t.report_fingerprint
 | 2026-09-21 | DSG-D06-5、DSG-D03-7、DSG-D03-5、DSG-D11-2、DSG-D10-8（新增）、DSG-D00、DSG-D02、DSG-D06-9、DSG-D15-1 | 二轮评审整改：① D06-5 四门命名对齐 PRD REQ-413 权威（功能检查/联调与冒烟/UI 符合度/开发审核；gates 键 functional/integration/ui/review 不动，gate_* 列名为持久层命名不改）；② D03-7 `mat_uploads.parts` 补并发串行化手段（行锁：`SELECT … FOR UPDATE` 锁会话行后重读-合并-写回）；③ D03-5 补 idle/confirming 落库路径（弹窗登记即 idle 落库、basis_start 同事务写入；确认提交置 confirming 并即复核，通过置 running，不一致整批拒绝并同事务删除该行——「rejected 不留行」落地；confirm 快照寄存 basis_start/basis_commit 列内）；④ D11-2 链尾措辞改「读取链尾行」（`ORDER BY seq DESC LIMIT 1 FOR UPDATE`，不假设 seq-1 存在——bigserial 回滚留空洞）；⑤ 新增 `sys_webhook_secrets` 项目级 webhook 密钥表（只写不读、密文存储、显式声明非 append-only）承接 LLD-5 A06-22，同步 D00 映射、D02 ER、D06-9 provider 注与 D15-1 规模估算 |
 | 2026-09-21 | DSG-D04-6 | 二轮评审整改（W5A 移交同步）：rtm_health.l0a 分母口径按 R-03 裁决改 active R（deferred 不计），空分母条款改「active R 为 0 时记 1 并告警」，与 l0b/l0c 同构 |
 | 2026-09-21 | DSG-D04-6 | 二轮收尾顺手项：l0b 空分母条款措辞与 l0a/l0c 取齐（「active CR 为 0 时记 1 并告警」，语义不变） |
+| 2026-10-04 | DSG-D04-4 | 差异回补（`doc/dev-plan/AI会话互通与对话改文档-差异登记.md` 条目 10）：`req_pendings` 增 `seq` 批内序号列（迁移 0025，`dsg_pendings` 同治；additive 不动旧数据）——修 listPatches 因同事务 created_at 同值乱序致链式 after 落位被打乱 |

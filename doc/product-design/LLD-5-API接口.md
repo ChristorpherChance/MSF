@@ -366,6 +366,7 @@ HTTP 状态码约定：
 ### DSG-A04-13 文档导出
 - `POST .../docs/{docId}/versions/{v}:export` ｜ 命令型 ｜ 幂等：必需
 - 请求：`{ "format": "md|html" }`（本期交付 md+html，pdf 列后续扩展）；响应 202 `{ "operationId": "op_exp_1" }`，完成事件带签名下载 URL。
+- **派生编号注入（2026-10-04）**：导出各格式标题经 `withNumberedTitles` 注入派生章节编号（大章=中文数字+顿号标题保留原文，其下节编 `X.Y`；普通节顺序编号；含 CR-/REQ- 锚点码节以「编号 + 标题（锚点码）」呈现），与页面目录栏同函数同口径（`packages/shared` `deriveNumbering` 前后端共享）；存储零改动、RTM 内容锚点不断链。
 - 承接：REQ-203、`dlPopover`（原型模拟导出 → 真实导出）。
 
 ---
@@ -742,6 +743,7 @@ HTTP 状态码约定：
 ### DSG-A08-3 发送消息（SSE 流式）
 - `POST /api/v1/projects/{projectId}/ai/sessions/{sessionId}/messages` ｜ 命令型 ｜ 幂等：必需 ｜ 响应 `text/event-stream`
 - 说明：流式逐字输出；页面上下文感知（请求带当前视图/选中工件）；引用已定稿资料受 REQ-114/115 门禁约束。
+- **系统提示构成（2026-10-04）**：buildPrompt 注入【能力边界】（AI 不直写文档/代码/原型/放行，改文档走 `req.doc.propose_edits` 提案通道，结果未知不断言「已提交」）+【可用工具】声明 +【他阶段会话】注入块（同项目其他阶段最近会话摘要，预算 3000 字，注入查询失败静默降级不影响主流程）；用户指令截 2000 字知情截断。
 - 请求：`{ "text": "生成 CRD 初稿", "context": { "view": "stage-req" }, "referenceFileIds": ["f_9"], "thinkingLevel": "low|mid|high" }`
 - 响应事件：`stream.delta` × N → `stream.done`（含 `messageId`、`usage`、`toolCalls[]`）。
 - 消费方式：本端点为 POST-SSE，浏览器 `EventSource` 不可用；前端必须以 `fetch` + `ReadableStream` 消费事件流（约束与断线重试纪律见 DSG-A01-6）。
@@ -757,6 +759,7 @@ HTTP 状态码约定：
 - `GET /api/v1/ai/tools` ｜ 查询型
 - 响应 200：`{ "items": [ { "name": "nav.goto", "description": "按名称跳转平台视图", "params": { "view": "string" }, "risk": "read|write", "enabled": true } ] }`
 - 说明：工具清单注册式管理；调用过程可见、可审计（每次调用入审计流）。**保留全局路径、不挂项目作用域（波次 2 裁决）**：工具注册表为平台级注册、内容不随项目变化，无项目归属语义。承接：REQ-605、REQ-606、`AGENT_TOOLS/registerTool/NAV_MAP`。
+- **工具桥两分（2026-10-04）**：①内置工具经 `ai.tool.invoke` 命令事务（写工具越界名单拒绝并留痕）；dock 会话允许集为六件套——`nav.goto`（导航）/`doc.read`+`chat.history.read`（只读，`chat.history.read` 跨阶段读同项目他阶段会话历史）/`req.doc.propose_edits`（propose 档：对话改文档提案，产出待确认补丁不直写）等，`ToolDef.kind` 扩为 `'read'|'nav'|'propose'` 三值。②**外部工具注册表旁路**（`registerExternalTool`）：嵌套在 LLM 工具循环内执行的工具（如 `req.doc.propose_edits`）不经 `ai.tool.invoke` 命令事务，留痕=ai_tool_calls recordDirect（成功/失败两路）+ 内部命令审计行（doc.propose-pending），不产生 ai.tool.invoke 审计行（设计口径）。**机制约束**：旁路入口先查注册表即执行、绕开写工具拒绝名单与允许集校验——新注册旁路工具时必须在旁路入口补名单校验，否则 REQ-606 越界拦截被静默击穿（终审登记，当前注册表仅 propose_edits 无暴露面）。
 
 ### DSG-A08-6 下一步建议
 - `GET /api/v1/ai/next-steps?projectId=…&stage=…` ｜ 查询型
@@ -914,3 +917,4 @@ HTTP 状态码约定：
 | 2026-09-20 | DSG-A03-15/A03-16、A05-10、A04-12 | 波次 2 裁决执行（第二批）：A03-16 作业级状态枚举改以 LLD-2 DSG-F02-4 五态为权威 `idle/confirming/running/done/stopped`（替代上一轮对齐的四值；落库 LLD-4 DSG-D03-5）；A03-15 基线快照口径同步改述（弹窗整批快照→开始整批复核不一致则中止不留作业行；执行中变化行逐行跳过，STALE_EVIDENCE 语义改指开始复核）；A05-10（action=develop）与 A04-12 gaps 枚举引用补入 §15(e) 新注册子码 `L0C_BELOW`（L0c 缺口逐条指向未承接 REQ，`RTM_HEALTH` 回归汇总级） |
 | 2026-09-21 | DSG-A07-13/A07-14（新增）、A07-1、A06-22（新增）、A06-21、A06-16、A01-3、A01-6、A03-2、A03-15、A11-1 | 二轮评审整改：① 新增 A07-13/A07-14 批次阻断/恢复端点（与 LLD-2 F02-8 `batch.block`/`batch.unblock` 迁移行逐条对应，A07-1 补指引；命令已注册 LLD-3 C10-2(e)）；② 新增 A06-22 项目 CI webhook secret 登记端点（只写不读、密文存储落 `sys_webhook_secrets`，HMAC 口径与 A06-21 呼应），A06-21 认证注改指 A06-22；③ A06-16 响应 gates 键 unit/smoke/ui/audit 改 PRD REQ-413 权威键 functional/integration/ui/review（四门中文名功能检查/联调与冒烟/UI 符合度/开发审核）；④ A01-6 补 SSE 断线续传基板界定（GET 通道只覆盖 M11 持久事件；stream.delta 仅 Redis 滚动窗内可续，窗外经查询端点补拉）；⑤ A03-2 分片 PUT 天然键幂等豁免 Idempotency-Key 的说明补入 A11-1 与 A01-3，并补同会话并发分片 parts 更新行锁串行化（落库细节 LLD-4 DSG-D03-7）；⑥ A03-15 补作业落库时机权威指引（LLD-4 DSG-D03-5）；⑦ A03-16 复核：作业级五态与 F02-4 最新口径一致，无需同步变更 |
 | 2026-09-21 | DSG-A04-12 | 二轮评审整改（W5A 移交同步）：A04-12 说明中 L0a 权威口径同步 R-03 裁决（分母=active R，deferred 不计；active R 为 0 时记 1 并告警），与 PRD REQ-208/LLD-2 DSG-F06-1 一致 |
+| 2026-10-04 | DSG-A04-13、DSG-A08-3、DSG-A08-5 | 差异回补（`doc/dev-plan/AI会话互通与对话改文档-差异登记.md` 条目 1/2/4）：A08-5 补工具桥两分（内置经 ai.tool.invoke 命令事务+WRITE_TOOLS 名单 / 外部注册表旁路 registerExternalTool 双链留痕）与 dock 允许集六件套（+chat.history.read 只读、+req.doc.propose_edits propose 档，ToolDef.kind 扩 read/nav/propose）及旁路名单校验机制约束注；A08-3 补系统提示构成（能力边界/可用工具/他阶段会话注入块 3000 字静默降级）；A04-13 补导出标题派生编号注入（withNumberedTitles 与页面目录同函数同口径） |

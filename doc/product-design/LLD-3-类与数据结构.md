@@ -305,6 +305,9 @@ interface PendingPatch {
   id: Id; documentId: Id;
   targetSectionId: string;
   oldText: string; newText: string;      // 最小补丁，禁止重写全文（原型 edit_patch 纪律）
+  /** 新增节落位锚点（2026-10-04 增，向后兼容）：缺席=追加文末；''=文首前言之后；
+      非空=插到同名标题节后（同名取首个命中），锚点落空退化追加文末、不抛错 */
+  after?: string;
   proposedBy: Actor;                     // 通常为 assistant
   /** 提案绑定的版本与内容身份：迟到提案拒绝（原型 propose-pending 绑定项目+当前版本/内容） */
   baseVersion: number; baseContentFingerprint: Fingerprint;
@@ -313,7 +316,7 @@ interface PendingPatch {
 }
 ```
 
-不变式：AI 提案不直接落稿，必须人工逐条接受/拒绝（REQ-205、BR-06）；接受时要求 `oldText` 在当前内容中精确匹配，不匹配整条命令失败（原型 accept-pending）；基线指纹变化 → `stale`。
+不变式：AI 提案不直接落稿，必须人工逐条接受/拒绝（REQ-205、BR-06）；接受时要求 `oldText` 在当前内容中精确匹配，不匹配整条命令失败（原型 accept-pending）；基线指纹变化 → `stale`。**定位失配回退（2026-10-04）**：`targetSectionId` 为位置性瞬时值（不落库、重切分即重派），命中失配时回退按锚点码→精确标题重定位，且 `oldText` 须为重定位命中节全文的子串（防错节静默命中）；重定位仍落空则按不匹配处理、整条失败。
 表映射：`req_pendings`。
 
 ### DSG-C04-5 RtmLink（承接 REQ-207）
@@ -1725,4 +1728,5 @@ class SystemError extends DomainError {}      // 平台/命令事务横切
 | 2026-09-20 | §8 DSG-C08-1 | 用户决策扩展落地（PRD REQ-615 接入面扩展）：AiSession 补 fork/branch 注——会话分支由 Pi SessionManager 的 JSONL 会话树承载，平台侧仅存树形引用（`treeRef`：父会话/分支点），不复制会话内容；JSONL 运行态不作为平台证据来源 |
 | 2026-09-20 | DSG-C03-1、DSG-C04-5/C04-6、DSG-C10-2(e)、§15(e)、§16 C-2 | 波次 1 评审整改：C03-1 不变式①补反向迁移条款（解锁/删除解析稿，与 LLD-2 F02-3 逐条互洽）并新增 `unsupported` 承载字段；C04-6 RtmHealth 改四指标——`l0c` 改义为 REQ→DSG 锚点覆盖率（开发入口门禁 =1）、新增 `l0d`=deferred 计数（信息性不进门禁），权威 PRD REQ-208 波次 1-3 口径，C04-5 旁注 L0c→L0d；C10-2(e) 补 `batch.block`/`batch.unblock` 命令（承接 F02-8 blocked 进入/恢复路径）；§15(e) `RTM_HEALTH` 补 develop 门禁出现面；§16 C-2 回销记录同步新口径 |
 | 2026-09-20 | DSG-C03-4、DSG-C04-6、DSG-C06-5、DSG-C06-6、DSG-C08-2、DSG-C12-1、DSG-C13-1/2/3/4、§15(e)、§8 章首注、§16 | 波次 2 评审整改（E 组）：§15(e) 补注册 `L0C_BELOW`（与 `L0A_BELOW` 对称，develop 门禁 L0c 缺口专用子码，`RTM_HEALTH` 回归汇总级）；不变式可执行性 3 处——INV-DOC-6 拆 6a/6b/6c 机器可验子句（版本链连续/断链处置/恢复只追加）、INV-IMM-2 补验证方式（静态扫描+篡改测试）、INV-SCORE-1 消解 unknown 矛盾（status 闭集 {pass,fail,skipped,not-run}，闭集外记 `UI_OUTCOME_UNKNOWN` 按不通过计）；C06-6 导出格式 md/json→md+html（统稿 D-22，pdf 后续）；C04-6 补 l0a/l0b 空分母条款（分母为 0 记 1 并告警）；C06-5 SelfTestGate 补 gates 键→原型显示名映射（functional=功能检查、integration=联调与冒烟、ui=UI 符合度、review=开发审核）；C08-2 流式状态补 `failed` 终态（对齐 LLD-2 F02-12 与 LLD-4 ai_messages 落库枚举）；C03-4 按 REQ-111 新口径回改 basisSnapshot（弹窗整批快照+开始整批复核+执行中变化行跳过）并补作业级五态承载字段 `status`（INV-BULK-1 同步改述）；C12-1 声明规范化序列化以 LLD-2 DSG-F04-1 为权威（RFC 8785 JCS 子集+NFC）；§8 章首注 UsageRecord 改「从 Pi 消息结果提取 Usage」口径；§16 待澄清编号统一 C-<n> 制式 |
-| 2026-09-21 | DSG-C01-2、DSG-C03-1、DSG-C03-4、DSG-C04-5、DSG-C04-6、DSG-C06-1、DSG-C06-3、DSG-C08-2、DSG-C08-7、DSG-C10-2(c)(d) | 二轮评审整改：C04-6/LLD-2 F06-1 L0a 分母统一为 active R（deferred 不计入，与 L0b/L0c 同构，裁决）；C06-3 OperationStatus 补 `stale` 为六值（与 LLD-4 DSG-D06-3/LLD-5 A10-7 一致，承接 F01-2 stale/superseded 落库合并值）；C04-5 RtmLink 以 DB 为准（裁决）——relation 枚举改 `'refines'|'implements'|'verifies'|'deferred'|'dropped'`，删除独立 `deferred: boolean` 字段（deferred 以关系取值表达，明细随 rtm_health.deferred_items）；C08-7 DelegationStatus 以 LLD-4 六值为准（裁决）——改 `queued/running/succeeded/failed/failed_timeout/cancelled`，删「超时以 failed+errorMessage 记录」注；C08-2 补 `paused` 界定（运行时缓冲层状态，不落 ai_messages.status）；C03-1 source 枚举对齐 LLD-4 DSG-D03-2（`upload|zip_extract|inline_extract`）；C06-1 删 dev_tasks evidence JSONB 列误注（LLD-4 实无该列，改注 CI 结论落 dev_ci_reports、单测证据经 evd_records）；C03-4 删「LLD-4 DSG-D03-5 枚举待同步对齐」过期注（实际已对齐）并补行级落库列名 mat_batch_items.result；C10-2(d) 补上传会话生命周期命令 4 条（material.upload.create/part/complete/abort，对应 LLD-5 A03-1/2/3/18）、C10-2(c) 补 `ci.callback.receive`（LLD-5 A06-21），命令闭集审计链闭环；C01-2 原型出处行号重刷（devStableString/devHash L4717-4718，删不存在的 K()/H() 引用） |
+| 2026-09-21 | DSG-C01-2、DSG-C03-1、DSG-C03-4、DSG-C04-5、DSG-C04-6、DSG-C06-1、DSG-C06-3、DSG-C08-2、DSG-C08-7、DSG-C10-2(c)(d) | 二轮评审整改：C04-6/LLD-2 F06-1 L0a 分母统一为 active R（deferred 不计入，与 L0b/L0c 同构，裁决）；C06-3 OperationStatus 补 `stale` 为六值（与 LLD-4 DSG-D06-3/LLD-5 A10-7 一致，承接 F01-2 stale/superseded 落库合并值）；C04-5 RtmLink 以 DB 为准（裁决）——relation 枚举改 `'refines'|'implements'|'verifies'|'deferred'|'dropped'`，删除独立 `deferred: boolean` 字段（deferred 以关系取值表达，明细随 rtm_health.deferred_items）；C08-7 DelegationStatus 以 LLD-4 六值为准（裁决）——改 `queued/running/succeeded/failed/failed_timeout/cancelled`，删「超时以 failed+errorMessage 记录」注；C08-2 补 `paused` 界定（运行时缓冲层状态，不落 ai_messages.status）；C03-1 source 枚举对齐 LLD-4 DSG-D03-2（`upload|zip_extract|inline_extract`）；C06-1 删 dev_tasks evidence JSONB 列误注（LLD-4 实无该列，改注 CI 结论落 dev_ci_reports、单测证据经 evd_records）；C03-4 删「LLD-4 DSG-D03-5 枚举待同步对齐」过期注（实际已对齐）并补行级落库列名 mat_batch_items.result；C10-2(d) 补上传会话生命周期命令 4 条（material.upload.create/part/complete/abort，对应 LLD-5 A03-1/2/3/18）、C10-2(c) 补 `ci.callback.receive`（LLD-5 A06-21），命令闭集审计链闭环；C03-1 原型出处行号重刷（devStableString/devHash L4717-4718，删不存在的 K()/H() 引用） |
+| 2026-10-04 | DSG-C04-4 | 差异回补（`doc/dev-plan/AI会话互通与对话改文档-差异登记.md` 条目 9）：PendingPatch 增可选 `after` 落位锚点（三态：缺席=追加文末兼容 / ''=文首前言后 / 非空=同名标题节后，落空退化追加不抛错）——修整篇重生成新增大章堆文末逆序；不变式补定位失配回退（锚点码→标题重定位 + old⊆命中节校验防错节静默命中） |
