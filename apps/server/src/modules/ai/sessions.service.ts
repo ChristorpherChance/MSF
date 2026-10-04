@@ -4,6 +4,7 @@ import { DomainError } from '@msf/shared';
 import { query } from '../../db/pool.js';
 import { lockCodeGen } from '../../db/seq.js';
 import { executeCommand, registerCommand, type CommandContext } from '../evidence/command-bus.js';
+import { buildCrossSessionDigest } from '../platform/cross-session-digest.js';
 import { AI_PROVIDER, type AiProvider, type AiUsage } from './ai-provider.interface.js';
 import type { ModelRow } from './models.service.js';
 import { AiModelsService } from './models.service.js';
@@ -410,7 +411,7 @@ export class AiSessionsService implements OnModuleInit {
     return stripped || '已按请求调用工具，结果见下方工具卡。';
   }
 
-  /** 组装发往模型的提示词：当前项目+阶段准入口径上下文（U-035）+ 参考全文（内容定稿稿，单份截 12000 字/总截 32000 字）+ 近 6 轮历史 + 本次请求 */
+  /** 组装发往模型的提示词：当前项目+阶段准入口径上下文（U-035）+ 参考全文（内容定稿稿，单份截 12000 字/总截 32000 字）+ 他阶段会话摘要（跨阶段互通读侧）+ 近 6 轮历史 + 本次请求 */
   private async buildPrompt(
     projectId: string,
     sessionId: string,
@@ -468,6 +469,25 @@ export class AiSessionsService implements OnModuleInit {
       }
       if (blocks.length > 0) parts.push(`【参考资料（已内容定稿）】\n${blocks.join('\n\n---\n\n')}`);
     }
+    // 跨阶段互通（读侧）：本项目其它会话最近用户消息摘要（整块预算 3000，超出从最旧丢弃；
+    // 会话列表/草稿仍按阶段隔离，互通仅发生在 AI 读侧；SQL 失败静默降级不阻断聊天主链）
+    try {
+      const cross = await query<{ ctx: string; code: string; at: string; excerpts: string[] | null }>(
+        `SELECT s.ctx, s.code, to_char(s.updated_at, 'YYYY-MM-DD HH24:MI') AS at,
+                (SELECT array_agg(m.content) FROM (
+                   SELECT content FROM ai_messages
+                   WHERE session_id=s.id AND role='user' AND status='done'
+                   ORDER BY created_at DESC LIMIT 2) m) AS excerpts
+         FROM ai_sessions s
+         WHERE s.project_id=$1 AND s.id<>$2
+         ORDER BY s.updated_at DESC LIMIT 10`,
+        [projectId, sessionId]);
+      const digest = buildCrossSessionDigest(cross.rows.map((r) => ({
+        ctx: r.ctx, code: r.code, at: r.at,
+        excerpts: (r.excerpts ?? []).reverse().map((x) => (x.length > 200 ? `${x.slice(0, 200)}…` : x)),
+      })));
+      if (digest) parts.push(digest);
+    } catch { /* 摘要注入失败静默降级（该块省略） */ }
     const history = await query<{ role: string; content: string }>(
       `SELECT role, content FROM ai_messages
        WHERE session_id=$1 AND status='done' AND role IN ('user','ai')

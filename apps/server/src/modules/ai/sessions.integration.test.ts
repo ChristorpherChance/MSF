@@ -357,4 +357,18 @@ describe('AI 会话/消息/流式管线（集成，需 DB）', async () => {
     await sessions.attach(PID, messageId, 1, (f) => tail.push(f as never));
     expect(tail.every((f) => f.seq > 1)).toBe(true);
   });
+
+  it('跨阶段互通：buildPrompt 注入【他阶段会话】块（其它会话最近用户消息；本会话不进块）', async () => {
+    // sessionId（req ctx）已在先前用例创建并有用户消息；另建 material 会话发一条
+    const m = await sessions.create(PID, { ctx: 'material', name: '资料沟通' }, CTX) as { id: string };
+    await sessions.send(PID, m.id, { content: '客户明确要求双人同屏协作' }, CTX);
+    await new Promise((r) => setTimeout(r, 1200)); // fake 流终结
+    const prompt = await (sessions as unknown as {
+      buildPrompt: (p: string, s: string, c: string, r: string[]) => Promise<string>;
+    }).buildPrompt(PID, m.id, '本次问题', []);
+    expect(prompt).toContain('【他阶段会话');
+    expect(prompt).toContain('[需求] ss_1');
+    // 摘要注入在会话历史之前
+    expect(prompt.indexOf('【他阶段会话')).toBeLessThan(prompt.indexOf('【会话历史】'));
+  });
 });
