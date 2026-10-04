@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { deriveNumbering } from '@msf/shared';
 import { mdHtml } from '../../md-html';
 import { ApiError } from '../../api';
 import { Modal } from '../../ui/Modal';
@@ -404,6 +405,9 @@ function TocCol() {
     return () => io.disconnect();
   }, [doc?.secs, doc?.cur]);
 
+  // 派生编号（渲染层注入，存储零改动）：大章加粗、节缩进一层
+  const numbered = useMemo(() => (doc ? new Map(deriveNumbering(doc.secs).map((n) => [n.id, n])) : null), [doc]);
+
   if (!doc) return null;
   const jump = (secId: string) => {
     document.getElementById(`sec-${secId}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -414,15 +418,18 @@ function TocCol() {
   return (
     <aside className="toc-col">
       <div className="toc-title">目录 <span className="dz-note">{tocSecs.length} 章</span></div>
-      {tocSecs.map((s) => (
-        <button
-          key={s.id}
-          className={`toc-item${tocFlash === s.id ? ' flash' : ''}${s.pending ? ' has-pend' : ''}${activeSec === s.id ? ' act-sec' : ''}`}
-          onClick={() => jump(s.id)}
-        >
-          {s.title}
-        </button>
-      ))}
+      {tocSecs.map((s) => {
+        const n = numbered?.get(s.id);
+        return (
+          <button
+            key={s.id}
+            className={`toc-item${n?.chapter ? ' chapter' : ' sub'}${tocFlash === s.id ? ' flash' : ''}${s.pending ? ' has-pend' : ''}${activeSec === s.id ? ' act-sec' : ''}`}
+            onClick={() => jump(s.id)}
+          >
+            {n?.display || s.title}
+          </button>
+        );
+      })}
     </aside>
   );
 }
@@ -430,6 +437,8 @@ function TocCol() {
 /** 纸面：h1 + 状态 + 章节（待确认补丁高亮 + 行内接受/拒绝） */
 function Paper({ kind, readonly }: { kind: DocKind; readonly: boolean }) {
   const { doc, viewMode, patches, tocFlash } = useReqView();
+  // 派生编号（渲染层注入，存储零改动）：与目录栏同口径（hooks 规则：须在任何早退之前）
+  const numbered = useMemo(() => (doc ? new Map(deriveNumbering(doc.secs).map((n) => [n.id, n])) : null), [doc]);
   if (!doc) return null;
   const pendBySec = new Map(patches.filter((p) => p.status === 'pending').map((p) => [p.secId, p]));
   const appended = patches.filter((p) => p.status === 'pending' && p.type === 'add');
@@ -467,7 +476,7 @@ function Paper({ kind, readonly }: { kind: DocKind; readonly: boolean }) {
           <section key={s.id} id={`sec-${s.id}`} className={`sect${tocFlash === s.id ? ' flash' : ''}`}>
             {/* 补丁条在章节标题之前（原型口径：pending-bar → h2 → 正文） */}
             {s.pending && pendBySec.get(s.id) && <PendingBar kind={kind} patch={pendBySec.get(s.id)!} />}
-            {s.title && <h2>{s.title}</h2>}
+            {s.title && <h2>{numbered?.get(s.id)?.display || s.title}</h2>}
             {viewMode === 'preview' ? (
               <div className="md" dangerouslySetInnerHTML={{ __html: mdHtml(s.md) }} />
             ) : (
