@@ -51,7 +51,7 @@ describe('AI 工具桥/提示词/用量（集成，需 DB）', async () => {
     await pool.end();
   });
 
-  it('工具注册表：五件套可调用，结果落 ai_tool_calls(ok)', async () => {
+  it('工具注册表：六件套可调用，结果落 ai_tool_calls(ok)', async () => {
     const list = tools.list();
     expect(list.tools.map((t) => t.name)).toEqual([
       'nav.goto', 'read_context', 'doc.read', 'chat.history.read', 'propose_next_step', 'req.doc.propose_edits',
@@ -193,6 +193,8 @@ describe('AI 工具桥/提示词/用量（集成，需 DB）', async () => {
   });
 
   it('req.doc.propose_edits：list 可见 kind=propose；误入 invoke 路径防御性失败留痕（旁路未接线）', async () => {
+    // 顺序约束：本用例必须保持在 describe 末尾——前置用例对 ai_tool_calls 按状态精确计数
+    // （ok=4 / denied=2 / failed=3），本用例会再落 ok+failed 行，提前插入会污染计数
     const meta = tools.list().tools.find((t) => t.name === 'req.doc.propose_edits');
     expect(meta?.kind).toBe('propose');
     // 防御分支：正常路径经外部注册表旁路，invoke 直接命中=旁路未接线 → ok:false 人话（不落稿）
