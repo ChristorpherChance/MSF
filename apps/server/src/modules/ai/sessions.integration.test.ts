@@ -27,8 +27,18 @@ class FakeSession implements AiSession {
   chunks: string[] | null = null;
   /** agentic 接力：记录每轮 stream 收到的 prompt（断言工具结果回喂） */
   onStream: ((prompt: string) => void) | null = null;
+  /** 接力轮失败注入：deltas 首迭代即抛、result 拒绝（模拟网关 503 瞬断） */
+  fail = false;
   stream(prompt?: string): { deltas: AsyncIterable<string>; result: Promise<AiMessageResult> } {
     if (prompt !== undefined) this.onStream?.(prompt);
+    if (this.fail) {
+      const result = Promise.reject<AiMessageResult>(new Error('boom-503 upstream auth_unavailable'));
+      result.catch(() => undefined);
+      const deltas = (async function* (): AsyncGenerator<string> {
+        throw new Error('boom-503 upstream auth_unavailable');
+      })();
+      return { deltas, result };
+    }
     let resolveResult!: (r: AiMessageResult) => void;
     const result = new Promise<AiMessageResult>((res) => { resolveResult = res; });
     const gates = this.gates;
@@ -72,9 +82,12 @@ class FakeProvider implements AiProvider {
   roundQueue: string[][] = [];
   /** 每轮 stream 收到的 prompt（接力轮回喂断言用） */
   capturedPrompts: string[] = [];
+  /** 按 createSession 调用序的失败注入队列（首轮→接力轮依次出队） */
+  failQueue: boolean[] = [];
   async createSession(): Promise<AiSession> {
     const s = new FakeSession();
     s.chunks = this.nextChunks ?? this.roundQueue.shift() ?? null;
+    s.fail = this.failQueue.shift() ?? false;
     s.onStream = (p) => this.capturedPrompts.push(p);
     this.nextChunks = null;
     this.last = s;
@@ -302,6 +315,29 @@ describe('AI 会话/消息/流式管线（集成，需 DB）', async () => {
     };
     expect(aiMsg2.content).toBe('尾部正文。\n\n该工具不存在，已知悉。');
     expect(aiMsg2.toolCalls.some((t) => t.toolName === 'no.such' && t.status === 'denied')).toBe(true);
+  });
+
+  it('接力轮网关失败不静默：消息内补可见提示、首轮成果与工具卡保留、接力终止不再连败', async () => {
+    provider.capturedPrompts = [];
+    provider.nextChunks = ['我先读取需求页内容。', '\n```msf-tool\n{"name":"nav.goto","args":{"tab":"req"}}\n```'];
+    provider.failQueue = [false, true]; // 首轮正常、接力轮网关 503 瞬断
+    const { messageId } = await sessions.send(PID, sessionId, { content: '读一下' }, CTX);
+    const c = await sessions.drive(messageId, () => {}, { ctx: CTX });
+    expect(c.status).toBe('done'); // 首轮成功即 done（接力失败不拖垮整消息）
+    const msgs = await sessions.messages(PID, sessionId);
+    const aiMsg = msgs.items.find((m) => m.id === messageId)! as unknown as {
+      content: string; toolCalls: Array<{ toolName: string; status: string }>;
+    };
+    // 首轮成果与工具卡保留 + 续答失败提示用户可见（2026-10-05 实机教训：失败零痕迹→用户对着开场白干等）
+    expect(aiMsg.content).toContain('我先读取需求页内容');
+    expect(aiMsg.content).toContain('⚠️ 续答生成失败');
+    expect(aiMsg.content).toContain('请重发你的问题');
+    expect(aiMsg.content).not.toContain('msf-tool');
+    expect(aiMsg.toolCalls.length).toBe(1);
+    expect(aiMsg.toolCalls[0]!.status).toBe('ok');
+    // 恰两轮（首轮+失败的接力轮）：失败即终止，不再向故障网关连败至 3 轮上限
+    expect(provider.capturedPrompts.length).toBe(2);
+    provider.failQueue = [];
   });
 
   it('外部工具旁路：命中注册表走 handler（无事务）+ recordDirect 成功/失败两路留痕；未命中走 invoke 不变', async () => {

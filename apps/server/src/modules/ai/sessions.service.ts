@@ -565,6 +565,12 @@ export class AiSessionsService implements OnModuleInit {
             : r2.usage;
         }
         if (r2.stopped) { status = 'stopped'; break; }
+        if (r2.failed) {
+          // 接力轮网关失败（如 503 上游鉴权不可用瞬断）：首轮成果+工具卡保留，但绝不能让用户
+          // 对着半截开场白干等——消息内补可见提示并终止接力（网关故障期继续接力只会连败）
+          content = `${content}\n\n> ⚠️ 续答生成失败（${r2.failed}）：工具结果已取回，但模型续答中断。请重发你的问题，我会重新读取并直接给出结论。`;
+          break;
+        }
       }
       await executeCommand('ai.message.finish', {
         messageId, status, content,

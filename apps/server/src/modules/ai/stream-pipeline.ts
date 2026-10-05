@@ -197,23 +197,29 @@ export class StreamPipeline implements OnModuleInit, OnModuleDestroy {
     messageId: string,
     ai: AiSession,
     prompt: string,
-  ): Promise<{ content: string; usage?: AiUsage; stopped: boolean }> {
+  ): Promise<{ content: string; usage?: AiUsage; stopped: boolean; failed?: string }> {
     const e = this.get(messageId);
     e.ai = ai; // stop/pause 作用于当前轮会话
     const { deltas, result } = ai.stream(prompt, { thinkLevel: e.thinkLevel as never });
     result.catch(() => null);
     let content = '';
+    let failed: string | undefined;
     try {
       for await (const d of deltas) {
         content += d;
         this.emit(e, { seq: 0, type: 'stream.delta', data: { text: d } });
         if (e.paused) await this.waitResume(e);
       }
-    } catch {
-      // 接力轮流失败：保留已流出部分，由调用方决定以现有内容终结（不再抛——首轮成果已可用）
+    } catch (err) {
+      // 接力轮流失败：保留已流出部分，由调用方决定以现有内容终结（不再抛——首轮成果已可用）。
+      // 但绝不能静默——2026-10-05 实机曾整轮失败零痕迹（回复只剩开场白），排查无据；
+      // failed 回传调用方，由其在消息内补用户可见的续答失败提示
+      const raw = err instanceof Error ? err.message : String(err);
+      failed = sanitizeAiError(raw);
+      console.error(`[ai] continuation stream failed messageId=${messageId}: ${failed}`);
     }
     const r = await result.catch(() => null);
-    return { content, ...(r?.usage ? { usage: r.usage } : {}), stopped: e.stopped };
+    return { content, ...(r?.usage ? { usage: r.usage } : {}), stopped: e.stopped, ...(failed ? { failed } : {}) };
   }
 
   private emit(e: PipelineEntry, frame: StreamFrame): void {
