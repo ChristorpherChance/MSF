@@ -159,6 +159,12 @@ export const reqApi = {
     api.get<{ items: ReferenceCandidate[] }>(`/api/v1/projects/${pid}/materials/references`),
   rtm: (pid: string) => api.get<RtmView>(`${base(pid)}/rtm`),
   health: (pid: string) => api.get<HealthView>(`${base(pid)}/rtm/health`),
+  /** RTM 覆盖闭环：重建映射并即时返回覆盖结论（含缺口清单） */
+  rebuildCheck: (pid: string) => api.post<HealthView>(`${base(pid)}/rtm:rebuild-check`, {}),
+  /** RTM 覆盖闭环：按缺口清单向 CRD/PRD 提案定向补齐（高亮补丁，人工确认后生效） */
+  coverageFix: (pid: string) =>
+    api.post<{ ok: boolean; results: Array<{ kind: 'crd' | 'prd'; ok: boolean; patchCount?: number; reason?: string }> }>(
+      `${base(pid)}/rtm:coverage-fix`, {}),
   defer: (pid: string, nodeKind: 'cr' | 'req', code: string, reason: string) =>
     api.post(`${base(pid)}/rtm/${nodeKind}/${code}:defer`, { reason }),
   undefer: (pid: string, nodeKind: 'cr' | 'req', code: string) =>

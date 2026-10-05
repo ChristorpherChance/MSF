@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { ApiError } from '../../api';
 import { Modal } from '../../ui/Modal';
+import { toast } from '../../ui/toast';
 import { reqApi, type RtmRow } from './api';
 import { useReqView } from './store';
 
@@ -25,11 +26,57 @@ const STATE_LABEL: Record<RtmRow['state'], string> = {
 
 /** RTM 工作面（LLD-6 §3.3：标题说明 + 六 KPI 卡 + 明细表四色节点 + DSG 八册卡 + 门禁规则卡） */
 export function RtmPanel() {
-  const { rtm, health, loading, error, refreshRtm } = useReqView();
+  const { rtm, health, loading, error, refreshRtm, projectId } = useReqView();
   const [deferTarget, setDeferTarget] = useState<{ kind: 'cr' | 'req'; code: string } | null>(null);
   const [undeferTarget, setUndeferTarget] = useState<{ kind: 'cr' | 'req'; code: string } | null>(null);
   const [trace, setTrace] = useState<{ row: RtmRow; node: string } | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
+  const [rtmBusy, setRtmBusy] = useState(false);
+
+  /** 覆盖闭环①：重建映射并即时拿覆盖结论（定稿后按新文档手动重建入口） */
+  const onRebuildCheck = async () => {
+    if (!projectId || rtmBusy) return;
+    setRtmBusy(true);
+    try {
+      const h = await reqApi.rebuildCheck(projectId);
+      await refreshRtm();
+      toast(
+        h.ok && h.gaps.length === 0
+          ? `✅ 映射已重建，覆盖检查通过（L0a ${(h.l0a * 100).toFixed(1)}% / L0b ${(h.l0b * 100).toFixed(1)}% / L0c ${(h.l0c * 100).toFixed(1)}%）`
+          : `⚠ 映射已重建，仍有 ${h.gaps.length} 条缺口——可用「✨ AI 补齐缺口」形成解决闭环`,
+        h.ok && h.gaps.length === 0 ? 'success' : 'warn',
+      );
+    } catch (e) {
+      toast(`重建失败：${e instanceof ApiError ? e.message : String(e)}`, 'warn');
+    } finally {
+      setRtmBusy(false);
+    }
+  };
+
+  /** 覆盖闭环②：按缺口清单向 CRD/PRD 提案定向补齐（人工确认→提交→再检查即转绿） */
+  const onCoverageFix = async () => {
+    if (!projectId || rtmBusy) return;
+    setRtmBusy(true);
+    try {
+      const r = await reqApi.coverageFix(projectId);
+      if (r.results.length === 0) {
+        toast('覆盖检查已通过，无缺口需补齐', 'success');
+        return;
+      }
+      for (const it of r.results) {
+        toast(
+          it.ok
+            ? `${it.kind.toUpperCase()}：已提交 ${it.patchCount} 条补齐建议——请到${it.kind === 'crd' ? ' CRD ' : ' PRD '}页确认补丁→提交版本→回此再检查`
+            : `${it.kind.toUpperCase()}：${it.reason}`,
+          it.ok ? 'success' : 'warn',
+        );
+      }
+    } catch (e) {
+      toast(`补齐失败：${e instanceof ApiError ? e.message : String(e)}`, 'warn');
+    } finally {
+      setRtmBusy(false);
+    }
+  };
 
   // R5：任务卡 REQ 锚点跳入承接（devJumpRtm → /req?tab=rtm#REQ-xxx），定位行并闪高亮
   useEffect(() => {
@@ -107,13 +154,33 @@ export function RtmPanel() {
       {health.gaps.length > 0 && (
         <div className="req-banner warn">
           ⚠ 缺口 {health.gaps.length} 项：{health.gaps.map((g) => `${g.target}（${g.message}）`).join('；')}
+          {health.gaps.some((g) => g.code === 'L0A_BELOW' || g.code === 'RTM_HEALTH') && (
+            <button
+              className="act mini primary"
+              disabled={rtmBusy}
+              title="按缺口清单向 CRD/PRD 定向提案补齐（高亮补丁）：确认补丁 → 提交版本 → 回此再检查，即形成解决闭环；已定稿文档会引导先解锁"
+              onClick={() => void onCoverageFix()}
+            >
+              ✨ AI 补齐缺口
+            </button>
+          )}
         </div>
       )}
 
       <div className="rtm-card">
         <div className="rtm-card-head">
           <strong>追溯链明细</strong>
-          <button className="act" onClick={() => void refreshRtm()}>↻ 刷新</button>
+          <span>
+            <button
+              className="act"
+              disabled={rtmBusy}
+              title="按当前 CRD/PRD/设计册已提交版本重建锚点映射，并即时给出覆盖检查结论（定稿后核对称手）"
+              onClick={() => void onRebuildCheck()}
+            >
+              ⟳ 重建映射并检查覆盖
+            </button>
+            <button className="act" onClick={() => void refreshRtm()}>↻ 刷新</button>
+          </span>
         </div>
         <table className="rtm-table">
           <thead>

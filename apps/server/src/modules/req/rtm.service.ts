@@ -91,6 +91,13 @@ export class RtmService {
     };
   }
 
+  /** RTM 覆盖闭环（2026-10-05 拍板）：人工一键「重建映射并检查覆盖」——
+   *  锚点链本随 commit 自动重建，此入口面向「定稿后按新文档手动重建+立即拿覆盖结论」场景 */
+  async rebuildAndCheck(projectId: string, ctx: CommandContext): Promise<unknown> {
+    await executeCommand('rtm.rebuild', { projectId }, { ...ctx, projectId });
+    return this.health(projectId);
+  }
+
   async markDeferred(projectId: string, nodeKind: 'cr' | 'req', nodeCode: string, reason: string, ctx: CommandContext) {
     return executeCommand('rtm.deferred.mark', { projectId, nodeKind, nodeCode, reason }, { ...ctx, projectId });
   }

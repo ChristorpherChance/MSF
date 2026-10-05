@@ -245,6 +245,20 @@ export class ReqController {
     return this.rtm.health(projectId);
   }
 
+  /** RTM 覆盖闭环：人工一键「重建映射并检查覆盖」（定稿后按新文档手动重建+即时结论） */
+  @Post('rtm\:rebuild-check')
+  @HttpCode(200)
+  rebuildCheck(@Param('projectId') projectId: string, @Req() req: Request) {
+    return this.rtm.rebuildAndCheck(projectId, this.actor(req, projectId));
+  }
+
+  /** RTM 覆盖闭环：按缺口清单向 CRD/PRD 提案定向补齐（高亮补丁，人工确认后生效） */
+  @Post('rtm\:coverage-fix')
+  @HttpCode(200)
+  coverageFix(@Param('projectId') projectId: string, @Req() req: Request) {
+    return this.gen.coverageFixFromGaps(projectId, this.actor(req, projectId));
+  }
+
   /** A04-14（补充）：deferred 标记/撤销（LLD-3 C10-2 rtm.deferred.*；LLD-6 §3.3 行内操作钮） */
   @Post('rtm/:kind/:code\\:defer')
   @HttpCode(200)

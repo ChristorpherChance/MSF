@@ -7,6 +7,7 @@ import { mdToPatches, normalizePatches, sha256Text, splitSections, buildNumberGu
 import { AI_PROVIDER, type AiProvider, type AiUsage } from '../ai/ai-provider.interface.js';
 import { classifyAiError, sanitizeAiError } from '../ai/stream-pipeline.js';
 import { registerExternalTool } from '../platform/external-tools.js';
+import { ReqDocsService } from './docs.service.js';
 
 /**
  * 文档 AI 生成（A04-4/5；REQ-202/114/115；F02-12 流式控制）。
@@ -57,6 +58,8 @@ export const genTiming = { chunkDelayMs: 15 };
 export class GenerateService {
   constructor(
     @Optional() @Inject(AI_PROVIDER) private readonly ai?: AiProvider,
+    // RTM 覆盖闭环取实时健康度用（可选：集成测试直 new 0~1 参不破；Nest 运行期必注入）
+    @Optional() @Inject(ReqDocsService) private readonly docs?: ReqDocsService,
   ) {}
 
   onModuleInit(): void {
@@ -292,6 +295,8 @@ export class GenerateService {
     instruction: string,
     ctx: CommandContext,
     mode: 'patch' | 'rewrite' = 'patch',
+    /** RTM 覆盖闭环 mock 定向产出（离线可测「缺口→锚点补丁→接受→转绿」全链；pi 通道忽略） */
+    mockText?: string,
   ): Promise<{ ok: boolean; patchCount?: number; route?: string; kind?: 'crd' | 'prd'; reason?: string }> {
     const doc = await query<{ id: string; final_version_id: string | null; current_version_id: string | null }>(
       'SELECT id, final_version_id, current_version_id FROM req_documents WHERE project_id=$1 AND doc_kind=$2',
@@ -345,9 +350,9 @@ export class GenerateService {
         return { ok: false, reason: `AI 调用失败：${sanitizeAiError(raw)}` };
       }
     } else {
-      text = mode === 'rewrite'
+      text = mockText ?? (mode === 'rewrite'
         ? buildMockChatRewrite(kind, effective, cut)
-        : buildMockChatEdit(kind, effective, cut);
+        : buildMockChatEdit(kind, effective, cut));
     }
     // rewrite：模型输出即重写后全文 → 单条 replace 补丁（不过 mdToPatches/normalizePatches）
     const patches: EditPatch[] = mode === 'rewrite'
@@ -384,6 +389,52 @@ export class GenerateService {
     }
   }
 
+  /**
+   * RTM 覆盖闭环（2026-10-05 拍板）：「重建映射并检查覆盖」发现缺口后一键补齐——
+   * 按健康度缺口清单分别向 CRD（R→CR 未覆盖）/PRD（CR→REQ 未承接）提案定向补齐
+   * （新增节带承接锚点，编号顺延）；接受补丁并提交版本后再检查即转绿，闭环成立。
+   * pi 通道复用增量修订 prompt（instruction 带缺口清单）；mock 通道产定向锚点补丁（离线可测闭环）。
+   * 守卫全部走 proposeEditsFromChat 既有链（未定稿/待确认补丁/无内容翻人话；定稿引导先解锁）。
+   */
+  async coverageFixFromGaps(
+    projectId: string,
+    ctx: CommandContext,
+  ): Promise<{ ok: boolean; results: Array<{ kind: 'crd' | 'prd'; ok: boolean; patchCount?: number; reason?: string }> }> {
+    if (!this.docs) throw new DomainError('INTERNAL', 'ReqDocsService 未注入', 'coverage-fix');
+    const h = await this.docs.computeLiveHealth(null, projectId);
+    const crdGaps = h.gaps.filter((g) => g.code === 'L0A_BELOW').map((g) => g.target);
+    const prdGaps = h.gaps.filter((g) => g.code === 'RTM_HEALTH').map((g) => g.target);
+    if (crdGaps.length === 0 && prdGaps.length === 0) {
+      return { ok: true, results: [] }; // 覆盖检查已通过，无缺口需补齐
+    }
+    const results: Array<{ kind: 'crd' | 'prd'; ok: boolean; patchCount?: number; reason?: string }> = [];
+    if (crdGaps.length > 0) {
+      const instruction = `RTM 覆盖缺口补齐：客户原始诉求 ${crdGaps.join('、')} 在 CRD 中尚无对应变更章节——为每条新增一个 CR 节（编号顺延，标题形如 CR-nnn 简明标题，正文含「承接：R-nnn」且与该条目一一对应、需求描述与验收要点）。只输出新增章节，不要复述既有内容。`;
+      const r = await this.proposeEditsFromChat(projectId, 'crd', instruction, ctx, 'patch',
+        this.ai?.kind === 'pi' ? undefined : buildMockCoverageFix('crd', crdGaps, await this.effectiveContent(projectId, 'crd')));
+      results.push({ kind: 'crd', ok: r.ok, ...(r.patchCount !== undefined ? { patchCount: r.patchCount } : {}), ...(r.reason ? { reason: r.reason } : {}) });
+    }
+    if (prdGaps.length > 0) {
+      // 实机教训（2026-10-05 八轮项目）：CRD 重编号场景下「只新增」会整批复制既有 REQ 语义——
+      // 先优先整章重写语义对应但锚点陈旧/缺失的既有节，确无对应才新增
+      const instruction = `RTM 覆盖缺口补齐：CRD 变更条目 ${prdGaps.join('、')} 未被 PRD 承接。**优先**在既有 REQ 节中找语义对应者（哪怕其承接锚点陈旧或缺失），整章重写该节并写入正确的「承接：CR-nnn」锚点；确无语义对应节的条目才新增 REQ 节（编号顺延，正文含「承接：CR-nnn」、需求描述与验收要点）。不要为已有语义对应的条目重复新增。只输出需要新增或修改的章节。`;
+      const r = await this.proposeEditsFromChat(projectId, 'prd', instruction, ctx, 'patch',
+        this.ai?.kind === 'pi' ? undefined : buildMockCoverageFix('prd', prdGaps, await this.effectiveContent(projectId, 'prd')));
+      results.push({ kind: 'prd', ok: r.ok, ...(r.patchCount !== undefined ? { patchCount: r.patchCount } : {}), ...(r.reason ? { reason: r.reason } : {}) });
+    }
+    return { ok: results.every((r) => r.ok), results };
+  }
+
+  /** 当前有效稿（草稿优先；coverageFix mock 定向产出取编号用） */
+  private async effectiveContent(projectId: string, kind: 'crd' | 'prd'): Promise<string> {
+    const cur = await query<{ content: string }>(
+      `SELECT v.content FROM req_versions v JOIN req_documents d ON d.current_version_id=v.id
+       WHERE d.project_id=$1 AND d.doc_kind=$2`, [projectId, kind]);
+    const draft = await query<{ content: string }>(
+      `SELECT t.content FROM req_drafts t JOIN req_documents d ON d.id=t.document_id
+       WHERE d.project_id=$1 AND d.doc_kind=$2`, [projectId, kind]);
+    return draft.rows[0]?.content ?? cur.rows[0]?.content ?? '';
+  }
   /**
    * 真接驱动：经 AI_PROVIDER（purpose='generation'）流式生成；pause 缓冲、stop 中止；
    * 完成后按章节切补丁，用量经 ai.usage.record 落账（REQ-612）。
@@ -549,4 +600,17 @@ function buildMockChatEdit(kind: 'crd' | 'prd', effective: string, instruction: 
   if (hit) parts.push(`## ${hit.title}\n\n${hit.md}\n\n（mock 对话修订：${note}）`);
   parts.push(`## ${next} 对话补充条目\n\n承接：见对话上下文\n\n（mock 对话新增：${note}）`);
   return parts.join('\n\n');
+}
+
+/** RTM 覆盖闭环 mock 定向产出（确定性：每个缺口一条新增节，承接锚点=缺口码，编号顺延——
+ *  接受并提交后 deriveLinks 即覆盖转绿，离线可测「缺口→提案→接受→再检查」全闭环） */
+function buildMockCoverageFix(kind: 'crd' | 'prd', missing: string[], effective: string): string {
+  const prefix = kind === 'crd' ? 'CR' : 'REQ';
+  const codes = [...effective.matchAll(kind === 'crd' ? /\bCR-(\d{3})\b/g : /\bREQ-(\d{3})\b/g)]
+    .map((m) => Number(m[1]));
+  let next = (codes.length > 0 ? Math.max(...codes) : 0) + 1;
+  return missing.map((t) => {
+    const code = `${prefix}-${String(next++).padStart(3, '0')}`;
+    return `## ${code} RTM 覆盖补齐：${t}\n\n承接：${t}\n\n（mock 覆盖补齐：按 RTM 缺口清单定向新增，待人工确认后生效）`;
+  }).join('\n\n');
 }

@@ -39,7 +39,7 @@ describe('ReqDocs/Rtm/Generate（集成，需 DB+MinIO）', async () => {
   const uploads = new UploadsService(storage);
   const parse = new ParseService(storage);
   const docs = new ReqDocsService(new PolicyService());
-  const gen = new GenerateService();
+  const gen = new GenerateService(undefined, docs); // 第 2 参 docs：RTM 覆盖闭环取实时健康度
   const rtm = new RtmService(docs);
   const exp = new ReqExportService(storage);
   resetCommands();
@@ -697,6 +697,65 @@ describe('ReqDocs/Rtm/Generate（集成，需 DB+MinIO）', async () => {
       await query('DELETE FROM req_versions WHERE document_id IN (SELECT id FROM req_documents WHERE project_id=$1)', [PID7]);
       await query('DELETE FROM req_documents WHERE project_id=$1', [PID7]);
       await query('DELETE FROM projects WHERE id=$1', [PID7]);
+    }
+  });
+
+  it('RTM 覆盖闭环：重建检查出缺口 → AI 补齐定向提案 → 接受提交 → 再检查转绿（幂等）', async () => {
+    const PID8 = '00000000-0000-0000-0000-0000000000d4';
+    const CTX8 = { projectId: PID8, actorKind: 'human' as const, actorId: 'local' };
+    await query("INSERT INTO projects (id, name) VALUES ($1, 'rtm-coverage-loop') ON CONFLICT (id) DO NOTHING", [PID8]);
+    try {
+      await docs.listDocs(PID8, CTX8); // 模板自举
+      // CRD：R-001/R-002 → CR-001/CR-002 全承接（L0a 先绿，聚焦 L0b 闭环）
+      let dc = (await docs.getDoc(PID8, 'crd')) as unknown as DocView;
+      await docs.saveDraft(PID8, 'crd', { secId: dc.secs[0]!.id, md: [
+        '引言。', '', '## CR-001 门户', '', '承接：R-001', '', '## CR-002 检索', '', '承接：R-002',
+      ].join('\n'), baseVersion: dc.cur, baseFingerprint: dc.contentFingerprint }, CTX8);
+      dc = (await docs.getDoc(PID8, 'crd')) as unknown as DocView;
+      await docs.commit(PID8, 'crd', 'CRD v2', dc.cur, CTX8);
+      // PRD：只承接 CR-001 → L0b 缺口 CR-002
+      let dp = (await docs.getDoc(PID8, 'prd')) as unknown as DocView;
+      await docs.saveDraft(PID8, 'prd', { secId: dp.secs[0]!.id, md: [
+        '引言。', '', '## REQ-001 门户页', '', '承接：CR-001',
+      ].join('\n'), baseVersion: dp.cur, baseFingerprint: dp.contentFingerprint }, CTX8);
+      dp = (await docs.getDoc(PID8, 'prd')) as unknown as DocView;
+      await docs.commit(PID8, 'prd', 'PRD v2', dp.cur, CTX8);
+      // ①重建映射并检查：L0b 未达标、缺口 CR-002（rtm.rebuild 幂等重建 + 实时健康度）
+      const h1 = (await rtm.rebuildAndCheck(PID8, CTX8)) as { ok: boolean; l0b: number; gaps: Array<{ code: string; target: string }> };
+      expect(h1.ok).toBe(false);
+      expect(h1.l0b).toBe(0.5);
+      expect(h1.gaps.some((g) => g.code === 'RTM_HEALTH' && g.target === 'CR-002')).toBe(true);
+      // ②AI 补齐缺口（mock 定向锚点补丁：承接 CR-002、编号顺延）
+      const fix = await gen.coverageFixFromGaps(PID8, CTX8);
+      expect(fix.ok).toBe(true);
+      expect(fix.results.length).toBe(1);
+      expect(fix.results[0]!.kind).toBe('prd');
+      expect(fix.results[0]!.patchCount).toBe(1);
+      const patches = (await docs.listPatches(PID8, 'prd')) as { items: Array<{ patchId: string; status: string; title?: string }> };
+      const pend = patches.items.filter((p) => p.status === 'pending');
+      expect(pend.length).toBe(1);
+      expect(pend[0]!.title).toContain('CR-002');
+      // ③接受 → 提交 → 再检查转绿（闭环成立）
+      await docs.acceptPatch(PID8, 'prd', pend[0]!.patchId, CTX8);
+      dp = (await docs.getDoc(PID8, 'prd')) as unknown as DocView;
+      await docs.commit(PID8, 'prd', 'PRD v3 补齐', dp.cur, CTX8);
+      const h2 = (await rtm.rebuildAndCheck(PID8, CTX8)) as { l0b: number };
+      expect(h2.l0b).toBe(1);
+      // 无缺口幂等：results 空（覆盖检查已通过）
+      const fix2 = await gen.coverageFixFromGaps(PID8, CTX8);
+      expect(fix2.ok).toBe(true);
+      expect(fix2.results.length).toBe(0);
+    } finally {
+      await query('DELETE FROM sys_notifications WHERE project_id=$1', [PID8]);
+      await query('DELETE FROM evd_events WHERE project_id=$1', [PID8]);
+      await query('DELETE FROM rtm_links WHERE project_id=$1', [PID8]);
+      await query('DELETE FROM rtm_health WHERE project_id=$1', [PID8]);
+      await query('DELETE FROM req_pendings WHERE document_id IN (SELECT id FROM req_documents WHERE project_id=$1)', [PID8]);
+      await query('DELETE FROM req_drafts WHERE document_id IN (SELECT id FROM req_documents WHERE project_id=$1)', [PID8]);
+      await query('UPDATE req_documents SET current_version_id=NULL, final_version_id=NULL WHERE project_id=$1', [PID8]);
+      await query('DELETE FROM req_versions WHERE document_id IN (SELECT id FROM req_documents WHERE project_id=$1)', [PID8]);
+      await query('DELETE FROM req_documents WHERE project_id=$1', [PID8]);
+      await query('DELETE FROM projects WHERE id=$1', [PID8]);
     }
   });
 });
