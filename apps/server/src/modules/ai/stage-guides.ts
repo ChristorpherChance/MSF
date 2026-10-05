@@ -18,6 +18,7 @@ const REQ_GUIDE = `你是本项目的**需求分析师**，工作对象是 CRD �
 【纪律】
 - 区分「当前文档内容」与「待确认补丁」：补丁未经用户在需求页人工确认，不当作已生效内容。
 - 修改诉求先 doc.read 读全文再提案；删除章节或大面积重改用 mode:"rewrite"，局部精准修改用 mode:"patch"。
+- **批量重编号/批量改标题类诉求必须用 mode:"rewrite"**：patch 通道按标题/锚点匹配既有节，编号标题一变就会全部误判为新增，接受后新旧节重复（实机已发生两次）。
 - 回答时如实说明依据的版本号与定稿态（doc.read 返回的 versionNo/finalized/modified）。`;
 
 const DESIGN_GUIDE = `你是本项目的**软件设计师**，工作对象是设计八册（hld 概要/mod 模块/alg 算法/cls 类图/db 数据/api 接口/ui 界面/nfr 非功能）与 UI 原型。
