@@ -60,6 +60,8 @@ interface PipelineEntry {
   done: boolean;
   resumed: (() => void) | null;
   started: boolean;
+  /** 首轮 thinkLevel——接力轮（agentic loop）沿用同一推理档位 */
+  thinkLevel?: string | undefined;
 }
 
 const WINDOW = 200;
@@ -156,6 +158,7 @@ export class StreamPipeline implements OnModuleInit, OnModuleDestroy {
     const e = this.get(messageId);
     if (e.started) return;
     e.started = true;
+    e.thinkLevel = extra.thinkLevel;
     void (async () => {
       const { deltas, result } = e.ai.stream(e.prompt, { thinkLevel: extra.thinkLevel as never });
       result.catch(() => null); // 失败经 deltas 迭代抛出，此处仅防 unhandled
@@ -182,6 +185,35 @@ export class StreamPipeline implements OnModuleInit, OnModuleDestroy {
         }, onFinish);
       }
     })();
+  }
+
+  /**
+   * 接力轮（agentic loop）：首轮回复带工具围栏时，工具执行结果回喂模型后继续生成——
+   * 同一条消息内换新供应商会话接着流式输出（delta 走同一滚动窗/暂停缓冲/订阅广播，
+   * 前端无感衔接）；stop 打击切换到当前轮会话，thinkLevel 沿用首轮档位。
+   * 仅在 run 的 onFinish 内、终帧广播前调用（条目未 done）。
+   */
+  async runContinuation(
+    messageId: string,
+    ai: AiSession,
+    prompt: string,
+  ): Promise<{ content: string; usage?: AiUsage; stopped: boolean }> {
+    const e = this.get(messageId);
+    e.ai = ai; // stop/pause 作用于当前轮会话
+    const { deltas, result } = ai.stream(prompt, { thinkLevel: e.thinkLevel as never });
+    result.catch(() => null);
+    let content = '';
+    try {
+      for await (const d of deltas) {
+        content += d;
+        this.emit(e, { seq: 0, type: 'stream.delta', data: { text: d } });
+        if (e.paused) await this.waitResume(e);
+      }
+    } catch {
+      // 接力轮流失败：保留已流出部分，由调用方决定以现有内容终结（不再抛——首轮成果已可用）
+    }
+    const r = await result.catch(() => null);
+    return { content, ...(r?.usage ? { usage: r.usage } : {}), stopped: e.stopped };
   }
 
   private emit(e: PipelineEntry, frame: StreamFrame): void {

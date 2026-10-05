@@ -25,7 +25,10 @@ class FakeSession implements AiSession {
   private stopped = false;
   /** W2-053：自定义块序列（工具围栏块测试用）；空=默认两段 */
   chunks: string[] | null = null;
-  stream(): { deltas: AsyncIterable<string>; result: Promise<AiMessageResult> } {
+  /** agentic 接力：记录每轮 stream 收到的 prompt（断言工具结果回喂） */
+  onStream: ((prompt: string) => void) | null = null;
+  stream(prompt?: string): { deltas: AsyncIterable<string>; result: Promise<AiMessageResult> } {
+    if (prompt !== undefined) this.onStream?.(prompt);
     let resolveResult!: (r: AiMessageResult) => void;
     const result = new Promise<AiMessageResult>((res) => { resolveResult = res; });
     const gates = this.gates;
@@ -65,9 +68,14 @@ class FakeProvider implements AiProvider {
   last: FakeSession | null = null;
   /** W2-053：下一次 createSession 的自定义块序列 */
   nextChunks: string[] | null = null;
+  /** agentic 接力轮次队列：首轮后每次 createSession 依序出队（空=默认两段——注意默认路径有闸会挂起，接力轮务必入队） */
+  roundQueue: string[][] = [];
+  /** 每轮 stream 收到的 prompt（接力轮回喂断言用） */
+  capturedPrompts: string[] = [];
   async createSession(): Promise<AiSession> {
     const s = new FakeSession();
-    s.chunks = this.nextChunks;
+    s.chunks = this.nextChunks ?? this.roundQueue.shift() ?? null;
+    s.onStream = (p) => this.capturedPrompts.push(p);
     this.nextChunks = null;
     this.last = s;
     return s;
@@ -258,8 +266,10 @@ describe('AI 会话/消息/流式管线（集成，需 DB）', async () => {
     await expect(query('SELECT 1', [])).resolves.toBeTruthy();
   });
 
-  it('W2-053 工具自主调用链：```msf-tool 围栏块流末解析执行——挂 message_id、正文剔除、工具卡随消息可达', async () => {
+  it('W2-053 工具自主调用链 + agentic 接力：围栏块流末解析执行→结果回喂模型→同一条消息续答', async () => {
+    provider.capturedPrompts = []; // 跨用例累积清零（本用例断言恰两轮：首轮+接力轮）
     provider.nextChunks = ['好的，为你打开需求页。', '\n```msf-tool\n{"name":"nav.goto","args":{"tab":"req"}}\n```'];
+    provider.roundQueue.push(['已为你打开需求页，可直接查看。']); // 接力轮续答（无围栏→接力终止）
     const { messageId } = await sessions.send(PID, sessionId, { content: '帮我打开需求页' }, CTX);
     const c = await sessions.drive(messageId, () => {}, { ctx: CTX });
     expect(c.status).toBe('done');
@@ -268,15 +278,21 @@ describe('AI 会话/消息/流式管线（集成，需 DB）', async () => {
       content: string;
       toolCalls: Array<{ toolName: string; status: string; resultSummary: unknown }>;
     };
-    // 正文剔除围栏块；工具调用挂到该消息（前端 AiContent 按 message.toolCalls 渲染工具卡）
+    // 正文剔除围栏块 + 接力轮续答并入同一条消息；工具调用挂到该消息（前端 AiContent 按 message.toolCalls 渲染工具卡）
     expect(aiMsg.content).not.toContain('msf-tool');
     expect(aiMsg.content).toContain('为你打开需求页');
+    expect(aiMsg.content).toContain('已为你打开需求页，可直接查看'); // 接力轮：结果回喂后的续答
     expect(aiMsg.toolCalls.length).toBe(1);
     expect(aiMsg.toolCalls[0]!.toolName).toBe('nav.goto');
     expect(aiMsg.toolCalls[0]!.status).toBe('ok');
     expect((aiMsg.toolCalls[0]!.resultSummary as { route: string }).route).toBe('/req');
-    // 非法块/未注册工具不阻断落稿：正文保留剔除后内容，失败调用留痕 failed
+    // 接力 prompt 携带工具执行结果（模型据此回答，不再"拿到结果后我会……"）
+    expect(provider.capturedPrompts.length).toBe(2);
+    expect(provider.capturedPrompts[1]).toContain('nav.goto');
+    expect(provider.capturedPrompts[1]).toContain('"route":"/req"');
+    // 非法块/未注册工具不阻断落稿：正文保留剔除后内容，失败调用留痕 failed（失败结果同样回喂接力轮）
     provider.nextChunks = ['```msf-tool\nnot-json\n```', '尾部正文。', '```msf-tool\n{"name":"no.such"}\n```'];
+    provider.roundQueue.push(['该工具不存在，已知悉。']);
     const s2 = await sessions.send(PID, sessionId, { content: '再来一次' }, CTX);
     const c2 = await sessions.drive(s2.messageId, () => {}, { ctx: CTX });
     expect(c2.status).toBe('done');
@@ -284,7 +300,7 @@ describe('AI 会话/消息/流式管线（集成，需 DB）', async () => {
     const aiMsg2 = msgs2.items.find((m) => m.id === s2.messageId)! as unknown as {
       content: string; toolCalls: Array<{ toolName: string; status: string }>;
     };
-    expect(aiMsg2.content).toBe('尾部正文。');
+    expect(aiMsg2.content).toBe('尾部正文。\n\n该工具不存在，已知悉。');
     expect(aiMsg2.toolCalls.some((t) => t.toolName === 'no.such' && t.status === 'denied')).toBe(true);
   });
 
@@ -301,6 +317,7 @@ describe('AI 会话/消息/流式管线（集成，需 DB）', async () => {
         '```msf-tool\n{"name":"test.boom","args":{}}\n```',
         '```msf-tool\n{"name":"nav.goto","args":{"tab":"req"}}\n```',
       ];
+      provider.roundQueue.push(['旁路结果已收到。']); // 接力轮（三个块均有结果回喂）
       const { messageId } = await sessions.send(PID, sessionId, { content: '触发旁路' }, CTX);
       const c = await sessions.drive(messageId, () => {}, { ctx: CTX });
       expect(c.status).toBe('done');

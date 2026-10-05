@@ -386,10 +386,11 @@ export class AiSessionsService implements OnModuleInit {
 
   /**
    * W2-053：解析回复中的 ```msf-tool 围栏块，逐个经 ai.tool.invoke 编排执行（封顶 3 个，
-   * 调用挂 session_id+message_id——前端工具卡按消息聚合的前提），返回剔除围栏后的正文。
+   * 调用挂 session_id+message_id——前端工具卡按消息聚合的前提），返回剔除围栏后的正文+执行结果。
    * 命中外部工具注册表（external-tools.ts）的工具走旁路：handler 无事务执行（含嵌套 LLM
    * 的工具绝不在命令事务内跑）+ recordDirect 留痕 ai_tool_calls；未命中经 ai.tool.invoke。
    * 单块失败不阻断：denied/args_invalid 已在命令内留痕，非法 JSON 块忽略。
+   * results 供 agentic 接力轮回喂（驱动层把结果注入接力 prompt，模型同轮继续回答）。
    */
   async runToolBlocks(
     projectId: string,
@@ -397,12 +398,13 @@ export class AiSessionsService implements OnModuleInit {
     messageId: string,
     content: string,
     ctx: CommandContext,
-  ): Promise<string> {
+  ): Promise<{ stripped: string; results: Array<{ name: string; result: unknown }> }> {
     const RE = /```msf-tool\s*\n([\s\S]*?)```/g;
     const blocks: string[] = [];
     let m: RegExpExecArray | null;
     while ((m = RE.exec(content)) !== null && blocks.length < 3) blocks.push(m[1]!.trim());
-    if (blocks.length === 0) return content;
+    if (blocks.length === 0) return { stripped: content, results: [] };
+    const results: Array<{ name: string; result: unknown }> = [];
     for (const raw of blocks) {
       try {
         const call = JSON.parse(raw) as { name?: string; args?: Record<string, unknown> };
@@ -415,18 +417,22 @@ export class AiSessionsService implements OnModuleInit {
           try {
             const result = await external(projectId, { sessionId, messageId, args: call.args ?? {} }, ctx);
             await this.tools.recordDirect(p, result['ok'] === false ? 'failed' : 'ok', result);
+            results.push({ name: call.name, result });
           } catch (e) {
-            await this.tools.recordDirect(p, 'failed', { error: e instanceof Error ? e.message : String(e) });
+            const err = { error: e instanceof Error ? e.message : String(e) };
+            await this.tools.recordDirect(p, 'failed', err);
+            results.push({ name: call.name, result: err });
           }
           continue;
         }
-        await this.tools
+        const r = await this.tools
           .invoke(projectId, { sessionId, messageId, toolName: call.name, args: call.args ?? {} }, ctx)
-          .catch(() => undefined);
+          .catch((e) => ({ result: { error: e instanceof Error ? e.message : String(e) } }));
+        results.push({ name: call.name, result: r.result });
       } catch { /* 非法 JSON 块忽略 */ }
     }
     const stripped = content.replace(RE, '').replace(/\n{3,}/g, '\n\n').trim();
-    return stripped || '已按请求调用工具，结果见下方工具卡。';
+    return { stripped: stripped || '已按请求调用工具，结果见下方工具卡。', results };
   }
 
   /** 组装发往模型的提示词：当前项目+阶段准入口径上下文（U-035）+ 参考全文（内容定稿稿，单份截 12000 字/总截 32000 字）+ 他阶段会话摘要（跨阶段互通读侧）+ 近 6 轮历史 + 本次请求 */
@@ -471,7 +477,7 @@ export class AiSessionsService implements OnModuleInit {
 - chat.history.read：读取本项目其它阶段会话的最近消息。args: {"sessionCode":"ss_3","limit":20}（limit 封顶 50）。当【他阶段会话】摘要不够、需要了解客户在其它阶段聊过的细节时调用。
 - propose_next_step：按项目当前状态计算下一步建议清单。args: {}。当用户问"下一步该做什么"时调用。
 - req.doc.propose_edits：提交 CRD/PRD 修改建议（高亮补丁，用户确认后才生效）。args: {"kind":"crd|prd","instruction":"要改什么","mode":"patch"}（instruction 截 2000 字；mode 默认 patch=只改涉及章节。用户要求"整篇重写/完全重新写/彻底删除某章"时 mode 用 "rewrite"：以当前全文为基线重写整篇，产一条「整篇重写」补丁，同样经用户确认后生效；rewrite 前先用 doc.read 拿齐全文）。当用户要求修改需求文档内容时调用；调用后在正文说明"已发起修改建议提交（结果见下方工具卡），提交成功时请到需求页确认"。
-工具由系统在回复完成后执行，结果以工具卡随消息呈现；围栏块本身不会展示给用户。除 req.doc.propose_edits 的提案通道外，写操作仍须走人工路径。`);
+工具由系统在回复完成后执行，结果以工具卡随消息呈现、并**自动回给你继续回答**（无需用户再发话；拿到结果就直接给结论或下一步工具调用，不要说"拿到结果后我会……"）；围栏块本身不会展示给用户。除 req.doc.propose_edits 的提案通道外，写操作仍须走人工路径。`);
     if (referenceFileIds.length > 0) {
       const refs = await query<{ name: string; body_md: string }>(
         `SELECT f.name, p.body_md FROM mat_files f
@@ -538,17 +544,34 @@ export class AiSessionsService implements OnModuleInit {
     const startedAt = Date.now();
     this.pipeline.run(messageId, { thinkLevel: opts?.thinkLevel }, async (c) => {
       // W2-053：流末解析 ```msf-tool 围栏块并编排执行（工具调用挂 message_id，工具卡随消息渲染）
+      // 2026-10-05 agentic 接力：工具结果回喂模型继续生成（同一条消息多轮，封顶 3 轮接力）——
+      // 此前工具结果只在工具卡呈现，模型拿不到结果，「我读取后回答你」类承诺落空须用户再推一句
+      const ctx2 = opts?.ctx ?? { projectId: e.projectId, actorKind: 'system' as const, actorId: 'stream' };
       let content = c.content;
-      if (c.status === 'done' && content.includes('```msf-tool')) {
-        content = await this.runToolBlocks(e.projectId, e.sessionId, messageId, content,
-          opts?.ctx ?? { projectId: e.projectId, actorKind: 'system', actorId: 'stream' });
+      let status = c.status;
+      let usage = c.usage;
+      let rounds = 0;
+      while (status === 'done' && content.includes('```msf-tool') && rounds < 3) {
+        rounds++;
+        const { stripped, results } = await this.runToolBlocks(e.projectId, e.sessionId, messageId, content, ctx2);
+        content = stripped;
+        if (results.length === 0) break;
+        const ai2 = await this.provider.createSession({ projectId: e.projectId, purpose: 'chat' });
+        const r2 = await this.pipeline.runContinuation(messageId, ai2, buildToolFollowup(e.prompt, results));
+        content = `${content}\n\n${r2.content}`.trim();
+        if (r2.usage) {
+          usage = usage
+            ? { inputTokens: usage.inputTokens + r2.usage.inputTokens, outputTokens: usage.outputTokens + r2.usage.outputTokens, cost: (usage.cost ?? 0) + (r2.usage.cost ?? 0) }
+            : r2.usage;
+        }
+        if (r2.stopped) { status = 'stopped'; break; }
       }
       await executeCommand('ai.message.finish', {
-        messageId, status: c.status, content,
-        ...(c.usage ? { usage: c.usage } : {}), durationMs: Date.now() - startedAt,
+        messageId, status, content,
+        ...(usage ? { usage } : {}), durationMs: Date.now() - startedAt,
         ...(c.error ? { error: c.error } : {}),
         ...(c.errorMessage ? { errorMessage: c.errorMessage } : {}),
-      }, opts?.ctx ?? { projectId: e.projectId, actorKind: 'system', actorId: 'stream' });
+      }, ctx2);
     });
     try {
       return await e.completion;
@@ -582,3 +605,22 @@ export class AiSessionsService implements OnModuleInit {
     return executeCommand(`ai.message.${action}`, { messageId }, { ...ctx, projectId });
   }
 }
+
+/** agentic 接力 prompt：工具执行结果回喂（单结果截 16000 字防爆窗），模型据此同轮继续回答。
+ *  与首轮同一份 basePrompt（系统声明+会话历史在场，接力轮不丢上下文） */
+function buildToolFollowup(basePrompt: string, results: Array<{ name: string; result: unknown }>): string {
+  const blocks = results.map((r) => {
+    const json = JSON.stringify(r.result);
+    const cut = json.length > 16000
+      ? `${json.slice(0, 16000)}…（结果过长已截断，可用 doc.read 的 anchor/offset 参数定向补读）`
+      : json;
+    return `工具 ${r.name} 执行结果：\n${cut}`;
+  });
+  return `${basePrompt}
+
+【工具执行结果（系统已执行你上一轮的围栏块调用）】
+${blocks.join('\n\n')}
+
+请基于上述结果直接给出回答或下一步动作（不要再说"我已发起读取，拿到结果后我会……"——结果已经在上文；确需换参数重读时才再次调用工具）。`;
+}
+
