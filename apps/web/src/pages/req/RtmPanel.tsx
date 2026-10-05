@@ -32,6 +32,7 @@ export function RtmPanel() {
   const [trace, setTrace] = useState<{ row: RtmRow; node: string } | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
   const [rtmBusy, setRtmBusy] = useState(false);
+  const [fixNote, setFixNote] = useState<string | null>(null);
 
   /** 覆盖闭环①：重建映射并即时拿覆盖结论（定稿后按新文档手动重建入口） */
   const onRebuildCheck = async () => {
@@ -53,10 +54,14 @@ export function RtmPanel() {
     }
   };
 
-  /** 覆盖闭环②：按缺口清单向 CRD/PRD 提案定向补齐（人工确认→提交→再检查即转绿） */
+  /** 覆盖闭环②：按缺口清单向 CRD/PRD 提案定向补齐（人工确认→提交→再检查即转绿）。
+   *  实机教训（2026-10-06 用户反馈「点了没用」）：真模型需 1~3 分钟——必须给常驻进度提示，
+   *  且完成后广播 msf:req-proposed 复用需求页回环（自动切到目标文档+刷新补丁高亮），
+   *  否则补丁悄悄落在 CRD/PRD 页、RTM 页上毫无可见变化 */
   const onCoverageFix = async () => {
     if (!projectId || rtmBusy) return;
     setRtmBusy(true);
+    setFixNote('AI 正在按缺口清单生成补齐建议……真模型约需 1~3 分钟，完成后会自动跳到对应文档页并高亮补丁');
     try {
       const r = await reqApi.coverageFix(projectId);
       if (r.results.length === 0) {
@@ -64,9 +69,13 @@ export function RtmPanel() {
         return;
       }
       for (const it of r.results) {
+        if (it.ok) {
+          // 回环：与 dock 提案同通道（req store 监听→切页签+重拉+常驻 toast）
+          window.dispatchEvent(new CustomEvent('msf:req-proposed', { detail: { kind: it.kind } }));
+        }
         toast(
           it.ok
-            ? `${it.kind.toUpperCase()}：已提交 ${it.patchCount} 条补齐建议——请到${it.kind === 'crd' ? ' CRD ' : ' PRD '}页确认补丁→提交版本→回此再检查`
+            ? `${it.kind.toUpperCase()}：已提交 ${it.patchCount} 条补齐建议——确认补丁 → 提交版本 → 回此再检查`
             : `${it.kind.toUpperCase()}：${it.reason}`,
           it.ok ? 'success' : 'warn',
         );
@@ -75,6 +84,7 @@ export function RtmPanel() {
       toast(`补齐失败：${e instanceof ApiError ? e.message : String(e)}`, 'warn');
     } finally {
       setRtmBusy(false);
+      setFixNote(null);
     }
   };
 
@@ -150,6 +160,10 @@ export function RtmPanel() {
           </div>
         ))}
       </div>
+
+      {fixNote && (
+        <div className="req-banner">⏳ {fixNote}</div>
+      )}
 
       {health.gaps.length > 0 && (
         <div className="req-banner warn">
