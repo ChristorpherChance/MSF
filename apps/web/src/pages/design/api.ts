@@ -11,6 +11,8 @@ export type DesignKind = 'hld' | 'mod' | 'alg' | 'cls' | 'db' | 'api' | 'ui' | '
 export interface DesignDocItem {
   id: string; kind: DesignKind; book: string; title: string;
   cur: number; finalVer: number; finalized: boolean; modified: boolean; pendingCount: number;
+  /** 上游变更联动（2026-10-05）：PRD 已有更新版本提交，本册内容可能滞后 */
+  upstreamStale?: boolean; upstreamVersionNo?: number;
 }
 
 export interface DesignDocView {
@@ -20,6 +22,8 @@ export interface DesignDocView {
   version: number; contentFingerprint: string;
   /** W2-025：undo/redo 栈实态（与需求域同口径） */
   canUndo?: boolean; canRedo?: boolean;
+  /** 上游变更联动：PRD 已提交更新版本，本册内容可能滞后（h1 徽标） */
+  upstreamStale?: boolean; upstreamVersionNo?: number;
 }
 
 export interface PatchItem {

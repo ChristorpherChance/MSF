@@ -9,6 +9,8 @@ import { PolicyService } from '../policy/policy.service.js';
 import { applyPatch, joinSections, sha256Text, splitSections, type EditPatch } from '../platform/doc-sections.js';
 import { deriveLinks, computeHealth } from '../platform/rtm-health.js';
 import { designContents } from '../platform/doc-contents.js';
+import { NotificationsService } from '../platform/notifications.service.js';
+import { reqPrdStale } from '../platform/upstream-stale.js';
 
 /**
  * 需求文档生命周期核（LLD-2 DSG-F02-1 权威状态机；REQ-203/204/205/209/210、BR-05/12）。
@@ -57,7 +59,11 @@ interface DraftRow {
 @Injectable()
 export class ReqDocsService {
   // 显式 @Inject：vitest(esbuild) 不产 design:paramtypes 元数据
-  constructor(@Inject(PolicyService) private readonly policy: PolicyService) {}
+  constructor(
+    @Inject(PolicyService) private readonly policy: PolicyService,
+    // 可选：集成测试直 new 单参构造；运行期由 Nest 注入（联动通知 SSE 补推用，缺席仅不推流不影响落库）
+    @Inject(NotificationsService) private readonly notices?: NotificationsService,
+  ) {}
 
   onModuleInit(): void {
     // #15：反向派生后设计册提交也是派生输入——开放冪等重建命令供设计域经命令总线调用（跨域禁令下不走 import）
@@ -230,8 +236,49 @@ export class ReqDocsService {
         [doc.id, v.id, ctx.actorId],
       );
       await this.rebuildRtmLinks(client, projectId, ctx);
+      // 上游变更联动（2026-10-05 拍板）：提交即提醒下游「内容可能滞后」——
+      // CRD 提交→PRD 滞后检查；PRD 提交→设计八册滞后检查（同事务落通知+事件，提交后包装层补推 SSE）。
+      // 滞后判定与 upstream-stale.ts 同口径：下游有已提交版本且上游新版本更晚；通知仅提示不改数据
+      let noticeId: string | undefined;
+      if (kind === 'crd') {
+        const down = await client.query<{ v: number; at: string }>(
+          `SELECT dv.version_no AS v, dv.submitted_at AS at
+           FROM req_documents d JOIN req_versions dv ON dv.id = d.current_version_id
+           WHERE d.project_id=$1 AND d.doc_kind='prd'`, [projectId]);
+        const prd = down.rows[0];
+        if (prd && new Date(v.submitted_at) > new Date(prd.at)) {
+          const n = await client.query<{ id: string }>(
+            `INSERT INTO sys_notifications (project_id, user_id, type, text, link)
+             VALUES ($1,NULL,'req.upstream.changed',$2,'/req?tab=prd') RETURNING id`,
+            [projectId, `CRD 已提交 v${v.version_no}：PRD 仍停留在 v${prd.v}，内容可能滞后，建议复核并跟随修订（RTM 锚点链已随本次提交重建）`]);
+          noticeId = n.rows[0]!.id;
+          await client.query(
+            'INSERT INTO evd_events (project_id, kind, payload, actor_kind, actor_id) VALUES ($1,$2,$3,$4,$5)',
+            [projectId, 'req.upstream.changed', JSON.stringify({ upstream: 'crd', upstreamVersionNo: v.version_no, downstream: 'prd', downstreamVersionNo: prd.v, noticeId }), ctx.actorKind, ctx.actorId]);
+        }
+      } else {
+        const staleBooks = await client.query<{ kind: string; v: number }>(
+          `SELECT d.doc_kind AS kind, dv.version_no AS v
+           FROM dsg_documents d JOIN dsg_versions dv ON dv.id = d.current_version_id
+           WHERE d.project_id=$1 AND d.doc_kind != 'prototype' AND dv.submitted_at < $2`,
+          [projectId, v.submitted_at]);
+        if (staleBooks.rows.length > 0) {
+          const kinds = staleBooks.rows.map((b) => b.kind).join('/');
+          const n = await client.query<{ id: string }>(
+            `INSERT INTO sys_notifications (project_id, user_id, type, text, link)
+             VALUES ($1,NULL,'req.upstream.changed',$2,'/design') RETURNING id`,
+            [projectId, `PRD 已提交 v${v.version_no}：${staleBooks.rows.length} 册设计文档（${kinds}）内容可能滞后，建议复核（RTM 派生链将随各册提交重建）`]);
+          noticeId = n.rows[0]!.id;
+          await client.query(
+            'INSERT INTO evd_events (project_id, kind, payload, actor_kind, actor_id) VALUES ($1,$2,$3,$4,$5)',
+            [projectId, 'req.upstream.changed', JSON.stringify({ upstream: 'prd', upstreamVersionNo: v.version_no, downstream: 'design', staleKinds: staleBooks.rows.map((b) => b.kind), noticeId }), ctx.actorKind, ctx.actorId]);
+        }
+      }
       await this.assertInvariants(client, doc.id);
-      return { v: v.version_no, versionFingerprint: `sha256:${v.content_fingerprint}`, at: v.submitted_at };
+      return {
+        v: v.version_no, versionFingerprint: `sha256:${v.content_fingerprint}`, at: v.submitted_at,
+        ...(noticeId ? { noticeId } : {}),
+      };
     });
 
     // switch-version：仅移动 cur 指针；前置 !modified 且 pend 为空
@@ -455,6 +502,10 @@ export class ReqDocsService {
        WHERE d.project_id=$1 ORDER BY d.doc_kind`,
       [projectId],
     );
+    // 上游变更联动：PRD 挂「CRD 已变·待复核」派生标记（upstream-stale.ts 口径；CRD 恒 false）
+    const prdStale = docs.rows.some((d) => d.doc_kind === 'prd' && d.cur !== null)
+      ? await reqPrdStale(projectId)
+      : { stale: false } as const;
     return {
       items: docs.rows.map((d) => ({
         id: d.id,
@@ -465,6 +516,9 @@ export class ReqDocsService {
         modified: d.modified,
         pendingCount: Number(d.pend),
         version: d.cur ?? 0,
+        ...(d.doc_kind === 'prd'
+          ? { upstreamStale: prdStale.stale, ...('upstreamVersionNo' in prdStale ? { upstreamVersionNo: prdStale.upstreamVersionNo } : {}) }
+          : {}),
       })),
     };
   }
@@ -509,6 +563,11 @@ export class ReqDocsService {
         : 0,
       modified: doc.modified,
       genState: doc.gen_state,
+      // 上游变更联动：PRD 打开时告知「CRD 已变·待复核」（DocPanel h1 徽标；upstream-stale.ts 口径）
+      ...(kind === 'prd' ? await reqPrdStale(projectId).then((s) => ({
+        upstreamStale: s.stale,
+        ...(s.upstreamVersionNo !== undefined ? { upstreamVersionNo: s.upstreamVersionNo } : {}),
+      })) : {}),
       secs,
       refs: refs.rows.map((r) => ({ fileId: r.file_id, name: r.name, fingerprint: `sha256:${r.content_fingerprint}` })),
       version: cur?.version_no ?? 0,
@@ -578,7 +637,10 @@ export class ReqDocsService {
     return executeCommand('doc.redo', { projectId, kind }, { ...ctx, projectId });
   }
   async commit(projectId: string, kind: 'crd' | 'prd', note: string, baseVersion: number, ctx: CommandContext) {
-    return executeCommand('doc.commit-version', { projectId, kind, note, baseVersion }, { ...ctx, projectId });
+    const r = await executeCommand('doc.commit-version', { projectId, kind, note, baseVersion }, { ...ctx, projectId }) as { noticeId?: string };
+    // W2-033 口径：通知行在命令事务内落库，提交后补推 SSE
+    if (r.noticeId) await this.notices?.pushExisting(r.noticeId);
+    return r;
   }
   async switchVersion(projectId: string, kind: 'crd' | 'prd', v: number, ctx: CommandContext) {
     return executeCommand('doc.switch-version', { projectId, kind, v }, { ...ctx, projectId });

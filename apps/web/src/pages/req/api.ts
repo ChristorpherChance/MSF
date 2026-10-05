@@ -15,6 +15,9 @@ export interface DocListItem {
   finalized: boolean;
   modified: boolean;
   pendingCount: number;
+  /** 上游变更联动（2026-10-05）：PRD 专有——CRD 已有更新版本提交，本文档内容可能滞后 */
+  upstreamStale?: boolean;
+  upstreamVersionNo?: number;
 }
 
 export interface DocSec {
@@ -46,6 +49,9 @@ export interface DocView {
   /** W2-025：undo/redo 栈实态（栈空时按钮置灰，不再点了才 409） */
   canUndo?: boolean;
   canRedo?: boolean;
+  /** 上游变更联动：PRD 专有——CRD 已提交更新版本，内容可能滞后（h1 徽标） */
+  upstreamStale?: boolean;
+  upstreamVersionNo?: number;
 }
 
 export interface VersionItem {

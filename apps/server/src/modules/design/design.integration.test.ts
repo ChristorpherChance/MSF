@@ -72,6 +72,8 @@ describe('Design 设计域（集成，需 DB+MinIO）', async () => {
     await query('DELETE FROM req_documents WHERE project_id=$1', [PID]);
     await query('DELETE FROM rtm_links WHERE project_id=$1', [PID]);
     await query('DELETE FROM rtm_health WHERE project_id=$1', [PID]);
+    await query('DELETE FROM sys_notifications WHERE project_id=$1', [PID]);
+    await query('DELETE FROM evd_events WHERE project_id=$1', [PID]);
     await query('DELETE FROM projects WHERE id=$1', [PID]);
     await pool.end();
   });
@@ -351,5 +353,48 @@ describe('Design 设计域（集成，需 DB+MinIO）', async () => {
     await proto.finalize(PID, gen.prototypeVersionId, chk.reportId, true, CTX);
     const dev = (await proto.gates(PID, 'develop')) as { ok: boolean };
     expect(dev.ok).toBe(true);
+  });
+
+  it('上游变更联动：PRD 新版→设计八册派生「上游已变」；本册跟随提交后消除', async () => {
+    const PID9 = '00000000-0000-0000-0000-0000000000d2';
+    const CTX9 = { projectId: PID9, actorKind: 'human' as const, actorId: 'local' };
+    await query("INSERT INTO projects (id, name) VALUES ($1, 'dsg-upstream-stale') ON CONFLICT (id) DO NOTHING", [PID9]);
+    try {
+      await docs.listDocs(PID9, CTX9); // 八册模板 v1 自举（t0）
+      await new Promise((r) => setTimeout(r, 5));
+      // 无 PRD：不标（「未生成」而非「滞后」）
+      let list = (await docs.listDocs(PID9, CTX9)) as { items: Array<{ kind: string; upstreamStale?: boolean; upstreamVersionNo?: number }> };
+      expect(list.items.every((i) => !i.upstreamStale)).toBe(true);
+      // PRD 模板自举（t1>t0）→ 八册全部派生 stale
+      await reqDocs.listDocs(PID9, CTX9);
+      list = (await docs.listDocs(PID9, CTX9)) as { items: Array<{ kind: string; upstreamStale?: boolean; upstreamVersionNo?: number }> };
+      expect(list.items.length).toBe(8);
+      expect(list.items.every((i) => i.upstreamStale === true)).toBe(true);
+      expect(list.items.every((i) => i.upstreamVersionNo === 1)).toBe(true);
+      const hd = (await docs.getDoc(PID9, 'hld')) as unknown as DocView & { upstreamStale?: boolean };
+      expect(hd.upstreamStale).toBe(true);
+      // HLD 跟随提交 v2 → 本册消除、其余七册仍 stale
+      let d = (await docs.getDoc(PID9, 'hld')) as unknown as DocView;
+      await docs.saveDraft(PID9, 'hld', { secId: 's0', md: '总体架构 v2（跟随 PRD）', baseVersion: d.cur, baseFingerprint: d.contentFingerprint }, CTX9);
+      d = (await docs.getDoc(PID9, 'hld')) as unknown as DocView;
+      await docs.commit(PID9, 'hld', 'v2', d.cur, CTX9);
+      list = (await docs.listDocs(PID9, CTX9)) as { items: Array<{ kind: string; upstreamStale?: boolean }> };
+      expect(list.items.find((i) => i.kind === 'hld')!.upstreamStale).toBe(false);
+      expect(list.items.filter((i) => i.upstreamStale === true).length).toBe(7);
+    } finally {
+      await query('DELETE FROM dsg_pendings WHERE document_id IN (SELECT id FROM dsg_documents WHERE project_id=$1)', [PID9]);
+      await query('DELETE FROM dsg_drafts WHERE document_id IN (SELECT id FROM dsg_documents WHERE project_id=$1)', [PID9]);
+      await query('UPDATE dsg_documents SET current_version_id=NULL, final_version_id=NULL WHERE project_id=$1', [PID9]);
+      await query('DELETE FROM dsg_versions WHERE document_id IN (SELECT id FROM dsg_documents WHERE project_id=$1)', [PID9]);
+      await query('DELETE FROM dsg_documents WHERE project_id=$1', [PID9]);
+      await query('DELETE FROM req_pendings WHERE document_id IN (SELECT id FROM req_documents WHERE project_id=$1)', [PID9]);
+      await query('DELETE FROM req_drafts WHERE document_id IN (SELECT id FROM req_documents WHERE project_id=$1)', [PID9]);
+      await query('UPDATE req_documents SET current_version_id=NULL, final_version_id=NULL WHERE project_id=$1', [PID9]);
+      await query('DELETE FROM req_versions WHERE document_id IN (SELECT id FROM req_documents WHERE project_id=$1)', [PID9]);
+      await query('DELETE FROM req_documents WHERE project_id=$1', [PID9]);
+      await query('DELETE FROM rtm_links WHERE project_id=$1', [PID9]);
+      await query('DELETE FROM rtm_health WHERE project_id=$1', [PID9]);
+      await query('DELETE FROM projects WHERE id=$1', [PID9]);
+    }
   });
 });

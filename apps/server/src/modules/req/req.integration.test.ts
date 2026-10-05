@@ -67,6 +67,8 @@ describe('ReqDocs/Rtm/Generate（集成，需 DB+MinIO）', async () => {
     await query('DELETE FROM mat_parsed WHERE project_id=$1', [PID]);
     await query('DELETE FROM mat_uploads WHERE project_id=$1', [PID]);
     await query('DELETE FROM mat_files WHERE project_id=$1', [PID]);
+    await query('DELETE FROM sys_notifications WHERE project_id=$1', [PID]);
+    await query('DELETE FROM evd_events WHERE project_id=$1', [PID]);
     await query('DELETE FROM projects WHERE id=$1', [PID]);
     await pool.end();
   });
@@ -91,6 +93,8 @@ describe('ReqDocs/Rtm/Generate（集成，需 DB+MinIO）', async () => {
   interface DocView {
     cur: number; modified: boolean; finalized: boolean; contentFingerprint: string;
     secs: Array<{ id: string; title: string; md: string; pending: string | null }>;
+    /** 上游变更联动：PRD 专有（可选字段，crd 无） */
+    upstreamStale?: boolean; upstreamVersionNo?: number;
   }
   const view = async (kind: 'crd' | 'prd') => (await docs.getDoc(PID, kind)) as unknown as DocView;
 
@@ -635,6 +639,64 @@ describe('ReqDocs/Rtm/Generate（集成，需 DB+MinIO）', async () => {
       await query('DELETE FROM req_versions WHERE document_id IN (SELECT id FROM req_documents WHERE project_id=$1)', [PID6]);
       await query('DELETE FROM req_documents WHERE project_id=$1', [PID6]);
       await query('DELETE FROM projects WHERE id=$1', [PID6]);
+    }
+  });
+
+  it('上游变更联动：CRD 提交新版→PRD 派生「上游已变」+通知+事件；PRD 跟随提交后消除', async () => {
+    const PID7 = '00000000-0000-0000-0000-0000000000d1';
+    const CTX7 = { projectId: PID7, actorKind: 'human' as const, actorId: 'local' };
+    await query("INSERT INTO projects (id, name) VALUES ($1, 'upstream-stale') ON CONFLICT (id) DO NOTHING", [PID7]);
+    try {
+      await docs.listDocs(PID7, CTX7); // 模板 v1 自举（crd+prd 同刻，互不 stale）
+      // PRD 先提交 v2（先于 CRD 后续提交）
+      let dp = (await docs.getDoc(PID7, 'prd')) as unknown as DocView;
+      await docs.saveDraft(PID7, 'prd', { secId: dp.secs[0]!.id, md: 'PRD 引言 v2', baseVersion: dp.cur, baseFingerprint: dp.contentFingerprint }, CTX7);
+      dp = (await docs.getDoc(PID7, 'prd')) as unknown as DocView;
+      await docs.commit(PID7, 'prd', 'PRD v2', dp.cur, CTX7);
+      await new Promise((r) => setTimeout(r, 5)); // 跨事务 submitted_at 严格递增保险
+      let list = (await docs.listDocs(PID7, CTX7)) as { items: Array<{ kind: string; upstreamStale?: boolean; upstreamVersionNo?: number }> };
+      expect(list.items.find((i) => i.kind === 'PRD')!.upstreamStale).toBe(false);
+      // CRD 提交 v2 → PRD 立即派生 stale + 通知 + 事件
+      let dc = (await docs.getDoc(PID7, 'crd')) as unknown as DocView;
+      await docs.saveDraft(PID7, 'crd', { secId: dc.secs[0]!.id, md: 'CRD 引言 v2\n\n## CR-001 X', baseVersion: dc.cur, baseFingerprint: dc.contentFingerprint }, CTX7);
+      dc = (await docs.getDoc(PID7, 'crd')) as unknown as DocView;
+      const c2 = (await docs.commit(PID7, 'crd', 'CRD v2', dc.cur, CTX7)) as { v: number; noticeId?: string };
+      expect(c2.v).toBe(2);
+      expect(c2.noticeId).toBeTruthy(); // 命中下游滞后→通知（同事务落库）
+      list = (await docs.listDocs(PID7, CTX7)) as { items: Array<{ kind: string; upstreamStale?: boolean; upstreamVersionNo?: number }> };
+      const prd = list.items.find((i) => i.kind === 'PRD')!;
+      expect(prd.upstreamStale).toBe(true);
+      expect(prd.upstreamVersionNo).toBe(2);
+      const dv = (await docs.getDoc(PID7, 'prd')) as unknown as DocView;
+      expect(dv.upstreamStale).toBe(true);
+      const notice = await query<{ type: string; text: string; link: string }>(
+        "SELECT type, text, link FROM sys_notifications WHERE project_id=$1 AND type='req.upstream.changed' ORDER BY created_at DESC LIMIT 1", [PID7]);
+      expect(notice.rows[0]!.text).toContain('CRD 已提交 v2');
+      expect(notice.rows[0]!.text).toContain('PRD 仍停留在 v2');
+      expect(notice.rows[0]!.link).toBe('/req?tab=prd');
+      const ev = await query<{ payload: { downstream: string; upstreamVersionNo: number } }>(
+        "SELECT payload FROM evd_events WHERE project_id=$1 AND kind='req.upstream.changed' ORDER BY created_at DESC LIMIT 1", [PID7]);
+      expect(ev.rows[0]!.payload.downstream).toBe('prd');
+      expect(ev.rows[0]!.payload.upstreamVersionNo).toBe(2);
+      // PRD 跟随提交 v3 → stale 消除（本次提交不再产 crd→prd 通知）
+      await new Promise((r) => setTimeout(r, 5));
+      dp = (await docs.getDoc(PID7, 'prd')) as unknown as DocView;
+      await docs.saveDraft(PID7, 'prd', { secId: dp.secs[0]!.id, md: 'PRD 引言 v3（跟随 CRD v2）', baseVersion: dp.cur, baseFingerprint: dp.contentFingerprint }, CTX7);
+      dp = (await docs.getDoc(PID7, 'prd')) as unknown as DocView;
+      await docs.commit(PID7, 'prd', 'PRD v3', dp.cur, CTX7);
+      list = (await docs.listDocs(PID7, CTX7)) as { items: Array<{ kind: string; upstreamStale?: boolean }> };
+      expect(list.items.find((i) => i.kind === 'PRD')!.upstreamStale).toBe(false);
+    } finally {
+      await query('DELETE FROM sys_notifications WHERE project_id=$1', [PID7]);
+      await query('DELETE FROM evd_events WHERE project_id=$1', [PID7]);
+      await query('DELETE FROM rtm_links WHERE project_id=$1', [PID7]);
+      await query('DELETE FROM rtm_health WHERE project_id=$1', [PID7]);
+      await query('DELETE FROM req_pendings WHERE document_id IN (SELECT id FROM req_documents WHERE project_id=$1)', [PID7]);
+      await query('DELETE FROM req_drafts WHERE document_id IN (SELECT id FROM req_documents WHERE project_id=$1)', [PID7]);
+      await query('UPDATE req_documents SET current_version_id=NULL, final_version_id=NULL WHERE project_id=$1', [PID7]);
+      await query('DELETE FROM req_versions WHERE document_id IN (SELECT id FROM req_documents WHERE project_id=$1)', [PID7]);
+      await query('DELETE FROM req_documents WHERE project_id=$1', [PID7]);
+      await query('DELETE FROM projects WHERE id=$1', [PID7]);
     }
   });
 });

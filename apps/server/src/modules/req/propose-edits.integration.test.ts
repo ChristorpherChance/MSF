@@ -55,6 +55,8 @@ describe('对话改文档/归一化（集成，需 DB）', async () => {
     await query('DELETE FROM req_documents WHERE project_id=$1', [PID]);
     await query('DELETE FROM rtm_links WHERE project_id=$1', [PID]);
     await query('DELETE FROM rtm_health WHERE project_id=$1', [PID]);
+    await query('DELETE FROM sys_notifications WHERE project_id=$1', [PID]);
+    await query('DELETE FROM evd_events WHERE project_id=$1', [PID]);
     await query('DELETE FROM projects WHERE id=$1', [PID]);
     await pool.end();
   });
@@ -146,6 +148,8 @@ describe('对话改文档/归一化（集成，需 DB）', async () => {
     for (const p of rest.items.filter((x) => x.status === 'pending')) await docs.rejectPatch(PID, 'crd', p.patchId, CTX, '清理');
     await query('DELETE FROM ai_tool_calls WHERE session_id=$1', [sid]);
     await query('DELETE FROM ai_sessions WHERE id=$1', [sid]);
+    await query('DELETE FROM sys_notifications WHERE project_id=$1', [PID2]);
+    await query('DELETE FROM evd_events WHERE project_id=$1', [PID2]);
     await query('DELETE FROM projects WHERE id=$1', [PID2]);
   });
 

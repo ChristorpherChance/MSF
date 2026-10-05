@@ -340,6 +340,39 @@ describe('AI 会话/消息/流式管线（集成，需 DB）', async () => {
     provider.failQueue = [];
   });
 
+  it('阶段化预设+联动提醒：req 会话注入阶段职责块；CRD 新版时注入 PRD 滞后提醒', async () => {
+    provider.capturedPrompts = [];
+    // 联动夹具：PRD v2 早于 CRD v3（直插行，测后清理）
+    const mk = async (kind: string, v: number, at: string) => {
+      const d = await query<{ id: string }>(
+        'INSERT INTO req_documents (project_id, doc_kind, created_by) VALUES ($1,$2,$3) RETURNING id', [PID, kind, 't']);
+      const ver = await query<{ id: string }>(
+        `INSERT INTO req_versions (document_id, version_no, content, content_fingerprint, governing_fingerprint, submitted_by, submitted_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
+        [d.rows[0]!.id, v, '# x', `fp-${kind}-${v}`, `gf-${kind}-${v}`, 't', at]);
+      await query('UPDATE req_documents SET current_version_id=$2 WHERE id=$1', [d.rows[0]!.id, ver.rows[0]!.id]);
+    };
+    try {
+      await mk('prd', 2, '2026-10-01T00:00:00Z');
+      await mk('crd', 3, '2026-10-02T00:00:00Z');
+      const s = await sessions.create(PID, { ctx: 'req', name: '阶段预设' }, CTX) as { id: string };
+      provider.nextChunks = ['好的。'];
+      const { messageId } = await sessions.send(PID, s.id, { content: '你好' }, CTX);
+      await sessions.drive(messageId, () => {}, { ctx: CTX });
+      const prompt = provider.capturedPrompts[0]!;
+      expect(prompt).toContain('【阶段职责与方法】');
+      expect(prompt).toContain('需求分析师');
+      expect(prompt).toContain('映射表'); // req 指南的覆盖核对方法论钉死
+      expect(prompt).toContain('【联动提醒】');
+      expect(prompt).toContain('CRD 已提交更新的 v3');
+      expect(prompt).toContain('PRD 仍停留在 v2');
+    } finally {
+      await query('UPDATE req_documents SET current_version_id=NULL, final_version_id=NULL WHERE project_id=$1', [PID]);
+      await query('DELETE FROM req_versions WHERE document_id IN (SELECT id FROM req_documents WHERE project_id=$1)', [PID]);
+      await query('DELETE FROM req_documents WHERE project_id=$1', [PID]);
+    }
+  });
+
   it('外部工具旁路：命中注册表走 handler（无事务）+ recordDirect 成功/失败两路留痕；未命中走 invoke 不变', async () => {
     const { registerExternalTool, resetExternalTools } = await import('../platform/external-tools.js');
     resetExternalTools();

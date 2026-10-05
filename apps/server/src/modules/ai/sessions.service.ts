@@ -6,9 +6,11 @@ import { lockCodeGen } from '../../db/seq.js';
 import { executeCommand, registerCommand, type CommandContext } from '../evidence/command-bus.js';
 import { buildCrossSessionDigest } from '../platform/cross-session-digest.js';
 import { getExternalTool } from '../platform/external-tools.js';
+import { designBooksStale, reqPrdStale } from '../platform/upstream-stale.js';
 import { AI_PROVIDER, type AiProvider, type AiUsage } from './ai-provider.interface.js';
 import type { ModelRow } from './models.service.js';
 import { AiModelsService } from './models.service.js';
+import { STAGE_GUIDES } from './stage-guides.js';
 import { AiToolsService } from './tools.service.js';
 import { StreamPipeline, type PipelineCompletion } from './stream-pipeline.js';
 
@@ -459,6 +461,27 @@ export class AiSessionsService implements OnModuleInit {
           }).join(' / ');
       parts.push(`【当前上下文】\n项目：${pj.rows[0].name}\n五阶段准入：${gateText}\n（你是该软件工厂项目的内置助手，回答与操作建议应结合上述项目状态。）`);
     }
+    // 阶段化 agent 预设（2026-10-05 拍板）：按 dock 所在阶段注入角色与方法论——
+    // 「核对 PRD 覆盖 CRD」类任务此前全靠模型自由发挥，现由 req 指南钉死逐条映射表输出纪律
+    const sessCtx = await query<{ ctx: string }>('SELECT ctx FROM ai_sessions WHERE id=$1', [sessionId]);
+    const stageGuide = sessCtx.rows[0] ? STAGE_GUIDES[sessCtx.rows[0].ctx] : undefined;
+    if (stageGuide) parts.push(`【阶段职责与方法】\n${stageGuide}`);
+    // 上游变更联动提醒（与 upstream-stale.ts 同源派生）：agent 看到下游滞后应主动提示用户跟随修订
+    try {
+      const ctxTab = sessCtx.rows[0]?.ctx;
+      if (ctxTab === 'req') {
+        const s = await reqPrdStale(projectId);
+        if (s.stale) {
+          parts.push(`【联动提醒】\nCRD 已提交更新的 v${s.upstreamVersionNo}，PRD 仍停留在 v${s.downstreamVersionNo}——内容可能滞后。若用户尚未察觉，主动提醒并询问是否需要按新 CRD 跟随修订 PRD（propose_edits，rewrite 通道可整篇重出）。`);
+        }
+      } else if (ctxTab === 'design' || ctxTab === 'proto') {
+        const m = await designBooksStale(projectId);
+        const staleKinds = Object.entries(m).filter(([, v]) => v.stale).map(([k]) => k);
+        if (staleKinds.length > 0) {
+          parts.push(`【联动提醒】\nPRD 已提交更新的 v${Object.values(m).find((v) => v.stale)?.upstreamVersionNo ?? ''}，${staleKinds.length} 册设计文档（${staleKinds.join('/')}）内容可能滞后。若用户尚未察觉，主动提醒复核；设计册修订须走设计页生成/增量流（不在你的写通道内）。`);
+        }
+      }
+    } catch { /* 派生失败静默降级，不阻断聊天主链（与跨阶段摘要同口径） */ }
     // U-040 能力边界声明（对话改文档落地后修订）：写操作只有 propose_edits 提案通道（人工确认后生效），
     // 缺此声明时模型会谎称"已修改/已定稿"
     parts.push(`【能力边界（必须遵守）】

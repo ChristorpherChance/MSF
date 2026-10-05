@@ -511,6 +511,9 @@ function Paper({ kind, readonly }: { kind: DocKind; readonly: boolean }) {
           {!doc.finalized && doc.modified && doc.viewing === null && (
             <span className="tag tag-warn" title="工作区有未提交修改；工具栏「⬆ 版本提交」生成新版本">已修改未提交</span>
           )}
+          {doc.upstreamStale && doc.viewing === null && (
+            <span className="tag tag-warn" title={`CRD 已提交更新的 v${doc.upstreamVersionNo ?? ''}，本 PRD 内容可能滞后；建议复核并跟随修订（右侧 AI 可协助核对与提案）`}>⚠ 上游已变·待复核</span>
+          )}
           {pendCount > 0 && (
             <button
               className="tag tag-warn tag-btn"

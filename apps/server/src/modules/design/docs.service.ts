@@ -6,6 +6,7 @@ import { lockCodeGen } from '../../db/seq.js';
 import { executeCommand, registerCommand, type CommandContext } from '../evidence/command-bus.js';
 import { appendEvidence } from '../evidence/audit.service.js';
 import { applyPatch, joinSections, sha256Text, splitSections, type EditPatch } from '../platform/doc-sections.js';
+import { designBooksStale } from '../platform/upstream-stale.js';
 
 /**
  * 设计文档八册生命周期（F02-1 同构复用，任务分解 M3 注①/③；REQ-301/302/209/210）。
@@ -317,9 +318,12 @@ export class DesignDocsService {
        ORDER BY d.doc_kind='hld' DESC, d.doc_kind`,
       [projectId],
     );
+    // 上游变更联动：各册挂「PRD 已变·待复核」派生标记（upstream-stale.ts 口径，一次查询全册映射）
+    const staleMap = await designBooksStale(projectId);
     return {
       items: docs.rows.map((d) => {
         const book = DESIGN_BOOKS.find((b) => b.kind === d.doc_kind)!;
+        const st = staleMap[d.doc_kind];
         return {
           id: d.id,
           kind: d.doc_kind,
@@ -330,6 +334,7 @@ export class DesignDocsService {
           finalized: !!d.final_version_id && d.final_version_id === d.current_version_id,
           modified: d.modified,
           pendingCount: Number(d.pend),
+          ...(st ? { upstreamStale: st.stale, ...(st.upstreamVersionNo !== undefined ? { upstreamVersionNo: st.upstreamVersionNo } : {}) } : {}),
         };
       }),
     };
@@ -369,6 +374,11 @@ export class DesignDocsService {
         : 0,
       modified: doc.modified,
       genState: doc.gen_state,
+      // 上游变更联动：本册「PRD 已变·待复核」派生标记（页面 h1 徽标；upstream-stale.ts 口径）
+      ...(await designBooksStale(projectId).then((m) => {
+        const st = m[doc.doc_kind];
+        return st ? { upstreamStale: st.stale, ...(st.upstreamVersionNo !== undefined ? { upstreamVersionNo: st.upstreamVersionNo } : {}) } : {};
+      })),
       secs,
       version: cur?.version_no ?? 0,
       contentFingerprint: `sha256:${effectiveFp}`,

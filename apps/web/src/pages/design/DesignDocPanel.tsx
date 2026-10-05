@@ -36,7 +36,10 @@ export function DesignDocPanel({ kinds }: { kinds: DesignKind[] }) {
               <span className="book-name">
                 {b?.title ?? k}
                 {b && !ungenerated && (
-                  <span className="book-note">v{b.cur}{b.modified && !b.finalized ? ' · 已修改未提交' : ''}</span>
+                  <span className="book-note">
+                    v{b.cur}{b.modified && !b.finalized ? ' · 已修改未提交' : ''}
+                    {b.upstreamStale ? ' · ⚠ 上游已变' : ''}
+                  </span>
                 )}
               </span>
               <span className={`tag ${ungenerated ? '' : b?.finalized ? 'tag-ok' : 'tag-warn'}`}>
@@ -382,6 +385,9 @@ function Paper() {
           )}
           {!doc.finalized && doc.modified && doc.viewing === null && (
             <span className="tag tag-warn" title="工作区有未提交修改；工具栏「⬆ 版本提交」生成新版本">已修改未提交</span>
+          )}
+          {doc.upstreamStale && doc.viewing === null && (
+            <span className="tag tag-warn" title={`PRD 已提交更新的 v${doc.upstreamVersionNo ?? ''}，本册内容可能滞后；建议复核（重新生成或增量修订）`}>⚠ 上游已变·待复核</span>
           )}
           {pendCount > 0 && (
             <span className="tag tag-warn" title="待确认补丁：在下方各章节行内逐条接受或拒绝（REQ-305）">补丁 ×{pendCount}</span>
