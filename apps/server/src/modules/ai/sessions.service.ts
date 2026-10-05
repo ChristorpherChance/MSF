@@ -401,13 +401,27 @@ export class AiSessionsService implements OnModuleInit {
     content: string,
     ctx: CommandContext,
   ): Promise<{ stripped: string; results: Array<{ name: string; result: unknown }> }> {
-    const RE = /```msf-tool\s*\n([\s\S]*?)```/g;
-    const blocks: string[] = [];
-    let m: RegExpExecArray | null;
-    while ((m = RE.exec(content)) !== null && blocks.length < 3) blocks.push(m[1]!.trim());
-    if (blocks.length === 0) return { stripped: content, results: [] };
+    // 闭合围栏块；另收「回合末尾未闭合但体部完整合法」的围栏——2026-10-06 实机：模型在长 JSON 后
+    // 漏写收尾 ```，闭合 RE 零命中 → 围栏原文露出给用户 + 提案静默未执行（本次根修现场）
+    const spans: Array<{ body: string; start: number; end: number }> = [];
+    for (const mm of content.matchAll(/```msf-tool\s*\n([\s\S]*?)```/g)) {
+      if (spans.length >= 3) break;
+      spans.push({ body: mm[1]!.trim(), start: mm.index!, end: mm.index! + mm[0].length });
+    }
+    if (spans.length < 3) {
+      const tailStart = spans.length > 0 ? spans[spans.length - 1]!.end : 0;
+      const om = /```msf-tool\s*\n([\s\S]*)$/.exec(content.slice(tailStart));
+      if (om) {
+        const body = om[1]!.trim();
+        try {
+          JSON.parse(body); // 体部完整合法才收：半截 JSON（流被截断）绝不执行，防半参数调用
+          spans.push({ body, start: tailStart + (om.index ?? 0), end: content.length });
+        } catch { /* 半截围栏不收 */ }
+      }
+    }
+    if (spans.length === 0) return { stripped: content, results: [] };
     const results: Array<{ name: string; result: unknown }> = [];
-    for (const raw of blocks) {
+    for (const { body: raw } of spans) {
       try {
         const call = JSON.parse(raw) as { name?: string; args?: Record<string, unknown> };
         if (!call.name) continue;
@@ -433,7 +447,11 @@ export class AiSessionsService implements OnModuleInit {
         results.push({ name: call.name, result: r.result });
       } catch { /* 非法 JSON 块忽略 */ }
     }
-    const stripped = content.replace(RE, '').replace(/\n{3,}/g, '\n\n').trim();
+    // span 剥离（闭合/未闭合同路径，未闭合尾块一并无残留）
+    let stripped = '';
+    let cursor = 0;
+    for (const s of spans) { stripped += content.slice(cursor, s.start); cursor = s.end; }
+    stripped = (stripped + content.slice(cursor)).replace(/\n{3,}/g, '\n\n').trim();
     return { stripped: stripped || '已按请求调用工具，结果见下方工具卡。', results };
   }
 

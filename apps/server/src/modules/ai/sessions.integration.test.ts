@@ -340,6 +340,36 @@ describe('AI 会话/消息/流式管线（集成，需 DB）', async () => {
     provider.failQueue = [];
   });
 
+  it('未闭合尾围栏容错：模型漏写收尾 ``` 时体部合法照样执行并剥离；半截 JSON 绝不执行', async () => {
+    provider.capturedPrompts = [];
+    // 2026-10-06 实机形态：长 JSON 后模型省略闭合 ```——闭合 RE 零命中，提案曾静默未执行
+    provider.nextChunks = ['好的，为你打开需求页。', '\n```msf-tool\n{"name":"nav.goto","args":{"tab":"req"}}']; // 无收尾 ```
+    provider.roundQueue.push(['已为你打开需求页。']); // 接力轮续答
+    const { messageId } = await sessions.send(PID, sessionId, { content: '打开需求页' }, CTX);
+    const c = await sessions.drive(messageId, () => {}, { ctx: CTX });
+    expect(c.status).toBe('done');
+    const msgs = await sessions.messages(PID, sessionId);
+    const aiMsg = msgs.items.find((m) => m.id === messageId)! as unknown as {
+      content: string; toolCalls: Array<{ toolName: string; status: string }>;
+    };
+    expect(aiMsg.content).not.toContain('msf-tool'); // 未闭合尾块同样剥离无残留
+    expect(aiMsg.content).toContain('已为你打开需求页'); // 执行→回喂→接力续答全链照常
+    expect(aiMsg.toolCalls.length).toBe(1);
+    expect(aiMsg.toolCalls[0]!.toolName).toBe('nav.goto');
+    expect(aiMsg.toolCalls[0]!.status).toBe('ok');
+    // 半截 JSON（流被截断形态）：绝不执行（防半参数调用）、不崩溃、现场保留
+    provider.nextChunks = ['读取中。', '\n```msf-tool\n{"name":"nav.goto","args":{"ta'];
+    const s2 = await sessions.send(PID, sessionId, { content: '再来' }, CTX);
+    const c2 = await sessions.drive(s2.messageId, () => {}, { ctx: CTX });
+    expect(c2.status).toBe('done');
+    const msgs2 = await sessions.messages(PID, sessionId);
+    const aiMsg2 = msgs2.items.find((m) => m.id === s2.messageId)! as unknown as {
+      content: string; toolCalls: Array<{ toolName: string }>;
+    };
+    expect(aiMsg2.toolCalls.length).toBe(0);
+    expect(aiMsg2.content).toContain('读取中。');
+  });
+
   it('阶段化预设+联动提醒：req 会话注入阶段职责块；CRD 新版时注入 PRD 滞后提醒', async () => {
     provider.capturedPrompts = [];
     // 联动夹具：PRD v2 早于 CRD v3（直插行，测后清理）
