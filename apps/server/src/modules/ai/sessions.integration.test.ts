@@ -366,6 +366,11 @@ describe('AI 会话/消息/流式管线（集成，需 DB）', async () => {
       expect(prompt).toContain('【联动提醒】');
       expect(prompt).toContain('CRD 已提交更新的 v3');
       expect(prompt).toContain('PRD 仍停留在 v2');
+      // W4-003 口径：工具改动同步全部声明点——设计册提案通道须在工具清单与能力边界双声明
+      expect(prompt).toContain('design.doc.propose_edits');
+      expect(prompt).toContain('对设计八册的修改请求用 design.doc.propose_edits');
+      // req 指南钉死「查出缺口主动补齐成提案」闭环
+      expect(prompt).toContain('有缺口就主动补齐');
     } finally {
       await query('UPDATE req_documents SET current_version_id=NULL, final_version_id=NULL WHERE project_id=$1', [PID]);
       await query('DELETE FROM req_versions WHERE document_id IN (SELECT id FROM req_documents WHERE project_id=$1)', [PID]);

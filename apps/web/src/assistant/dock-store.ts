@@ -265,16 +265,24 @@ export const useDockStore = create<DockState>((set, get) => ({
       });
       const messages = await assistantApi.messages(pid, currentId);
       set({ streaming: null, messages });
-      // 对话改文档回环：本轮回复含 propose_edits 成功提案 → 广播事件，需求页监听后自刷新补丁
-      // （window 事件解耦 assistant→pages/req 导入方向；detail.kind 供目标页签判定）
+      // 对话改文档回环：本轮回复含 propose_edits 成功提案 → 广播事件，需求/设计页监听后自刷新补丁
+      // （window 事件解耦 assistant→pages 导入方向；detail.kind 供目标页签判定）
       const last = messages[messages.length - 1];
-      const propose = last?.toolCalls?.find(
+      const proposeReq = last?.toolCalls?.find(
         (t) => t.toolName === 'req.doc.propose_edits'
           && (t.resultSummary as { ok?: boolean } | null | undefined)?.ok === true,
       );
-      if (propose) {
-        const kind = (propose.resultSummary as { kind?: string }).kind;
+      if (proposeReq) {
+        const kind = (proposeReq.resultSummary as { kind?: string }).kind;
         window.dispatchEvent(new CustomEvent('msf:req-proposed', { detail: { kind } }));
+      }
+      const proposeDsg = last?.toolCalls?.find(
+        (t) => t.toolName === 'design.doc.propose_edits'
+          && (t.resultSummary as { ok?: boolean } | null | undefined)?.ok === true,
+      );
+      if (proposeDsg) {
+        const kind = (proposeDsg.resultSummary as { kind?: string }).kind;
+        window.dispatchEvent(new CustomEvent('msf:dsg-proposed', { detail: { kind } }));
       }
       await get().refreshUsage();
     } catch (e) {

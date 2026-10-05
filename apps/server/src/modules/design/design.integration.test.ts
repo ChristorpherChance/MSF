@@ -397,4 +397,47 @@ describe('Design 设计域（集成，需 DB+MinIO）', async () => {
       await query('DELETE FROM projects WHERE id=$1', [PID9]);
     }
   });
+
+  it('对话改设计册：design.doc.propose_edits 旁路提案→接受落稿；守卫人话+rewrite 单条 replace', async () => {
+    const PIDA = '00000000-0000-0000-0000-0000000000d3';
+    const CTXA = { projectId: PIDA, actorKind: 'human' as const, actorId: 'local' };
+    await query("INSERT INTO projects (id, name) VALUES ($1, 'dsg-chat-edit') ON CONFLICT (id) DO NOTHING", [PIDA]);
+    try {
+      await docs.listDocs(PIDA, CTXA); // 模板 v1 自举
+      const { getExternalTool } = await import('../platform/external-tools.js');
+      const tool = getExternalTool('design.doc.propose_edits')!;
+      const call = (args: Record<string, unknown>) =>
+        tool(PIDA, { sessionId: 's', messageId: 'm', args }, CTXA) as Promise<{ ok: boolean; patchCount?: number; route?: string; reason?: string }>;
+      // 枚举守卫人话（不落码）
+      const bad = await call({ kind: 'xyz', instruction: 'x' });
+      expect(bad.ok).toBe(false);
+      expect(bad.reason).toContain('kind 枚举');
+      // mock patch：模板无锚点节 → 产 add；提案落 dsg_pendings
+      const r = await call({ kind: 'hld', instruction: '补充部署形态说明' });
+      expect(r.ok).toBe(true);
+      expect(r.patchCount).toBeGreaterThan(0);
+      expect(r.route).toBe('/design');
+      const patches = (await docs.listPatches(PIDA, 'hld')) as { items: Array<{ patchId: string; status: string }> };
+      expect(patches.items.filter((p) => p.status === 'pending').length).toBe(r.patchCount);
+      // 有 pending 拒新提案（守卫人话）
+      const again = await call({ kind: 'hld', instruction: '再来一条' });
+      expect(again.ok).toBe(false);
+      expect(again.reason).toContain('待确认补丁');
+      // 全部接受落稿
+      for (const p of patches.items.filter((x) => x.status === 'pending')) await docs.acceptPatch(PIDA, 'hld', p.patchId, CTXA);
+      const d = (await docs.getDoc(PIDA, 'hld')) as unknown as { secs: Array<{ title: string }> };
+      expect(d.secs.some((s) => s.title === '对话补充条目')).toBe(true);
+      // rewrite 通道：单条 replace 补丁（整篇重写，人工确认后生效）
+      const rw = await call({ kind: 'hld', instruction: '整篇重写', mode: 'rewrite' });
+      expect(rw.ok).toBe(true);
+      expect(rw.patchCount).toBe(1);
+    } finally {
+      await query('DELETE FROM dsg_pendings WHERE document_id IN (SELECT id FROM dsg_documents WHERE project_id=$1)', [PIDA]);
+      await query('DELETE FROM dsg_drafts WHERE document_id IN (SELECT id FROM dsg_documents WHERE project_id=$1)', [PIDA]);
+      await query('UPDATE dsg_documents SET current_version_id=NULL, final_version_id=NULL WHERE project_id=$1', [PIDA]);
+      await query('DELETE FROM dsg_versions WHERE document_id IN (SELECT id FROM dsg_documents WHERE project_id=$1)', [PIDA]);
+      await query('DELETE FROM dsg_documents WHERE project_id=$1', [PIDA]);
+      await query('DELETE FROM projects WHERE id=$1', [PIDA]);
+    }
+  });
 });

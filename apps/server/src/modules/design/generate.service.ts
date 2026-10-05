@@ -3,8 +3,9 @@ import { Inject, Injectable, Optional } from '@nestjs/common';
 import { DomainError } from '@msf/shared';
 import { query } from '../../db/pool.js';
 import { executeCommand, registerCommand, type CommandContext } from '../evidence/command-bus.js';
-import { mdToPatches, sha256Text, type EditPatch } from '../platform/doc-sections.js';
-import { AI_PROVIDER, type AiProvider } from '../ai/ai-provider.interface.js';
+import { mdToPatches, normalizePatches, sha256Text, splitSections, buildNumberGuide, type EditPatch } from '../platform/doc-sections.js';
+import { registerExternalTool } from '../platform/external-tools.js';
+import { AI_PROVIDER, type AiProvider, type AiUsage } from '../ai/ai-provider.interface.js';
 import { classifyAiError, sanitizeAiError } from '../ai/stream-pipeline.js';
 import { DesignDocsService, DESIGN_BOOKS, type DesignKind } from './docs.service.js';
 
@@ -68,6 +69,121 @@ export class DesignGenerateService {
       );
       return { genState };
     });
+    // 对话改设计册旁路（与 req.doc.propose_edits 同构；嵌套 LLM 绝不在命令事务内跑——外部注册表旁路）
+    registerExternalTool('design.doc.propose_edits', async (projectId, call, ctx) => {
+      const kind = String(call.args['kind'] ?? '');
+      if (!DESIGN_BOOKS.some((b) => b.kind === kind)) {
+        return { ok: false, reason: `kind 枚举 ${DESIGN_BOOKS.map((b) => b.kind).join('|')}` };
+      }
+      const instruction = String(call.args['instruction'] ?? '').trim();
+      if (!instruction) return { ok: false, reason: 'instruction 必填（描述要改什么）' };
+      const modeRaw = String(call.args['mode'] ?? 'patch');
+      if (modeRaw !== 'patch' && modeRaw !== 'rewrite') return { ok: false, reason: 'mode 枚举 patch|rewrite' };
+      return this.proposeEditsFromChat(projectId, kind as DesignKind, instruction, ctx, modeRaw);
+    });
+  }
+
+  /**
+   * 对话改设计册（dock design.doc.propose_edits 旁路 handler，与需求域 proposeEditsFromChat 同构）：
+   * 读当前有效稿 → 增量/重写 prompt 走 AI_PROVIDER 非 SSE 内部调用（mock 回落确定性产出）
+   * → mdToPatches → normalizePatches → design.doc.propose-pending 落库（独立事务，proposedBy='assistant'）。
+   * 守卫失败/AI 零产出一律 { ok:false, reason 人话 }（不落码）；人工确认后生效的提案语义不变。
+   */
+  async proposeEditsFromChat(
+    projectId: string,
+    kind: DesignKind,
+    instruction: string,
+    ctx: CommandContext,
+    mode: 'patch' | 'rewrite' = 'patch',
+  ): Promise<{ ok: boolean; patchCount?: number; route?: string; kind?: DesignKind; reason?: string }> {
+    const doc = await query<{ id: string; final_version_id: string | null; current_version_id: string | null }>(
+      'SELECT id, final_version_id, current_version_id FROM dsg_documents WHERE project_id=$1 AND doc_kind=$2',
+      [projectId, kind]);
+    const d = doc.rows[0];
+    if (!d || !d.current_version_id) {
+      return { ok: false, reason: '该册还没有内容，请先在设计页生成初稿后再提修改' };
+    }
+    if (d.final_version_id && d.final_version_id === d.current_version_id) {
+      return { ok: false, reason: '该册已定稿，请先在设计页 ⋯ 菜单解锁后再修改' };
+    }
+    const pend = await query<{ n: string }>(
+      `SELECT count(*) AS n FROM dsg_pendings p JOIN dsg_documents d2 ON d2.id=p.document_id
+       WHERE d2.project_id=$1 AND d2.doc_kind=$2 AND p.status='pending'`, [projectId, kind]);
+    const pendN = Number(pend.rows[0]?.n ?? 0);
+    if (pendN > 0) {
+      return { ok: false, reason: `有 ${pendN} 条待确认补丁，请先在设计页处置后再提新修改` };
+    }
+    const cur = await query<{ content: string }>(
+      `SELECT v.content FROM dsg_versions v JOIN dsg_documents d2 ON d2.current_version_id=v.id
+       WHERE d2.project_id=$1 AND d2.doc_kind=$2`, [projectId, kind]);
+    const draft = await query<{ content: string }>(
+      `SELECT t.content FROM dsg_drafts t JOIN dsg_documents d2 ON d2.id=t.document_id
+       WHERE d2.project_id=$1 AND d2.doc_kind=$2`, [projectId, kind]);
+    const effective = draft.rows[0]?.content ?? cur.rows[0]?.content ?? '';
+    if (!effective.trim()) {
+      return { ok: false, reason: '该册还没有内容，请先在设计页生成初稿后再提修改' };
+    }
+    const cut = instruction.slice(0, 2000);
+    const book = DESIGN_BOOKS.find((b) => b.kind === kind)!;
+    const t0 = Date.now();
+    let text: string;
+    let modelId: string | undefined;
+    let usage: AiUsage | undefined;
+    if (this.ai?.kind === 'pi') {
+      try {
+        const session = await this.ai.createSession({ projectId, purpose: 'generation' });
+        const existingCodes = [...new Set(effective.match(/\b[A-Z]{2,5}-\d{3}\b/g) ?? [])].sort();
+        const prompt = mode === 'rewrite'
+          ? buildDesignRewritePrompt(book.name, cut, existingCodes, effective)
+          : buildDesignEditPrompt(book.name, cut, existingCodes, effective);
+        const { deltas, result } = session.stream(prompt);
+        for await (const d2 of deltas) void d2; // 非 SSE 内部调用：delta 排干不转发
+        const res = await result;
+        text = res.text;
+        modelId = res.modelId;
+        usage = res.usage;
+      } catch (e) {
+        const raw = e instanceof Error ? e.message : String(e);
+        console.error(`[design] propose_edits AI 调用失败: ${raw}`);
+        return { ok: false, reason: `AI 调用失败：${sanitizeAiError(raw)}` };
+      }
+    } else {
+      text = mode === 'rewrite'
+        ? buildMockDesignChatRewrite(book.name, effective, cut)
+        : buildMockDesignChatEdit(effective, cut);
+    }
+    const patches: EditPatch[] = mode === 'rewrite'
+      ? [{ type: 'replace', secId: 's0', title: '整篇重写', new: text.trim() }]
+      : normalizePatches(mdToPatches(text), splitSections(effective));
+    if (patches.length === 0 || (mode === 'rewrite' && !patches[0]!.new?.trim())) {
+      return { ok: false, reason: '未产出有效修改，可换种说法重试' };
+    }
+    // 用量与生成流同口径（purpose='generation'），先于落补丁（与需求域同构）
+    if (modelId && usage) {
+      await executeCommand('ai.usage.record', {
+        projectId, modelId, purpose: 'generation',
+        tokensIn: usage.inputTokens, tokensOut: usage.outputTokens,
+        durationMs: Date.now() - t0, cost: usage.cost ?? 0,
+      }, { projectId, actorKind: 'assistant', actorId: 'pi' });
+    }
+    try {
+      const r = (await executeCommand('design.doc.propose-pending', {
+        projectId, kind, patches, targetFingerprint: sha256Text(effective), proposedBy: 'assistant',
+      }, { ...ctx, projectId })) as { patchIds: string[] };
+      return { ok: true, patchCount: r.patchIds.length, route: '/design', kind };
+    } catch (e) {
+      // 竞态兜底（命令内 FOR UPDATE 重查命中守卫）：与守卫链同口径翻人话不落码
+      if (e instanceof DomainError && e.code === 'PATCH_BASE_STALE') {
+        return { ok: false, reason: '文档已被其它操作变更，请刷新后重试' };
+      }
+      if (e instanceof DomainError && e.code === 'VERSION_LOCKED') {
+        return { ok: false, reason: '该册已定稿，请先在设计页 ⋯ 菜单解锁后再修改' };
+      }
+      if (e instanceof DomainError && e.code === 'INVALID_STATE') {
+        return { ok: false, reason: '有待确认补丁，请先在设计页处置后再提新修改' };
+      }
+      throw e;
+    }
   }
 
   /** A05-2 启动生成：参考校验（REQ-114）+ 上游定稿门禁（HLD←PRD、LLD←HLD） */
@@ -347,4 +463,41 @@ function buildMock(kind: DesignKind, instruction: string): { chunks: string[]; p
     ...patches.map((p) => `\n## ${p.title}\n\n${p.new}\n`),
   ];
   return { chunks, patches };
+}
+
+/** 对话改设计册·增量 prompt（与需求域增量修订同构：只输出变化节；注入 UI 编号对照表防「按编号指代」落空） */
+function buildDesignEditPrompt(bookName: string, instruction: string, existingCodes: string[], currentContent: string): string {
+  return [
+    `你是软件工厂的设计助手。本次是设计文档《${bookName}》的**增量修订**：只输出需要新增或修改的章节（每章一个 \`## \` 标题；修改某章时保持原标题不变、整章重写输出），**不要复述未变化的章节，不要整篇重出**。`,
+    `要求：中文 markdown；既有锚点码格式不得改动；新增条目如需编号，使用未占用编号顺延（已占用：${existingCodes.join('、') || '无'}）。`,
+    `用户指示：${instruction}`,
+    buildNumberGuide(currentContent),
+    `【当前文档内容（增量修订的基线；未提及的章节保持不变，不要输出）】\n\n${currentContent}`,
+  ].join('\n\n');
+}
+
+/** 对话改设计册·整篇重写 prompt（mode='rewrite'：当前全文为基线，输出完整文档一节不漏） */
+function buildDesignRewritePrompt(bookName: string, instruction: string, existingCodes: string[], currentContent: string): string {
+  return [
+    `你是软件工厂的设计助手。本次是设计文档《${bookName}》的**整篇重写**：以当前全文为基线、按用户指示输出重写后的**完整文档**（从一级标题到最后一节，一节不漏，不复述思考过程，只输出文档本体）。`,
+    `要求：中文 markdown；保留仍然有效的既有锚点码与编号；新增条目使用未占用编号顺延（已占用：${existingCodes.join('、') || '无'}）；用户指示删除/合并的章节不再输出。`,
+    `用户指示：${instruction}`,
+    `【当前文档全文（重写基线）】\n\n${currentContent}`,
+  ].join('\n\n');
+}
+
+/** mock 对话修订产出（确定性两形态：命中既有锚点节→normalize 转 modify + 全新节→add，离线可测两分支） */
+function buildMockDesignChatEdit(effective: string, instruction: string): string {
+  const hit = splitSections(effective).find((s) => /\b[A-Z]{2,5}-\d+\b/.test(s.title));
+  const note = (instruction || '按对话要求调整').replace(/\s*\n+\s*/g, ' '); // 压平换行：含换行的指令会切出多余节
+  const parts: string[] = [];
+  if (hit) parts.push(`## ${hit.title}\n\n${hit.md}\n\n（mock 对话修订：${note}）`);
+  parts.push(`## 对话补充条目\n\n（mock 对话新增：${note}）`);
+  return parts.join('\n\n');
+}
+
+/** mock 整篇重写产出（确定性：保留全文骨架+重写注记——离线可测 replace 补丁通道） */
+function buildMockDesignChatRewrite(bookName: string, effective: string, instruction: string): string {
+  const note = (instruction || '整篇重写').replace(/\s*\n+\s*/g, ' ');
+  return `# ${bookName}\n\n（mock 整篇重写：${note}）\n\n${effective}`;
 }

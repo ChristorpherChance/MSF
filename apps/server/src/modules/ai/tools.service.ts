@@ -14,7 +14,7 @@ import { deriveNumbering } from '@msf/shared';
  * ToolBridge 工具注册表（DSG-D08-3；A08-5/6；REQ-605/606/613）：
  * - 封闭注册表：未注册 TOOL_UNREGISTERED；参数校验失败 TOOL_ARGS_INVALID
  * - 越界工具（定稿/放行/写类）编排层直接拒绝：ai_tool_calls 记 denied + TOOL_DENIED（不执行、不转发）
- * - 允许集为只读/导航/提案六件套：nav.goto / read_context / doc.read / chat.history.read / propose_next_step / req.doc.propose_edits（前五个 SQL 直读他域表，不写；提案件经旁路产出高亮补丁，人工确认后生效）
+ * - 允许集为只读/导航/提案七件套：nav.goto / read_context / doc.read / chat.history.read / propose_next_step / req.doc.propose_edits / design.doc.propose_edits（前五个 SQL 直读他域表，不写；两件提案经旁路产出高亮补丁，人工确认后生效）
  * - 一切调用经 ai.tool.invoke 命令：append-only 留痕（REQ-613）
  */
 
@@ -227,6 +227,16 @@ const TOOLS: ToolDef[] = [
     async run() {
       // 防御性兜底：本工具含嵌套 LLM，正常路径经外部注册表旁路执行（绝不在命令事务内跑 LLM）；
       // 走到命令内=旁路未接线，拒绝执行并留痕（不落稿）
+      return { ok: false, reason: 'propose 类工具须经会话流旁路执行（旁路未接线），本次未产生任何修改' };
+    },
+  },
+  {
+    name: 'design.doc.propose_edits',
+    kind: 'propose', // 同 req.doc.propose_edits：提案型写，产物=设计册待确认高亮补丁，必经人工确认
+    description: '提交设计八册（hld/mod/alg/cls/db/api/ui/nfr）修改建议：产出待确认高亮补丁，经用户在设计页逐条/批量确认后才生效（你不直接改文档）。当用户要求修改设计册内容、或核对发现册内容缺口需要补齐时调用。args.instruction 描述要改什么（截 2000 字）',
+    argsSchema: { kind: 'string', instruction: 'string' },
+    required: ['kind', 'instruction'],
+    async run() {
       return { ok: false, reason: 'propose 类工具须经会话流旁路执行（旁路未接线），本次未产生任何修改' };
     },
   },

@@ -182,3 +182,21 @@ export const useDesignView = create<DesignViewState>((set, get) => ({
     set({ refSel: { ...get().refSel, [kind]: next } });
   },
 }));
+
+// 对话改设计册回环（与 req 域 msf:req-proposed 同构）：dock 提案成功广播 msf:dsg-proposed →
+// 落位目标册（直写 subTab+selKind——setSubTab 会把 detail 的 selKind 强制回 mod，丢目标册）并重拉，
+// 补丁行内高亮即时可见；监听挂模块级，SubNav 常驻即全域生效
+if (typeof window !== 'undefined') {
+  window.addEventListener('msf:dsg-proposed', ((ev: Event) => {
+    const kind = (ev as CustomEvent<{ kind?: string }>).detail?.kind as DesignKind | undefined;
+    const s = useDesignView.getState();
+    if (!s.projectId || !kind) return;
+    void (async () => {
+      useDesignView.setState({ subTab: kind === 'hld' ? 'hld' : 'detail', selKind: kind });
+      const { toast } = await import('../../ui/toast');
+      await useDesignView.getState().loadDoc();
+      await useDesignView.getState().refresh();
+      toast('AI 已提交设计册修改建议，正文已刷新——请在行内高亮处逐条处置（接受 / 拒绝）', 'success');
+    })();
+  }) as EventListener);
+}

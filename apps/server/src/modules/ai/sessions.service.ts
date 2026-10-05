@@ -486,7 +486,7 @@ export class AiSessionsService implements OnModuleInit {
     // 缺此声明时模型会谎称"已修改/已定稿"
     parts.push(`【能力边界（必须遵守）】
 你不能直接修改、定稿、放行任何文档、UI 原型、代码、计划或批次；也不能替用户点击任何"人工确认"。
-唯一写通道：对 CRD/PRD 的修改请求，通过 req.doc.propose_edits 工具提交修改建议——产出高亮补丁，经用户逐条或批量确认后才生效；其它写诉求给出建议文本并指引落地路径（需求页 AI 生成/修订、设计页、开发页流程；定稿与放行永远是人工操作）。
+唯一写通道：对 CRD/PRD 的修改请求用 req.doc.propose_edits、对设计八册的修改请求用 design.doc.propose_edits 提交修改建议——产出高亮补丁，经用户逐条或批量确认后才生效；其它写诉求给出建议文本并指引落地路径（需求页/设计页 AI 生成与修订、开发页、测试页流程；定稿与放行永远是人工操作）。
 严禁声称"已修改/已定稿/已放行/已完成写入"——凡未经用户确认，系统内数据均未变化。`);
     // W2-053 + 跨阶段互通/对话改文档：工具自主调用声明（REQ-605）——```msf-tool 围栏块流末解析执行
     parts.push(`【可用工具（可自主调用）】
@@ -500,7 +500,8 @@ export class AiSessionsService implements OnModuleInit {
 - chat.history.read：读取本项目其它阶段会话的最近消息。args: {"sessionCode":"ss_3","limit":20}（limit 封顶 50）。当【他阶段会话】摘要不够、需要了解客户在其它阶段聊过的细节时调用。
 - propose_next_step：按项目当前状态计算下一步建议清单。args: {}。当用户问"下一步该做什么"时调用。
 - req.doc.propose_edits：提交 CRD/PRD 修改建议（高亮补丁，用户确认后才生效）。args: {"kind":"crd|prd","instruction":"要改什么","mode":"patch"}（instruction 截 2000 字；mode 默认 patch=只改涉及章节。用户要求"整篇重写/完全重新写/彻底删除某章"时 mode 用 "rewrite"：以当前全文为基线重写整篇，产一条「整篇重写」补丁，同样经用户确认后生效；rewrite 前先用 doc.read 拿齐全文）。当用户要求修改需求文档内容时调用；调用后在正文说明"已发起修改建议提交（结果见下方工具卡），提交成功时请到需求页确认"。
-工具由系统在回复完成后执行，结果以工具卡随消息呈现、并**自动回给你继续回答**（无需用户再发话；拿到结果就直接给结论或下一步工具调用，不要说"拿到结果后我会……"）；围栏块本身不会展示给用户。除 req.doc.propose_edits 的提案通道外，写操作仍须走人工路径。`);
+- design.doc.propose_edits：提交设计八册修改建议（高亮补丁，用户确认后才生效）。args: {"kind":"hld|mod|alg|cls|db|api|ui|nfr","instruction":"要改什么","mode":"patch"}（mode 语义同 req.doc.propose_edits）。当用户要求修改设计册内容、或你核对后发现某册有缺口需要补齐时调用（kind 用册名小写）；正文说明"已发起修改建议提交，提交成功时请到设计页确认"。
+工具由系统在回复完成后执行，结果以工具卡随消息呈现、并**自动回给你继续回答**（无需用户再发话；拿到结果就直接给结论或下一步工具调用，不要说"拿到结果后我会……"）；围栏块本身不会展示给用户。除 req.doc.propose_edits / design.doc.propose_edits 的提案通道外，写操作仍须走人工路径。`);
     if (referenceFileIds.length > 0) {
       const refs = await query<{ name: string; body_md: string }>(
         `SELECT f.name, p.body_md FROM mat_files f
