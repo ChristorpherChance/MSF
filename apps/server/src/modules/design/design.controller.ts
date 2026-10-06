@@ -186,14 +186,21 @@ export class DesignController {
 
   @Post('docs/:kind/patches/:patchId\\:accept')
   @HttpCode(200)
-  acceptPatch(@Param('projectId') projectId: string, @Param('kind') kind: string, @Param('patchId') patchId: string, @Req() req: Request) {
-    return this.docs.acceptPatch(projectId, this.assertKind(kind), patchId, this.actor(req, projectId));
+  acceptPatch(
+    @Param('projectId') projectId: string, @Param('kind') kind: string, @Param('patchId') patchId: string,
+    @Body() body: { reason?: string; newText?: string }, @Req() req: Request,
+  ) {
+    return this.docs.acceptPatch(
+      projectId, this.assertKind(kind), patchId, this.actor(req, projectId), body.reason, body.newText);
   }
 
   @Post('docs/:kind/patches/:patchId\\:reject')
   @HttpCode(200)
-  rejectPatch(@Param('projectId') projectId: string, @Param('kind') kind: string, @Param('patchId') patchId: string, @Req() req: Request) {
-    return this.docs.rejectPatch(projectId, this.assertKind(kind), patchId, this.actor(req, projectId));
+  rejectPatch(
+    @Param('projectId') projectId: string, @Param('kind') kind: string, @Param('patchId') patchId: string,
+    @Body() body: { reason?: string }, @Req() req: Request,
+  ) {
+    return this.docs.rejectPatch(projectId, this.assertKind(kind), patchId, this.actor(req, projectId), body.reason);
   }
 
   /** A05-3 评审项 */

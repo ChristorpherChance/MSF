@@ -259,39 +259,49 @@ export class DesignDocsService {
     });
 
     registerCommand('design.doc.accept-pending', async (client, payload, ctx) => {
-      const { projectId, kind, patchId } = payload as { projectId: string; kind: DesignKind; patchId: string };
+      // 需求阶段模式推广（条目 12 同治）：reason/newText 与 req 域同口径——改后接受覆盖提案新文、留痕记「改后接受」
+      const { projectId, kind, patchId, reason, newText } = payload as {
+        projectId: string; kind: DesignKind; patchId: string; reason?: string; newText?: string;
+      };
       const doc = await this.lockDoc(client, projectId, kind);
       this.assertEditable(doc, ctx);
       const p = await client.query<{ id: string; patch: EditPatch; status: string }>(
         'SELECT * FROM dsg_pendings WHERE id=$1 AND document_id=$2 FOR UPDATE', [patchId, doc.id]);
       const row = p.rows[0];
       if (!row || row.status !== 'pending') throw new DomainError('INVALID_STATE', '补丁非待确认状态', patchId);
+      let patch = row.patch;
+      if (newText !== undefined) {
+        if (patch.type === 'del') throw new DomainError('VALIDATION_FAILED', '删除补丁无新文，不接受改后接受', patchId);
+        if (!newText.trim()) throw new DomainError('VALIDATION_FAILED', '改后接受的新文不能为空', patchId);
+        patch = { ...patch, new: newText };
+      }
       const cur = await this.currentVersion(client, doc);
       const draft = await this.loadDraft(client, doc.id);
       const effective = draft?.content ?? cur?.content ?? '';
-      const applied = applyPatch(splitSections(effective), row.patch);
+      const applied = applyPatch(splitSections(effective), patch);
       if (!applied) {
         throw new DomainError('PATCH_BASE_STALE', '补丁定位文本已不在当前内容中，补丁保留待处理', patchId);
       }
       const content = joinSections(applied);
       if (content !== effective) await this.writeDraft(client, doc, cur, draft, content, ctx);
       await client.query(
-        "UPDATE dsg_pendings SET status='accepted', decided_by=$2, decided_at=now() WHERE id=$1",
-        [patchId, ctx.actorId],
+        "UPDATE dsg_pendings SET status='accepted', decided_by=$2, decided_at=now(), reason=$3 WHERE id=$1",
+        [patchId, ctx.actorId, [reason?.trim(), newText !== undefined ? '改后接受' : null].filter(Boolean).join('；') || null],
       );
       await this.assertInvariants(client, doc.id);
       return { patchId, applied: true };
     });
 
     registerCommand('design.doc.reject-pending', async (client, payload, ctx) => {
-      const { projectId, kind, patchId } = payload as { projectId: string; kind: DesignKind; patchId: string };
+      // 需求阶段模式推广：拒绝理由落库留痕（与 req 域同口径；dsg_pendings.reason 迁移 0026）
+      const { projectId, kind, patchId, reason } = payload as { projectId: string; kind: DesignKind; patchId: string; reason?: string };
       const doc = await this.lockDoc(client, projectId, kind);
       const p = await client.query<{ status: string }>(
         'SELECT status FROM dsg_pendings WHERE id=$1 AND document_id=$2 FOR UPDATE', [patchId, doc.id]);
       if (p.rows[0]?.status !== 'pending') throw new DomainError('INVALID_STATE', '补丁非待确认状态', patchId);
       await client.query(
-        "UPDATE dsg_pendings SET status='rejected', decided_by=$2, decided_at=now() WHERE id=$1",
-        [patchId, ctx.actorId],
+        "UPDATE dsg_pendings SET status='rejected', decided_by=$2, decided_at=now(), reason=$3 WHERE id=$1",
+        [patchId, ctx.actorId, reason?.trim() || null],
       );
       return { patchId, applied: false };
     });
@@ -467,11 +477,15 @@ export class DesignDocsService {
   async unlock(projectId: string, kind: DesignKind, ctx: CommandContext) {
     return executeCommand('design.doc.unlock', { projectId, kind }, { ...ctx, projectId });
   }
-  async acceptPatch(projectId: string, kind: DesignKind, patchId: string, ctx: CommandContext) {
-    return executeCommand('design.doc.accept-pending', { projectId, kind, patchId }, { ...ctx, projectId });
+  async acceptPatch(projectId: string, kind: DesignKind, patchId: string, ctx: CommandContext, reason?: string, newText?: string) {
+    return executeCommand('design.doc.accept-pending', {
+      projectId, kind, patchId,
+      ...(reason !== undefined ? { reason } : {}),
+      ...(newText !== undefined ? { newText } : {}),
+    }, { ...ctx, projectId });
   }
-  async rejectPatch(projectId: string, kind: DesignKind, patchId: string, ctx: CommandContext) {
-    return executeCommand('design.doc.reject-pending', { projectId, kind, patchId }, { ...ctx, projectId });
+  async rejectPatch(projectId: string, kind: DesignKind, patchId: string, ctx: CommandContext, reason?: string) {
+    return executeCommand('design.doc.reject-pending', { projectId, kind, patchId, ...(reason !== undefined ? { reason } : {}) }, { ...ctx, projectId });
   }
 
   // ---------- 内部 ----------

@@ -61,6 +61,9 @@ interface DesignViewState {
   refreshProto: () => Promise<void>;
   refreshReviews: () => Promise<void>;
   flashToc: (secId: string) => void;
+  /** 补丁定位闪高亮（需求阶段模式推广，与 req store 同构） */
+  patchFlash: string | null;
+  flashPatch: (patchId: string) => void;
   setImpactNotice: (msg: string | null) => void;
   gate: (action: 'generate' | 'check' | 'finalize' | 'develop') => Promise<GateResult>;
   loadRefCandidates: () => Promise<void>;
@@ -162,6 +165,15 @@ export const useDesignView = create<DesignViewState>((set, get) => ({
     set({ tocFlash: secId });
     setTimeout(() => {
       if (get().tocFlash === secId) set({ tocFlash: null });
+    }, 1600);
+  },
+
+  // 需求阶段模式推广：补丁定位闪高亮（与 req store flashPatch 同构，供常驻横幅「定位第一条」用）
+  patchFlash: null as string | null,
+  flashPatch: (patchId: string) => {
+    set({ patchFlash: patchId });
+    setTimeout(() => {
+      if (get().patchFlash === patchId) set({ patchFlash: null });
     }, 1600);
   },
 

@@ -431,6 +431,26 @@ describe('Design 设计域（集成，需 DB+MinIO）', async () => {
       const rw = await call({ kind: 'hld', instruction: '整篇重写', mode: 'rewrite' });
       expect(rw.ok).toBe(true);
       expect(rw.patchCount).toBe(1);
+      // 需求阶段模式推广：改后接受（newText 覆盖提案新文，reason 记「改后接受」落库留痕）
+      const rwPatches = (await docs.listPatches(PIDA, 'hld')) as { items: Array<{ patchId: string; status: string }> };
+      const rwPend = rwPatches.items.find((p) => p.status === 'pending')!;
+      await docs.acceptPatch(PIDA, 'hld', rwPend.patchId, CTXA, undefined, '# 概要设计说明书\n\n（人工改后接受的整篇内容）');
+      const accRow = await query<{ status: string; reason: string | null }>(
+        'SELECT status, reason FROM dsg_pendings WHERE id=$1', [rwPend.patchId]);
+      expect(accRow.rows[0]!.status).toBe('accepted');
+      expect(accRow.rows[0]!.reason).toContain('改后接受');
+      const dv = (await docs.getDoc(PIDA, 'hld')) as unknown as { secs: Array<{ md: string }> };
+      expect(dv.secs.some((s) => s.md.includes('人工改后接受的整篇内容'))).toBe(true);
+      // 拒绝理由落库（dsg_pendings.reason 迁移 0026）
+      const r2 = await call({ kind: 'hld', instruction: '再补一节部署拓扑' });
+      expect(r2.ok).toBe(true);
+      const p2 = (await docs.listPatches(PIDA, 'hld')) as { items: Array<{ patchId: string; status: string }> };
+      const pend2 = p2.items.find((p) => p.status === 'pending')!;
+      await docs.rejectPatch(PIDA, 'hld', pend2.patchId, CTXA, '与现有部署节重复');
+      const rejRow = await query<{ status: string; reason: string | null }>(
+        'SELECT status, reason FROM dsg_pendings WHERE id=$1', [pend2.patchId]);
+      expect(rejRow.rows[0]!.status).toBe('rejected');
+      expect(rejRow.rows[0]!.reason).toBe('与现有部署节重复');
     } finally {
       await query('DELETE FROM dsg_pendings WHERE document_id IN (SELECT id FROM dsg_documents WHERE project_id=$1)', [PIDA]);
       await query('DELETE FROM dsg_drafts WHERE document_id IN (SELECT id FROM dsg_documents WHERE project_id=$1)', [PIDA]);

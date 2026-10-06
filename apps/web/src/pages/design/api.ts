@@ -27,7 +27,7 @@ export interface DesignDocView {
 }
 
 export interface PatchItem {
-  patchId: string; secId: string; type: 'add' | 'modify' | 'del';
+  patchId: string; secId: string; type: 'add' | 'modify' | 'del' | 'replace';
   title?: string; old?: string; new?: string; status: string; source: string;
 }
 
@@ -107,10 +107,14 @@ export const designApi = {
   exportDoc: (pid: string, kind: DesignKind, v: number, format: 'md' | 'html' | 'docx' | 'pdf') =>
     api.post<{ downloadUrl: string; format: string }>(`${base(pid)}/docs/${kind}/versions/${v}:export`, { format }),
   listPatches: (pid: string, kind: DesignKind) => api.get<{ items: PatchItem[] }>(`${base(pid)}/docs/${kind}/patches`),
-  acceptPatch: (pid: string, kind: DesignKind, patchId: string) =>
-    api.post(`${base(pid)}/docs/${kind}/patches/${patchId}:accept`, {}),
-  rejectPatch: (pid: string, kind: DesignKind, patchId: string) =>
-    api.post(`${base(pid)}/docs/${kind}/patches/${patchId}:reject`, {}),
+  /** 处置留痕+改后接受（需求阶段模式推广：reason/newText 与 req 域同口径） */
+  acceptPatch: (pid: string, kind: DesignKind, patchId: string, reason?: string, newText?: string) =>
+    api.post(`${base(pid)}/docs/${kind}/patches/${patchId}:accept`, {
+      ...(reason ? { reason } : {}),
+      ...(newText !== undefined ? { newText } : {}),
+    }),
+  rejectPatch: (pid: string, kind: DesignKind, patchId: string, reason?: string) =>
+    api.post(`${base(pid)}/docs/${kind}/patches/${patchId}:reject`, reason ? { reason } : {}),
   genControl: (pid: string, kind: DesignKind, operationId: string, action: 'pause' | 'resume' | 'stop') =>
     api.post(`${base(pid)}/docs/${kind}/generations/${operationId}:${action}`, {}),
 
