@@ -46,6 +46,7 @@ export class ProjectPlatformController {
         domain: kind === 'crd' || kind === 'prd' ? 'req' : 'design',
         standard: t.standard,
         quality: t.quality,
+        writingRules: t.writingRules,
         chapters: t.chapters,
       })),
       note: '未提供自定义模板时按默认模板生成；参考资料中若有用户模板/格式规范，以用户模板为准。',

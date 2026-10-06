@@ -8,6 +8,7 @@ interface TemplateItem {
   domain: string;
   standard: string;
   quality: string;
+  writingRules: string[];
   chapters: Array<{ title: string; requires: string }>;
 }
 
@@ -43,6 +44,10 @@ export function DocTemplateButton({ projectId, kind, label }: { projectId: strin
             <div className="tpl-view">
               <p><strong>依据标准：</strong>{item.standard}</p>
               <p><strong>质量要求：</strong>{item.quality}</p>
+              <p><strong>编写规则：</strong></p>
+              <ul>
+                {item.writingRules.map((r, i) => <li key={i}>{r}</li>)}
+              </ul>
               <p><strong>结构（大章 ⇢ 内容要求）：</strong></p>
               <ul>
                 {item.chapters.map((c) => (

@@ -10,10 +10,13 @@ describe('doc-templates 默认文档模板', () => {
       expect(t, k).toBeDefined();
       expect(t!.standard.length, k).toBeGreaterThan(0);
       expect(t!.quality.length, k).toBeGreaterThan(0);
-      expect(t!.chapters.length, k).toBeGreaterThanOrEqual(3);
+      // 专业度门槛：编写规则 ≥3 条且每条可检查；大章 ≥4 且内容要求言之有物
+      expect(t!.writingRules.length, k).toBeGreaterThanOrEqual(3);
+      for (const r of t!.writingRules) expect(r.length, `${k}:${r}`).toBeGreaterThanOrEqual(10);
+      expect(t!.chapters.length, k).toBeGreaterThanOrEqual(4);
       for (const c of t!.chapters) {
         expect(c.title, `${k}:${c.title}`).toMatch(/^[一二三四五六七八九十]+、/); // 大章中文数字+顿号（deriveNumbering 判定同源）
-        expect(c.requires.length, `${k}:${c.title}`).toBeGreaterThan(0);
+        expect(c.requires.length, `${k}:${c.title}`).toBeGreaterThanOrEqual(20);
       }
     }
   });
