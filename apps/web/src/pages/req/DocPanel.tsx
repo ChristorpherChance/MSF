@@ -8,6 +8,7 @@ import { ConfirmModal } from '../../ui/ConfirmModal';
 import { StatusChips, type StatusChipItem } from '../../ui/StatusChips';
 import { toast } from '../../ui/toast';
 import { downloadFile } from '../../ui/download';
+import { DocTemplateButton } from '../../ui/DocTemplateButton';
 import { useStagesStore } from '../../ui/GateBanner';
 import { reqApi, type DocKind, type HealthView, type PatchItem } from './api';
 import { diffText } from './diff';
@@ -139,6 +140,7 @@ function Toolbar({
           </div>
         )}
       </div>
+      <DocTemplateButton projectId={projectId} kind={kind} label={kind === 'crd' ? 'CRD' : 'PRD'} />
       <button
         className="act primary"
         disabled={readonly || !doc.modified || generating}

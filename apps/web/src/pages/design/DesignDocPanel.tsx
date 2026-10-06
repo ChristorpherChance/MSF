@@ -7,6 +7,7 @@ import { Modal } from '../../ui/Modal';
 import { ConfirmModal } from '../../ui/ConfirmModal';
 import { toast } from '../../ui/toast';
 import { downloadFile } from '../../ui/download';
+import { DocTemplateButton } from '../../ui/DocTemplateButton';
 import { useDockStore } from '../../assistant/dock-store';
 import { diffText } from '../req/diff';
 import { deriveNumbering } from '@msf/shared/doc-numbering';
@@ -163,6 +164,7 @@ function Toolbar() {
           </div>
         )}
       </div>
+      <DocTemplateButton projectId={projectId} kind={selKind} label={bookTitle} />
       <button
         className="act primary"
         disabled={readonly || !doc.modified || generating || pendCount > 0}

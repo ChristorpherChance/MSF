@@ -46,6 +46,8 @@
 
 27. **默认文档模板库 doc-templates + 阶段 agent 标准意识（2026-10-06 用户拍板「每种文档一份默认模板参考，用户不提供就按国际标准默认模板来；每个阶段 agent 都要好好打造」，随条目 26 一并回补 LLD-5 A08-3）**：新增 `platform/doc-templates.ts`——十类文档（crd/prd+设计八册）各一份 DocTemplate{standard/quality/chapters[大章⇢内容要求]}，标准映射：CRD/PRD=ISO/IEC/IEEE 29148、HLD/MOD/ALG/CLS/DB=ISO/IEC/IEEE 42010、API=OpenAPI 3.1/REST、UI=WCAG 2.2、NFR=ISO/IEC 25010；`buildTemplateGuide` 组装注入块（质量 bar+结构骨架+编号规范引 doc-conventions 保持单一权威+**「用户模板优先」声明**——参考资料本就全文注入生成 prompt，用户提供模板自然压过默认模板，模型侧诚实声明）。分工：conventions 管格式（大章形态/锚点码）、templates 管内容（有什么章、写什么、质量 bar）。接线：req/design 初稿与 rewrite 四处 prompt 注入（增量修订不重复模板）。agent 打磨：REQ_GUIDE 加 29148 评审标准（单一职责/无歧义/可验证/可追踪/量化指标拒空话）、DESIGN_GUIDE 加按册标准评审口径（ADR 有理由/视图完整/契约明确/指标可测）。踩坑：DSG_BOOK_LETTER 值是大写（RTM 册级锚）vs chapter_prefix 小写（节级码）——同组字母两规格形态，模板映射须 toLowerCase。单测 +3（十类模板齐备+标准映射+注入块形态，38 文件 278/278）。
 
+28. **模板可见化入口（2026-10-06 用户「我没看到模板呢」，随条目 27 一并回补）**：模板库此前只注入生成 prompt、界面无入口（生成一刻才起作用）——补呈现面：`GET /projects/:pid/doc-templates` 只读端点（listTemplates 结构化直出+用户模板优先说明；内容与项目无关，项目路由仅为口径统一）+ 共享组件 `ui/DocTemplateButton.tsx`（📄 模板钮→Modal 展示依据标准/质量要求/大章⇢内容要求/优先说明）挂 req 工具栏（随 kind=CRD/PRD）与 design 工具栏（随 selKind 册名）。实机双页验证：CRD 弹窗 29148 六章骨架、HLD 弹窗 42010 六章骨架渲染正常。
+
 ## 已知限制
 
 - 上游滞后派生按当前版本 submitted_at 比较：上游「设为当前版本」回切旧版时以下游与旧版的时间差判定（口径内：滞后语义锚定当前版本而非历史最高版本）；模板自举时序边缘（先访 /design 再首访 /req）会让模板册全标 stale——首份真实生成提交后即归正，属一次性噪声（条目 18）。

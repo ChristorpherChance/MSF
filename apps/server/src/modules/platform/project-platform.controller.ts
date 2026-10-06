@@ -12,6 +12,7 @@ import type { Request } from 'express';
 import { getActor } from '../api/identity.middleware.js';
 import { PlatformReadService } from './platform-read.service.js';
 import { SettingsService } from './settings.service.js';
+import { listTemplates } from './doc-templates.js';
 
 /**
  * 项目平台扩展端点（LLD-5 DSG-A02-4/5/6 + 放行策略配置面）：
@@ -32,6 +33,23 @@ export class ProjectPlatformController {
   stages(@Param('projectId') projectId: string, @Req() req: Request) {
     const a = getActor(req);
     return this.read.stages(projectId, { projectId, actorKind: a.kind, actorId: a.id });
+  }
+
+  /** 默认文档模板查看（2026-10-06：模板此前只注入生成 prompt 不可见——用户「我没看到模板呢」补呈现入口；
+   *  只读直出平台模板库，不过命令不过项目态（内容与项目无关，项目路由仅为口径统一） */
+  @Get('doc-templates')
+  docTemplates() {
+    const all = listTemplates();
+    return {
+      items: Object.entries(all).map(([kind, t]) => ({
+        kind,
+        domain: kind === 'crd' || kind === 'prd' ? 'req' : 'design',
+        standard: t.standard,
+        quality: t.quality,
+        chapters: t.chapters,
+      })),
+      note: '未提供自定义模板时按默认模板生成；参考资料中若有用户模板/格式规范，以用户模板为准。',
+    };
   }
 
   /** A02-5 任务中心汇总 */
