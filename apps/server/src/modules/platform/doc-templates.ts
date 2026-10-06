@@ -1,3 +1,4 @@
+import { query } from '../../db/pool.js';
 import { CHAPTER_RULE, designSectionRule, reqSectionRule } from './doc-conventions.js';
 import { DSG_BOOK_LETTER } from './rtm-health.js';
 
@@ -210,9 +211,10 @@ const BOOK_TEMPLATES: Record<string, DocTemplate> = {
   nfr: NFR_TEMPLATE,
 };
 
-/** 生成 prompt 注入块：默认模板骨架+编写规则+质量 bar+「用户模板优先」声明（参考资料注入在模板块之后，模型自然以用户模板为准） */
+/** 生成 prompt 注入块：默认模板骨架+编写规则+质量 bar+「用户模板优先」声明（参考资料注入在模板块之后，模型自然以用户模板为准）。
+ *  读的是「代码默认+DB 覆盖」合并后的生效模板（设置页编辑器覆盖层） */
 export function buildTemplateGuide(domain: 'req' | 'design', kind: string): string {
-  const t = domain === 'req' ? (kind === 'crd' ? CRD_TEMPLATE : PRD_TEMPLATE) : BOOK_TEMPLATES[kind];
+  const t = effectiveTemplate(domain, kind);
   if (!t) return '';
   const codeRule = domain === 'req'
     ? reqSectionRule(kind as 'crd' | 'prd')
@@ -232,5 +234,58 @@ export function buildTemplateGuide(domain: 'req' | 'design', kind: string): stri
 
 /** 测试/校验用：模板注册表直出（防某类文档漏模板） */
 export function listTemplates(): Record<string, DocTemplate> {
-  return { crd: CRD_TEMPLATE, prd: PRD_TEMPLATE, ...BOOK_TEMPLATES };
+  return { crd: CRD_TEMPLATE, prd: PRD_TEMPLATE, ...BOOK_TEMPLATES, ...overrides };
+}
+
+// ---------- 设置页模板编辑器：DB 覆盖层（sys_settings['doc_template_overrides']） ----------
+// 代码默认是基线（专业度门槛由测试钉死），编辑器保存的是**按 kind 的覆盖行**——
+// 无覆盖=代码默认；「恢复默认」=删覆盖行。单进程部署：缓存于内存，boot/保存后显式刷新。
+
+export const TEMPLATE_OVERRIDES_KEY = 'doc_template_overrides';
+
+let overrides: Record<string, DocTemplate> = {};
+
+export async function refreshTemplateOverrides(): Promise<void> {
+  try {
+    const r = await query<{ value: Record<string, DocTemplate> | null }>(
+      'SELECT value FROM sys_settings WHERE key=$1', [TEMPLATE_OVERRIDES_KEY]);
+    overrides = r.rows[0]?.value ?? {};
+  } catch {
+    overrides = {}; // 读取失败回退代码默认（不阻断生成链）
+  }
+}
+
+/** 当前覆盖表（设置页标「已自定义」徽用） */
+export function templateOverrides(): Record<string, DocTemplate> {
+  return overrides;
+}
+
+/** 代码默认（设置页「恢复默认」参照/对比用；不含覆盖） */
+export function codeDefaultTemplate(kind: string): DocTemplate | undefined {
+  if (kind === 'crd') return CRD_TEMPLATE;
+  if (kind === 'prd') return PRD_TEMPLATE;
+  return BOOK_TEMPLATES[kind];
+}
+
+function effectiveTemplate(domain: 'req' | 'design', kind: string): DocTemplate | undefined {
+  return overrides[kind] ?? codeDefaultTemplate(kind);
+}
+
+/** 专业度校验（编辑器保存闸；与 doc-templates.test 门槛同源——用户也不能把模板改水）。
+ *  返回人话问题清单（空数组=通过；不落码，门面按 VALIDATION_FAILED 汇总抛出） */
+export function validateTemplate(kind: string, t: DocTemplate): string[] {
+  const problems: string[] = [];
+  if (!t.standard || t.standard.trim().length < 4) problems.push('依据标准必填（≥4 字，如 ISO/IEC/IEEE 29148）');
+  if (!t.quality || t.quality.trim().length < 10) problems.push('质量要求必填（≥10 字）');
+  const rules = t.writingRules ?? [];
+  if (rules.length < 3) problems.push(`编写规则至少 3 条（当前 ${rules.length} 条）`);
+  rules.forEach((r, i) => { if ((r ?? '').trim().length < 10) problems.push(`编写规则第 ${i + 1} 条过短（≥10 字）`); });
+  const chapters = t.chapters ?? [];
+  if (chapters.length < 4) problems.push(`大章至少 4 章（当前 ${chapters.length} 章）`);
+  chapters.forEach((c, i) => {
+    if (!/^[一二三四五六七八九十]+、/.test(c.title ?? '')) problems.push(`第 ${i + 1} 章标题须中文数字+顿号（如「一、背景与目标」）`);
+    if ((c.requires ?? '').trim().length < 20) problems.push(`第 ${i + 1} 章内容要求过短（≥20 字，写到可验收粒度）`);
+  });
+  if (!codeDefaultTemplate(kind)) problems.push(`未知文档类型 ${kind}（枚举 crd|prd|hld|mod|alg|cls|db|api|ui|nfr）`);
+  return problems;
 }

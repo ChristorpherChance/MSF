@@ -12,6 +12,7 @@ import {
   type PromptVersionRow,
 } from './api';
 import { AuditGroup, BackupGroup, ModelsGroup, PolicyGroup, SystemGroup } from './SettingsGroups';
+import { DocTemplatesGroup } from './DocTemplatesGroup';
 import './settings.css';
 
 /** 子 Agent 名册（原型 S.agents 口径；系统默认 Prompt 为内置基底文案，只读展示） */
@@ -26,10 +27,11 @@ const AGENTS: Array<{ key: string; group: string; name: string; sysPrompt: strin
 const GLOBAL_KEY = 'assistant'; // 全局 AI 助手（元 agent 内核第一实例）
 const GLOBAL_BASE = '你是软件工厂的全局 AI 助手（元 agent 内核第一实例）。内核六件（循环执行器/工具协议与注册表/上下文装配/治理钩子/模型抽象/流式控制）零业务语义；你只携带通用基底 + 工具子集 + 全局 provider 三件配置。';
 
-type NavKey = 'agents' | 'models' | 'policy' | 'audit' | 'backup' | 'system';
+type NavKey = 'agents' | 'models' | 'templates' | 'policy' | 'audit' | 'backup' | 'system';
 const NAV: Array<[NavKey, string]> = [
   ['agents', '🤖 Agent 配置'],
   ['models', '🧩 模型配置'],
+  ['templates', '📄 文档模板'],
   ['policy', '🛂 放行策略'],
   ['audit', '🧾 审计'],
   ['backup', '💾 备份'],
@@ -81,6 +83,7 @@ export function SettingsPage() {
           <div className="set-body">
             {nav === 'agents' && (selAgent === GLOBAL_KEY ? <GlobalAssistantCard /> : <AgentCard key={selAgent} agentKey={selAgent} />)}
             {nav === 'models' && <ModelsGroup />}
+            {nav === 'templates' && <DocTemplatesGroup />}
             {nav === 'policy' && <PolicyGroup />}
             {nav === 'audit' && <AuditGroup />}
             {nav === 'backup' && <BackupGroup />}

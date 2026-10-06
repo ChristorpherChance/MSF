@@ -1,5 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { DomainError, POLICY_GATE_KEYS, type PolicyGateKey } from '@msf/shared';
+import { refreshTemplateOverrides, validateTemplate, TEMPLATE_OVERRIDES_KEY, type DocTemplate } from './doc-templates.js';
 import { query } from '../../db/pool.js';
 import { executeCommand, registerCommand, type CommandContext } from '../evidence/command-bus.js';
 import { NotificationsService } from './notifications.service.js';
@@ -57,6 +58,36 @@ export class SettingsService {
         [ctx.projectId, p.gateKey, JSON.stringify(p.preconditions)]);
       return { gateKey: p.gateKey, preconditions: p.preconditions };
     });
+    // 文档模板编辑器（2026-10-06 拍板）：覆盖层存 sys_settings['doc_template_overrides']（按 kind），
+    // 保存过 validateTemplate 专业度闸（与测试门槛同源——用户也不能把模板改水）；命令记审计（设置变更口径）
+    registerCommand('system.doc_template.save', async (client, payload, ctx) => {
+      const p = payload as { kind: string; template: DocTemplate };
+      const problems = validateTemplate(p.kind, p.template);
+      if (problems.length > 0) {
+        throw new DomainError('VALIDATION_FAILED', `模板未过专业度校验：${problems.join('；')}`, 'template');
+      }
+      const cur = await client.query<{ value: Record<string, DocTemplate> | null }>(
+        'SELECT value FROM sys_settings WHERE key=$1 FOR UPDATE', [TEMPLATE_OVERRIDES_KEY]);
+      const map = { ...(cur.rows[0]?.value ?? {}), [p.kind]: p.template };
+      await client.query(
+        `INSERT INTO sys_settings (key, value, updated_by, updated_at) VALUES ($1,$2,$3,now())
+         ON CONFLICT (key) DO UPDATE SET value=$2, updated_by=$3, updated_at=now()`,
+        [TEMPLATE_OVERRIDES_KEY, JSON.stringify(map), ctx.actorId]);
+      return { kind: p.kind, saved: true };
+    });
+    registerCommand('system.doc_template.reset', async (client, payload, ctx) => {
+      const p = payload as { kind: string };
+      const cur = await client.query<{ value: Record<string, DocTemplate> | null }>(
+        'SELECT value FROM sys_settings WHERE key=$1 FOR UPDATE', [TEMPLATE_OVERRIDES_KEY]);
+      const map = { ...(cur.rows[0]?.value ?? {}) };
+      const had = p.kind in map;
+      delete map[p.kind];
+      await client.query(
+        `INSERT INTO sys_settings (key, value, updated_by, updated_at) VALUES ($1,$2,$3,now())
+         ON CONFLICT (key) DO UPDATE SET value=$2, updated_by=$3, updated_at=now()`,
+        [TEMPLATE_OVERRIDES_KEY, JSON.stringify(map), ctx.actorId]);
+      return { kind: p.kind, reset: true, hadOverride: had };
+    });
   }
 
   /** A10-1 查询：全量设置（key→value 平铺） */
@@ -74,6 +105,20 @@ export class SettingsService {
       throw new DomainError('VALIDATION_FAILED', '密钥类不落 sys_settings（走 ai_models.api_key_enc）', 'key');
     }
     return (await executeCommand('system.settings.set', { key, value }, ctx)) as { key: string };
+  }
+
+  /** 文档模板编辑器：保存覆盖（validateTemplate 专业度闸在命令内）；提交后刷新生成链覆盖缓存 */
+  async saveDocTemplate(kind: string, template: DocTemplate, ctx: CommandContext) {
+    const r = (await executeCommand('system.doc_template.save', { kind, template }, ctx)) as { kind: string; saved: boolean };
+    await refreshTemplateOverrides();
+    return r;
+  }
+
+  /** 文档模板编辑器：恢复默认（删覆盖行）；提交后刷新缓存 */
+  async resetDocTemplate(kind: string, ctx: CommandContext) {
+    const r = (await executeCommand('system.doc_template.reset', { kind }, ctx)) as { kind: string; hadOverride: boolean };
+    await refreshTemplateOverrides();
+    return r;
   }
 
   /** 放行策略：七确认点清单（未配置=manual）+ 前置条件 + 最近切换事件 */

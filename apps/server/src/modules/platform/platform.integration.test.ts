@@ -238,4 +238,41 @@ describe('M7 平台域（集成，需 DB+MinIO）', async () => {
     await expect(backups.export('00000000-0000-0000-0000-000000000099', {}, CTX))
       .rejects.toMatchObject({ code: 'NOT_FOUND' });
   });
+
+  it('文档模板编辑器：覆盖保存→生成链生效→恢复默认回基线；专业度闸拒绝水化', async () => {
+    const { buildTemplateGuide, refreshTemplateOverrides, codeDefaultTemplate } = await import('./doc-templates.js');
+    await query("DELETE FROM sys_settings WHERE key='doc_template_overrides'");
+    await refreshTemplateOverrides();
+    try {
+      // 专业度闸：水化模板（规则不足/章名不合规）被拒（VALIDATION_FAILED 人话）
+      await expect(settings.saveDocTemplate('crd', {
+        standard: 'X', quality: '随意', writingRules: ['短'], chapters: [{ title: 'Chapter 1', requires: '少' }],
+      }, CTX)).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+      // 保存合法覆盖 → 生成链注入块即时生效（标准出处/章名换成自定义）
+      await settings.saveDocTemplate('crd', {
+        standard: 'ACME 公司模板规范 v3',
+        quality: '每条需求按公司模板三栏（描述/规则/验收）填写，违者退回。',
+        writingRules: ['公司模板标题须带 ACME- 前缀且顺延', '每条需求须双语（中英）', '验收要点须给测量方法'],
+        chapters: [
+          { title: '一、公司背景', requires: '公司级业务背景与合规声明（按 ACME 模板第 2 节）' },
+          { title: '二、公司需求', requires: 'ACME-nnn 条目三栏：描述/规则/验收（可测量）' },
+          { title: '三、公司约束', requires: '合规/法务/数据驻留约束（按 ACME 法务清单）' },
+          { title: '四、公司术语', requires: '公司术语表（中英对照，与集团术语库口径一致并注明出处）' },
+        ],
+      }, CTX);
+      const guide = buildTemplateGuide('req', 'crd');
+      expect(guide).toContain('ACME 公司模板规范 v3');
+      expect(guide).toContain('一、公司背景');
+      expect(guide).toContain('用户模板优先'); // 声明仍在
+      // 恢复默认 → 回代码基线（29148）
+      await settings.resetDocTemplate('crd', CTX);
+      const guide2 = buildTemplateGuide('req', 'crd');
+      expect(guide2).toContain('29148');
+      expect(guide2).not.toContain('ACME');
+      expect(codeDefaultTemplate('crd')!.standard).toContain('29148'); // 代码基线未被覆盖污染
+    } finally {
+      await query("DELETE FROM sys_settings WHERE key='doc_template_overrides'");
+      await refreshTemplateOverrides();
+    }
+  });
 });

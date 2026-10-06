@@ -92,3 +92,23 @@ textarea.prompt-editor.readonly { background: var(--soft); color: var(--ink2); }
   border: 1px solid var(--green); background: var(--green-soft); border-radius: 8px;
   padding: 8px 10px; font-size: 12.5px;
 }
+
+/* 文档模板编辑器（2026-10-06）：左 kind 列 + 右表单 */
+.tpl-editor { display: flex; gap: 12px; align-items: flex-start; }
+.tpl-kinds { display: flex; flex-direction: column; gap: 4px; min-width: 190px; }
+.tpl-kind {
+  display: flex; align-items: center; gap: 6px; text-align: left;
+  padding: 6px 10px; border: 1px solid var(--line); border-radius: var(--radius, 8px);
+  background: var(--bg-soft, transparent); color: var(--ink); cursor: pointer; font-size: 13px;
+}
+.tpl-kind.on { border-color: var(--blue); background: var(--blue-soft); }
+.tpl-form { flex: 1; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.tpl-form > label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--ink-2, var(--ink)); }
+.tpl-form input, .tpl-form textarea {
+  border: 1px solid var(--line); border-radius: var(--radius, 8px); padding: 6px 8px;
+  background: var(--bg); color: var(--ink); font: inherit; resize: vertical;
+}
+.tpl-form input:focus, .tpl-form textarea:focus { outline: 2px solid var(--blue-soft); border-color: var(--blue); }
+.tpl-chapters-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.tpl-chapter { display: grid; grid-template-columns: 170px 1fr auto; gap: 6px; margin-bottom: 6px; align-items: start; }
+.tpl-ops { display: flex; gap: 8px; }

@@ -12,6 +12,8 @@ export const COMMANDS = [
   'policy.gate.set_preconditions', // 前置条件编辑（LLD-6 §3.9 放行策略卡；差异登记）
   // M7 平台补齐（M13：A02-6/A10-1/2/3/4；REQ-703/705/706/708）
   'system.settings.set', // 设置变更（D10-4 注：记 audit_log）
+  'system.doc_template.save', // 文档模板编辑器：保存覆盖（validateTemplate 专业度闸，记审计）
+  'system.doc_template.reset', // 文档模板编辑器：恢复默认（删覆盖行）
   'system.notification.emit', // 通知产生（写路径副作用；BR-10 失败定位）
   'system.notification.read',
   'system.notification.read_all',

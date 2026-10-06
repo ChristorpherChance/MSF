@@ -6,7 +6,7 @@ import { executeCommand, registerCommand, type CommandContext } from '../evidenc
 import { mdToPatches, normalizePatches, sha256Text, splitSections, buildNumberGuide, type EditPatch } from '../platform/doc-sections.js';
 import { registerExternalTool } from '../platform/external-tools.js';
 import { CHAPTER_RULE, designSectionRule } from '../platform/doc-conventions.js';
-import { buildTemplateGuide } from '../platform/doc-templates.js';
+import { buildTemplateGuide, refreshTemplateOverrides } from '../platform/doc-templates.js';
 import { AI_PROVIDER, type AiProvider, type AiUsage } from '../ai/ai-provider.interface.js';
 import { classifyAiError, sanitizeAiError } from '../ai/stream-pipeline.js';
 import { DesignDocsService, DESIGN_BOOKS, type DesignKind } from './docs.service.js';
@@ -57,6 +57,7 @@ export class DesignGenerateService {
   ) {}
 
   onModuleInit(): void {
+    void refreshTemplateOverrides(); // 文档模板 DB 覆盖层入缓存（buildTemplateGuide 同步读）
     registerCommand('design.doc.generate', async (client, payload) => {
       const { projectId, kind, operationId } = payload as { projectId: string; kind: string; operationId: string };
       await client.query(

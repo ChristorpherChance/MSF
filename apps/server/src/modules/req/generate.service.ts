@@ -8,7 +8,7 @@ import { AI_PROVIDER, type AiProvider, type AiUsage } from '../ai/ai-provider.in
 import { classifyAiError, sanitizeAiError } from '../ai/stream-pipeline.js';
 import { registerExternalTool } from '../platform/external-tools.js';
 import { CHAPTER_RULE, reqSectionRule } from '../platform/doc-conventions.js';
-import { buildTemplateGuide } from '../platform/doc-templates.js';
+import { buildTemplateGuide, refreshTemplateOverrides } from '../platform/doc-templates.js';
 import { ReqDocsService } from './docs.service.js';
 
 /**
@@ -65,6 +65,7 @@ export class GenerateService {
   ) {}
 
   onModuleInit(): void {
+    void refreshTemplateOverrides(); // 文档模板 DB 覆盖层入缓存（buildTemplateGuide 同步读）
     // 生成启动登记：gen_state=generating（垃圾状态在 stop/done/failed 时复位）
     registerCommand('req.doc.generate', async (client, payload) => {
       const { projectId, kind, operationId } = payload as { projectId: string; kind: string; operationId: string };
