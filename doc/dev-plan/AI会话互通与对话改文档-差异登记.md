@@ -42,6 +42,8 @@
 
 25. **设计八册章节编号补齐（2026-10-06 用户指出「概要/详细设计同样没有章节号，所有阶段涉文档都要检查」，随条目 4 一并回补 LLD-5 A04-13）**：编号链路当时只落在需求域（条目 4 口径 CRD/PRD），设计八册三个面全缺。排查全仓文档面后补齐：①UI 渲染——DesignDocPanel TocCol/Paper h2 接 deriveNumbering（@msf/shared 同函数，大章加粗/节缩进/存量平铺文档回退平铺编号，与需求页逐行同构）；②导出——design/export.service 四格式包 withNumberedTitles（req 导出同口径）；③生成约定——buildDesignPrompt 加大章约定（中文数字+顿号，禁「第X章」/阿拉伯数字变体；buildDesignEditPrompt 同步），**且发现增量修订流同患「第五章改不到位」**——原增量走初稿 prompt 整篇重出、无 currentContent 无编号对照表，模型保不住原标题必退化 add：buildDesignPrompt 增 incremental 分支（instruction+currentContent 双非空时：只输出变化节+buildNumberGuide 对照表+【当前文档内容】基线，GenOp.real 带 currentContent，与 req 增量 prompt 同构）。其余文档面核查结论：doc.read 八册 kind 本就走 withNumberedTitles ✓；原型=HTML 无章节概念、dev/test=结构化记录、material=用户文件，均 N/A。测试：设计导出用例加 md 编号断言（## 一、/1. 形态）；全量 272/272（一次共库 flake 复跑即绿、再稳跑双绿）。实机：八轮项目 HLD 页 h2/目录双栏「1. 2. 3.」编号实证（存量平铺文档回退形态正确）。
 
+26. **文档结构规范单一权威 doc-conventions（2026-10-06 用户问「章节规范不一致，要写阶段 agent 吗还是有更合适的落点」，随条目 4/25 一并回补 LLD-5 A08-3）**：答案=agent 指南只管 dock 行为纪律，**文档骨架是生成链产的——规范必须收敛到生成链共享的一处**：新增 `platform/doc-conventions.ts`（CHAPTER_RULE 大章约定⇄deriveNumbering 判定同源、reqSectionRule CR/REQ-nnn、designSectionRule 册前缀-n h/o/g/k/d/a/u/n），req buildPrompt/buildRewritePrompt 与设计 buildDesignPrompt（初稿+增量分支）/buildDesignEditPrompt/buildDesignRewritePrompt 六处 prompt 全部改引模块（设计册此前**从未声明节级锚点码格式**——真模型普遍产纯文字标题，人机能指代与编号顺延坐标缺失；mock 产 prefix-n 本就在规格内）。stage-guides 不内嵌规范细节（agent 提案同样走生成链 prompt，单点生效）。单测 +3（文案即契约防发散，doc-conventions 37 文件 275/275）。
+
 ## 已知限制
 
 - 上游滞后派生按当前版本 submitted_at 比较：上游「设为当前版本」回切旧版时以下游与旧版的时间差判定（口径内：滞后语义锚定当前版本而非历史最高版本）；模板自举时序边缘（先访 /design 再首访 /req）会让模板册全标 stale——首份真实生成提交后即归正，属一次性噪声（条目 18）。

@@ -1,0 +1,27 @@
+/**
+ * 文档结构规范·单一权威（2026-10-06 用户拍板：设计阶段章节规范须与需求一致，且要有「更合适的落点」）：
+ * 生成链（初稿/增量/rewrite/对话改文档 prompt）与任何未来的规范消费方，统一引用本模块——
+ * 规范只在这里写一遍。deriveNumbering（渲染层派生编号）的大章判定只认中文数字+顿号，
+ * 与 CHAPTER_RULE 是同一枚硬币的两面（生成侧约定 ⇄ 渲染侧判定），改动必须两侧同步。
+ *
+ * 注意：dock 阶段指南（ai/stage-guides.ts）不内嵌本规范细节——agent 的文档提案同样走生成链
+ * prompt（proposeEditsFromChat），规范经生成链单点生效；指南只管行为纪律。
+ */
+
+/** 大章约定（全文档通用；deriveNumbering 只认此形态为大章） */
+export const CHAPTER_RULE =
+  '先按内容归类出若干大章，大章标题形如 `## 一、总体设计`（必须用中文数字序号+顿号，如 一、背景与目标/二、功能需求/三、非功能需求；不要用"第X章"或阿拉伯数字编号），条目节落在合适大章之后。';
+
+/** 需求域条目节锚点码格式（CRD=CR-nnn、PRD=REQ-nnn；RTM 锚点链按此派生） */
+export function reqSectionRule(kind: 'crd' | 'prd'): string {
+  const code = kind === 'crd' ? 'CR' : 'REQ';
+  return `每条需求单独一个 \`## \` 章节，标题形如 \`${code}-001 简明标题\`（锚点码必须在标题内，不得改动格式；新增在最大编号后顺延，不得复用）。`;
+}
+
+/**
+ * 设计册条目节锚点码格式（册前缀=LLD-4 chapter_prefix 单字母 h/o/g/k/d/a/u/n）。
+ * 真模型曾普遍漏码（纯文字标题）——节级码是人机指代（「h-1 节」）与编号顺延的坐标，必须声明。
+ */
+export function designSectionRule(prefix: string): string {
+  return `每个设计条目单独一个 \`## \` 章节，标题形如 \`${prefix}-1 简明标题\`（本册前缀锚点码必须在标题内，不得改动格式；新增在最大编号后顺延，不得复用）。`;
+}

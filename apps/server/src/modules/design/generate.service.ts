@@ -5,6 +5,7 @@ import { query } from '../../db/pool.js';
 import { executeCommand, registerCommand, type CommandContext } from '../evidence/command-bus.js';
 import { mdToPatches, normalizePatches, sha256Text, splitSections, buildNumberGuide, type EditPatch } from '../platform/doc-sections.js';
 import { registerExternalTool } from '../platform/external-tools.js';
+import { CHAPTER_RULE, designSectionRule } from '../platform/doc-conventions.js';
 import { AI_PROVIDER, type AiProvider, type AiUsage } from '../ai/ai-provider.interface.js';
 import { classifyAiError, sanitizeAiError } from '../ai/stream-pipeline.js';
 import { DesignDocsService, DESIGN_BOOKS, type DesignKind } from './docs.service.js';
@@ -136,8 +137,8 @@ export class DesignGenerateService {
         const session = await this.ai.createSession({ projectId, purpose: 'generation' });
         const existingCodes = [...new Set(effective.match(/\b[A-Z]{2,5}-\d{3}\b/g) ?? [])].sort();
         const prompt = mode === 'rewrite'
-          ? buildDesignRewritePrompt(book.name, cut, existingCodes, effective)
-          : buildDesignEditPrompt(book.name, cut, existingCodes, effective);
+          ? buildDesignRewritePrompt(book.name, book.prefix, cut, existingCodes, effective)
+          : buildDesignEditPrompt(book.name, book.prefix, cut, existingCodes, effective);
         const { deltas, result } = session.stream(prompt);
         for await (const d2 of deltas) void d2; // 非 SSE 内部调用：delta 排干不转发
         const res = await result;
@@ -422,8 +423,9 @@ function buildDesignPrompt(
       ? `你是软件工厂的设计助手。本次是《${book.name}》（${book.prefix} 册）的**增量修订**：只输出需要新增或修改的章节（每章一个 \`## \` 标题；修改某章时保持原标题不变、整章重写输出），**不要复述未变化的章节，不要整篇重出**。新增节如需大章落位，大章标题必须用中文数字序号+顿号。`
       : `你是软件工厂的设计助手。请基于上游定稿文档（全文附后）与参考资料，生成《${book.name}》（${book.prefix} 册）初稿。`,
     '输出为 Markdown 正文，按 `## ` 二级标题分节（章节标题简洁、不超过 30 字），每节给出可执行的设计内容。',
-    // 2026-10-06「所有文档都要有章节号」：与需求域同口径的大章约定（deriveNumbering 只认中文数字+顿号大章）
-    '先按内容归类出若干大章，大章标题形如 `## 一、总体设计`（必须用中文数字序号+顿号，如 一、总体设计/二、详细方案/三、质量与验证；不要用"第X章"或阿拉伯数字编号），设计条目节落在合适大章之后。',
+    // 结构规范单一权威（platform/doc-conventions）：大章约定 ⇄ deriveNumbering 判定同源；节级锚点码格式声明
+    CHAPTER_RULE,
+    designSectionRule(book.prefix),
     // #15 反向派生依赖回引；#11 全量承接
     '逐条承接上游 PRD 的全部 REQ 条目：每个承接章节在标题或正文显式回引 REQ-nnn 编号（追溯链按此派生），不得遗漏尾部条目。',
     // #10 增量修订编号顺延
@@ -477,10 +479,10 @@ function buildMock(kind: DesignKind, instruction: string): { chunks: string[]; p
 }
 
 /** 对话改设计册·增量 prompt（与需求域增量修订同构：只输出变化节；注入 UI 编号对照表防「按编号指代」落空） */
-function buildDesignEditPrompt(bookName: string, instruction: string, existingCodes: string[], currentContent: string): string {
+function buildDesignEditPrompt(bookName: string, prefix: string, instruction: string, existingCodes: string[], currentContent: string): string {
   return [
     `你是软件工厂的设计助手。本次是设计文档《${bookName}》的**增量修订**：只输出需要新增或修改的章节（每章一个 \`## \` 标题；修改某章时保持原标题不变、整章重写输出），**不要复述未变化的章节，不要整篇重出**。`,
-    `要求：中文 markdown；既有锚点码格式不得改动；新增条目如需编号，使用未占用编号顺延（已占用：${existingCodes.join('、') || '无'}）；新增大章标题必须用中文数字序号+顿号（如 \`## 三、质量与验证\`，不要用"第X章"或阿拉伯数字编号）。`,
+    `要求：中文 markdown；${designSectionRule(prefix)}既有锚点码格式不得改动；新增条目如需编号，使用未占用编号顺延（已占用：${existingCodes.join('、') || '无'}）；新增大章标题必须遵循大章约定（${CHAPTER_RULE}）。`,
     `用户指示：${instruction}`,
     buildNumberGuide(currentContent),
     `【当前文档内容（增量修订的基线；未提及的章节保持不变，不要输出）】\n\n${currentContent}`,
@@ -488,10 +490,10 @@ function buildDesignEditPrompt(bookName: string, instruction: string, existingCo
 }
 
 /** 对话改设计册·整篇重写 prompt（mode='rewrite'：当前全文为基线，输出完整文档一节不漏） */
-function buildDesignRewritePrompt(bookName: string, instruction: string, existingCodes: string[], currentContent: string): string {
+function buildDesignRewritePrompt(bookName: string, prefix: string, instruction: string, existingCodes: string[], currentContent: string): string {
   return [
     `你是软件工厂的设计助手。本次是设计文档《${bookName}》的**整篇重写**：以当前全文为基线、按用户指示输出重写后的**完整文档**（从一级标题到最后一节，一节不漏，不复述思考过程，只输出文档本体）。`,
-    `要求：中文 markdown；保留仍然有效的既有锚点码与编号；新增条目使用未占用编号顺延（已占用：${existingCodes.join('、') || '无'}）；用户指示删除/合并的章节不再输出。`,
+    `要求：中文 markdown；${CHAPTER_RULE}${designSectionRule(prefix)}保留仍然有效的既有锚点码与编号；新增条目使用未占用编号顺延（已占用：${existingCodes.join('、') || '无'}）；用户指示删除/合并的章节不再输出。`,
     `用户指示：${instruction}`,
     `【当前文档全文（重写基线）】\n\n${currentContent}`,
   ].join('\n\n');

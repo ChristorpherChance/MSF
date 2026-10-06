@@ -34,6 +34,9 @@ agent【联动提醒】块（带版本号主动建议跟随修订）。链路 CR
 UI 派生编号（第五章/5.1）是渲染层产物，模型不可见——`buildNumberGuide` 向增量 prompt 注入
 「UI 编号 ⇢ 原始标题」对照表+禁编号前缀约束；`findSection` 统一命中口径
 （锚点码任意位置→精确→编号剥离精确→≥4 字符后缀）；doc.read 返回带界面编号标题+anchor 定向读。
+**结构规范落点（2026-10-06 增补）**：章节规范的权威不在阶段 agent（只管行为纪律），而在
+`platform/doc-conventions.ts`——大章约定（⇄deriveNumbering 同源）+分域条目节锚点码格式，
+初稿/增量/rewrite/对话改文档六处生成 prompt 单点引用。
 
 ### P7 doc.read 读口径
 草稿优先（与 UI 同口径）、finalized/modified/versionNo 如实返回、sections 章节清单（未命中自助重试）、
