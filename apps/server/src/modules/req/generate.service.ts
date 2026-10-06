@@ -8,6 +8,7 @@ import { AI_PROVIDER, type AiProvider, type AiUsage } from '../ai/ai-provider.in
 import { classifyAiError, sanitizeAiError } from '../ai/stream-pipeline.js';
 import { registerExternalTool } from '../platform/external-tools.js';
 import { CHAPTER_RULE, reqSectionRule } from '../platform/doc-conventions.js';
+import { buildTemplateGuide } from '../platform/doc-templates.js';
 import { ReqDocsService } from './docs.service.js';
 
 /**
@@ -517,6 +518,8 @@ function buildPrompt(
       ? `你是软件工厂的需求分析助手。本次是${kind === 'crd' ? '客户需求文档（CRD）' : '产品需求文档（PRD）'}的**增量修订**：只输出需要新增或修改的章节（每章一个 \`## \` 标题；修改某章时保持原标题不变、整章重写输出），**不要复述未变化的章节，不要整篇重出**。新增需求节如需落位，可在该节之前输出所属大章标题行（仅当文档尚无该大章时）。`
       : `你是软件工厂的需求分析助手。请基于${kind === 'prd' ? '上游 CRD 定稿稿与' : ''}参考资料生成一份${kind === 'crd' ? '客户需求文档（CRD）' : '产品需求文档（PRD）'}初稿。`,
     `要求：中文 markdown；${CHAPTER_RULE}${reqSectionRule(kind)}条目正文含承接来源与需求描述、验收要点。`,
+    // 默认模板（ISO/IEC/IEEE 29148）：仅初稿注入（增量修订结构已存在，不重复模板）；用户模板优先声明在块内
+    ...(incremental ? [] : [buildTemplateGuide('req', kind)]),
     // #11：整篇漏承接尾部条目 + 锚点错位的防控
     `逐条核对${kind === 'prd' ? '上游 CRD 定稿稿与' : ''}参考资料中的全部功能/需求条目并逐一承接，不得遗漏（尤其文末的条目）；每条正文「承接」锚点（${kind === 'crd' ? 'R-nnn' : 'CR-nnn'}）须与该条实际出处一致，不得张冠李戴。`,
     // #10：增量修订编号撞车防控
@@ -577,6 +580,7 @@ function buildRewritePrompt(
   return [
     `你是软件工厂的需求分析助手。本次是${kind === 'crd' ? '客户需求文档（CRD）' : '产品需求文档（PRD）'}的**整篇重写**：以当前文档全文为基线、按用户指示输出重写后的**完整文档**（从一级标题到最后一节，一节不漏，不复述思考过程，只输出文档本体）。`,
     `要求：中文 markdown；${CHAPTER_RULE}${reqSectionRule(kind)}条目正文含承接来源与需求描述、验收要点。`,
+    buildTemplateGuide('req', kind),
     `保留仍然有效的既有锚点码与编号；新增条目必须使用未占用编号（已占用：${existingCodes.join('、') || '无'}），在最大编号后顺延。用户指示删除/合并的章节不再输出，其承接关系在保留章节中说明。`,
     `用户指示：${instruction}`,
     `【当前文档全文（重写基线）】\n\n${currentContent}`,

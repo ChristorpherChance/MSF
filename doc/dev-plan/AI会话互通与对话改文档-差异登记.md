@@ -44,6 +44,8 @@
 
 26. **文档结构规范单一权威 doc-conventions（2026-10-06 用户问「章节规范不一致，要写阶段 agent 吗还是有更合适的落点」，随条目 4/25 一并回补 LLD-5 A08-3）**：答案=agent 指南只管 dock 行为纪律，**文档骨架是生成链产的——规范必须收敛到生成链共享的一处**：新增 `platform/doc-conventions.ts`（CHAPTER_RULE 大章约定⇄deriveNumbering 判定同源、reqSectionRule CR/REQ-nnn、designSectionRule 册前缀-n h/o/g/k/d/a/u/n），req buildPrompt/buildRewritePrompt 与设计 buildDesignPrompt（初稿+增量分支）/buildDesignEditPrompt/buildDesignRewritePrompt 六处 prompt 全部改引模块（设计册此前**从未声明节级锚点码格式**——真模型普遍产纯文字标题，人机能指代与编号顺延坐标缺失；mock 产 prefix-n 本就在规格内）。stage-guides 不内嵌规范细节（agent 提案同样走生成链 prompt，单点生效）。单测 +3（文案即契约防发散，doc-conventions 37 文件 275/275）。
 
+27. **默认文档模板库 doc-templates + 阶段 agent 标准意识（2026-10-06 用户拍板「每种文档一份默认模板参考，用户不提供就按国际标准默认模板来；每个阶段 agent 都要好好打造」，随条目 26 一并回补 LLD-5 A08-3）**：新增 `platform/doc-templates.ts`——十类文档（crd/prd+设计八册）各一份 DocTemplate{standard/quality/chapters[大章⇢内容要求]}，标准映射：CRD/PRD=ISO/IEC/IEEE 29148、HLD/MOD/ALG/CLS/DB=ISO/IEC/IEEE 42010、API=OpenAPI 3.1/REST、UI=WCAG 2.2、NFR=ISO/IEC 25010；`buildTemplateGuide` 组装注入块（质量 bar+结构骨架+编号规范引 doc-conventions 保持单一权威+**「用户模板优先」声明**——参考资料本就全文注入生成 prompt，用户提供模板自然压过默认模板，模型侧诚实声明）。分工：conventions 管格式（大章形态/锚点码）、templates 管内容（有什么章、写什么、质量 bar）。接线：req/design 初稿与 rewrite 四处 prompt 注入（增量修订不重复模板）。agent 打磨：REQ_GUIDE 加 29148 评审标准（单一职责/无歧义/可验证/可追踪/量化指标拒空话）、DESIGN_GUIDE 加按册标准评审口径（ADR 有理由/视图完整/契约明确/指标可测）。踩坑：DSG_BOOK_LETTER 值是大写（RTM 册级锚）vs chapter_prefix 小写（节级码）——同组字母两规格形态，模板映射须 toLowerCase。单测 +3（十类模板齐备+标准映射+注入块形态，38 文件 278/278）。
+
 ## 已知限制
 
 - 上游滞后派生按当前版本 submitted_at 比较：上游「设为当前版本」回切旧版时以下游与旧版的时间差判定（口径内：滞后语义锚定当前版本而非历史最高版本）；模板自举时序边缘（先访 /design 再首访 /req）会让模板册全标 stale——首份真实生成提交后即归正，属一次性噪声（条目 18）。

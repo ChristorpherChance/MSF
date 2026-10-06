@@ -5,7 +5,7 @@ import { splitSections } from './doc-sections.js';
  * W3-004：设计册 kind → 规格单字母前缀（h/o/g/k/d/a/u/n，DSG-U06-23 统稿 M7、REQ-302、LLD-4 chapter_prefix）。
  * 权威定义在 design 域 DESIGN_BOOKS；跨域禁令下 platform 不 import 他域模块，此处镜像（改 DESIGN_BOOKS 须同步）。
  */
-const DSG_BOOK_LETTER: Record<string, string> = {
+export const DSG_BOOK_LETTER: Record<string, string> = {
   hld: 'H', mod: 'O', alg: 'G', cls: 'K', db: 'D', api: 'A', ui: 'U', nfr: 'N',
 };
 

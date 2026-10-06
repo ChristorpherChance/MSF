@@ -6,6 +6,7 @@ import { executeCommand, registerCommand, type CommandContext } from '../evidenc
 import { mdToPatches, normalizePatches, sha256Text, splitSections, buildNumberGuide, type EditPatch } from '../platform/doc-sections.js';
 import { registerExternalTool } from '../platform/external-tools.js';
 import { CHAPTER_RULE, designSectionRule } from '../platform/doc-conventions.js';
+import { buildTemplateGuide } from '../platform/doc-templates.js';
 import { AI_PROVIDER, type AiProvider, type AiUsage } from '../ai/ai-provider.interface.js';
 import { classifyAiError, sanitizeAiError } from '../ai/stream-pipeline.js';
 import { DesignDocsService, DESIGN_BOOKS, type DesignKind } from './docs.service.js';
@@ -137,7 +138,7 @@ export class DesignGenerateService {
         const session = await this.ai.createSession({ projectId, purpose: 'generation' });
         const existingCodes = [...new Set(effective.match(/\b[A-Z]{2,5}-\d{3}\b/g) ?? [])].sort();
         const prompt = mode === 'rewrite'
-          ? buildDesignRewritePrompt(book.name, book.prefix, cut, existingCodes, effective)
+          ? buildDesignRewritePrompt(book.name, book.kind, book.prefix, cut, existingCodes, effective)
           : buildDesignEditPrompt(book.name, book.prefix, cut, existingCodes, effective);
         const { deltas, result } = session.stream(prompt);
         for await (const d2 of deltas) void d2; // 非 SSE 内部调用：delta 排干不转发
@@ -426,6 +427,8 @@ function buildDesignPrompt(
     // 结构规范单一权威（platform/doc-conventions）：大章约定 ⇄ deriveNumbering 判定同源；节级锚点码格式声明
     CHAPTER_RULE,
     designSectionRule(book.prefix),
+    // 默认模板（按册映射国际标准）：仅初稿注入（增量修订结构已存在）；用户模板优先声明在块内
+    ...(incremental ? [] : [buildTemplateGuide('design', kind)]),
     // #15 反向派生依赖回引；#11 全量承接
     '逐条承接上游 PRD 的全部 REQ 条目：每个承接章节在标题或正文显式回引 REQ-nnn 编号（追溯链按此派生），不得遗漏尾部条目。',
     // #10 增量修订编号顺延
@@ -490,10 +493,11 @@ function buildDesignEditPrompt(bookName: string, prefix: string, instruction: st
 }
 
 /** 对话改设计册·整篇重写 prompt（mode='rewrite'：当前全文为基线，输出完整文档一节不漏） */
-function buildDesignRewritePrompt(bookName: string, prefix: string, instruction: string, existingCodes: string[], currentContent: string): string {
+function buildDesignRewritePrompt(bookName: string, kind: DesignKind, prefix: string, instruction: string, existingCodes: string[], currentContent: string): string {
   return [
     `你是软件工厂的设计助手。本次是设计文档《${bookName}》的**整篇重写**：以当前全文为基线、按用户指示输出重写后的**完整文档**（从一级标题到最后一节，一节不漏，不复述思考过程，只输出文档本体）。`,
     `要求：中文 markdown；${CHAPTER_RULE}${designSectionRule(prefix)}保留仍然有效的既有锚点码与编号；新增条目使用未占用编号顺延（已占用：${existingCodes.join('、') || '无'}）；用户指示删除/合并的章节不再输出。`,
+    buildTemplateGuide('design', kind),
     `用户指示：${instruction}`,
     `【当前文档全文（重写基线）】\n\n${currentContent}`,
   ].join('\n\n');
