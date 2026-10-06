@@ -39,6 +39,8 @@ interface GenOp {
     upstream: Array<{ name: string; md: string }>;
     /** 当前文档已占用章节编号（增量修订顺延，#10） */
     existingCodes: string[];
+    /** 当前有效稿（增量修订基线：只输出变化节+编号对照表注入，「第五章改不到位」同型防坑） */
+    currentContent: string;
   };
 }
 
@@ -250,7 +252,7 @@ export class DesignGenerateService {
       ops.set(operationId, {
         id: operationId, projectId, kind, status: 'running',
         chunks: [], patches: [], targetFingerprint: sha256Text(currentContent), refs,
-        real: { instruction: input.instruction ?? '', refTexts, upstream, existingCodes: chapterCodes(currentContent, kind) },
+        real: { instruction: input.instruction ?? '', refTexts, upstream, existingCodes: chapterCodes(currentContent, kind), currentContent },
       });
     } else {
       const { chunks, patches } = buildMock(kind, input.instruction ?? '');
@@ -350,7 +352,7 @@ export class DesignGenerateService {
     const t0 = Date.now();
     try {
       const session = await this.ai!.createSession({ projectId: op.projectId, purpose: 'generation' });
-      const { deltas, result } = session.stream(buildDesignPrompt(op.kind, real.instruction, real.refTexts, real.upstream, real.existingCodes));
+      const { deltas, result } = session.stream(buildDesignPrompt(op.kind, real.instruction, real.refTexts, real.upstream, real.existingCodes, real.currentContent));
       let buf: string[] = [];
       for await (const d of deltas) {
         if (op.status === 'stopped') {
@@ -409,20 +411,29 @@ function buildDesignPrompt(
   refTexts: Array<{ name: string; md: string }>,
   upstream: Array<{ name: string; md: string }> = [],
   existingCodes: string[] = [],
+  currentContent = '',
 ): string {
   const book = DESIGN_BOOKS.find((b) => b.kind === kind)!;
   const refs = refTexts.map((r) => `## 参考资料：${r.name}\n\n${r.md}`).join('\n\n');
   const ups = upstream.map((u) => `## 上游定稿：${u.name}\n\n${u.md}`).join('\n\n');
+  const incremental = instruction.trim().length > 0 && currentContent.trim().length > 0;
   return [
-    `你是软件工厂的设计助手。请基于上游定稿文档（全文附后）与参考资料，生成《${book.name}》（${book.prefix} 册）初稿。`,
+    incremental
+      ? `你是软件工厂的设计助手。本次是《${book.name}》（${book.prefix} 册）的**增量修订**：只输出需要新增或修改的章节（每章一个 \`## \` 标题；修改某章时保持原标题不变、整章重写输出），**不要复述未变化的章节，不要整篇重出**。新增节如需大章落位，大章标题必须用中文数字序号+顿号。`
+      : `你是软件工厂的设计助手。请基于上游定稿文档（全文附后）与参考资料，生成《${book.name}》（${book.prefix} 册）初稿。`,
     '输出为 Markdown 正文，按 `## ` 二级标题分节（章节标题简洁、不超过 30 字），每节给出可执行的设计内容。',
+    // 2026-10-06「所有文档都要有章节号」：与需求域同口径的大章约定（deriveNumbering 只认中文数字+顿号大章）
+    '先按内容归类出若干大章，大章标题形如 `## 一、总体设计`（必须用中文数字序号+顿号，如 一、总体设计/二、详细方案/三、质量与验证；不要用"第X章"或阿拉伯数字编号），设计条目节落在合适大章之后。',
     // #15 反向派生依赖回引；#11 全量承接
     '逐条承接上游 PRD 的全部 REQ 条目：每个承接章节在标题或正文显式回引 REQ-nnn 编号（追溯链按此派生），不得遗漏尾部条目。',
     // #10 增量修订编号顺延
     existingCodes.length ? `本文档已占用章节编号：${existingCodes.join('、')}；新增章节必须使用未占用编号（顺延），不得复用。` : '',
     instruction ? `用户指示：${instruction}` : '',
+    // 「第五章改不到位」同型防坑：UI 派生编号模型不可见 → 注入编号对照表（仅增量）
+    ...(incremental ? [buildNumberGuide(currentContent)] : []),
     ups ? `\n${ups}` : '',
     refs ? `\n${refs}` : '',
+    ...(incremental ? [`【当前文档内容（增量修订的基线；未提及的章节保持不变，不要输出）】\n\n${currentContent}`] : []),
   ].filter(Boolean).join('\n');
 }
 
@@ -469,7 +480,7 @@ function buildMock(kind: DesignKind, instruction: string): { chunks: string[]; p
 function buildDesignEditPrompt(bookName: string, instruction: string, existingCodes: string[], currentContent: string): string {
   return [
     `你是软件工厂的设计助手。本次是设计文档《${bookName}》的**增量修订**：只输出需要新增或修改的章节（每章一个 \`## \` 标题；修改某章时保持原标题不变、整章重写输出），**不要复述未变化的章节，不要整篇重出**。`,
-    `要求：中文 markdown；既有锚点码格式不得改动；新增条目如需编号，使用未占用编号顺延（已占用：${existingCodes.join('、') || '无'}）。`,
+    `要求：中文 markdown；既有锚点码格式不得改动；新增条目如需编号，使用未占用编号顺延（已占用：${existingCodes.join('、') || '无'}）；新增大章标题必须用中文数字序号+顿号（如 \`## 三、质量与验证\`，不要用"第X章"或阿拉伯数字编号）。`,
     `用户指示：${instruction}`,
     buildNumberGuide(currentContent),
     `【当前文档内容（增量修订的基线；未提及的章节保持不变，不要输出）】\n\n${currentContent}`,

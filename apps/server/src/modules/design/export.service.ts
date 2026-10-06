@@ -3,6 +3,7 @@ import { DomainError } from '@msf/shared';
 import { query } from '../../db/pool.js';
 import { executeCommand, registerCommand, type CommandContext } from '../evidence/command-bus.js';
 import { renderExport, type ExportFormat } from '../platform/doc-export.js';
+import { withNumberedTitles } from '../platform/doc-sections.js';
 import { StorageService } from '../platform/storage.service.js';
 
 /**
@@ -32,7 +33,8 @@ export class DesignExportService {
     if (!['md', 'html', 'docx', 'pdf'].includes(format)) {
       throw new DomainError('VALIDATION_FAILED', '导出格式支持 md/html/docx/pdf', 'format');
     }
-    const body = await renderExport(ver.content, format, `${kind.toUpperCase()} v${v}`);
+    // 与 req.doc.export 同口径（2026-10-06 用户拍板「所有文档都要有章节号」）：导出标题注入 UI 派生编号
+    const body = await renderExport(withNumberedTitles(ver.content), format, `${kind.toUpperCase()} v${v}`);
     const objectKey = `exports/${projectId}/${ver.id}.${format}`;
     await this.storage.putObject(objectKey, body);
     await executeCommand('design.doc.export', { projectId, kind, v, versionId: ver.id, format }, { ...ctx, projectId });

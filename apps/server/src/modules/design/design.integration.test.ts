@@ -305,6 +305,9 @@ describe('Design 设计域（集成，需 DB+MinIO）', async () => {
     const hd = (await docs.getDoc(PID, 'hld')) as { cur: number };
     const m = (await exp.export(PID, 'hld', hd.cur, 'md', CTX)) as { downloadUrl: string };
     expect(m.downloadUrl).toContain('.md');
+    // 2026-10-06「所有文档都要有章节号」：导出 md 标题已注入 UI 派生编号（与 req 导出同口径）
+    const mdText = Buffer.from(await (await fetch(m.downloadUrl)).arrayBuffer()).toString('utf8');
+    expect(/## (一、|1[.、])/.test(mdText)).toBe(true);
     for (const [fmt, magic] of [['docx', 'PK'], ['pdf', '%PDF-']] as const) {
       const x = (await exp.export(PID, 'hld', hd.cur, fmt, CTX)) as { downloadUrl: string };
       expect(x.downloadUrl).toContain(`.${fmt}`);

@@ -9,6 +9,7 @@ import { toast } from '../../ui/toast';
 import { downloadFile } from '../../ui/download';
 import { useDockStore } from '../../assistant/dock-store';
 import { diffText } from '../req/diff';
+import { deriveNumbering } from '@msf/shared/doc-numbering';
 import { designApi, generateDesignDoc, type DesignKind, type PatchItem, type UpstreamDocItem } from './api';
 import { useDesignView, type ViewMode } from './store';
 
@@ -341,29 +342,37 @@ function GenStreamCard() {
 
 function TocCol() {
   const { doc, tocFlash, flashToc } = useDesignView();
+  // 派生编号（渲染层注入，存储零改动；与需求页同函数同口径——2026-10-06「所有文档都要有章节号」）
+  const numbered = useMemo(() => (doc ? new Map(deriveNumbering(doc.secs).map((n) => [n.id, n])) : null), [doc]);
+  const hasChapter = !!numbered && [...numbered.values()].some((n) => n.chapter);
   if (!doc) return null;
   const tocSecs = doc.secs.filter((s) => s.title);
   return (
     <aside className="toc-col">
       <div className="toc-title">目录 <span className="dz-note">{tocSecs.length} 章</span></div>
-      {tocSecs.map((s) => (
-        <button
-          key={s.id}
-          className={`toc-item${tocFlash === s.id ? ' flash' : ''}${s.pending ? ' has-pend' : ''}`}
-          onClick={() => {
-            document.getElementById(`dsec-${s.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            flashToc(s.id);
-          }}
-        >
-          {s.title}
-        </button>
-      ))}
+      {tocSecs.map((s) => {
+        const n = numbered?.get(s.id);
+        return (
+          <button
+            key={s.id}
+            className={`toc-item${n?.chapter ? ' chapter' : hasChapter ? ' sub' : ''}${tocFlash === s.id ? ' flash' : ''}${s.pending ? ' has-pend' : ''}`}
+            onClick={() => {
+              document.getElementById(`dsec-${s.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              flashToc(s.id);
+            }}
+          >
+            {n?.display || s.title}
+          </button>
+        );
+      })}
     </aside>
   );
 }
 
 function Paper() {
   const { doc, viewMode, patches, tocFlash, books, selKind, flashPatch } = useDesignView();
+  // 派生编号（渲染层注入，存储零改动；与需求页同函数同口径）
+  const numbered = useMemo(() => (doc ? new Map(deriveNumbering(doc.secs).map((n) => [n.id, n])) : null), [doc]);
   if (!doc) return null;
   // replace=整篇重写补丁不挂节（secId 恒 s0 但语义是全文替换）——专属块渲染在正文最上方（req 域同口径）
   const pendBySec = new Map(patches.filter((p) => p.status === 'pending' && p.type !== 'replace').map((p) => [p.secId, p]));
@@ -421,7 +430,7 @@ function Paper() {
           <section key={s.id} id={`dsec-${s.id}`} className={`sect${tocFlash === s.id ? ' flash' : ''}`}>
             {/* 补丁条在章节标题之前（原型口径：pending-bar → h2 → 正文） */}
             {s.pending && pendBySec.get(s.id) && <PendingBar patch={pendBySec.get(s.id)!} />}
-            {s.title && <h2>{s.title}</h2>}
+            {s.title && <h2>{numbered?.get(s.id)?.display || s.title}</h2>}
             {viewMode === 'preview' ? (
               <div className="md" dangerouslySetInnerHTML={{ __html: mdHtml(s.md) }} />
             ) : (
