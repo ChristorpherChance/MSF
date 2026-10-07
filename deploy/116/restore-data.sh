@@ -21,12 +21,14 @@ if [ -f /tmp/msf-minio.tar ]; then
   tar -xf /tmp/msf-minio.tar -C "$DATA/minio"
   rm -f /tmp/msf-minio.tar
 fi
+# 注意：minio 镜像被国内 docker 镜像加速站封禁（2026-10-08 实测 daocloud/1ms/xuanyuan 全 403），
+# 需从有镜像的机器 docker save → scp → docker load（见 README）
 if ! docker ps -a --format '{{.Names}}' | grep -qx msf-minio; then
   docker run -d --name msf-minio --restart=always \
     -p 127.0.0.1:9000:9000 -p 127.0.0.1:9001:9001 \
     -e MINIO_ROOT_USER="$MSF_MINIO_ACCESS_KEY" -e MINIO_ROOT_PASSWORD="$MSF_MINIO_SECRET_KEY" \
     -v "$DATA/minio:/data" \
-    minio/minio server /data --console-address ':9001'
+    quay.io/minio/minio server /data --console-address ':9001'
 fi
 
 echo "== 3/4 密钥换根重加密（旧根=本机默认值 → 新根=msf.env 的 MSF_SECRET_KEY） =="

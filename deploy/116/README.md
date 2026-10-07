@@ -23,6 +23,13 @@
 7. 验证：`wget -qO- localhost:18920/health`（116 无 curl，用 wget）；外网 `https://cc-msf.ikvein.com` 出登录页 → 登录 → 工作台。
 8. 设置页确认 AI 连接：CPA（随库迁移已带，密钥重加密后即用）+ 新增 116 本机 CCR（http://127.0.0.1:3456/v1，key 读 `~/.config/cs02-ai/gateway.key`）。
 
+## 踩坑记录（2026-10-08 首装实测）
+
+1. **CRLF 行尾**：Windows 编辑的 `.sh` scp 到 Linux 后必须 `sed -i 's/\r$//' *.sh`，否则 `set -euo pipefail` 报「无效的选项名」。
+2. **minio 镜像封禁**：国内 docker 镜像加速站（daocloud/1ms/xuanyuan）对 minio 全 403；方案=有镜像的机器 `docker save quay.io/minio/minio | ssh 目标 'docker load'`。
+3. **frpc `type` 必填**：`[[proxies]]` 段缺 `type = "http"` 会导致 frpc 崩溃重启循环，日志报 `unknown proxy type: `。
+4. **迁移幂等**：`node dist/db/migrate.js` 对已含全部迁移的恢复库会报列名冲突——属正常（pg_dump 已带全 schema），不影响运行。
+
 ## 日常运维
 
 - 应用日志：`journalctl -u msf-app -f`；infra：`docker logs msf-postgres|msf-minio|msf-redis`
