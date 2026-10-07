@@ -46,4 +46,14 @@ describe('deriveNumbering', () => {
     ]);
     expect(out[1]!.display).toBe('1.1 CR-0012 误植');
   });
+
+  it('设计册前缀码（h-n）入括号——不再裸露在派生编号标题里（2026-10-07 章码双轨实机抓修）', () => {
+    const out = deriveNumbering([
+      { id: 's1', title: '一、总体架构' },
+      { id: 's2', title: 'h-1 分层结构与职责边界' },
+      { id: 's3', title: 'h-2 部署视图' },
+    ]);
+    expect(out[1]!.display).toBe('1.1 分层结构与职责边界（h-1）');
+    expect(out[2]!.display).toBe('1.2 部署视图（h-2）');
+  });
 });

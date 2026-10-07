@@ -15,8 +15,9 @@ export interface NumberedSection {
 }
 
 const CHAPTER_RE = /^[一二三四五六七八九十]+、/;
-/** 行首锚点码（CR/REQ-nnn，\b 挡住 CR-0012 之类伪码）；与 doc-sections 的 ANCHOR_CODE_RE 口径一致 */
-const CODE_RE = /^((?:CR|REQ)-\d{3}\b)\s*/;
+/** 行首锚点码（需求域 CR/REQ-nnn，\b 挡住 CR-0012 之类伪码；设计册前缀码 h/o/g/k/d/a/u/n-n）。
+ *  2026-10-07：设计册 h-n 码此前不被识别、裸露在派生编号标题里（「1.1 h-1 文档定位…」）——泛化后统一 `1.1 标题（h-1）` 形态 */
+const CODE_RE = /^((?:CR|REQ)-\d{3}\b|[hogkdaun]-\d{1,3}\b)\s*/;
 
 export function deriveNumbering(secs: Array<{ id: string; title: string }>): NumberedSection[] {
   const hasChapter = secs.some((s) => CHAPTER_RE.test(s.title));

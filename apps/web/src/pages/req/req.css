@@ -345,3 +345,54 @@ tr.row-flash { animation: rtm-flash 1.2s ease-in-out 2; }
 .patch-trail-row { display: flex; align-items: baseline; gap: 8px; padding: 3px 0 3px 12px; }
 .patch-trail-row .pend-desc { flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 50%; }
 .patch-trail-row .rsn { color: var(--ink2); }
+
+/* ===== 文档排版美化（2026-10-07：纸面阅读体验——层级/节奏/表格/代码；req+design 共用本表） ===== */
+.paper { padding: 40px 48px 56px; box-shadow: var(--shadow); }
+.paper h1 { font-size: 24px; letter-spacing: .01em; padding-bottom: 14px; border-bottom: 2px solid var(--ink); margin: 0 0 24px; }
+/* 大章标题：加粗顶格+底部细线，形成一级节奏 */
+.sect h2.chapter {
+  font-size: 19px; margin: 28px 0 6px; padding: 6px 0 8px;
+  border-bottom: 1px solid var(--line); letter-spacing: .02em;
+}
+/* 条目节标题：左侧竖条锚点感，与大章形成层级差 */
+.sect h2.sect-item {
+  font-size: 15.5px; margin: 18px 0 4px; padding-left: 10px;
+  border-left: 3px solid var(--blue); line-height: 1.4;
+}
+.sect { padding: 4px 12px 10px; }
+/* 正文排版节奏 */
+.paper .md { font-size: 14px; line-height: 1.85; color: var(--ink); overflow-wrap: anywhere; }
+.paper .md p { margin: 8px 0; }
+.paper .md h3 { font-size: 14.5px; margin: 16px 0 6px; color: var(--ink); }
+.paper .md h4 { font-size: 13.5px; margin: 12px 0 4px; color: var(--ink); }
+.paper .md ul, .paper .md ol { margin: 8px 0; padding-left: 24px; }
+.paper .md li { margin: 3px 0; }
+.paper .md li::marker { color: var(--ink2); }
+.paper .md strong { color: var(--ink); }
+.paper .md blockquote {
+  margin: 10px 0; padding: 8px 14px; border-left: 3px solid var(--line);
+  background: var(--soft); border-radius: 0 var(--radius) var(--radius) 0; color: var(--ink2);
+}
+.paper .md blockquote p { margin: 2px 0; }
+.paper .md hr { border: none; border-top: 1px dashed var(--line); margin: 18px 0; }
+/* 行内代码与代码块 */
+.paper .md code {
+  font-family: var(--font-mono); font-size: 12.5px;
+  background: var(--soft2); border-radius: 4px; padding: 1px 5px;
+}
+.paper .md pre {
+  background: var(--soft); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 12px 14px; overflow-x: auto; margin: 10px 0;
+}
+.paper .md pre code { background: none; padding: 0; font-size: 12.5px; line-height: 1.7; }
+/* 表格：全宽+表头底色+细线 */
+.paper .md table {
+  width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13px;
+  border: 1px solid var(--line); border-radius: var(--radius);
+}
+.paper .md th, .paper .md td { border: 1px solid var(--line); padding: 7px 10px; text-align: left; vertical-align: top; }
+.paper .md th { background: var(--soft); font-weight: 600; }
+.paper .md tr:nth-child(even) td { background: var(--soft); }
+/* 目录栏美化 */
+.toc-item { border-radius: 6px; }
+.toc-item.chapter { font-weight: 700; margin-top: 6px; }

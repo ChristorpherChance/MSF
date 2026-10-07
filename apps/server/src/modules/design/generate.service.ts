@@ -498,7 +498,7 @@ function buildDesignEditPrompt(bookName: string, prefix: string, instruction: st
 function buildDesignRewritePrompt(bookName: string, kind: DesignKind, prefix: string, instruction: string, existingCodes: string[], currentContent: string, projectId?: string): string {
   return [
     `你是软件工厂的设计助手。本次是设计文档《${bookName}》的**整篇重写**：以当前全文为基线、按用户指示输出重写后的**完整文档**（从一级标题到最后一节，一节不漏，不复述思考过程，只输出文档本体）。`,
-    `要求：中文 markdown；${CHAPTER_RULE}${designSectionRule(prefix)}保留仍然有效的既有锚点码与编号；新增条目使用未占用编号顺延（已占用：${existingCodes.join('、') || '无'}）；用户指示删除/合并的章节不再输出。`,
+    `要求：中文 markdown；${CHAPTER_RULE}${designSectionRule(prefix)}保留仍然有效的既有锚点码与编号；新增条目使用未占用编号顺延（已占用：${existingCodes.join('、') || '无'}）；用户指示删除/合并的章节不再输出。用户指示要求按模板/标准重写或重新组织时，以上方模板结构骨架为准重排大章（基线内容按主题归入模板章节，不保留基线自有大章划分）；未要求时保持基线结构。`,
     buildTemplateGuide('design', kind, projectId),
     `用户指示：${instruction}`,
     `【当前文档全文（重写基线）】\n\n${currentContent}`,

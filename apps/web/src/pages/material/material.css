@@ -489,3 +489,26 @@ pre.md-src {
   border-radius: 6px;
   font: inherit;
 }
+
+/* ===== 资料解析稿排版美化（2026-10-07，与 req/design 纸面同口径） ===== */
+.md-view { font-size: 14px; line-height: 1.85; color: var(--ink); overflow-wrap: anywhere; }
+.md-view p { margin: 8px 0; }
+.md-view h1 { font-size: 20px; margin: 18px 0 10px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+.md-view h2 { font-size: 16.5px; margin: 16px 0 6px; }
+.md-view h3 { font-size: 14.5px; margin: 14px 0 4px; }
+.md-view ul, .md-view ol { margin: 8px 0; padding-left: 24px; }
+.md-view li { margin: 3px 0; }
+.md-view li::marker { color: var(--ink2); }
+.md-view code {
+  font-family: var(--font-mono); font-size: 12.5px;
+  background: var(--soft2); border-radius: 4px; padding: 1px 5px;
+}
+.md-view pre code { background: none; padding: 0; }
+.md-view blockquote {
+  margin: 10px 0; padding: 8px 14px; border-left: 3px solid var(--line);
+  background: var(--soft); border-radius: 0 8px 8px 0; color: var(--ink2);
+}
+.md-view table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13px; border: 1px solid var(--line); }
+.md-view th, .md-view td { border: 1px solid var(--line); padding: 7px 10px; text-align: left; vertical-align: top; }
+.md-view th { background: var(--soft); font-weight: 600; }
+.md-view hr { border: none; border-top: 1px dashed var(--line); margin: 18px 0; }

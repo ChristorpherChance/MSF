@@ -18,4 +18,11 @@ describe('doc-conventions 文档结构规范单一权威', () => {
     expect(designSectionRule('h')).toContain('h-1 简明标题');
     expect(designSectionRule('u')).toContain('u-1 简明标题');
   });
+  it('设计册规则钉死章码组合关系（2026-10-07 章码双轨实机抓修：大章只分组、条目节随章、禁双出）', () => {
+    const r = designSectionRule('h');
+    expect(r).toContain('大章');
+    expect(r).toContain('分组');
+    expect(r).toContain('紧随所属大章');
+    expect(r).toContain('章码双轨');
+  });
 });

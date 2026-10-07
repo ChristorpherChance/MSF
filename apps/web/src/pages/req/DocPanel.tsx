@@ -536,7 +536,7 @@ function Paper({ kind, readonly }: { kind: DocKind; readonly: boolean }) {
           <section key={s.id} id={`sec-${s.id}`} className={`sect${tocFlash === s.id ? ' flash' : ''}`}>
             {/* 补丁条在章节标题之前（原型口径：pending-bar → h2 → 正文） */}
             {s.pending && pendBySec.get(s.id) && <PendingBar kind={kind} patch={pendBySec.get(s.id)!} />}
-            {s.title && <h2>{numbered?.get(s.id)?.display || s.title}</h2>}
+            {s.title && <h2 className={numbered?.get(s.id)?.chapter ? 'chapter' : 'sect-item'}>{numbered?.get(s.id)?.display || s.title}</h2>}
             {viewMode === 'preview' ? (
               <div className="md" dangerouslySetInnerHTML={{ __html: mdHtml(s.md) }} />
             ) : (
