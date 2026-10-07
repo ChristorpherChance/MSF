@@ -14,6 +14,7 @@ import { CrumbBar } from './layout/CrumbBar';
 import { Rail } from './layout/Rail';
 import { SubNav } from './layout/SubNav';
 import { Toaster } from './ui/toast';
+import { AuthGate } from './AuthGate';
 import './app.css';
 
 /** 视口宽度提示（DSG-U05-4：<1280 提示建议桌面宽度，可关闭） */
@@ -46,6 +47,7 @@ function ViewportHint() {
  */
 export function App() {
   return (
+    <AuthGate>
     <div className="app-shell">
       <div className="app-body">
         <Rail />
@@ -74,5 +76,6 @@ export function App() {
       </div>
       <Toaster />
     </div>
+    </AuthGate>
   );
 }

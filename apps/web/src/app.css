@@ -150,3 +150,29 @@
   border: 1px solid var(--orange); background: var(--canvas);
   border-radius: 6px; font-size: 12px; padding: 1px 10px; cursor: pointer;
 }
+
+/* ================= 登录门（部署态简易登录；本地开发 env 未启用不渲染） ================= */
+.auth-gate {
+  position: fixed; inset: 0; z-index: 999;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--soft2);
+}
+.auth-card {
+  width: 320px; padding: 28px 28px 24px;
+  background: var(--canvas); border: 1px solid var(--line); border-radius: var(--radius);
+  box-shadow: var(--shadow-modal);
+  display: flex; flex-direction: column; gap: 14px;
+}
+.auth-logo { font-size: 17px; font-weight: 700; color: var(--ink); text-align: center; margin-bottom: 4px; }
+.auth-card label { display: flex; flex-direction: column; gap: 5px; font-size: 13px; color: var(--ink2); }
+.auth-card input {
+  height: 34px; padding: 0 10px; font-size: 14px; color: var(--ink);
+  border: 1px solid var(--line); border-radius: 6px; background: var(--canvas);
+}
+.auth-card input:focus { outline: 2px solid var(--blue-soft); border-color: var(--blue); }
+.auth-err { font-size: 12.5px; color: var(--red); }
+.auth-card button[type='submit'] {
+  height: 36px; border: none; border-radius: 6px; cursor: pointer;
+  background: var(--blue); color: var(--canvas); font-size: 14px; font-weight: 600;
+}
+.auth-card button[type='submit']:disabled { opacity: .55; cursor: default; }

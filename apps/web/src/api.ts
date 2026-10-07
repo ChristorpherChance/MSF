@@ -4,6 +4,8 @@
  * 中断后同 Idempotency-Key 重发 + 查询端点补拉。
  */
 
+import { useAuthStore } from './auth-store';
+
 export class ApiError extends Error {
   constructor(
     public readonly code: string,
@@ -33,6 +35,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     const body = (await res.json().catch(() => null)) as {
       error?: { code?: string; message?: string; target?: string; details?: unknown };
     } | null;
+    // 部署态简易登录：401 统一翻转登录门（AuthGate 接住渲染登录卡片；登录接口自身的 401 幂等无害）
+    if (res.status === 401 && body?.error?.code === 'UNAUTHENTICATED') {
+      useAuthStore.getState().needLogin();
+    }
     throw new ApiError(
       body?.error?.code ?? 'INTERNAL',
       // U-005：5xx 无响应体时不裸显英文 statusText，给可理解的人话
@@ -78,6 +84,9 @@ export async function postSse(
     const err = (await res.json().catch(() => null)) as {
       error?: { code?: string; message?: string; target?: string; details?: unknown };
     } | null;
+    if (res.status === 401 && err?.error?.code === 'UNAUTHENTICATED') {
+      useAuthStore.getState().needLogin();
+    }
     throw new ApiError(
       err?.error?.code ?? 'INTERNAL',
       err?.error?.message ?? `SSE 请求失败: ${res.status}`,

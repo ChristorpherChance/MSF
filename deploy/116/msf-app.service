@@ -1,0 +1,17 @@
+[Unit]
+Description=MSF 软件工厂（web+api 同进程 :18920，公网 cc-msf.ikvein.com 经 frpc）
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=superopen
+EnvironmentFile=/home/superopen/All-Projects/msf/deploy/116/msf.env
+WorkingDirectory=/home/superopen/All-Projects/msf/apps/server
+ExecStart=/home/superopen/opt/node22/bin/node dist/main.js
+Restart=on-failure
+RestartSec=3
+# 日志：journalctl -u msf-app -f
+
+[Install]
+WantedBy=multi-user.target

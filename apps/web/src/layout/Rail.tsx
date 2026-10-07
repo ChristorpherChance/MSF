@@ -11,6 +11,28 @@ import { useSession } from '../store';
 import { Popover } from '../ui/Popover';
 import { useStagesStore } from '../ui/GateBanner';
 import { NAV, useLayoutPrefs } from './nav';
+import { useAuthStore } from '../auth-store';
+
+/** 退出登录（仅部署态启用登录时显示；清 cookie 后翻转登录门） */
+function LogoutBtn() {
+  const { enabled, user, needLogin } = useAuthStore();
+  if (!enabled || !user) return null;
+  return (
+    <button
+      className="rail-btn"
+      title={`退出登录（${user}）`}
+      onClick={() => {
+        void fetch('/api/auth/logout', {
+          method: 'POST',
+          headers: { 'Idempotency-Key': crypto.randomUUID() },
+        }).finally(() => needLogin());
+      }}
+    >
+      <span className="ic">⎋</span>
+      <span className="lbl">退出</span>
+    </button>
+  );
+}
 
 /** 💰 本月成本（自 App.tsx 顶栏平移；popover 明细：按项目×模型×用途分组，DSG-U02-2）
  *  U-002：挂载即拉取合计（未加载显示 … 而非误导性 $0）；打开 popover 时刷新明细
@@ -135,6 +157,7 @@ export function Rail() {
           <span className="lbl">设置</span>
         </NavLink>
         <UserBadge />
+        <LogoutBtn />
       </div>
     </aside>
   );
