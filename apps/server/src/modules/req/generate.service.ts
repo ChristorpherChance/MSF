@@ -339,8 +339,8 @@ export class GenerateService {
         const existingCodes = [...new Set(effective.match(kind === 'crd' ? /\bCR-\d{3}\b/g : /\bREQ-\d{3}\b/g) ?? [])].sort();
         // rewrite：整篇重写 prompt——当前全文为基线入 prompt（增量 prompt 只让模型输出变化节，无法表达整篇重写/删除）
         const prompt = mode === 'rewrite'
-          ? buildRewritePrompt(kind, cut, existingCodes, effective)
-          : buildPrompt(kind, cut, [], existingCodes, effective, '');
+          ? buildRewritePrompt(kind, cut, existingCodes, effective, projectId)
+          : buildPrompt(kind, cut, [], existingCodes, effective, '', projectId);
         const { deltas, result } = session.stream(prompt);
         for await (const d2 of deltas) void d2; // 非 SSE 内部调用：delta 排干不转发
         const res = await result;
@@ -450,7 +450,7 @@ export class GenerateService {
     const t0 = Date.now();
     try {
       const session = await this.ai!.createSession({ projectId: op.projectId, purpose: 'generation' });
-      const { deltas, result } = session.stream(buildPrompt(op.kind, real.instruction, real.refTexts, real.existingCodes, real.currentContent, real.upstreamCrd));
+      const { deltas, result } = session.stream(buildPrompt(op.kind, real.instruction, real.refTexts, real.existingCodes, real.currentContent, real.upstreamCrd, op.projectId));
       let buf: string[] = [];
       for await (const d of deltas) {
         if (op.status === 'stopped') {
@@ -511,6 +511,7 @@ function buildPrompt(
   existingCodes: string[] = [],
   currentContent = '',
   upstreamCrd = '',
+  projectId?: string,
 ): string {
   const refs = refTexts.map((r) => `## 参考资料：${r.name}\n\n${r.md}`).join('\n\n');
   const incremental = instruction.trim().length > 0 && currentContent.trim().length > 0;
@@ -520,7 +521,7 @@ function buildPrompt(
       : `你是软件工厂的需求分析助手。请基于${kind === 'prd' ? '上游 CRD 定稿稿与' : ''}参考资料生成一份${kind === 'crd' ? '客户需求文档（CRD）' : '产品需求文档（PRD）'}初稿。`,
     `要求：中文 markdown；${CHAPTER_RULE}${reqSectionRule(kind)}条目正文含承接来源与需求描述、验收要点。`,
     // 默认模板（ISO/IEC/IEEE 29148）：仅初稿注入（增量修订结构已存在，不重复模板）；用户模板优先声明在块内
-    ...(incremental ? [] : [buildTemplateGuide('req', kind)]),
+    ...(incremental ? [] : [buildTemplateGuide('req', kind, projectId)]),
     // #11：整篇漏承接尾部条目 + 锚点错位的防控
     `逐条核对${kind === 'prd' ? '上游 CRD 定稿稿与' : ''}参考资料中的全部功能/需求条目并逐一承接，不得遗漏（尤其文末的条目）；每条正文「承接」锚点（${kind === 'crd' ? 'R-nnn' : 'CR-nnn'}）须与该条实际出处一致，不得张冠李戴。`,
     // #10：增量修订编号撞车防控
@@ -577,11 +578,12 @@ function buildRewritePrompt(
   instruction: string,
   existingCodes: string[],
   currentContent: string,
+  projectId?: string,
 ): string {
   return [
     `你是软件工厂的需求分析助手。本次是${kind === 'crd' ? '客户需求文档（CRD）' : '产品需求文档（PRD）'}的**整篇重写**：以当前文档全文为基线、按用户指示输出重写后的**完整文档**（从一级标题到最后一节，一节不漏，不复述思考过程，只输出文档本体）。`,
     `要求：中文 markdown；${CHAPTER_RULE}${reqSectionRule(kind)}条目正文含承接来源与需求描述、验收要点。`,
-    buildTemplateGuide('req', kind),
+    buildTemplateGuide('req', kind, projectId),
     `保留仍然有效的既有锚点码与编号；新增条目必须使用未占用编号（已占用：${existingCodes.join('、') || '无'}），在最大编号后顺延。用户指示删除/合并的章节不再输出，其承接关系在保留章节中说明。`,
     `用户指示：${instruction}`,
     `【当前文档全文（重写基线）】\n\n${currentContent}`,

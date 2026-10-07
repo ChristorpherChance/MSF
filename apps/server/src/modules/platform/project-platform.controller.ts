@@ -15,7 +15,8 @@ import { DomainError } from '@msf/shared';
 import { getActor } from '../api/identity.middleware.js';
 import { PlatformReadService } from './platform-read.service.js';
 import { SettingsService } from './settings.service.js';
-import { codeDefaultTemplate, listTemplates, refreshTemplateOverrides, templateOverrides, type DocTemplate } from './doc-templates.js';
+import { TemplateSetsService } from './template-sets.service.js';
+import { bindingOf, codeDefaultTemplate, refreshTemplateOverrides, resolveTemplate, setItemTemplate, type DocTemplate } from './doc-templates.js';
 
 /**
  * 项目平台扩展端点（LLD-5 DSG-A02-4/5/6 + 放行策略配置面）：
@@ -29,6 +30,7 @@ export class ProjectPlatformController {
   constructor(
     @Inject(PlatformReadService) private readonly read: PlatformReadService,
     @Inject(SettingsService) private readonly settings: SettingsService,
+    @Inject(TemplateSetsService) private readonly templateSets: TemplateSetsService,
   ) {}
 
   /** A02-4 阶段导航准入查询 */
@@ -38,48 +40,105 @@ export class ProjectPlatformController {
     return this.read.stages(projectId, { projectId, actorKind: a.kind, actorId: a.id });
   }
 
-  /** 默认文档模板查看（2026-10-06：模板此前只注入生成 prompt 不可见——用户「我没看到模板呢」补呈现入口；
-   *  只读直出平台模板库，不过命令不过项目态（内容与项目无关，项目路由仅为口径统一）；
-   *  读前刷新覆盖缓存：设置页编辑器保存的覆盖即时生效 */
+  /** 默认文档模板查看（2026-10-06/07：📄 模板钮数据源；绑定感知——当前项目生效=绑定套件条目 ?? 代码默认）。
+   *  读前刷新覆盖缓存：设置页编辑器保存的套件条目即时生效 */
   @Get('doc-templates')
-  async docTemplates() {
+  async docTemplates(@Param('projectId') projectId: string) {
     await refreshTemplateOverrides();
-    const all = listTemplates();
-    const ov = templateOverrides();
+    const setId = bindingOf(projectId);
+    const builtin = ['crd', 'prd', 'hld', 'mod', 'alg', 'cls', 'db', 'api', 'ui', 'nfr'];
     return {
-      items: Object.entries(all).map(([kind, t]) => ({
-        kind,
-        domain: kind === 'crd' || kind === 'prd' ? 'req' : 'design',
-        standard: t.standard,
-        quality: t.quality,
-        writingRules: t.writingRules,
-        chapters: t.chapters,
-        overridden: kind in ov,
-      })),
-      note: '未提供自定义模板时按默认模板生成；参考资料中若有用户模板/格式规范，以用户模板为准。设置页可编辑覆盖并恢复默认。',
+      items: builtin.map((kind) => {
+        const t = resolveTemplate(kind === 'crd' || kind === 'prd' ? 'req' : 'design', kind, projectId)!;
+        return {
+          kind,
+          domain: kind === 'crd' || kind === 'prd' ? 'req' : 'design',
+          standard: t.standard,
+          quality: t.quality,
+          writingRules: t.writingRules,
+          chapters: t.chapters,
+          customized: setId ? setItemTemplate(setId, kind) !== undefined : false,
+        };
+      }),
+      activeSetId: setId ?? null,
+      note: '未绑定模板套件时按系统默认模板（国际标准）生成；套件在设置页「📄 文档模板」管理；参考资料中若有用户模板/格式规范，以用户模板为准。',
     };
   }
 
-  /** 代码默认模板（设置页编辑器「恢复默认」参照/初始填充；不含覆盖） */
+  /** 代码默认模板（设置页编辑器「载入默认」参照；不含套件覆盖） */
   @Get('doc-templates/:kind\\:default')
   docTemplateDefault(@Param('kind') kind: string) {
     const t = codeDefaultTemplate(kind);
-    if (!t) throw new DomainError('VALIDATION_FAILED', 'kind 枚举 crd|prd|hld|mod|alg|cls|db|api|ui|nfr', 'kind');
+    if (!t) throw new DomainError('VALIDATION_FAILED', 'kind 枚举 crd|prd|hld|mod|alg|cls|db|api|ui|nfr（自定义类别 x- 前缀无默认）', 'kind');
     return t;
   }
 
-  /** 文档模板编辑器：保存覆盖（validateTemplate 专业度闸，命令记审计） */
-  @Put('doc-templates/:kind')
-  saveDocTemplate(@Param('projectId') projectId: string, @Param('kind') kind: string, @Body() body: DocTemplate, @Req() req: Request) {
-    const a = getActor(req);
-    return this.settings.saveDocTemplate(kind, body, { projectId, actorKind: a.kind, actorId: a.id });
+  /** 模板套件：清单+当前项目绑定 */
+  @Get('template-sets')
+  async templateSetsList(@Param('projectId') projectId: string) {
+    const r = await this.templateSets.listSets();
+    return { ...r, activeSetId: bindingOf(projectId) ?? null };
   }
 
-  /** 文档模板编辑器：恢复默认（删覆盖行，命令记审计） */
-  @Delete('doc-templates/:kind')
-  resetDocTemplate(@Param('projectId') projectId: string, @Param('kind') kind: string, @Req() req: Request) {
+  /** 模板套件：新建（cloneFrom='default' 或省略=空套件逐项编辑；=setId 克隆既有套件条目） */
+  @Post('template-sets')
+  createTemplateSet(
+    @Param('projectId') projectId: string,
+    @Body() body: { name: string; description?: string; cloneFrom?: string },
+    @Req() req: Request,
+  ) {
     const a = getActor(req);
-    return this.settings.resetDocTemplate(kind, { projectId, actorKind: a.kind, actorId: a.id });
+    return this.templateSets.createSet(body.name, body.description ?? '', body.cloneFrom, { projectId, actorKind: a.kind, actorId: a.id });
+  }
+
+  @Post('template-sets/:setId\\:rename')
+  renameTemplateSet(
+    @Param('projectId') projectId: string, @Param('setId') setId: string,
+    @Body() body: { name: string; description?: string }, @Req() req: Request,
+  ) {
+    const a = getActor(req);
+    return this.templateSets.renameSet(setId, body.name, body.description ?? '', { projectId, actorKind: a.kind, actorId: a.id });
+  }
+
+  @Post('template-sets/:setId\\:delete')
+  deleteTemplateSet(@Param('projectId') projectId: string, @Param('setId') setId: string, @Req() req: Request) {
+    const a = getActor(req);
+    return this.templateSets.deleteSet(setId, { projectId, actorKind: a.kind, actorId: a.id });
+  }
+
+  /** 套件条目编辑初值：套件条目 ?? 代码默认（自定义类别返回 null 待 AI 起草/人工填） */
+  @Get('template-sets/:setId/items/:kind')
+  templateSetItem(@Param('setId') setId: string, @Param('kind') kind: string) {
+    return { item: this.templateSets.editSeed(setId, kind) ?? null };
+  }
+
+  /** 套件条目：保存（validateTemplate 专业度闸，命令记审计） */
+  @Put('template-sets/:setId/items/:kind')
+  saveTemplateSetItem(
+    @Param('projectId') projectId: string, @Param('setId') setId: string, @Param('kind') kind: string,
+    @Body() body: DocTemplate, @Req() req: Request,
+  ) {
+    const a = getActor(req);
+    return this.templateSets.saveItem(setId, kind, body, { projectId, actorKind: a.kind, actorId: a.id });
+  }
+
+  /** 套件条目：删除（该 kind 在套件内回退代码默认） */
+  @Delete('template-sets/:setId/items/:kind')
+  deleteTemplateSetItem(
+    @Param('projectId') projectId: string, @Param('setId') setId: string, @Param('kind') kind: string,
+    @Req() req: Request,
+  ) {
+    const a = getActor(req);
+    return this.templateSets.deleteItem(setId, kind, { projectId, actorKind: a.kind, actorId: a.id });
+  }
+
+  /** 项目绑定/解绑活动套件（setId=null 解绑回默认） */
+  @Put('template-binding')
+  bindTemplateSet(
+    @Param('projectId') projectId: string, @Body() body: { setId: string | null }, @Req() req: Request,
+  ) {
+    const a = getActor(req);
+    return this.templateSets.bind(projectId, body.setId, { projectId, actorKind: a.kind, actorId: a.id });
   }
 
   /** A02-5 任务中心汇总 */

@@ -144,6 +144,16 @@ export class AiSessionsController {
     return this.sessions.control(projectId, messageId, 'stop', this.actor(req, projectId));
   }
 
+  /** 自定义模板类别 AI 起草（2026-10-07）：出草案不落库，人工审改后存套件（用量落账 purpose=chat） */
+  @Post('template-draft')
+  @HttpCode(200)
+  draftTemplate(
+    @Param('projectId') projectId: string,
+    @Body() body: { name: string; hint?: string },
+  ) {
+    return this.sessions.draftTemplate(projectId, body.name ?? '', body.hint ?? '');
+  }
+
   /** A08-4 断线重挂：lastEventId 重放 + 续订 */
   @Get('messages/:messageId/stream')
   async attach(

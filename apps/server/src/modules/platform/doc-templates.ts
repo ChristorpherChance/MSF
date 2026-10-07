@@ -15,6 +15,8 @@ import { DSG_BOOK_LETTER } from './rtm-health.js';
  */
 
 export interface DocTemplate {
+  /** 显示名（自定义类别必填；内置类别由前端 KIND_LABELS 派生，可空） */
+  label?: string;
   /** 标准出处（注入 prompt 让模型按标准语义写作；评审 agent 同口径） */
   standard: string;
   /** 质量 bar（整份文档的验收性总要求） */
@@ -212,9 +214,9 @@ const BOOK_TEMPLATES: Record<string, DocTemplate> = {
 };
 
 /** 生成 prompt 注入块：默认模板骨架+编写规则+质量 bar+「用户模板优先」声明（参考资料注入在模板块之后，模型自然以用户模板为准）。
- *  读的是「代码默认+DB 覆盖」合并后的生效模板（设置页编辑器覆盖层） */
-export function buildTemplateGuide(domain: 'req' | 'design', kind: string): string {
-  const t = effectiveTemplate(domain, kind);
+ *  读「项目绑定套件条目 → 代码默认」解析链（套件机制，2026-10-07）；自定义类别（x- 前缀）无生成链落点，不入此函数 */
+export function buildTemplateGuide(domain: 'req' | 'design', kind: string, projectId?: string): string {
+  const t = resolveTemplate(domain, kind, projectId);
   if (!t) return '';
   const codeRule = domain === 'req'
     ? reqSectionRule(kind as 'crd' | 'prd')
@@ -232,50 +234,81 @@ export function buildTemplateGuide(domain: 'req' | 'design', kind: string): stri
   ].join('\n');
 }
 
-/** 测试/校验用：模板注册表直出（防某类文档漏模板） */
+/** 测试/校验用：模板注册表直出（防某类文档漏模板；代码默认，不含套件覆盖） */
 export function listTemplates(): Record<string, DocTemplate> {
-  return { crd: CRD_TEMPLATE, prd: PRD_TEMPLATE, ...BOOK_TEMPLATES, ...overrides };
+  return { crd: CRD_TEMPLATE, prd: PRD_TEMPLATE, ...BOOK_TEMPLATES };
 }
 
-// ---------- 设置页模板编辑器：DB 覆盖层（sys_settings['doc_template_overrides']） ----------
-// 代码默认是基线（专业度门槛由测试钉死），编辑器保存的是**按 kind 的覆盖行**——
-// 无覆盖=代码默认；「恢复默认」=删覆盖行。单进程部署：缓存于内存，boot/保存后显式刷新。
+// ---------- 模板套件（2026-10-07 拍板：按项目创建/保存/复用一整套模板，版本管理=命名套件） ----------
+// 架构：代码默认是基线；套件（sys_template_sets/items）全局可复用，项目绑定活动套件
+// （prj_template_binding）；kind 解析链=项目绑定套件条目 → 代码默认（未存条目的 kind 回退默认，
+// 「基于默认模板创建一整套」= 空套件+逐项编辑，回退链保证无缺项）。单进程：内存缓存，boot/写后刷新。
+// 取代前日 sys_settings 单覆盖设施（上线一天、无在途数据，直接弃用）。
 
-export const TEMPLATE_OVERRIDES_KEY = 'doc_template_overrides';
+/** 自定义类别命名空间（内置十类之外的模板类别，如 x-acceptance 验收方案） */
+export const CUSTOM_KIND_RE = /^x-[a-z0-9][a-z0-9-]{1,28}[a-z0-9]$/;
 
-let overrides: Record<string, DocTemplate> = {};
+let setItems = new Map<string, Map<string, DocTemplate>>(); // setId → kind → template
+let bindings = new Map<string, string>();                   // projectId → setId
 
 export async function refreshTemplateOverrides(): Promise<void> {
   try {
-    const r = await query<{ value: Record<string, DocTemplate> | null }>(
-      'SELECT value FROM sys_settings WHERE key=$1', [TEMPLATE_OVERRIDES_KEY]);
-    overrides = r.rows[0]?.value ?? {};
-  } catch {
-    overrides = {}; // 读取失败回退代码默认（不阻断生成链）
+    const items = await query<{
+      set_id: string; kind: string; label: string; standard: string; quality: string;
+      writing_rules: string[]; chapters: Array<{ title: string; requires: string }>;
+    }>('SELECT set_id, kind, label, standard, quality, writing_rules, chapters FROM sys_template_set_items');
+    const next = new Map<string, Map<string, DocTemplate>>();
+    for (const r of items.rows) {
+      if (!next.has(r.set_id)) next.set(r.set_id, new Map());
+      next.get(r.set_id)!.set(r.kind, {
+        standard: r.standard, quality: r.quality, writingRules: r.writing_rules, chapters: r.chapters,
+        ...(r.label ? { label: r.label } : {}),
+      });
+    }
+    setItems = next;
+    const b = await query<{ project_id: string; set_id: string }>('SELECT project_id, set_id FROM prj_template_binding');
+    bindings = new Map(b.rows.map((x) => [x.project_id, x.set_id]));
+  } catch { /* 读取失败保留现状（不阻断生成链） */ }
+}
+
+/** kind 解析（含项目绑定）：绑定套件有该 kind 条目 → 套件条目；否则代码默认（自定义 kind 无默认→undefined） */
+export function resolveTemplate(domain: 'req' | 'design', kind: string, projectId?: string): DocTemplate | undefined {
+  if (projectId) {
+    const setId = bindings.get(projectId);
+    const item = setId ? setItems.get(setId)?.get(kind) : undefined;
+    if (item) return item;
   }
+  return codeDefaultTemplate(kind);
 }
 
-/** 当前覆盖表（设置页标「已自定义」徽用） */
-export function templateOverrides(): Record<string, DocTemplate> {
-  return overrides;
+/** 套件内条目直读（设置页编辑器按套件取表单初值） */
+export function setItemTemplate(setId: string, kind: string): DocTemplate | undefined {
+  return setItems.get(setId)?.get(kind);
 }
 
-/** 代码默认（设置页「恢复默认」参照/对比用；不含覆盖） */
+/** 项目当前绑定（读侧直出） */
+export function bindingOf(projectId: string): string | undefined {
+  return bindings.get(projectId);
+}
+
+/** 代码默认（设置页「恢复默认」参照/对比用；自定义 kind 返回 undefined） */
 export function codeDefaultTemplate(kind: string): DocTemplate | undefined {
   if (kind === 'crd') return CRD_TEMPLATE;
   if (kind === 'prd') return PRD_TEMPLATE;
   return BOOK_TEMPLATES[kind];
 }
 
-function effectiveTemplate(domain: 'req' | 'design', kind: string): DocTemplate | undefined {
-  return overrides[kind] ?? codeDefaultTemplate(kind);
-}
-
 /** 专业度校验（编辑器保存闸；与 doc-templates.test 门槛同源——用户也不能把模板改水）。
+ *  自定义类别（x- 前缀）跳过「编号规范/内置枚举」检查但质量门槛同标。
  *  返回人话问题清单（空数组=通过；不落码，门面按 VALIDATION_FAILED 汇总抛出） */
 export function validateTemplate(kind: string, t: DocTemplate): string[] {
   const problems: string[] = [];
-  if (!t.standard || t.standard.trim().length < 4) problems.push('依据标准必填（≥4 字，如 ISO/IEC/IEEE 29148）');
+  const custom = CUSTOM_KIND_RE.test(kind);
+  if (!custom && !codeDefaultTemplate(kind)) {
+    problems.push(`未知文档类型 ${kind}（内置枚举 crd|prd|hld|mod|alg|cls|db|api|ui|nfr；自定义类别用 x- 前缀，如 x-acceptance）`);
+  }
+  if (custom && !(t.label ?? '').trim()) problems.push('自定义类别必须填显示名（label）');
+  if (!t.standard || t.standard.trim().length < 4) problems.push('依据标准必填（≥4 字，如 ISO/IEC/IEEE 29148；无对应标准时写公司/团队规范名）');
   if (!t.quality || t.quality.trim().length < 10) problems.push('质量要求必填（≥10 字）');
   const rules = t.writingRules ?? [];
   if (rules.length < 3) problems.push(`编写规则至少 3 条（当前 ${rules.length} 条）`);
@@ -286,6 +319,5 @@ export function validateTemplate(kind: string, t: DocTemplate): string[] {
     if (!/^[一二三四五六七八九十]+、/.test(c.title ?? '')) problems.push(`第 ${i + 1} 章标题须中文数字+顿号（如「一、背景与目标」）`);
     if ((c.requires ?? '').trim().length < 20) problems.push(`第 ${i + 1} 章内容要求过短（≥20 字，写到可验收粒度）`);
   });
-  if (!codeDefaultTemplate(kind)) problems.push(`未知文档类型 ${kind}（枚举 crd|prd|hld|mod|alg|cls|db|api|ui|nfr）`);
   return problems;
 }

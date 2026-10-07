@@ -5,6 +5,7 @@ import { executeCommand, resetCommands } from '../evidence/command-bus.js';
 import { NotificationsService } from './notifications.service.js';
 import { PlatformReadService } from './platform-read.service.js';
 import { SettingsService } from './settings.service.js';
+import { TemplateSetsService } from './template-sets.service.js';
 import { BackupsService } from './backups.service.js';
 import { StorageService } from './storage.service.js';
 
@@ -32,11 +33,13 @@ describe('M7 平台域（集成，需 DB+MinIO）', async () => {
   const notices = new NotificationsService();
   const read = new PlatformReadService();
   const settings = new SettingsService(notices);
+  const tsets = new TemplateSetsService();
   const backups = new BackupsService(storage, notices);
   resetCommands();
   notices.onModuleInit();
   read.onModuleInit();
   settings.onModuleInit();
+  tsets.onModuleInit();
   backups.onModuleInit();
 
   beforeAll(async () => {
@@ -239,17 +242,20 @@ describe('M7 平台域（集成，需 DB+MinIO）', async () => {
       .rejects.toMatchObject({ code: 'NOT_FOUND' });
   });
 
-  it('文档模板编辑器：覆盖保存→生成链生效→恢复默认回基线；专业度闸拒绝水化', async () => {
+  it('模板套件：创建→条目保存→绑定项目生成链生效→解绑回基线→绑定态删套件被拒→解绑后可删', async () => {
     const { buildTemplateGuide, refreshTemplateOverrides, codeDefaultTemplate } = await import('./doc-templates.js');
-    await query("DELETE FROM sys_settings WHERE key='doc_template_overrides'");
     await refreshTemplateOverrides();
+    const setName = `测试套件-${Date.now()}`;
+    let setId = '';
     try {
-      // 专业度闸：水化模板（规则不足/章名不合规）被拒（VALIDATION_FAILED 人话）
-      await expect(settings.saveDocTemplate('crd', {
+      // 专业度闸：水化条目被拒（与代码默认测试门槛同源）
+      const created = (await tsets.createSet(setName, '测试用', undefined, CTX)) as { setId: string };
+      setId = created.setId;
+      await expect(tsets.saveItem(setId, 'crd', {
         standard: 'X', quality: '随意', writingRules: ['短'], chapters: [{ title: 'Chapter 1', requires: '少' }],
       }, CTX)).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
-      // 保存合法覆盖 → 生成链注入块即时生效（标准出处/章名换成自定义）
-      await settings.saveDocTemplate('crd', {
+      // 合法条目保存 → 绑定 → 生成链注入块生效
+      await tsets.saveItem(setId, 'crd', {
         standard: 'ACME 公司模板规范 v3',
         quality: '每条需求按公司模板三栏（描述/规则/验收）填写，违者退回。',
         writingRules: ['公司模板标题须带 ACME- 前缀且顺延', '每条需求须双语（中英）', '验收要点须给测量方法'],
@@ -260,19 +266,30 @@ describe('M7 平台域（集成，需 DB+MinIO）', async () => {
           { title: '四、公司术语', requires: '公司术语表（中英对照，与集团术语库口径一致并注明出处）' },
         ],
       }, CTX);
-      const guide = buildTemplateGuide('req', 'crd');
+      // 未绑定前：本项目仍走代码默认
+      expect(buildTemplateGuide('req', 'crd', PID)).toContain('29148');
+      await tsets.bind(PID, setId, CTX);
+      const guide = buildTemplateGuide('req', 'crd', PID);
       expect(guide).toContain('ACME 公司模板规范 v3');
       expect(guide).toContain('一、公司背景');
-      expect(guide).toContain('用户模板优先'); // 声明仍在
-      // 恢复默认 → 回代码基线（29148）
-      await settings.resetDocTemplate('crd', CTX);
-      const guide2 = buildTemplateGuide('req', 'crd');
-      expect(guide2).toContain('29148');
-      expect(guide2).not.toContain('ACME');
-      expect(codeDefaultTemplate('crd')!.standard).toContain('29148'); // 代码基线未被覆盖污染
+      // 套件未覆盖的 kind 回退代码默认（「基于默认模板创建一整套」回退链）
+      expect(buildTemplateGuide('req', 'prd', PID)).toContain('29148');
+      // 绑定态删除被拒（先解绑）
+      await expect(tsets.deleteSet(setId, CTX)).rejects.toMatchObject({ code: 'INVALID_STATE' });
+      // 解绑 → 回基线；删除 → 套件消失
+      await tsets.bind(PID, null, CTX);
+      expect(buildTemplateGuide('req', 'crd', PID)).toContain('29148');
+      expect(buildTemplateGuide('req', 'crd', PID)).not.toContain('ACME');
+      await tsets.deleteSet(setId, CTX);
+      setId = '';
+      expect(codeDefaultTemplate('crd')!.standard).toContain('29148'); // 代码基线零污染
     } finally {
-      await query("DELETE FROM sys_settings WHERE key='doc_template_overrides'");
-      await refreshTemplateOverrides();
+      if (setId) {
+        await query('DELETE FROM prj_template_binding WHERE set_id=$1', [setId]);
+        await query('DELETE FROM sys_template_sets WHERE id=$1', [setId]);
+        await refreshTemplateOverrides();
+      }
+      await query('DELETE FROM prj_template_binding WHERE project_id=$1', [PID]);
     }
   });
 });

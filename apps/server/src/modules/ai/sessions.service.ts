@@ -11,6 +11,7 @@ import { AI_PROVIDER, type AiProvider, type AiUsage } from './ai-provider.interf
 import type { ModelRow } from './models.service.js';
 import { AiModelsService } from './models.service.js';
 import { STAGE_GUIDES } from './stage-guides.js';
+import { buildTemplateDraftPrompt, parseTemplateDraft } from './template-draft.js';
 import { AiToolsService } from './tools.service.js';
 import { StreamPipeline, type PipelineCompletion } from './stream-pipeline.js';
 
@@ -453,6 +454,26 @@ export class AiSessionsService implements OnModuleInit {
     for (const s of spans) { stripped += content.slice(cursor, s.start); cursor = s.end; }
     stripped = (stripped + content.slice(cursor)).replace(/\n{3,}/g, '\n\n').trim();
     return { stripped: stripped || '已按请求调用工具，结果见下方工具卡。', results };
+  }
+
+  /** 自定义模板类别 AI 起草（2026-10-07 拍板）：非 SSE 内部调用（purpose=chat）出草案，
+   *  人工审改后经 template_set.update_item 保存（AI 起草、人工定稿纪律不破）；草案不落库 */
+  async draftTemplate(projectId: string, name: string, hint: string) {
+    if (!name?.trim()) throw new DomainError('VALIDATION_FAILED', '类别名称必填', 'name');
+    const t0 = Date.now();
+    const ai = await this.provider.createSession({ projectId, purpose: 'chat' });
+    const { deltas, result } = ai.stream(buildTemplateDraftPrompt(name, hint));
+    for await (const d of deltas) void d;
+    const r = await result.catch(() => null);
+    if (!r) throw new DomainError('MODEL_UNAVAILABLE', 'AI 起草调用失败，请重试或人工填写', 'template-draft');
+    if (r.modelId && r.usage) {
+      await executeCommand('ai.usage.record', {
+        projectId, modelId: r.modelId, purpose: 'chat',
+        tokensIn: r.usage.inputTokens, tokensOut: r.usage.outputTokens,
+        durationMs: Date.now() - t0, cost: r.usage.cost ?? 0,
+      }, { projectId, actorKind: 'assistant', actorId: 'pi' });
+    }
+    return parseTemplateDraft(r.text);
   }
 
   /** 组装发往模型的提示词：当前项目+阶段准入口径上下文（U-035）+ 参考全文（内容定稿稿，单份截 12000 字/总截 32000 字）+ 他阶段会话摘要（跨阶段互通读侧）+ 近 6 轮历史 + 本次请求 */

@@ -112,3 +112,11 @@ textarea.prompt-editor.readonly { background: var(--soft); color: var(--ink2); }
 .tpl-chapters-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
 .tpl-chapter { display: grid; grid-template-columns: 170px 1fr auto; gap: 6px; margin-bottom: 6px; align-items: start; }
 .tpl-ops { display: flex; gap: 8px; }
+
+/* 模板套件栏（2026-10-07）：套件选择+绑定操作 */
+.tpl-setbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.tpl-setbar label { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-2, var(--ink)); }
+.tpl-setbar select {
+  border: 1px solid var(--line); border-radius: var(--radius, 8px); padding: 5px 8px;
+  background: var(--bg); color: var(--ink); font: inherit;
+}
