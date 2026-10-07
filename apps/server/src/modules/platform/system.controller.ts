@@ -18,6 +18,7 @@ import { NotificationsService } from './notifications.service.js';
 import { PlatformReadService } from './platform-read.service.js';
 import { SettingsService } from './settings.service.js';
 import { BackupsService } from './backups.service.js';
+import { TemplateSetsService } from './template-sets.service.js';
 
 /**
  * 系统面端点（LLD-5 DSG-A10-1~5；REQ-703/705/706/707/708/804）：
@@ -34,9 +35,16 @@ export class SystemController {
     @Inject(PlatformReadService) private readonly read: PlatformReadService,
     @Inject(SettingsService) private readonly settings: SettingsService,
     @Inject(BackupsService) private readonly backups: BackupsService,
+    @Inject(TemplateSetsService) private readonly templateSets: TemplateSetsService,
   ) {}
 
   // ---- A10-1 设置 ----
+
+  /** 模板套件总览（项目页关联用）：全部套件（含条目清单）+ 全部项目绑定（系统级只读直查） */
+  @Get('template-sets')
+  templateSetsAll() {
+    return this.templateSets.listAllWithBindings();
+  }
 
   @Get('settings')
   getSettings() {

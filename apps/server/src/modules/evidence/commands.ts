@@ -14,10 +14,11 @@ export const COMMANDS = [
   'system.settings.set', // 设置变更（D10-4 注：记 audit_log）
   'template_set.create', // 模板套件：新建/克隆（全局可复用）
   'template_set.rename', // 模板套件：重命名/改描述
-  'template_set.delete', // 模板套件：删除（有项目绑定时拒绝，先解绑）
+  'template_set.delete', // 模板套件：删除（级联解绑：绑定项目/kind 级指定自动回退默认，同事事务）
   'template_set.update_item', // 模板套件：保存 kind 条目（validateTemplate 专业度闸）
   'template_set.delete_item', // 模板套件：删除 kind 条目（回退代码默认）
   'template_set.bind', // 模板套件：项目绑定/解绑活动套件
+  'template_set.bind_kind', // 模板套件：项目×文档类别级指定（📄 模板弹窗换源）
   'system.notification.emit', // 通知产生（写路径副作用；BR-10 失败定位）
   'system.notification.read',
   'system.notification.read_all',

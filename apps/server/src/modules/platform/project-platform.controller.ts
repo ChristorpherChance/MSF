@@ -16,7 +16,7 @@ import { getActor } from '../api/identity.middleware.js';
 import { PlatformReadService } from './platform-read.service.js';
 import { SettingsService } from './settings.service.js';
 import { TemplateSetsService } from './template-sets.service.js';
-import { bindingOf, codeDefaultTemplate, refreshTemplateOverrides, resolveTemplate, setItemTemplate, type DocTemplate } from './doc-templates.js';
+import { bindingOf, codeDefaultTemplate, refreshTemplateOverrides, resolveTemplate, templateSourceOf, type DocTemplate } from './doc-templates.js';
 
 /**
  * 项目平台扩展端点（LLD-5 DSG-A02-4/5/6 + 放行策略配置面）：
@@ -50,6 +50,7 @@ export class ProjectPlatformController {
     return {
       items: builtin.map((kind) => {
         const t = resolveTemplate(kind === 'crd' || kind === 'prd' ? 'req' : 'design', kind, projectId)!;
+        const src = templateSourceOf(projectId, kind);
         return {
           kind,
           domain: kind === 'crd' || kind === 'prd' ? 'req' : 'design',
@@ -57,7 +58,9 @@ export class ProjectPlatformController {
           quality: t.quality,
           writingRules: t.writingRules,
           chapters: t.chapters,
-          customized: setId ? setItemTemplate(setId, kind) !== undefined : false,
+          customized: src.source !== 'default',
+          source: src.source,
+          sourceSetId: src.setId,
         };
       }),
       activeSetId: setId ?? null,
@@ -139,6 +142,16 @@ export class ProjectPlatformController {
   ) {
     const a = getActor(req);
     return this.templateSets.bind(projectId, body.setId, { projectId, actorKind: a.kind, actorId: a.id });
+  }
+
+  /** 文档类别级模板换源（📄 模板弹窗内：跟随项目套件/系统默认/指定套件——setId=null 回退跟随项目套件） */
+  @Put('template-binding/:kind')
+  bindTemplateKind(
+    @Param('projectId') projectId: string, @Param('kind') kind: string,
+    @Body() body: { setId: string | null }, @Req() req: Request,
+  ) {
+    const a = getActor(req);
+    return this.templateSets.bindKind(projectId, kind, body.setId, { projectId, actorKind: a.kind, actorId: a.id });
   }
 
   /** A02-5 任务中心汇总 */

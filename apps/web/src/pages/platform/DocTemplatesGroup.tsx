@@ -112,7 +112,7 @@ export function DocTemplatesGroup() {
       await api.post(`${base(projectId)}/template-sets/${editSetId}:delete`, {});
       if (activeSetId === editSetId) setActiveSetId(null);
       setEditSetId('default');
-      toast('套件已删除', 'success');
+      toast('套件已删除（绑定的项目已自动回退默认模板）', 'success');
       await load();
     } catch (e) { toast(e instanceof ApiError ? `${e.code}: ${e.message}` : String(e), 'warn'); }
   };
@@ -138,7 +138,7 @@ export function DocTemplatesGroup() {
             {activeSetId === editSetId
               ? <button className="act" onClick={() => void bind(null)}>取消当前项目生效</button>
               : <button className="act primary" onClick={() => void bind(editSetId)}>设为当前项目生效</button>}
-            <button className="act" title="删除套件（有项目绑定时须先解绑）" onClick={() => setDeleteOpen(true)}>🗑 删除套件</button>
+            <button className="act" title="删除套件（绑定的项目将自动回退默认模板）" onClick={() => setDeleteOpen(true)}>🗑 删除套件</button>
           </>
         )}
         {activeSetId && (
@@ -209,7 +209,7 @@ export function DocTemplatesGroup() {
       {deleteOpen && editSet && (
         <ConfirmModal
           title="删除套件"
-          body={`将删除套件「${editSet.name}」（含其全部自定义条目，不可恢复；有项目绑定时会被拒绝）。`}
+          body={`将删除套件「${editSet.name}」（含其全部自定义条目，不可恢复）；绑定了该套件的项目与文档类别指定将自动解绑并回退默认模板。`}
           confirmLabel="删除套件"
           onClose={() => setDeleteOpen(false)}
           onConfirm={() => void deleteSet()}

@@ -249,7 +249,8 @@ export function listTemplates(): Record<string, DocTemplate> {
 export const CUSTOM_KIND_RE = /^x-[a-z0-9][a-z0-9-]{1,28}[a-z0-9]$/;
 
 let setItems = new Map<string, Map<string, DocTemplate>>(); // setId → kind → template
-let bindings = new Map<string, string>();                   // projectId → setId
+let bindings = new Map<string, string>();                   // projectId → setId（项目级套件绑定）
+let kindBindings = new Map<string, string>();               // `${projectId}:${kind}` → setId（文档类别级指定，0028）
 
 export async function refreshTemplateOverrides(): Promise<void> {
   try {
@@ -268,17 +269,31 @@ export async function refreshTemplateOverrides(): Promise<void> {
     setItems = next;
     const b = await query<{ project_id: string; set_id: string }>('SELECT project_id, set_id FROM prj_template_binding');
     bindings = new Map(b.rows.map((x) => [x.project_id, x.set_id]));
+    const kb = await query<{ project_id: string; kind: string; set_id: string }>('SELECT project_id, kind, set_id FROM prj_template_kind_binding');
+    kindBindings = new Map(kb.rows.map((x) => [`${x.project_id}:${x.kind}`, x.set_id]));
   } catch { /* 读取失败保留现状（不阻断生成链） */ }
 }
 
-/** kind 解析（含项目绑定）：绑定套件有该 kind 条目 → 套件条目；否则代码默认（自定义 kind 无默认→undefined） */
+/** kind 解析三级链（2026-10-07）：项目×类别指定 → 项目绑定套件条目 → 代码默认（自定义 kind 无默认→undefined） */
 export function resolveTemplate(domain: 'req' | 'design', kind: string, projectId?: string): DocTemplate | undefined {
   if (projectId) {
+    const kindSet = kindBindings.get(`${projectId}:${kind}`);
+    const kindItem = kindSet ? setItems.get(kindSet)?.get(kind) : undefined;
+    if (kindItem) return kindItem;
     const setId = bindings.get(projectId);
     const item = setId ? setItems.get(setId)?.get(kind) : undefined;
     if (item) return item;
   }
   return codeDefaultTemplate(kind);
+}
+
+/** 该 kind 当前生效来源（📄 模板弹窗「模板来源」显示用）：'kind'=类别级指定 / 'set'=项目套件 / 'default'=系统默认 */
+export function templateSourceOf(projectId: string, kind: string): { source: 'kind' | 'set' | 'default'; setId: string | null } {
+  const kindSet = kindBindings.get(`${projectId}:${kind}`);
+  if (kindSet && setItems.get(kindSet)?.has(kind)) return { source: 'kind', setId: kindSet };
+  const setId = bindings.get(projectId) ?? null;
+  if (setId && setItems.get(setId)?.has(kind)) return { source: 'set', setId };
+  return { source: 'default', setId: null };
 }
 
 /** 套件内条目直读（设置页编辑器按套件取表单初值） */

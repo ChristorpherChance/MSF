@@ -242,8 +242,8 @@ describe('M7 平台域（集成，需 DB+MinIO）', async () => {
       .rejects.toMatchObject({ code: 'NOT_FOUND' });
   });
 
-  it('模板套件：创建→条目保存→绑定项目生成链生效→解绑回基线→绑定态删套件被拒→解绑后可删', async () => {
-    const { buildTemplateGuide, refreshTemplateOverrides, codeDefaultTemplate } = await import('./doc-templates.js');
+  it('模板套件：创建→条目保存→绑定项目生成链生效→kind 级换源→绑定态删套件级联解绑（自动回退默认）', async () => {
+    const { buildTemplateGuide, refreshTemplateOverrides, codeDefaultTemplate, templateSourceOf } = await import('./doc-templates.js');
     await refreshTemplateOverrides();
     const setName = `测试套件-${Date.now()}`;
     let setId = '';
@@ -274,22 +274,55 @@ describe('M7 平台域（集成，需 DB+MinIO）', async () => {
       expect(guide).toContain('一、公司背景');
       // 套件未覆盖的 kind 回退代码默认（「基于默认模板创建一整套」回退链）
       expect(buildTemplateGuide('req', 'prd', PID)).toContain('29148');
-      // 绑定态删除被拒（先解绑）
-      await expect(tsets.deleteSet(setId, CTX)).rejects.toMatchObject({ code: 'INVALID_STATE' });
-      // 解绑 → 回基线；删除 → 套件消失
-      await tsets.bind(PID, null, CTX);
-      expect(buildTemplateGuide('req', 'crd', PID)).toContain('29148');
-      expect(buildTemplateGuide('req', 'crd', PID)).not.toContain('ACME');
-      await tsets.deleteSet(setId, CTX);
+      expect(templateSourceOf(PID, 'crd')).toEqual({ source: 'set', setId });
+
+      // ---- kind 级换源（2026-10-07：📄 弹窗按文档类别指定其他套件/默认） ----
+      const setB = (await tsets.createSet(`测试套件B-${Date.now()}`, '', undefined, CTX)) as { setId: string };
+      try {
+        // 套件 B 不含 prd 条目：kind 级绑定被拒（守卫「绑了也是空解析」）
+        await expect(tsets.bindKind(PID, 'prd', setB.setId, CTX))
+          .rejects.toMatchObject({ code: 'INVALID_STATE' });
+        await tsets.saveItem(setB.setId, 'prd', {
+          standard: 'BETA 公司 PRD 规范 v1',
+          quality: '每个功能点须给出验收标准与优先级两栏，缺一退回。',
+          writingRules: ['功能点编号 FP-nnn 顺延不重号', '验收标准必须可测量可复核', '每条功能点给出依赖前置'],
+          chapters: [
+            { title: '一、产品概述', requires: '目标用户/核心价值/范围边界各一段（按 BETA 模板第 1 节）' },
+            { title: '二、功能清单', requires: 'FP-nnn 两栏：验收标准+优先级（可测量）' },
+            { title: '三、流程', requires: '主流程与异常流程分节描述，每节含分支条件与出口（可验收粒度）' },
+            { title: '四、非功能', requires: '性能/安全/可用性条款各给目标值与测量方法（可验收粒度）' },
+          ],
+        }, CTX);
+        await tsets.bindKind(PID, 'prd', setB.setId, CTX);
+        // 三级解析链：kind 级指定 > 项目套件 > 代码默认
+        expect(buildTemplateGuide('req', 'prd', PID)).toContain('BETA 公司 PRD 规范 v1');
+        expect(templateSourceOf(PID, 'prd')).toEqual({ source: 'kind', setId: setB.setId });
+        expect(buildTemplateGuide('req', 'crd', PID)).toContain('ACME'); // crd 仍走项目套件
+        // 取消 kind 级指定 → 回退跟随项目套件（prd 套件 A 未覆盖 → 代码默认）
+        await tsets.bindKind(PID, 'prd', null, CTX);
+        expect(buildTemplateGuide('req', 'prd', PID)).toContain('29148');
+      } finally {
+        await query('DELETE FROM prj_template_kind_binding WHERE set_id=$1', [setB.setId]);
+        await query('DELETE FROM sys_template_sets WHERE id=$1', [setB.setId]);
+        await refreshTemplateOverrides();
+      }
+
+      // 绑定态删除=级联解绑（拍板：「新增的都应该可以删除」，绑定项目自动回退默认）
+      const del = (await tsets.deleteSet(setId, CTX)) as { unboundProjects: number };
       setId = '';
+      expect(del.unboundProjects).toBe(1); // 本项目绑定被同事务解除
+      expect(buildTemplateGuide('req', 'crd', PID)).toContain('29148'); // 回基线
+      expect(buildTemplateGuide('req', 'crd', PID)).not.toContain('ACME');
       expect(codeDefaultTemplate('crd')!.standard).toContain('29148'); // 代码基线零污染
     } finally {
       if (setId) {
         await query('DELETE FROM prj_template_binding WHERE set_id=$1', [setId]);
+        await query('DELETE FROM prj_template_kind_binding WHERE set_id=$1', [setId]);
         await query('DELETE FROM sys_template_sets WHERE id=$1', [setId]);
         await refreshTemplateOverrides();
       }
       await query('DELETE FROM prj_template_binding WHERE project_id=$1', [PID]);
+      await query('DELETE FROM prj_template_kind_binding WHERE project_id=$1', [PID]);
     }
   });
 });

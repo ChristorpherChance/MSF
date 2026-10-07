@@ -56,13 +56,12 @@ export class TemplateSetsService {
 
     registerCommand('template_set.delete', async (client, payload) => {
       const p = payload as { setId: string };
-      const bound = await client.query('SELECT project_id FROM prj_template_binding WHERE set_id=$1', [p.setId]);
-      if (bound.rows.length > 0) {
-        throw new DomainError('INVALID_STATE', `仍有 ${bound.rows.length} 个项目绑定该套件，先解绑再删除`, p.setId);
-      }
+      // 级联解绑（2026-10-07 拍板：「新增的都应该可以删除」——绑定的项目自动回退默认，同事事务）
+      const unbind = await client.query('DELETE FROM prj_template_binding WHERE set_id=$1', [p.setId]);
+      const unbindKind = await client.query('DELETE FROM prj_template_kind_binding WHERE set_id=$1', [p.setId]);
       const r = await client.query('DELETE FROM sys_template_sets WHERE id=$1', [p.setId]);
       if (r.rowCount === 0) throw new DomainError('NOT_FOUND', '套件不存在', p.setId);
-      return { setId: p.setId, deleted: true };
+      return { setId: p.setId, deleted: true, unboundProjects: unbind.rowCount ?? 0, unboundKinds: unbindKind.rowCount ?? 0 };
     });
 
     registerCommand('template_set.update_item', async (client, payload, ctx) => {
@@ -105,6 +104,25 @@ export class TemplateSetsService {
         [p.projectId, p.setId, ctx.actorId]);
       return { projectId: p.projectId, setId: p.setId };
     });
+
+    // 文档类别级指定（2026-10-07 拍板：📄 模板弹窗内可按文档换源——同类型其他套件/默认）
+    registerCommand('template_set.bind_kind', async (client, payload, ctx) => {
+      const p = payload as { projectId: string; kind: string; setId: string | null };
+      await lockCodeGen(client, `msf:tplbind:${p.projectId}`);
+      if (p.setId === null) {
+        await client.query('DELETE FROM prj_template_kind_binding WHERE project_id=$1 AND kind=$2', [p.projectId, p.kind]);
+        return { projectId: p.projectId, kind: p.kind, setId: null };
+      }
+      // 指定的套件必须真含有该 kind 条目（否则绑了也是空解析，误导）
+      const item = await client.query(
+        'SELECT 1 FROM sys_template_set_items WHERE set_id=$1 AND kind=$2', [p.setId, p.kind]);
+      if (!item.rows[0]) throw new DomainError('INVALID_STATE', '该套件没有此文档类别的自定义条目', `${p.setId}:${p.kind}`);
+      await client.query(
+        `INSERT INTO prj_template_kind_binding (project_id, kind, set_id, updated_by) VALUES ($1,$2,$3,$4)
+         ON CONFLICT (project_id, kind) DO UPDATE SET set_id=$3, updated_by=$4, updated_at=now()`,
+        [p.projectId, p.kind, p.setId, ctx.actorId]);
+      return { projectId: p.projectId, kind: p.kind, setId: p.setId };
+    });
   }
 
   // ---------- 包装（写后刷新覆盖缓存：生成链即时生效） ----------
@@ -136,6 +154,21 @@ export class TemplateSetsService {
     const r = await executeCommand('template_set.bind', { projectId, setId }, { ...ctx, projectId });
     await refreshTemplateOverrides();
     return r;
+  }
+  async bindKind(projectId: string, kind: string, setId: string | null, ctx: CommandContext) {
+    const r = await executeCommand('template_set.bind_kind', { projectId, kind, setId }, { ...ctx, projectId });
+    await refreshTemplateOverrides();
+    return r;
+  }
+
+  /** 项目页用：全部套件 + 全部项目绑定（系统级只读直查） */
+  async listAllWithBindings(): Promise<{
+    sets: Array<TemplateSetRow & { items: Array<{ kind: string; label: string }> }>;
+    bindings: Record<string, string>;
+  }> {
+    const sets = await this.listSets();
+    const b = await query<{ project_id: string; set_id: string }>('SELECT project_id, set_id FROM prj_template_binding');
+    return { sets: sets.items, bindings: Object.fromEntries(b.rows.map((x) => [x.project_id, x.set_id])) };
   }
 
   // ---------- 读侧（只读直查不经命令，与 settings.getAll 同口径） ----------

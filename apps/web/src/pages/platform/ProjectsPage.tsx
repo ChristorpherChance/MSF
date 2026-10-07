@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ApiError } from '../../api';
+import { ApiError, api } from '../../api';
 import { useSession } from '../../store';
 import { Modal } from '../../ui/Modal';
 import { toast } from '../../ui/toast';
@@ -12,7 +12,10 @@ import './projects.css';
  * 项目卡网格（图标/名称/阶段 tag/描述/五段进度条/本月成本/编辑·打开）；
  * 新建=projModal 弹窗；归档=语义确认 modal（不删除）；打开按 stage 落对应阶段；
  * 空态虚线新建卡；示例数据独立分组。
+ * 2026-10-07：卡片挂模板套件关联（一次绑定，全项目生成链自动套用；不选=系统默认）。
  */
+
+interface TplSetLite { id: string; name: string; items: Array<{ kind: string; label: string }> }
 
 const STAGE_ROUTES: Record<string, string> = {
   material: '/material', req: '/req', design: '/design', dev: '/dev', test: '/test',
@@ -26,6 +29,10 @@ export function ProjectsPage() {
   const [editTarget, setEditTarget] = useState<ProjectRow | null>(null);
   const [archiveTarget, setArchiveTarget] = useState<ProjectRow | null>(null);
   const [monthCost, setMonthCost] = useState<Record<string, number>>({});
+  const [tplSets, setTplSets] = useState<TplSetLite[]>([]);
+  const [tplBindings, setTplBindings] = useState<Record<string, string>>({});
+  const [tplSwitching, setTplSwitching] = useState<string | null>(null);
+  const [tplNewFor, setTplNewFor] = useState<ProjectRow | null>(null);
   const currentId = useSession((s) => s.projectId);
   const navigate = useNavigate();
 
@@ -40,8 +47,17 @@ export function ProjectsPage() {
     }
   }, []);
 
+  /** 模板套件总览（卡片关联选择器数据源；系统级只读端点） */
+  const loadTplSets = useCallback(async () => {
+    const r = await api
+      .get<{ sets: TplSetLite[]; bindings: Record<string, string> }>('/api/v1/system/template-sets')
+      .catch(() => null);
+    if (r) { setTplSets(r.sets); setTplBindings(r.bindings); }
+  }, []);
+
   useEffect(() => {
     void refresh();
+    void loadTplSets();
     // 本月成本（按项目聚合，卡片展示）
     platformApi.usageSummary('current')
       .then((r) => {
@@ -76,6 +92,30 @@ export function ProjectsPage() {
   };
 
   const group = (demo: boolean) => items.filter((p) => p.is_demo === demo && p.status === 'active');
+
+  /** 卡片套件关联：''=恢复系统默认；'__new__'=打开「新建套件并绑定」弹窗；其余=绑定该套件 */
+  const onBindTpl = async (p: ProjectRow, v: string) => {
+    if (v === '__new__') { setTplNewFor(p); return; }
+    setTplSwitching(p.id);
+    try {
+      await api.put(`/api/v1/projects/${p.id}/template-binding`, { setId: v || null });
+      setTplBindings((m) => {
+        const n = { ...m };
+        if (v) n[p.id] = v; else delete n[p.id];
+        return n;
+      });
+      toast(
+        v
+          ? `项目「${p.name}」已关联模板套件「${tplSets.find((s) => s.id === v)?.name ?? ''}」，全部文档生成将自动套用`
+          : `项目「${p.name}」已恢复系统默认模板`,
+        'success',
+      );
+    } catch (e) {
+      toast(e instanceof ApiError ? `${e.code}: ${e.message}` : String(e), 'warn');
+    } finally {
+      setTplSwitching(null);
+    }
+  };
   const archived = items.filter((p) => p.status === 'archived');
 
   const card = (p: ProjectRow) => {
@@ -102,6 +142,18 @@ export function ProjectsPage() {
             const g = gates.find((x) => x.stage === st);
             return <i key={st} className={g ? (g.ok ? 'ok' : 'gap') : ''} />;
           })}
+        </div>
+        <div className="pc-tpl" title="模板套件：一次关联，本项目全部文档生成自动套用；不选=系统默认（国际标准）">
+          📄
+          <select
+            value={tplBindings[p.id] ?? ''}
+            disabled={tplSwitching === p.id}
+            onChange={(e) => void onBindTpl(p, e.target.value)}
+          >
+            <option value="">系统默认模板</option>
+            {tplSets.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+            <option value="__new__">＋ 新建套件并绑定…</option>
+          </select>
         </div>
         <div className="pc-foot">
           <span className="pc-date">{p.created_at?.slice(0, 10)}</span>
@@ -186,6 +238,13 @@ export function ProjectsPage() {
             onSaved={async () => { setEditTarget(null); toast('已保存', 'success'); await refresh(); }}
           />
         )}
+        {tplNewFor && (
+          <TplBindModal
+            project={tplNewFor}
+            onClose={() => setTplNewFor(null)}
+            onBound={async () => { setTplNewFor(null); await loadTplSets(); }}
+          />
+        )}
         {archiveTarget && (
           <Modal
             title="归档项目"
@@ -268,6 +327,49 @@ function ProjectModal(props: {
           示例数据（与正式数据隔离展示，BR-15）
         </label>
       )}
+    </Modal>
+  );
+}
+
+/** 「＋ 新建套件并绑定」弹窗：基于系统默认克隆一套空套件（逐项去设置页编辑），创建即绑定本项目 */
+function TplBindModal(props: { project: ProjectRow; onClose: () => void; onBound: () => Promise<void> }) {
+  const [name, setName] = useState(`${props.project.name} 专用套件`);
+  const [busy, setBusy] = useState(false);
+  const save = async () => {
+    if (!name.trim() || busy) return;
+    setBusy(true);
+    try {
+      const created = await api.post<{ setId: string }>(
+        `/api/v1/projects/${props.project.id}/template-sets`,
+        { name: name.trim(), description: '', cloneFrom: 'default' },
+      );
+      await api.put(`/api/v1/projects/${props.project.id}/template-binding`, { setId: created.setId });
+      toast(`套件「${name.trim()}」已创建并绑定项目「${props.project.name}」，可去设置页逐类编辑模板`, 'success');
+      await props.onBound();
+    } catch (e) {
+      toast(e instanceof ApiError ? `${e.code}: ${e.message}` : String(e), 'warn');
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Modal
+      title={`为「${props.project.name}」新建模板套件`}
+      onClose={props.onClose}
+      footer={
+        <>
+          <button className="sm" onClick={props.onClose}>取消</button>
+          <button className="sm primary" disabled={!name.trim() || busy} onClick={() => void save()}>创建并绑定</button>
+        </>
+      }
+    >
+      <div className="pm-field">
+        <label>套件名称</label>
+        <input type="text" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+      </div>
+      <p style={{ color: 'var(--ink2)' }}>
+        新套件基于系统默认模板（国际标准）创建，创建后即绑定本项目——之后该项目所有文档生成自动套用本套件的自定义项，未自定义的类别仍用系统默认。套件内容随时可在「设置 → 文档模板」里逐类编辑，也可被其他项目复用。
+      </p>
     </Modal>
   );
 }

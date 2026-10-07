@@ -66,3 +66,7 @@
 .pm-field label { display: block; font-size: 12px; color: var(--ink2); margin-bottom: 4px; }
 .pm-field input, .pm-field textarea { width: 100%; box-sizing: border-box; padding: 7px 10px; }
 .pm-check { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+
+/* 卡片模板套件关联行（2026-10-07：一次绑定全项目生成链套用；不选=系统默认） */
+.pc-tpl { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink2); }
+.pc-tpl select { flex: 1; min-width: 0; font-size: 12px; padding: 3px 6px; }
