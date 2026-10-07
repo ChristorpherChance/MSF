@@ -8,6 +8,7 @@ import { ConfirmModal } from '../ui/ConfirmModal';
 import type { AiMessageRow, ToolCallRow } from './api';
 import {
   CTX_LABEL,
+  DOC_KIND_LABEL,
   ROUTE_TO_CTX,
   STAGE_ROUTES,
   SUGGESTS,
@@ -15,6 +16,7 @@ import {
   currentModel,
   dockUsage,
   modelIcon,
+  scopeKey,
   useDockStore,
 } from './dock-store';
 import './dock.css';
@@ -46,7 +48,9 @@ export function AssistantDock() {
 
   useEffect(() => {
     const ctx = ROUTE_TO_CTX[location.pathname];
-    if (ctx) void s.setCtx(ctx);
+    // req/design 的工件粒度由页面自报（ReqPage/DesignPage 监听 subTab/selKind 调 setCtx(ctx, docKind)），
+    // 此处只接管无工件概念的阶段（assistant 不反向 import 页面 store——导入方向纪律）
+    if (ctx && ctx !== 'req' && ctx !== 'design') void s.setCtx(ctx, null);
   }, [location.pathname, s.projectId]);
 
   const stagePage = STAGE_ROUTES.includes(location.pathname);
@@ -122,9 +126,14 @@ function DockInner({ global }: { global: boolean }) {
   const thinkOff = !(model && model.supports_thinking);
   const usage = dockUsage(s);
   const sess = s.sessions.find((x) => x.id === s.currentId);
-  const input = s.drafts[s.ctx] ?? '';
+  const input = s.drafts[scopeKey(s.ctx, s.docKind)] ?? '';
   const chip = stagePage
-    ? { label: `📍 ${CTX_LABEL[s.ctx]} · 阶段上下文`, title: 'AI 可见该阶段产物清单' }
+    ? {
+        label: s.docKind
+          ? `📄 ${CTX_LABEL[s.ctx]} · ${DOC_KIND_LABEL[s.docKind] ?? s.docKind}`
+          : `📍 ${CTX_LABEL[s.ctx]} · 阶段上下文`,
+        title: s.docKind ? '本会话绑定当前选中文档：AI 的读取与修改建议默认针对它' : 'AI 可见该阶段产物清单',
+      }
     : { label: '🌐 全局 · 项目级上下文', title: '非阶段页：通用助手形态，不锁定单文档' };
 
   // 滚动贴底（DSG-U02-7）：用户上翻则不抢滚动
@@ -230,7 +239,7 @@ function DockInner({ global }: { global: boolean }) {
       <div className="chat-input">
         {!s.currentId && (
           <div className="conn-lost" style={{ color: 'var(--ink2)' }}>
-            💡 尚无会话：点顶部「＋」新建会话后即可提问；助手会携带当前项目与阶段上下文回答。
+            💡 {s.docKind ? `《${DOC_KIND_LABEL[s.docKind] ?? s.docKind}》还没有会话——直接输入发送即自动创建（绑定本文档）` : '尚无会话：直接输入发送即自动创建；助手会携带当前项目与阶段上下文回答。'}
           </div>
         )}
         {s.quote && (
@@ -242,8 +251,8 @@ function DockInner({ global }: { global: boolean }) {
         )}
         <textarea
           value={input}
-          placeholder={!s.currentId ? '先点顶部「＋」新建会话，再开始对话' : s.ctx === 'req' ? '例：第 4 章补充灾备要求，只改这一处' : '例：重新解析第 3 节表格'}
-          disabled={!s.currentId || !!s.streaming}
+          placeholder={s.ctx === 'req' ? '例：第 4 章补充灾备要求，只改这一处' : '例：重新解析第 3 节表格'}
+          disabled={!!s.streaming}
           onChange={(e) => s.setInput(s.ctx, e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
@@ -277,7 +286,7 @@ function DockInner({ global }: { global: boolean }) {
           <span style={{ flex: 1 }} />
           <button
             className="primary"
-            disabled={!s.currentId || !!s.streaming || (!input.trim() && !s.quote)}
+            disabled={!!s.streaming || (!input.trim() && !s.quote)}
             onClick={send}
           >发送 ↵</button>
         </div>

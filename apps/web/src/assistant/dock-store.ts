@@ -26,6 +26,16 @@ export const CTX_LABEL: Record<DockTab, string> = {
   material: '资料', req: '需求', design: '设计', proto: '原型', dev: '开发', test: '测试',
 };
 
+/** 会话工件绑定标签（2026-10-08，迁移 0029；与服务端 SESSION_DOC_KINDS 镜像，改动须同步） */
+export const DOC_KIND_LABEL: Record<string, string> = {
+  crd: 'CRD 客户需求', prd: 'PRD 产品需求',
+  hld: '概要设计说明书', mod: '模块设计', alg: '算法与流程', cls: '类与数据结构',
+  db: '数据库设计', api: 'API 接口', ui: 'UI 设计', nfr: '非功能规则',
+};
+
+/** 草稿/会话分组键：阶段 + 工件（无工件=阶段级） */
+export const scopeKey = (ctx: DockTab, docKind: string | null): string => `${ctx}:${docKind ?? ''}`;
+
 /** 阶段感知示例（welcomeHtml 口径） */
 export const SUGGESTS: Record<string, string[]> = {
   material: ['总结这份资料的要点', '把这段翻译成中文', '我现在进行到哪了？'],
@@ -52,8 +62,10 @@ interface DockState {
   /** 需求页 RTM 页签不内嵌 dock（hasDock L1090-1093） */
   hidden: boolean;
   ctx: DockTab;
-  /** 已加载会话列表的 ctx（W2-054：setCtx 同值早退须以首载完成为前提，否则刷新后列表永空） */
-  loadedCtx: DockTab | null;
+  /** 当前工件绑定（req=crd|prd、design=八册 kind；null=阶段级会话组） */
+  docKind: string | null;
+  /** 已加载会话列表的分组键（scopeKey；W2-054：同值早退须以首载完成为前提） */
+  loadedScope: string | null;
   sessions: AiSessionRow[];
   currentId: string | null;
   messages: AiMessageRow[];
@@ -79,7 +91,8 @@ interface DockState {
 
   init: () => Promise<void>;
   toggle: () => void;
-  setCtx: (ctx: DockTab) => Promise<void>;
+  /** 切换阶段+工件分组：选中某文档时 dock 加载该文档的会话组（无则空组，发送即创建） */
+  setCtx: (ctx: DockTab, docKind?: string | null) => Promise<void>;
   setHidden: (h: boolean) => void;
   setThinkLevel: (l: 'low' | 'mid' | 'high') => void;
   setInput: (ctx: DockTab, v: string) => void;
@@ -107,7 +120,8 @@ export const useDockStore = create<DockState>((set, get) => ({
   open: false,
   hidden: false,
   ctx: 'material',
-  loadedCtx: null,
+  docKind: null,
+  loadedScope: null,
   sessions: [],
   currentId: null,
   messages: [],
@@ -128,26 +142,34 @@ export const useDockStore = create<DockState>((set, get) => ({
   init: async () => {
     const p = await ensureProject();
     const changed = get().projectId !== p.id;
-    set({ projectId: p.id, ...(changed ? { loadedCtx: null, sessions: [], currentId: null, messages: [], refCandidates: [], refSel: [] } : {}) });
+    set({ projectId: p.id, ...(changed ? { sessions: [], currentId: null, messages: [], refCandidates: [], refSel: [] } : {}) });
+    // 首载时序根修（2026-10-08 实机）：页面工件 effect 可能先于 init 完成（pid 空早退、无 fetch），
+    // 而旧 init 又把 docKind 抹回 null——init 完成后以当前 scope 强制重载（loadedScope 清零破早退）
+    const { ctx, docKind } = get();
+    set({ loadedScope: null });
+    await get().setCtx(ctx, docKind);
     await Promise.all([get().refreshUsage(), get().refreshModels()]);
   },
 
   toggle: () => set({ open: !get().open }),
   setHidden: (h) => set({ hidden: h }),
 
-  setCtx: async (ctx) => {
-    if (get().ctx === ctx && get().loadedCtx === ctx) return;
+  setCtx: async (ctx, docKind = null) => {
+    const key = scopeKey(ctx, docKind);
+    if (scopeKey(get().ctx, get().docKind) === key && get().loadedScope === key) return;
     if (get().streaming) return; // 流式中冻结上下文切换（DSG-U02-7）
-    set({ ctx, sessions: [], currentId: null, messages: [] });
+    set({ ctx, docKind, sessions: [], currentId: null, messages: [] });
     const pid = get().projectId;
     if (!pid) return;
-    const sessions = await assistantApi.sessions(pid, ctx);
-    set({ sessions, loadedCtx: ctx });
+    // 工件分组过滤只下发 req/design（其余阶段一律 NULL 组，省略参数走老口径）
+    const scoped = ctx === 'req' || ctx === 'design';
+    const sessions = await assistantApi.sessions(pid, ctx, ...(scoped ? [docKind] as const : []));
+    set({ sessions, loadedScope: key });
     if (sessions[0]) await get().selectSession(sessions[0].id);
   },
 
   setThinkLevel: (l) => set({ thinkLevel: l }),
-  setInput: (ctx, v) => set({ drafts: { ...get().drafts, [ctx]: v } }),
+  setInput: (ctx, v) => set({ drafts: { ...get().drafts, [scopeKey(ctx, get().docKind)]: v } }),
 
   setWidth: (w) => {
     const width = Math.max(300, Math.min(620, w));
@@ -156,12 +178,13 @@ export const useDockStore = create<DockState>((set, get) => ({
   },
 
   newSession: async () => {
-    const { projectId: pid, ctx, thinkLevel, preferredModelId } = get();
+    const { projectId: pid, ctx, docKind, thinkLevel, preferredModelId } = get();
     if (!pid) return;
     // 预选模型随创建绑定（偏好可能已停用/断连——仅仍可用时携带，避免 create 400 断「恒有会话」链）
     const usable = !!preferredModelId && chatModels(get().models).some((m) => m.id === preferredModelId);
-    const s = await assistantApi.create(pid, { ctx, thinkLevel, ...(usable ? { modelId: preferredModelId } : {}) });
-    const sessions = await assistantApi.sessions(pid, ctx);
+    const scoped = ctx === 'req' || ctx === 'design';
+    const s = await assistantApi.create(pid, { ctx, thinkLevel, ...(scoped ? { docKind } : {}), ...(usable ? { modelId: preferredModelId } : {}) });
+    const sessions = await assistantApi.sessions(pid, ctx, ...(scoped ? [docKind] as const : []));
     set({ sessions });
     await get().selectSession(s.id);
   },
@@ -224,9 +247,11 @@ export const useDockStore = create<DockState>((set, get) => ({
   },
 
   send: async (override) => {
-    const { projectId: pid, currentId, ctx, drafts, thinkLevel, quote, refSel, refCandidates } = get();
+    // 「该文档暂无会话」空组：发送即创建（恒有会话口径延伸到工件分组，与 sendText 同）
+    if (!get().currentId && get().projectId) await get().newSession();
+    const { projectId: pid, currentId, ctx, docKind, drafts, thinkLevel, quote, refSel, refCandidates } = get();
     const programmatic = override !== undefined; // 程序化消息：不消费草稿/引用块/参考勾选
-    const input = programmatic ? override : (drafts[ctx] ?? '');
+    const input = programmatic ? override : (drafts[scopeKey(ctx, docKind)] ?? '');
     if (!pid || !currentId || (!input.trim() && !quote) || get().streaming) return;
     // D5 引用块：拼 `> 引用行` 前缀（每行加 >），服务端按纯文本存
     const quotePrefix = !programmatic && quote
@@ -240,7 +265,7 @@ export const useDockStore = create<DockState>((set, get) => ({
     );
     set(programmatic
       ? { error: null, disconnected: false }
-      : { drafts: { ...drafts, [ctx]: '' }, quote: null, error: null, disconnected: false });
+      : { drafts: { ...drafts, [scopeKey(ctx, docKind)]: '' }, quote: null, error: null, disconnected: false });
     set({ messages: [...get().messages, {
       id: `local-${Date.now()}`, role: 'user', content, status: 'done',
       created_at: new Date().toISOString(), durationMs: null, cost: null, toolCalls: [],

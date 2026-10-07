@@ -27,8 +27,21 @@ import { StreamPipeline, type PipelineCompletion } from './stream-pipeline.js';
 const CTX_TABS = ['material', 'req', 'design', 'proto', 'dev', 'test'] as const;
 const sha256hex = (s: string): string => createHash('sha256').update(s).digest('hex');
 
+/**
+ * 会话工件绑定（2026-10-08，迁移 0029）：req=crd|prd、design=八册 kind，其余 ctx 恒 NULL。
+ * 权威册名在 design 域 DESIGN_BOOKS；跨域禁令下 ai 不 import 他域模块，此处镜像（改 DESIGN_BOOKS 须同步）。
+ */
+export const SESSION_DOC_KINDS: Record<string, Record<string, string>> = {
+  req: { crd: 'CRD 客户需求', prd: 'PRD 产品需求' },
+  design: {
+    hld: '概要设计说明书', mod: '模块设计', alg: '算法与流程', cls: '类与数据结构',
+    db: '数据库设计', api: 'API 接口', ui: 'UI 设计', nfr: '非功能规则',
+  },
+};
+
 export interface SessionRow {
   id: string; project_id: string; code: string; ctx: string; name: string;
+  doc_kind: string | null;
   refs: Array<{ fileId: string; fingerprint: string }>;
   think_level: string; tree_ref: string | null; created_by: string;
   model_id: string | null;
@@ -69,9 +82,14 @@ export class AiSessionsService implements OnModuleInit {
 
   private registerCommands(): void {
     registerCommand('ai.session.create', async (client, payload, ctx) => {
-      const p = payload as { ctx: string; name?: string; thinkLevel?: string; modelId?: string };
+      const p = payload as { ctx: string; name?: string; thinkLevel?: string; modelId?: string; docKind?: string | null };
       if (!(CTX_TABS as readonly string[]).includes(p.ctx)) {
         throw new DomainError('VALIDATION_FAILED', `ctx 枚举 ${CTX_TABS.join('|')}`, 'ctx');
+      }
+      // 工件绑定校验：仅 req/design 允许 docKind，且必须是该阶段的合法文档类别（其余阶段恒 NULL）
+      const docKind = p.docKind ?? null;
+      if (docKind !== null && !SESSION_DOC_KINDS[p.ctx]?.[docKind]) {
+        throw new DomainError('VALIDATION_FAILED', `该阶段无此文档类别（${p.ctx} 可选：${Object.keys(SESSION_DOC_KINDS[p.ctx] ?? {}).join('|') || '无'}）`, 'docKind');
       }
       if (p.modelId) await this.assertModelUsable(client, p.modelId);
       // W2-052：ss_ 发号属 check-then-act——咨询锁串行化「取号→插入」临界区；
@@ -81,10 +99,12 @@ export class AiSessionsService implements OnModuleInit {
         `SELECT COALESCE(MAX(CAST(substring(code FROM 'ss_(\\d+)') AS int)), 0) + 1 AS n
          FROM ai_sessions WHERE project_id=$1`, [ctx.projectId]);
       const code = `ss_${Number(n.rows[0]!.n)}`;
+      const docLabel = docKind ? SESSION_DOC_KINDS[p.ctx]![docKind]! : '';
       const r = await client.query<{ id: string; code: string }>(
-        `INSERT INTO ai_sessions (project_id, code, ctx, name, think_level, model_id, created_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id, code`,
-        [ctx.projectId, code, p.ctx, p.name?.trim() || `会话 ${code}`,
+        `INSERT INTO ai_sessions (project_id, code, ctx, name, doc_kind, think_level, model_id, created_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id, code`,
+        [ctx.projectId, code, p.ctx, p.name?.trim() || (docKind ? `${docLabel}·${code}` : `会话 ${code}`),
+         docKind,
          ['low', 'mid', 'high'].includes(p.thinkLevel ?? '') ? p.thinkLevel! : 'mid',
          p.modelId ?? null, ctx.actorId]);
       return r.rows[0];
@@ -273,10 +293,12 @@ export class AiSessionsService implements OnModuleInit {
 
   // ---- 查询 ----
 
-  async list(projectId: string, ctxTab?: string, cursor?: string, limit = 20) {
+  /** docKind：undefined=不按工件过滤（老调用口径）；string|null=精确匹配（IS NOT DISTINCT FROM 兼容 NULL 组） */
+  async list(projectId: string, ctxTab?: string, cursor?: string, limit = 20, docKind?: string | null) {
     const params: unknown[] = [projectId];
     let where = 'project_id=$1';
     if (ctxTab) { params.push(ctxTab); where += ` AND ctx=$${params.length}`; }
+    if (docKind !== undefined) { params.push(docKind); where += ` AND doc_kind IS NOT DISTINCT FROM $${params.length}`; }
     if (cursor) { params.push(cursor); where += ` AND created_at < $${params.length}`; }
     params.push(limit + 1);
     const r = await query<SessionRow>(
@@ -337,7 +359,7 @@ export class AiSessionsService implements OnModuleInit {
 
   // ---- 命令门面 ----
 
-  create(projectId: string, p: { ctx: string; name?: string; thinkLevel?: string; modelId?: string }, ctx: CommandContext) {
+  create(projectId: string, p: { ctx: string; name?: string; thinkLevel?: string; modelId?: string; docKind?: string | null }, ctx: CommandContext) {
     return executeCommand('ai.session.create', p, { ...ctx, projectId });
   }
 
@@ -502,9 +524,18 @@ export class AiSessionsService implements OnModuleInit {
     }
     // 阶段化 agent 预设（2026-10-05 拍板）：按 dock 所在阶段注入角色与方法论——
     // 「核对 PRD 覆盖 CRD」类任务此前全靠模型自由发挥，现由 req 指南钉死逐条映射表输出纪律
-    const sessCtx = await query<{ ctx: string }>('SELECT ctx FROM ai_sessions WHERE id=$1', [sessionId]);
+    const sessCtx = await query<{ ctx: string; doc_kind: string | null }>('SELECT ctx, doc_kind FROM ai_sessions WHERE id=$1', [sessionId]);
     const stageGuide = sessCtx.rows[0] ? STAGE_GUIDES[sessCtx.rows[0].ctx] : undefined;
     if (stageGuide) parts.push(`【阶段职责与方法】\n${stageGuide}`);
+    // 会话工件绑定（0029）：req/design 会话绑定具体文档——模型与用户共享「当前在改哪篇」的坐标，
+    // 根修「选中详细设计却改了概要设计」（会话池阶段级共用、模型靠猜 kind）
+    const boundKind = sessCtx.rows[0]?.doc_kind;
+    if (boundKind) {
+      const boundCtx = sessCtx.rows[0]!.ctx;
+      const label = SESSION_DOC_KINDS[boundCtx]?.[boundKind] ?? boundKind;
+      const toolName = boundCtx === 'design' ? 'design.doc.propose_edits' : 'req.doc.propose_edits';
+      parts.push(`【当前工件】\n本会话绑定文档：《${label}》（kind=${boundKind}）。用户的修改请求默认针对该文档——doc.read 与 ${toolName} 的 kind 默认用 ${boundKind}；仅当用户明确要求处理其他文档时才换 kind，并在正文说明你改的是哪篇。`);
+    }
     // 上游变更联动提醒（与 upstream-stale.ts 同源派生）：agent 看到下游滞后应主动提示用户跟随修订
     try {
       const ctxTab = sessCtx.rows[0]?.ctx;

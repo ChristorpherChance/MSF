@@ -834,7 +834,7 @@ function PendingBar({ kind, patch }: { kind: DocKind; patch: PatchItem }) {
       .then(async () => {
         if (!feedback) return;
         useDockStore.setState({ open: true });
-        await useDockStore.getState().setCtx('req');
+        await useDockStore.getState().setCtx('req', kind);
         const clip = (s?: string | null, n = 300) => {
           const t = s ?? '';
           return t.length > n ? `${t.slice(0, n)}…` : t;

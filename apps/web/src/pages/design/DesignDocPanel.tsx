@@ -575,7 +575,7 @@ function PendingBar({ patch }: { patch: PatchItem }) {
       .then(async () => {
         if (!feedback) return;
         useDockStore.setState({ open: true });
-        await useDockStore.getState().setCtx('design');
+        await useDockStore.getState().setCtx('design', selKind);
         const clip = (s?: string | null, n = 300) => {
           const t = s ?? '';
           return t.length > n ? `${t.slice(0, n)}…` : t;

@@ -23,12 +23,12 @@ export class AiSessionsController {
     return { projectId, actorKind: a.kind, actorId: a.id };
   }
 
-  /** A08-1 会话创建/列表 */
+  /** A08-1 会话创建/列表（2026-10-08：docKind 工件绑定——req=crd|prd、design=八册；列表 docKind 缺省=不过滤、空串=NULL 组） */
   @Post('sessions')
   @HttpCode(200)
   create(
     @Param('projectId') projectId: string,
-    @Body() body: { ctx: string; name?: string; thinkLevel?: string },
+    @Body() body: { ctx: string; name?: string; thinkLevel?: string; docKind?: string | null },
     @Req() req: Request,
   ) {
     return this.sessions.create(projectId, body, this.actor(req, projectId));
@@ -38,10 +38,12 @@ export class AiSessionsController {
   list(
     @Param('projectId') projectId: string,
     @Query('ctx') ctx?: string,
+    @Query('docKind') docKind?: string,
     @Query('cursor') cursor?: string,
     @Query('limit') limit?: string,
   ) {
-    return this.sessions.list(projectId, ctx, cursor, limit ? Number(limit) : 20);
+    const dk = docKind === undefined ? undefined : docKind === '' ? null : docKind;
+    return this.sessions.list(projectId, ctx, cursor, limit ? Number(limit) : 20, dk);
   }
 
   /** A08-2 会话切换（留痕）与消息历史（游标分页） */

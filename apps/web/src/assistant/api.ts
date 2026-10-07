@@ -5,6 +5,8 @@ import { api, ApiError } from '../api';
 export interface AiSessionRow {
   id: string; code: string; ctx: string; name: string; think_level: string;
   model_id: string | null;
+  /** 工件绑定（2026-10-08）：req=crd|prd、design=八册 kind，其余 NULL=阶段级会话 */
+  doc_kind: string | null;
   created_at: string; updated_at: string;
 }
 
@@ -36,10 +38,14 @@ export interface StreamFrame {
 }
 
 export const assistantApi = {
-  sessions: (pid: string, ctx?: string) =>
-    api.get<{ items: AiSessionRow[] }>(
-      `/api/v1/projects/${pid}/ai/sessions${ctx ? `?ctx=${ctx}` : ''}`).then((r) => r.items),
-  create: (pid: string, body: { ctx: string; name?: string; thinkLevel?: string; modelId?: string }) =>
+  /** docKind：string=该工件会话组；null=阶段级（NULL 组）；省略=不过滤（老口径） */
+  sessions: (pid: string, ctx?: string, docKind?: string | null) => {
+    const q = [ctx ? `ctx=${ctx}` : '', docKind !== undefined ? `docKind=${docKind ?? ''}` : '']
+      .filter(Boolean).join('&');
+    return api.get<{ items: AiSessionRow[] }>(
+      `/api/v1/projects/${pid}/ai/sessions${q ? `?${q}` : ''}`).then((r) => r.items);
+  },
+  create: (pid: string, body: { ctx: string; name?: string; thinkLevel?: string; modelId?: string; docKind?: string | null }) =>
     api.post<{ id: string; code: string }>(`/api/v1/projects/${pid}/ai/sessions`, body),
   switchTo: (pid: string, sessionId: string) =>
     api.post(`/api/v1/projects/${pid}/ai/sessions/${sessionId}:switch`, {}),

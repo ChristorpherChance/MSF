@@ -172,6 +172,43 @@ describe('AI 会话/消息/流式管线（集成，需 DB）', async () => {
       .rejects.toMatchObject({ code: 'FORBIDDEN' });
   });
 
+  it('工件绑定（0029）：docKind 校验+按 (ctx,doc_kind) 精确分组+默认名带文档标签', async () => {
+    // 合法绑定：design/hld 与 design/mod 各一组，互不相见
+    const h = await sessions.create(PID, { ctx: 'design', docKind: 'hld' }, CTX) as { id: string; code: string };
+    const m = await sessions.create(PID, { ctx: 'design', docKind: 'mod' }, CTX) as { id: string };
+    const stageLevel = await sessions.create(PID, { ctx: 'design', name: '评审闲聊' }, CTX) as { id: string };
+    const hldList = await sessions.list(PID, 'design', undefined, 20, 'hld');
+    expect(hldList.items.map((x) => x.id)).toEqual([h.id]);
+    expect(hldList.items[0]!.doc_kind).toBe('hld');
+    expect(hldList.items[0]!.name).toContain('概要设计说明书'); // 默认名带文档标签
+    const modList = await sessions.list(PID, 'design', undefined, 20, 'mod');
+    expect(modList.items.map((x) => x.id)).toEqual([m.id]);
+    const nullList = await sessions.list(PID, 'design', undefined, 20, null);
+    expect(nullList.items.map((x) => x.id)).toEqual([stageLevel.id]); // NULL 组=阶段级会话
+    // 老口径（不传 docKind）不过滤：三组全见
+    const all = await sessions.list(PID, 'design');
+    expect(all.items.length).toBeGreaterThanOrEqual(3);
+    // 非法：design 不接受 crd；material 不接受任何 docKind
+    await expect(sessions.create(PID, { ctx: 'design', docKind: 'crd' }, CTX))
+      .rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+    await expect(sessions.create(PID, { ctx: 'material', docKind: 'hld' }, CTX))
+      .rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+    // req 域同口径
+    const p = await sessions.create(PID, { ctx: 'req', docKind: 'prd' }, CTX) as { id: string };
+    const prdList = await sessions.list(PID, 'req', undefined, 20, 'prd');
+    expect(prdList.items.some((x) => x.id === p.id)).toBe(true);
+    expect(prdList.items.every((x) => x.doc_kind === 'prd')).toBe(true);
+    // prompt 注入【当前工件】：绑定 hld 的会话提示词带文档名与 kind 默认值指引
+    provider.capturedPrompts = [];
+    provider.nextChunks = ['好的。'];
+    const { messageId } = await sessions.send(PID, h.id, { content: '改一下第三章' }, CTX);
+    await sessions.drive(messageId, () => {}, { ctx: CTX });
+    const prompt = provider.capturedPrompts[0]!;
+    expect(prompt).toContain('【当前工件】');
+    expect(prompt).toContain('概要设计说明书');
+    expect(prompt).toContain('kind=hld');
+  });
+
   it('消息排序：同事务同刻的 user+ai 对，DESC 返回 ai 在前（前端 reverse 后 user 在上）', async () => {
     // ai.message.send 同事务插入 user+ai 两行，created_at 同为事务时间戳——
     // 无 tiebreaker 时 DESC 次序不确定，曾致「AI 回复压到我的问题上方」

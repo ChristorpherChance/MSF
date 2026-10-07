@@ -31,6 +31,10 @@ export function ReqPage() {
     useDockStore.getState().setHidden(subTab === 'rtm');
     return () => useDockStore.getState().setHidden(false);
   }, [subTab]);
+  // 工件绑定（2026-10-08）：选中 CRD/PRD 即让 dock 加载该文档的会话组——人与 AI 共享「在改哪篇」
+  useEffect(() => {
+    void useDockStore.getState().setCtx('req', subTab === 'rtm' ? null : subTab);
+  }, [subTab]);
   return (
     <main>
       <GateBanner stage="req" />
