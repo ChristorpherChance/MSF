@@ -20,7 +20,7 @@
 5. 注入登录口令（口令只由人经手，不进脚本/历史明文持久化）：
    `sed -i 's|<登录口令>|实际口令|' ~/All-Projects/msf/deploy/116/msf.env`
 6. **sudo 第二次**：`sudo systemctl start msf-app`（此后开机自启）。
-7. 验证：`curl localhost:18920/health`；外网 `https://cc-msf.ikvein.com` 出登录页 → 登录 → 工作台。
+7. 验证：`wget -qO- localhost:18920/health`（116 无 curl，用 wget）；外网 `https://cc-msf.ikvein.com` 出登录页 → 登录 → 工作台。
 8. 设置页确认 AI 连接：CPA（随库迁移已带，密钥重加密后即用）+ 新增 116 本机 CCR（http://127.0.0.1:3456/v1，key 读 `~/.config/cs02-ai/gateway.key`）。
 
 ## 日常运维

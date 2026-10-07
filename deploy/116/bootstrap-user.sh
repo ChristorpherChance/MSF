@@ -9,7 +9,7 @@ DATA="$HOME/msf-data"
 echo "== 1/9 Node v22.19.0（用户态） =="
 if [ ! -x "$HOME/opt/node22/bin/node" ]; then
   mkdir -p "$HOME/opt"
-  curl -fSL --retry 3 -o /tmp/node22.tar.xz \
+  wget -q --tries=3 -O /tmp/node22.tar.xz \
     https://registry.npmmirror.com/-/binary/node/v22.19.0/node-v22.19.0-linux-x64.tar.xz
   mkdir -p "$HOME/opt/node22"
   tar -xJf /tmp/node22.tar.xz -C "$HOME/opt/node22" --strip-components=1
