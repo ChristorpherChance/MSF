@@ -73,11 +73,24 @@ export class StorageService {
    * downloadName：附 response-content-disposition（RFC 5987 编码，支持中文文件名），浏览器下载落盘为该名。
    * contentType：附 response-content-type 覆盖——HTML 原型对象上传未带 Content-Type（minio putObject 流式不探测），
    * 预览签发时覆盖为 text/html 使浏览器渲染而非下载（对存量对象同样生效，差异登记）。
+   * 部署态（MSF_FILES_PROXY=1）：MinIO 只绑 127.0.0.1 公网不可达，改发本进程代理相对 URL
+   * （GET /api/v1/files?key=…，走 auth cookie 鉴权；2026-10-08 公网部署根修「原型预览打不开」）。
    */
   async presignedGet(objectKey: string, expirySeconds = 300, downloadName?: string, contentType?: string): Promise<string> {
+    if (process.env.MSF_FILES_PROXY === '1') {
+      const q = new URLSearchParams({ key: objectKey });
+      if (downloadName) q.set('dl', downloadName);
+      if (contentType) q.set('ct', contentType);
+      return `/api/v1/files?${q.toString()}`;
+    }
     const respHeaders: Record<string, string> = {};
     if (downloadName) respHeaders['response-content-disposition'] = `attachment; filename*=UTF-8''${encodeURIComponent(downloadName)}`;
     if (contentType) respHeaders['response-content-type'] = contentType;
     return this.client.presignedGetObject(this.bucket, objectKey, expirySeconds, Object.keys(respHeaders).length > 0 ? respHeaders : undefined);
+  }
+
+  /** 对象流式读取（代理路由用；对象缺失时流 error 事件抛 NoSuchKey） */
+  getObjectStream(objectKey: string): Promise<NodeJS.ReadableStream> {
+    return this.client.getObject(this.bucket, objectKey) as Promise<NodeJS.ReadableStream>;
   }
 }

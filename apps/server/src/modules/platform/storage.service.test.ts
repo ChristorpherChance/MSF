@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, afterEach } from 'vitest';
 import { StorageService } from '../platform/storage.service.js';
 
 /**
@@ -37,5 +37,34 @@ describe('StorageService（MinIO 内容寻址）', async () => {
     await svc.putObject(`${prefix}2.part`, Buffer.from('b'));
     await svc.removePrefix(prefix);
     await expect(svc.getObject(`${prefix}1.part`)).rejects.toThrow();
+  });
+});
+
+/** MSF_FILES_PROXY=1 时代理 URL 形态 + 缺省行为不变（差异登记条目 35 增补，2026-10-08 公网部署根修） */
+describe('StorageService.presignedGet 代理分支（代理分支纯本地拼装，无需 MinIO）', async () => {
+  const svc = new StorageService();
+  const ok = await reachable();
+  afterEach(() => { delete process.env.MSF_FILES_PROXY; });
+
+  it('MSF_FILES_PROXY=1 时返回相对代理 URL（带 dl/ct 透传）', async () => {
+    process.env.MSF_FILES_PROXY = '1';
+    const url = await svc.presignedGet('sha256/abc123', 300, '原型.html', 'text/html');
+    expect(url.startsWith('/api/v1/files?')).toBe(true);
+    expect(url).toContain(`key=${encodeURIComponent('sha256/abc123')}`);
+    expect(url).toContain(`dl=${encodeURIComponent('原型.html')}`);
+    expect(url).toContain(`ct=${encodeURIComponent('text/html')}`);
+  });
+
+  it('MSF_FILES_PROXY=1 且无 dl/ct 时仅带 key', async () => {
+    process.env.MSF_FILES_PROXY = '1';
+    const url = await svc.presignedGet('sha256/def456');
+    expect(url).toBe(`/api/v1/files?key=${encodeURIComponent('sha256/def456')}`);
+  });
+
+  // 直签分支 minio SDK 需回源查 bucket region，MinIO 不可达时跳过（与上面集成段同口径）
+  it.skipIf(!ok)('未设 MSF_FILES_PROXY 时仍签 MinIO 直链（行为不变）', async () => {
+    const url = await svc.presignedGet('sha256/abc123');
+    expect(url.startsWith('/api/v1/files')).toBe(false);
+    expect(url).toContain('sha256%2Fabc123');
   });
 });
