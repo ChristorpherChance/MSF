@@ -29,6 +29,8 @@
 2. **minio 镜像封禁**：国内 docker 镜像加速站（daocloud/1ms/xuanyuan）对 minio 全 403；方案=有镜像的机器 `docker save quay.io/minio/minio | ssh 目标 'docker load'`。
 3. **frpc `type` 必填**：`[[proxies]]` 段缺 `type = "http"` 会导致 frpc 崩溃重启循环，日志报 `unknown proxy type: `。
 4. **迁移幂等**：`node dist/db/migrate.js` 对已含全部迁移的恢复库会报列名冲突——属正常（pg_dump 已带全 schema），不影响运行。
+5. **CRLF 密钥灾难（「AI 对话 500」根因）**：Windows 来的 `msf.env` 带 `\r\n`——bash `source` 时值含尾部 `\r`（62 字符），systemd EnvironmentFile 剥 `\r`（61 字符）→ reencrypt 用 \r-key 加密 vs 应用干净 key 解密 → AES-GCM 认证失败全挂。修法：`sed -i 's/\r$//' msf.env` 后重跑 reencrypt（OLD=带 \r 的 key）。教训：**env 文件改完必须确认 LF 行尾**。
+6. **MinIO 预签名公网不可达（「原型预览打不开」根因）**：presignedGet 签的是 127.0.0.1:9000 直链，公网浏览器够不到。修法=msf.env 加 `MSF_FILES_PROXY=1`（应用内代理 `/api/v1/files?key=…`，走 auth cookie 鉴权；本地开发不设，行为不变）。
 
 ## 日常运维
 
