@@ -424,24 +424,7 @@ export class AiSessionsService implements OnModuleInit {
     content: string,
     ctx: CommandContext,
   ): Promise<{ stripped: string; results: Array<{ name: string; result: unknown }> }> {
-    // 闭合围栏块；另收「回合末尾未闭合但体部完整合法」的围栏——2026-10-06 实机：模型在长 JSON 后
-    // 漏写收尾 ```，闭合 RE 零命中 → 围栏原文露出给用户 + 提案静默未执行（本次根修现场）
-    const spans: Array<{ body: string; start: number; end: number }> = [];
-    for (const mm of content.matchAll(/```msf-tool\s*\n([\s\S]*?)```/g)) {
-      if (spans.length >= 3) break;
-      spans.push({ body: mm[1]!.trim(), start: mm.index!, end: mm.index! + mm[0].length });
-    }
-    if (spans.length < 3) {
-      const tailStart = spans.length > 0 ? spans[spans.length - 1]!.end : 0;
-      const om = /```msf-tool\s*\n([\s\S]*)$/.exec(content.slice(tailStart));
-      if (om) {
-        const body = om[1]!.trim();
-        try {
-          JSON.parse(body); // 体部完整合法才收：半截 JSON（流被截断）绝不执行，防半参数调用
-          spans.push({ body, start: tailStart + (om.index ?? 0), end: content.length });
-        } catch { /* 半截围栏不收 */ }
-      }
-    }
+    const spans = findToolSpans(content);
     if (spans.length === 0) return { stripped: content, results: [] };
     const results: Array<{ name: string; result: unknown }> = [];
     for (const { body: raw } of spans) {
@@ -471,10 +454,7 @@ export class AiSessionsService implements OnModuleInit {
       } catch { /* 非法 JSON 块忽略 */ }
     }
     // span 剥离（闭合/未闭合同路径，未闭合尾块一并无残留）
-    let stripped = '';
-    let cursor = 0;
-    for (const s of spans) { stripped += content.slice(cursor, s.start); cursor = s.end; }
-    stripped = (stripped + content.slice(cursor)).replace(/\n{3,}/g, '\n\n').trim();
+    const stripped = stripToolSpans(content, spans);
     return { stripped: stripped || '已按请求调用工具，结果见下方工具卡。', results };
   }
 
@@ -638,20 +618,20 @@ export class AiSessionsService implements OnModuleInit {
     const startedAt = Date.now();
     this.pipeline.run(messageId, { thinkLevel: opts?.thinkLevel }, async (c) => {
       // W2-053：流末解析 ```msf-tool 围栏块并编排执行（工具调用挂 message_id，工具卡随消息渲染）
-      // 2026-10-05 agentic 接力：工具结果回喂模型继续生成（同一条消息多轮，封顶 3 轮接力）——
+      // 2026-10-05 agentic 接力：工具结果回喂模型继续生成（同一条消息多轮，封顶 MAX_RELAY_ROUNDS 轮接力）——
       // 此前工具结果只在工具卡呈现，模型拿不到结果，「我读取后回答你」类承诺落空须用户再推一句
       const ctx2 = opts?.ctx ?? { projectId: e.projectId, actorKind: 'system' as const, actorId: 'stream' };
       let content = c.content;
       let status = c.status;
       let usage = c.usage;
       let rounds = 0;
-      while (status === 'done' && content.includes('```msf-tool') && rounds < 3) {
+      while (status === 'done' && content.includes('```msf-tool') && rounds < MAX_RELAY_ROUNDS) {
         rounds++;
         const { stripped, results } = await this.runToolBlocks(e.projectId, e.sessionId, messageId, content, ctx2);
         content = stripped;
         if (results.length === 0) break;
         const ai2 = await this.provider.createSession({ projectId: e.projectId, purpose: 'chat' });
-        const r2 = await this.pipeline.runContinuation(messageId, ai2, buildToolFollowup(e.prompt, results));
+        const r2 = await this.pipeline.runContinuation(messageId, ai2, buildToolFollowup(e.prompt, results, rounds >= MAX_RELAY_ROUNDS - 1));
         content = `${content}\n\n${r2.content}`.trim();
         if (r2.usage) {
           usage = usage
@@ -665,6 +645,12 @@ export class AiSessionsService implements OnModuleInit {
           content = `${content}\n\n> ⚠️ 续答生成失败（${r2.failed}）：工具结果已取回，但模型续答中断。请重发你的问题，我会重新读取并直接给出结论。`;
           break;
         }
+      }
+      if (status === 'done' && rounds >= MAX_RELAY_ROUNDS && content.includes('```msf-tool')) {
+        // 封顶退出但末轮仍带未执行围栏：剥掉不执行——raw 围栏露出会让用户以为「AI 答应了却没动静」
+        // （2026-10-09 实机现场：mod 重生成 7 连读后承诺提案，围栏原文留在消息尾、propose_edits 未发）
+        content = `${stripToolSpans(content, findToolSpans(content))}\n\n> ⚠️ 本轮工具接力已达上限（${MAX_RELAY_ROUNDS} 轮），最后一步操作未执行。回复「继续」我会接着完成。`;
+        console.warn(`[ai] relay cap reached messageId=${messageId} rounds=${rounds}——末轮围栏未执行已剥离`);
       }
       await executeCommand('ai.message.finish', {
         messageId, status, content,
@@ -706,9 +692,48 @@ export class AiSessionsService implements OnModuleInit {
   }
 }
 
+/** 闭合围栏块定位；另收「回合末尾未闭合但体部完整合法」的围栏——2026-10-06 实机：模型在长 JSON 后
+ *  漏写收尾 ```，闭合 RE 零命中 → 围栏原文露出给用户 + 提案静默未执行（本次根修现场） */
+function findToolSpans(content: string): Array<{ body: string; start: number; end: number }> {
+  const spans: Array<{ body: string; start: number; end: number }> = [];
+  for (const mm of content.matchAll(/```msf-tool\s*\n([\s\S]*?)```/g)) {
+    if (spans.length >= 3) break;
+    spans.push({ body: mm[1]!.trim(), start: mm.index!, end: mm.index! + mm[0].length });
+  }
+  if (spans.length < 3) {
+    const tailStart = spans.length > 0 ? spans[spans.length - 1]!.end : 0;
+    const om = /```msf-tool\s*\n([\s\S]*)$/.exec(content.slice(tailStart));
+    if (om) {
+      const body = om[1]!.trim();
+      try {
+        JSON.parse(body); // 体部完整合法才收：半截 JSON（流被截断）绝不执行，防半参数调用
+        spans.push({ body, start: tailStart + (om.index ?? 0), end: content.length });
+      } catch { /* 半截围栏不收 */ }
+    }
+  }
+  return spans;
+}
+
+/** 围栏 span 剥离（不执行——接力封顶善后用，runToolBlocks 同路径复用） */
+function stripToolSpans(content: string, spans: Array<{ body: string; start: number; end: number }>): string {
+  let stripped = '';
+  let cursor = 0;
+  for (const s of spans) { stripped += content.slice(cursor, s.start); cursor = s.end; }
+  return (stripped + content.slice(cursor)).replace(/\n{3,}/g, '\n\n').trim();
+}
+
+/**
+ * 接力轮上限。2026-10-09 实机「对话重新生成模块设计」：读密集型流程（mod/prd/hld 多文档+分页
+ * 补读）7 次 doc.read 耗尽原上限 3 轮，propose_edits 没来得及发——消息停在口头承诺、页面未改。
+ * 8 轮仍有界防爆；真正防失控靠「内容无围栏即停」+ 末轮警告（buildToolFollowup lastChance）。
+ */
+const MAX_RELAY_ROUNDS = 8;
+
+
 /** agentic 接力 prompt：工具执行结果回喂（单结果截 16000 字防爆窗），模型据此同轮继续回答。
- *  与首轮同一份 basePrompt（系统声明+会话历史在场，接力轮不丢上下文） */
-function buildToolFollowup(basePrompt: string, results: Array<{ name: string; result: unknown }>): string {
+ *  与首轮同一份 basePrompt（系统声明+会话历史在场，接力轮不丢上下文）。
+ *  lastChance=最后一次能带围栏的接力——明示模型直接给结论/提案，别再发起读取链 */
+function buildToolFollowup(basePrompt: string, results: Array<{ name: string; result: unknown }>, lastChance = false): string {
   const blocks = results.map((r) => {
     const json = JSON.stringify(r.result);
     const cut = json.length > 16000
@@ -721,6 +746,6 @@ function buildToolFollowup(basePrompt: string, results: Array<{ name: string; re
 【工具执行结果（系统已执行你上一轮的围栏块调用）】
 ${blocks.join('\n\n')}
 
-请基于上述结果直接给出回答或下一步动作（不要再说"我已发起读取，拿到结果后我会……"——结果已经在上文；确需换参数重读时才再次调用工具）。`;
+请基于上述结果直接给出回答或下一步动作（不要再说"我已发起读取，拿到结果后我会……"——结果已经在上文；确需换参数重读时才再次调用工具）。${lastChance ? '\n\n⚠️ 这是本轮最后一次工具回喂机会：请直接给出结论；要改文档就立刻提交 propose_edits 提案，不要再发起读取类调用。' : ''}`;
 }
 

@@ -83,6 +83,7 @@ export class DesignController {
     res.status(200);
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('X-Accel-Buffering', 'no'); // 前置 nginx 默认 proxy_buffering=on 会整包缓冲 SSE（2026-10-09 公网实测）；此头令其直通
     res.setHeader('Connection', 'keep-alive');
     const send = (data: unknown) => res.write(`data: ${JSON.stringify(data)}\n\n`);
     send({ type: 'stream.start', operationId, source }); // source=#5 生成来源可辨识
@@ -303,6 +304,7 @@ export class DesignController {
     res.status(200);
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('X-Accel-Buffering', 'no'); // 前置 nginx 默认 proxy_buffering=on 会整包缓冲 SSE（2026-10-09 公网实测）；此头令其直通
     res.setHeader('Connection', 'keep-alive');
     const send = (data: unknown) => res.write(`data: ${JSON.stringify(data)}\n\n`);
     send({ type: 'stream.start', operationId, source, pageCode });

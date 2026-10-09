@@ -120,6 +120,7 @@ export class AiSessionsController {
     res.status(200);
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('X-Accel-Buffering', 'no'); // 前置 nginx 默认 proxy_buffering=on 会整包缓冲 SSE（2026-10-09 公网实测）；此头令其直通
     res.setHeader('Connection', 'keep-alive');
     const emit = (data: unknown) => res.write(`data: ${JSON.stringify(data)}\n\n`);
     emit({ type: 'stream.start', operationId: messageId });
@@ -167,6 +168,7 @@ export class AiSessionsController {
     res.status(200);
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('X-Accel-Buffering', 'no'); // 前置 nginx 默认 proxy_buffering=on 会整包缓冲 SSE（2026-10-09 公网实测）；此头令其直通
     res.setHeader('Connection', 'keep-alive');
     const emit = (data: unknown) => res.write(`data: ${JSON.stringify(data)}\n\n`);
     await this.sessions.attach(projectId, messageId, lastEventId ? Number(lastEventId) : 0, emit);
