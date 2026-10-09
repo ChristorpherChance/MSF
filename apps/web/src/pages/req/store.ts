@@ -187,6 +187,9 @@ export const useReqView = create<ReqViewState>((set, get) => ({
             set({ gen: { ...g, operationId: f.operationId ?? g.operationId, running: false } });
             // W2-008：流完成即重拉（补丁/章节状态立刻渲染，不留「须手动刷新」窗口）
             void get().refresh();
+          } else if (f.type === 'stream.notice') {
+            // 断流自动重试提示（不静默纪律）；流继续，不动 running 态
+            toast(String(f.message ?? '上游连接中断，已自动重试'), 'warn');
           } else {
             set({ gen: { ...g, running: false, error: f.code ?? '生成失败' } });
             // W2-001：失败人话 toast（工具栏 ⛔ 之外给显性提示；warn 停留 6s）；W2-002：附脱敏原因

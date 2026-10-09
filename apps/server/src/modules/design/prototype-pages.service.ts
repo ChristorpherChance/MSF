@@ -4,7 +4,7 @@ import { DomainError } from '@msf/shared';
 import { query } from '../../db/pool.js';
 import { executeCommand, registerCommand, type CommandContext } from '../evidence/command-bus.js';
 import { AI_PROVIDER, type AiProvider, type AiSession } from '../ai/ai-provider.interface.js';
-import { classifyAiError, sanitizeAiError } from '../ai/stream-pipeline.js';
+import { classifyAiError, isRetryableStreamCut, sanitizeAiError } from '../ai/stream-pipeline.js';
 import { StorageService } from '../platform/storage.service.js';
 import { DesignDocsService } from './docs.service.js';
 import {
@@ -154,12 +154,13 @@ export class PrototypePagesService {
     operationId: string,
     ctx: CommandContext,
     onDelta: (text: string) => void,
+    onNotice?: (msg: string) => void,
   ): Promise<{ status: 'done' | 'stopped' | 'failed'; fingerprint?: string; error?: string; errorMessage?: string }> {
     const op = ops.get(operationId);
     if (!op) throw new DomainError('NOT_FOUND', '生成操作不存在', operationId);
     try {
       const html = this.ai?.kind === 'pi'
-        ? await this.driveReal(op, onDelta)
+        ? await this.driveReal(op, onDelta, onNotice)
         : await this.driveMock(op, onDelta);
       if (html === null) {
         // null=被 abort 中止（op.status 为共享可变态，await 期间可能已被改写——绕开控制流收窄再判）
@@ -189,35 +190,52 @@ export class PrototypePagesService {
     return html;
   }
 
-  /** 真接驱动：流式生成 → 契约校验（envelope/属性标记/scoped 样式/体积）→ 失败带修正指示重试一次 */
-  private async driveReal(op: PageGenOp, onDelta: (text: string) => void): Promise<string | null> {
+  /**
+   * 真接驱动：流式生成 → 契约校验（envelope/属性标记/scoped 样式/体积）→ 失败带修正指示重试一次。
+   * 传输层断流自动重试（总上限 2 次，跨契约尝试共享计数；2026-10-09 公网实机：上游偶发
+   * closed before response.completed，重试即过），重试经 onNotice 发 stream.notice 不静默。
+   */
+  private async driveReal(op: PageGenOp, onDelta: (text: string) => void, onNotice?: (msg: string) => void): Promise<string | null> {
     const t0 = Date.now();
     let lastProblem = '';
+    let transportRetries = 0;
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const prompt = buildPagePrompt(op.page, op.states, op.anchors, op.prd, op.instruction)
         + (attempt === 1 ? `\n\n上次输出不合规（${lastProblem}），本次务必逐条满足输出契约。` : '');
-      const session = await this.ai!.createSession({ projectId: op.projectId, purpose: 'generation' });
-      op.session = session;
-      const { deltas, result } = session.stream(prompt);
-      for await (const d of deltas) {
+      try {
+        const session = await this.ai!.createSession({ projectId: op.projectId, purpose: 'generation' });
+        op.session = session;
+        const { deltas, result } = session.stream(prompt);
+        for await (const d of deltas) {
+          if (op.status === 'stopped') { session.stop(); return null; }
+          onDelta(d);
+        }
         if (op.status === 'stopped') { session.stop(); return null; }
-        onDelta(d);
+        const res = await result;
+        // op 为共享可变态（abort 由外部改写），await 期间可能已被停止——绕开 TS 控制流收窄再判
+        const afterResult: string = op.status;
+        if (afterResult === 'stopped') return null;
+        if (res.modelId) {
+          await executeCommand('ai.usage.record', {
+            projectId: op.projectId, modelId: res.modelId, purpose: 'generation',
+            tokensIn: res.usage.inputTokens, tokensOut: res.usage.outputTokens,
+            durationMs: Date.now() - t0, cost: res.usage.cost ?? 0,
+          }, { projectId: op.projectId, actorKind: 'assistant', actorId: 'pi' });
+        }
+        const problem = validatePageHtml(res.text, op);
+        if (!problem) return ensureNavScript(res.text); // NAV_SCRIPT 属系统协议层，入库前确定性补齐（幂等）
+        lastProblem = problem;
+      } catch (e) {
+        const raw = e instanceof Error ? e.message : String(e);
+        if (op.status !== 'stopped' && transportRetries < 2 && isRetryableStreamCut(raw)) {
+          transportRetries += 1;
+          attempt -= 1; // 断流不消耗契约修正机会
+          console.warn(`[design] page stream cut, auto-retry ${transportRetries}/2 op=${op.id}: ${sanitizeAiError(raw)}`);
+          onNotice?.('上游连接中断，已自动重试');
+          continue;
+        }
+        throw e;
       }
-      if (op.status === 'stopped') { session.stop(); return null; }
-      const res = await result;
-      // op 为共享可变态（abort 由外部改写），await 期间可能已被停止——绕开 TS 控制流收窄再判
-      const afterResult: string = op.status;
-      if (afterResult === 'stopped') return null;
-      if (res.modelId) {
-        await executeCommand('ai.usage.record', {
-          projectId: op.projectId, modelId: res.modelId, purpose: 'generation',
-          tokensIn: res.usage.inputTokens, tokensOut: res.usage.outputTokens,
-          durationMs: Date.now() - t0, cost: res.usage.cost ?? 0,
-        }, { projectId: op.projectId, actorKind: 'assistant', actorId: 'pi' });
-      }
-      const problem = validatePageHtml(res.text, op);
-      if (!problem) return ensureNavScript(res.text); // NAV_SCRIPT 属系统协议层，入库前确定性补齐（幂等）
-      lastProblem = problem;
     }
     throw new DomainError('VALIDATION_FAILED', `生成产物不符合页面契约（${lastProblem}），请重试`, op.pageCode);
   }

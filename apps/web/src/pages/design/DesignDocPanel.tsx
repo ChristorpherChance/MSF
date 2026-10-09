@@ -853,7 +853,10 @@ function GenerateModal({ onClose }: { onClose: () => void }) {
       if (f.type === 'stream.start') useDesignView.setState({ gen: { ...g, operationId: f.operationId ?? null, source: f.source === 'model' ? 'model' : f.source === 'mock' ? 'mock' : null } });
       else if (f.type === 'stream.delta') useDesignView.setState({ gen: { ...g, streamText: g.streamText + (f.text ?? '') } });
       else if (f.type === 'stream.done') useDesignView.setState({ gen: { ...g, running: false } });
-      else {
+      else if (f.type === 'stream.notice') {
+        // 断流自动重试提示（不静默纪律）；流继续，不动 running 态
+        toast(String(f.message ?? '上游连接中断，已自动重试'), 'warn');
+      } else {
         useDesignView.setState({ gen: { ...g, running: false, error: f.code ?? '生成失败' } });
         // W2-001：失败人话 toast（与需求域同口径）；W2-002：附脱敏原因
         toast(`生成失败（${f.code ?? '未知错误'}）${f.message ? `：${f.message}` : ''}。草稿与版本未受影响，可重新发起；若持续失败请到设置页检查模型连接`, 'warn');

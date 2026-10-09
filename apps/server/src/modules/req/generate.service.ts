@@ -5,7 +5,7 @@ import { query } from '../../db/pool.js';
 import { executeCommand, registerCommand, type CommandContext } from '../evidence/command-bus.js';
 import { mdToPatches, normalizePatches, sha256Text, splitSections, buildNumberGuide, type EditPatch } from '../platform/doc-sections.js';
 import { AI_PROVIDER, type AiProvider, type AiUsage } from '../ai/ai-provider.interface.js';
-import { classifyAiError, sanitizeAiError } from '../ai/stream-pipeline.js';
+import { classifyAiError, isRetryableStreamCut, sanitizeAiError } from '../ai/stream-pipeline.js';
 import { registerExternalTool } from '../platform/external-tools.js';
 import { CHAPTER_RULE, reqSectionRule } from '../platform/doc-conventions.js';
 import { buildTemplateGuide, refreshTemplateOverrides } from '../platform/doc-templates.js';
@@ -220,11 +220,12 @@ export class GenerateService {
     operationId: string,
     ctx: CommandContext,
     onDelta: (text: string) => void,
+    onNotice?: (msg: string) => void,
   ): Promise<{ status: 'done' | 'stopped' | 'failed'; patchIds?: string[]; error?: string; errorMessage?: string }> {
     const op = ops.get(operationId);
     if (!op) throw new DomainError('NOT_FOUND', '生成操作不存在', operationId);
     if (op.real) {
-      const real = await this.driveReal(op, onDelta);
+      const real = await this.driveReal(op, onDelta, onNotice);
       if (real.status === 'stopped') return { status: 'stopped' };
       if (real.status === 'failed') {
         ops.delete(operationId);
@@ -441,61 +442,72 @@ export class GenerateService {
   /**
    * 真接驱动：经 AI_PROVIDER（purpose='generation'）流式生成；pause 缓冲、stop 中止；
    * 完成后按章节切补丁，用量经 ai.usage.record 落账（REQ-612）。
+   * 传输层断流自动重试一次（2026-10-09 公网实机：上游偶发 closed before response.completed，
+   * 重试即过；限流/鉴权/内容错误不重试）。重试经 onNotice 发 stream.notice 不静默。
    */
   private async driveReal(
     op: GenOp,
     onDelta: (text: string) => void,
+    onNotice?: (msg: string) => void,
   ): Promise<{ status: 'done' | 'stopped' | 'failed'; patches?: EditPatch[]; error?: string; errorMessage?: string }> {
     const real = op.real!;
     const t0 = Date.now();
-    try {
-      const session = await this.ai!.createSession({ projectId: op.projectId, purpose: 'generation' });
-      const { deltas, result } = session.stream(buildPrompt(op.kind, real.instruction, real.refTexts, real.existingCodes, real.currentContent, real.upstreamCrd, op.projectId));
-      let buf: string[] = [];
-      for await (const d of deltas) {
-        if (op.status === 'stopped') {
-          session.stop();
-          return { status: 'stopped' };
+    for (let transport = 0; transport < 2; transport += 1) {
+      try {
+        const session = await this.ai!.createSession({ projectId: op.projectId, purpose: 'generation' });
+        const { deltas, result } = session.stream(buildPrompt(op.kind, real.instruction, real.refTexts, real.existingCodes, real.currentContent, real.upstreamCrd, op.projectId));
+        let buf: string[] = [];
+        for await (const d of deltas) {
+          if (op.status === 'stopped') {
+            session.stop();
+            return { status: 'stopped' };
+          }
+          if (op.status === 'paused') {
+            buf.push(d);
+            continue;
+          }
+          if (buf.length > 0) {
+            for (const b of buf) onDelta(b);
+            buf = [];
+          }
+          onDelta(d);
         }
-        if (op.status === 'paused') {
-          buf.push(d);
-          continue;
-        }
+        // W2-022：pause 冻结整个生成语义——流在暂停期间走完后不得直接收尾（done+落补丁）；
+        // 待 resume 后先冲放缓冲再进入复验/落库（模型侧仍在跑属缓冲层口径，但完成事件绝不越过暂停）
+        while (op.status === 'paused') await sleep(50);
+        if (op.status === 'stopped') { session.stop(); return { status: 'stopped' }; }
         if (buf.length > 0) {
           for (const b of buf) onDelta(b);
           buf = [];
         }
-        onDelta(d);
+        const res = await result;
+        // op 为共享可变态（pause/resume/stop 由外部改写），await 期间可能已被停止——绕开 TS 控制流收窄再判
+        const afterResult: string = op.status;
+        if (afterResult === 'stopped') return { status: 'stopped' };
+        // 归一化：命中既有节的 add 转整节 modify（修复「修改=重复追加」；增量修订与对话改文档共用）
+        const patches = normalizePatches(mdToPatches(res.text), splitSections(real.currentContent));
+        if (patches.length === 0) return { status: 'failed', error: 'INTERNAL' };
+        if (res.modelId) {
+          await executeCommand('ai.usage.record', {
+            projectId: op.projectId, modelId: res.modelId, purpose: 'generation',
+            tokensIn: res.usage.inputTokens, tokensOut: res.usage.outputTokens,
+            durationMs: Date.now() - t0, cost: res.usage.cost ?? 0,
+          }, { projectId: op.projectId, actorKind: 'assistant', actorId: 'pi' });
+        }
+        return { status: 'done', patches };
+      } catch (e) {
+        const raw = e instanceof Error ? e.message : String(e);
+        if (transport === 0 && op.status !== 'stopped' && isRetryableStreamCut(raw)) {
+          console.warn(`[req] stream cut, auto-retry once op=${op.id}: ${sanitizeAiError(raw)}`);
+          onNotice?.('上游连接中断，已自动重试一次');
+          continue;
+        }
+        // W2-002：生成失败留后端日志 + 归类闭集码 + 脱敏人话（原始供应商错误不再被吞）
+        console.error(`[req] generate failed op=${op.id}: ${raw}`);
+        return { status: 'failed', error: e instanceof DomainError ? e.code : classifyAiError(raw), errorMessage: sanitizeAiError(raw) };
       }
-      // W2-022：pause 冻结整个生成语义——流在暂停期间走完后不得直接收尾（done+落补丁）；
-      // 待 resume 后先冲放缓冲再进入复验/落库（模型侧仍在跑属缓冲层口径，但完成事件绝不越过暂停）
-      while (op.status === 'paused') await sleep(50);
-      if (op.status === 'stopped') { session.stop(); return { status: 'stopped' }; }
-      if (buf.length > 0) {
-        for (const b of buf) onDelta(b);
-        buf = [];
-      }
-      const res = await result;
-      // op 为共享可变态（pause/resume/stop 由外部改写），await 期间可能已被停止——绕开 TS 控制流收窄再判
-      const afterResult: string = op.status;
-      if (afterResult === 'stopped') return { status: 'stopped' };
-      // 归一化：命中既有节的 add 转整节 modify（修复「修改=重复追加」；增量修订与对话改文档共用）
-      const patches = normalizePatches(mdToPatches(res.text), splitSections(real.currentContent));
-      if (patches.length === 0) return { status: 'failed', error: 'INTERNAL' };
-      if (res.modelId) {
-        await executeCommand('ai.usage.record', {
-          projectId: op.projectId, modelId: res.modelId, purpose: 'generation',
-          tokensIn: res.usage.inputTokens, tokensOut: res.usage.outputTokens,
-          durationMs: Date.now() - t0, cost: res.usage.cost ?? 0,
-        }, { projectId: op.projectId, actorKind: 'assistant', actorId: 'pi' });
-      }
-      return { status: 'done', patches };
-    } catch (e) {
-      // W2-002：生成失败留后端日志 + 归类闭集码 + 脱敏人话（原始供应商错误不再被吞）
-      const raw = e instanceof Error ? e.message : String(e);
-      console.error(`[req] generate failed op=${op.id}: ${raw}`);
-      return { status: 'failed', error: e instanceof DomainError ? e.code : classifyAiError(raw), errorMessage: sanitizeAiError(raw) };
     }
+    return { status: 'failed', error: 'INTERNAL' }; // 不可达：循环两趟必经 return——TS 穷尽性需要
   }
 }
 

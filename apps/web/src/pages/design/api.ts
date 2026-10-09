@@ -176,7 +176,7 @@ export const designApi = {
 };
 
 export interface GenFrame {
-  type: 'stream.start' | 'stream.delta' | 'stream.done' | 'stream.error';
+  type: 'stream.start' | 'stream.delta' | 'stream.done' | 'stream.error' | 'stream.notice';
   text?: string; operationId?: string; code?: string;
   /** #5 生成来源：model=真模型 / mock=桩 */
   source?: string;

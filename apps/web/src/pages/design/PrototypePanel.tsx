@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { ApiError } from '../../api';
+import { toast } from '../../ui/toast';
 import { designApi, generateProtoPage, type BaselineItem, type CatalogGroup, type ProtoStatus } from './api';
 import { useDesignView } from './store';
 
@@ -64,6 +65,7 @@ export function PrototypePanel() {
       await generateProtoPage(projectId, code, (f) => {
         if (f.type === 'stream.delta' && f.text) { chars += f.text.length; patch({ chars }); }
         else if (f.type === 'stream.done') { ok = f.status !== 'stopped'; }
+        else if (f.type === 'stream.notice') { toast(String(f.message ?? '上游连接中断，已自动重试'), 'warn'); }
         else if (f.type === 'stream.error') { patch({ error: `${f.code ?? '生成失败'}${f.message ? `：${f.message}` : ''}` }); }
       });
     } catch (e) {

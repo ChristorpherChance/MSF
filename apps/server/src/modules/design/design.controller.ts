@@ -86,7 +86,7 @@ export class DesignController {
     res.setHeader('Connection', 'keep-alive');
     const send = (data: unknown) => res.write(`data: ${JSON.stringify(data)}\n\n`);
     send({ type: 'stream.start', operationId, source }); // source=#5 生成来源可辨识
-    const result = await this.gen.drive(operationId, ctx, (text) => send({ type: 'stream.delta', text }));
+    const result = await this.gen.drive(operationId, ctx, (text) => send({ type: 'stream.delta', text }), (message) => send({ type: 'stream.notice', message }));
     if (result.status === 'done') {
       send({ type: 'stream.done', operationId, proposedPatchIds: result.patchIds });
     } else if (result.status === 'stopped') {
@@ -309,7 +309,7 @@ export class DesignController {
     // 客户端断连即 abort（res 'close' 先于 drive 完成=连接中断；完成后 ops 已删，abort 为安全空操作）
     let finished = false;
     res.on('close', () => { if (!finished) this.pages.abort(operationId); });
-    const result = await this.pages.drive(operationId, ctx, (text) => send({ type: 'stream.delta', text }));
+    const result = await this.pages.drive(operationId, ctx, (text) => send({ type: 'stream.delta', text }), (message) => send({ type: 'stream.notice', message }));
     finished = true;
     if (result.status === 'done') {
       send({ type: 'stream.done', operationId, pageCode, fingerprint: result.fingerprint });

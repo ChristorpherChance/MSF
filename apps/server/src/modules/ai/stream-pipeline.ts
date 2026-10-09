@@ -44,6 +44,17 @@ export function sanitizeAiError(raw: string): string {
     .slice(0, 300);
 }
 
+/**
+ * 上游偶发断流判定（2026-10-09 公网实机：CPA 长流 4411 delta 后偶发 closed before
+ * response.completed，重试即过；直连压测两种 API 各 100s+ 长流均完整收尾）。
+ * 命中=传输层断流，值得整轮重发；限流/鉴权/配额错误重试无意义且放大成本，明确排除。
+ * 调用方纪律：有界（生成路径各 1 次自动重试），重试须发 stream.notice 不静默。
+ */
+export function isRetryableStreamCut(raw: string): boolean {
+  if (/429|rate.?limit|quota|401|403|unauthorized|invalid api key|forbidden/i.test(raw)) return false;
+  return /stream closed before|disconnected before completion|premature close|socket hang up|terminated|ECONNRESET|ECONNREFUSED|ETIMEDOUT|ENOTFOUND|fetch failed|other side closed|network|timed? ?out/i.test(raw);
+}
+
 interface PipelineEntry {
   messageId: string;
   sessionId: string;

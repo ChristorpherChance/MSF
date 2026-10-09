@@ -114,7 +114,7 @@ export class ReqController {
     const send = (data: unknown) => res.write(`data: ${JSON.stringify(data)}\n\n`);
     // 首帧携带 operationId：pause/resume/stop（A04-5）需在流式进行中寻址本次生成；source=#5 生成来源可辨识
     send({ type: 'stream.start', operationId, source });
-    const result = await this.gen.drive(operationId, ctx, (text) => send({ type: 'stream.delta', text }));
+    const result = await this.gen.drive(operationId, ctx, (text) => send({ type: 'stream.delta', text }), (message) => send({ type: 'stream.notice', message }));
     if (result.status === 'done') {
       send({ type: 'stream.done', operationId, proposedPatchIds: result.patchIds });
     } else if (result.status === 'stopped') {
