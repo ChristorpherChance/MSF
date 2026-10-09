@@ -1,6 +1,8 @@
 # MSF 部署到 116（cc-msf.ikvein.com）操作手册
 
 > 2026-10-08 首装。架构：单进程 Node（web 静态 + /api 同端口 18920，MSF_WEB_DIST 托管）+ Docker 三件套（postgres:16 / minio/minio / redis:7，bind 挂载 ~/msf-data）+ frpc 子域名 cc-msf → 18920。登录=env 门控简易登录（差异登记条目 35）。
+>
+> **「为什么本机好的、上了 116 就坏」系统复盘见 `doc/dev-plan/116公网部署环境差异分析.md`（附同名 .html 版）——五个部署态故障的根因/修法/防再发模式。**
 
 ## 端口分配（116）
 
