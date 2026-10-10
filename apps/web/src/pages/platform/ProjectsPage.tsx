@@ -172,7 +172,7 @@ export function ProjectsPage() {
       <div className="full-inner proj-inner">
         <div className="proj-titlebar">
           <div>
-            <h1 className="tasks-title">项目</h1>
+            <h1 className="tasks-title">项目 <span className="tag tag-ok">101全链验证✓</span></h1>
             <p className="tasks-sub">选择或创建一个软件工厂项目；打开后按阶段准入落到对应阶段。</p>
           </div>
           <button className="primary proj-new" onClick={() => setCreateOpen(true)}>＋ 新建项目</button>
