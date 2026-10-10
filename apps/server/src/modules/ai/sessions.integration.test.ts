@@ -407,6 +407,55 @@ describe('AI 会话/消息/流式管线（集成，需 DB）', async () => {
     expect(aiMsg2.content).toContain('读取中。');
   });
 
+  it('接力工具结果跨轮累积：第 N 轮 prompt 携带此前全部轮次结果（116 实机「重写五册」根修——只回喂当轮致重复读烧轮次）', async () => {
+    provider.capturedPrompts = [];
+    provider.nextChunks = ['先读需求页。', '\n```msf-tool\n{"name":"nav.goto","args":{"tab":"req"}}\n```'];
+    provider.roundQueue.push(['再读设计页。', '\n```msf-tool\n{"name":"nav.goto","args":{"tab":"design"}}\n```']); // 接力轮 1
+    provider.roundQueue.push(['两页内容都在，直接给结论。']); // 接力轮 2（无围栏→终止）
+    const { messageId } = await sessions.send(PID, sessionId, { content: '三轮接力' }, CTX);
+    const c = await sessions.drive(messageId, () => {}, { ctx: CTX });
+    expect(c.status).toBe('done');
+    expect(provider.capturedPrompts.length).toBe(3); // 首轮+两轮接力
+    // 接力轮 1 只见首轮结果；接力轮 2 须同时见到首轮与接力轮 1 的结果（累积在场，无需重读）
+    expect(provider.capturedPrompts[1]).toContain('"route":"/req"');
+    expect(provider.capturedPrompts[1]).not.toContain('"route":"/design"');
+    expect(provider.capturedPrompts[2]).toContain('"route":"/req"');
+    expect(provider.capturedPrompts[2]).toContain('"route":"/design"');
+    expect(provider.capturedPrompts[2]).toContain('严禁重复读取同一文档');
+    const msgs = await sessions.messages(PID, sessionId);
+    const aiMsg = msgs.items.find((m) => m.id === messageId)! as unknown as { content: string; toolCalls: Array<{ toolName: string }> };
+    expect(aiMsg.toolCalls.length).toBe(2);
+    expect(aiMsg.content).toContain('直接给结论');
+    expect(aiMsg.content).not.toContain('msf-tool');
+  });
+
+  it('接力工具结果总预算：跨轮累积超 80000 字淘汰最旧条目并明示省略（防爆窗）', async () => {
+    const { registerExternalTool, resetExternalTools } = await import('../platform/external-tools.js');
+    resetExternalTools();
+    try {
+      registerExternalTool('test.big', async () => ({ ok: true, payload: 'x'.repeat(30000) }));
+      provider.capturedPrompts = [];
+      // findToolSpans 每轮最多解析 3 块：两轮各 3 块（单结果截 16000）→ 累积 96000 字超总预算 80000，
+      // 第三轮（接力轮 2）prompt 须淘汰最旧条目并带省略说明
+      const three = () => Array.from({ length: 3 }, (_, i) => `${i ? '\n\n' : ''}\`\`\`msf-tool\n{"name":"test.big","args":{}}\n\`\`\``);
+      provider.nextChunks = three();
+      provider.roundQueue.push(three()); // 接力轮 1：再产 3 块
+      provider.roundQueue.push(['收束。']); // 接力轮 2：无围栏收束
+      const { messageId } = await sessions.send(PID, sessionId, { content: '大结果' }, CTX);
+      const c = await sessions.drive(messageId, () => {}, { ctx: CTX });
+      expect(c.status).toBe('done');
+      expect(provider.capturedPrompts.length).toBe(3);
+      const relay1 = provider.capturedPrompts[1]!;
+      expect(relay1).not.toContain('因上下文预算已省略'); // 首轮 3×16000 未超预算
+      const relay2 = provider.capturedPrompts[2]!;
+      expect(relay2).toContain('因上下文预算已省略');
+      expect(relay2).toContain('test.big');
+      expect(relay2.length).toBeLessThan(200000); // 预算闸生效（basePrompt+5×16000 量级，绝不 6 块全量）
+    } finally {
+      resetExternalTools();
+    }
+  });
+
   it('阶段化预设+联动提醒：req 会话注入阶段职责块；CRD 新版时注入 PRD 滞后提醒', async () => {
     provider.capturedPrompts = [];
     // 联动夹具：PRD v2 早于 CRD v3（直插行，测后清理）

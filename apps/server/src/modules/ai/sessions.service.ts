@@ -625,13 +625,17 @@ export class AiSessionsService implements OnModuleInit {
       let status = c.status;
       let usage = c.usage;
       let rounds = 0;
+      // 工具结果跨轮累积日志（2026-10-10 根修：原只回喂当轮结果，接力轮看不到更早读取的内容，
+      // 多文档任务被迫重读烧轮次——116 实机「重写五册」两次撞上限 8 轮全耗在重复 doc.read）
+      const toolLog: Array<{ name: string; result: unknown }> = [];
       while (status === 'done' && content.includes('```msf-tool') && rounds < MAX_RELAY_ROUNDS) {
         rounds++;
         const { stripped, results } = await this.runToolBlocks(e.projectId, e.sessionId, messageId, content, ctx2);
         content = stripped;
         if (results.length === 0) break;
+        toolLog.push(...results);
         const ai2 = await this.provider.createSession({ projectId: e.projectId, purpose: 'chat' });
-        const r2 = await this.pipeline.runContinuation(messageId, ai2, buildToolFollowup(e.prompt, results, rounds >= MAX_RELAY_ROUNDS - 1));
+        const r2 = await this.pipeline.runContinuation(messageId, ai2, buildToolFollowup(e.prompt, toolLog, MAX_RELAY_ROUNDS - rounds));
         content = `${content}\n\n${r2.content}`.trim();
         if (r2.usage) {
           usage = usage
@@ -725,27 +729,49 @@ function stripToolSpans(content: string, spans: Array<{ body: string; start: num
 /**
  * 接力轮上限。2026-10-09 实机「对话重新生成模块设计」：读密集型流程（mod/prd/hld 多文档+分页
  * 补读）7 次 doc.read 耗尽原上限 3 轮，propose_edits 没来得及发——消息停在口头承诺、页面未改。
- * 8 轮仍有界防爆；真正防失控靠「内容无围栏即停」+ 末轮警告（buildToolFollowup lastChance）。
+ * 2026-10-10 再上探 8→16：工具结果跨轮累积后重读消失（见 toolLog），多册任务按「读一册提案一册」
+ * 约 2~3 轮/册，16 轮覆盖五册重写全链仍有余量；防失控靠「内容无围栏即停」+ 剩余轮次倒计时警告。
  */
-const MAX_RELAY_ROUNDS = 8;
+const MAX_RELAY_ROUNDS = 16;
 
+/** 接力 prompt 工具结果总预算（字符）。超出时淘汰最旧条目并明示——
+ *  单结果截断（16000）防爆窗不变，总预算防多轮累积无限膨胀 */
+const TOOL_LOG_BUDGET = 80000;
 
 /** agentic 接力 prompt：工具执行结果回喂（单结果截 16000 字防爆窗），模型据此同轮继续回答。
  *  与首轮同一份 basePrompt（系统声明+会话历史在场，接力轮不丢上下文）。
- *  lastChance=最后一次能带围栏的接力——明示模型直接给结论/提案，别再发起读取链 */
-function buildToolFollowup(basePrompt: string, results: Array<{ name: string; result: unknown }>, lastChance = false): string {
-  const blocks = results.map((r) => {
+ *  toolLog=跨轮累积的全部工具结果（新→旧排序渲染时旧在前，淘汰最旧保最新）；
+ *  roundsLeft=含本次在内还剩几次接力机会——≤3 起倒计时警告，=1 末轮硬警告（直接结论/提案，别再读） */
+function buildToolFollowup(basePrompt: string, toolLog: Array<{ name: string; result: unknown }>, roundsLeft = 1): string {
+  const blocks: string[] = [];
+  let total = 0;
+  let evicted = 0;
+  // 最新的结果最可能被下一步用到：从尾向头装，超预算淘汰最旧
+  const kept: string[] = [];
+  for (let i = toolLog.length - 1; i >= 0; i--) {
+    const r = toolLog[i]!;
     const json = JSON.stringify(r.result);
     const cut = json.length > 16000
       ? `${json.slice(0, 16000)}…（结果过长已截断，可用 doc.read 的 anchor/offset 参数定向补读）`
       : json;
-    return `工具 ${r.name} 执行结果：\n${cut}`;
-  });
+    const block = `工具 ${r.name} 执行结果：\n${cut}`;
+    if (total + block.length > TOOL_LOG_BUDGET && kept.length > 0) { evicted = i + 1; break; }
+    kept.unshift(block);
+    total += block.length;
+  }
+  if (toolLog.length > 0 && kept.length === 0) { kept.unshift(`工具 ${toolLog[toolLog.length - 1]!.name} 执行结果：（单条结果超总预算，请用 doc.read 的 anchor/offset 参数定向重读）`); }
+  if (evicted > 0) blocks.push(`（更早的 ${evicted} 条工具结果因上下文预算已省略；若后续步骤仍需其内容，请用 doc.read 的 anchor/offset 参数定向重读该篇，不要整篇重读）`);
+  blocks.push(...kept);
+  const warn = roundsLeft <= 1
+    ? '\n\n⚠️ 这是本轮最后一次工具回喂机会：请直接给出结论；要改文档就立刻提交 propose_edits 提案，不要再发起读取类调用。'
+    : roundsLeft <= 3
+      ? `\n\n⚠️ 工具接力还剩 ${roundsLeft} 次机会：请优先提交已读齐文档的 propose_edits 提案，不要再重复读取已有结果的文档。`
+      : '';
   return `${basePrompt}
 
-【工具执行结果（系统已执行你上一轮的围栏块调用）】
+【工具执行结果（系统已执行你至今所有的围栏块调用，含此前各轮——结果持续在场，严禁重复读取同一文档）】
 ${blocks.join('\n\n')}
 
-请基于上述结果直接给出回答或下一步动作（不要再说"我已发起读取，拿到结果后我会……"——结果已经在上文；确需换参数重读时才再次调用工具）。${lastChance ? '\n\n⚠️ 这是本轮最后一次工具回喂机会：请直接给出结论；要改文档就立刻提交 propose_edits 提案，不要再发起读取类调用。' : ''}`;
+请基于上述结果直接给出回答或下一步动作（不要再说"我已发起读取，拿到结果后我会……"——结果已经在上文；确需换参数重读时才再次调用工具）。多文档任务纪律：每篇文档读齐后立刻提交该篇提案，再读下一篇。${warn}`;
 }
 
