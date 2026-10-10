@@ -12,11 +12,23 @@
 
 | 用途 | 端口 | 绑定 |
 | --- | --- | --- |
+| **本机部署实例（systemd msf-app，web+api 同进程）** | **18920** | **0.0.0.0（LAN 直访 http://192.168.10.101:18920）** |
 | vite dev（Windows 浏览器入口） | 5173 | 0.0.0.0（`vite --host`；LAN 直访 http://192.168.10.101:5173） |
 | msf api（nest watch） | 8080 | 0.0.0.0（vite 代理 /api→localhost:8080） |
 | postgres | 5432 | 127.0.0.1（docker msf-postgres） |
 | minio api/console | 9000/9001 | 127.0.0.1（docker msf-minio；文件读写走应用代理 MSF_FILES_PROXY=1） |
 | redis | 6379 | 127.0.0.1（docker msf-redis） |
+
+## 双通道分工（2026-10-10 用户拍板）
+
+- **dev 通道**：`pnpm dev`（5173+8080，nest watch 热重载）——101 上 Claude Code 日常开发用。
+- **部署通道**：systemd `msf-app`（18920，构建产物 `dist/` 直出，开机自启）——**101 的开发成果部署在 101 自己**，不走 116。
+  首装：`cp deploy/101/msf-app.env.example deploy/101/msf-app.env && chmod 600 deploy/101/msf-app.env`
+  → `sudo install -m 644 deploy/101/msf-app.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable --now msf-app`。
+  日常部署动作：`cd ~/All-Projects/msf && pnpm build && sudo systemctl restart msf-app`。
+  env 用 `deploy/101/msf-app.env`（与 dev 的 msf.env 分开——dev 进程若吃到 MSF_PORT=18920 会顶掉部署实例、vite 代理落空）。
+  注意 dev 与部署实例**共用同一套 docker infra/数据库**：nest watch 改了 schema 记得 `node dist/db/migrate.js` 后重启 msf-app。
+- Windows 本机开发 → 部署 116（照旧，走 116 手册）。
 
 ## 首装步骤（实际执行顺序）
 
