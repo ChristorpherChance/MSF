@@ -88,7 +88,7 @@ HLD §1 横切服务列有「命令事务」，但 §3 模块表未为其分配�
 
 **DSG-M02-1 职责**
 一句话：唯一的 HTTP 出入口——REST 资源映射、鉴权会话、请求校验、幂等与错误码规范，不承载任何业务规则。
-详述：将 HTTP 请求翻译为领域模块的 provider 调用；会话鉴权中间件（本期放行本地默认身份，策略点就位，ADR-9）；请求 DTO 校验与 actor 注入；幂等键（`Idempotency-Key`）登记与重放拒绝；SSE 通道管理；统一错误响应格式 `{code, message, details, traceId}`。
+详述：将 HTTP 请求翻译为领域模块的 provider 调用；会话鉴权中间件（缺省放行本地默认身份，策略点就位，ADR-9；**env 门控简易登录**（2026-10-10 差异回补，登记条目 35）：`MSF_AUTH_USER`+`MSF_AUTH_PASS` 双 env 同时设置才启用——HMAC-SHA256 签名 cookie（HttpOnly+SameSite=Lax、无状态 7 天、密钥与 M10 CredentialVault 同根不同域），`/api/**` 无有效 cookie 拒 `UNAUTHENTICATED`，豁免 login/whoami/health；登录恒时比较防时序侧信道，限流=同 IP（反代取 XFF 首跳）错 5 次锁 10 分钟+全局 30 次/10 分钟双闸（`RATE_LIMITED`）；未设 env=本地开发零鉴权、行为完全不变。CSRF 口径：SameSite=Lax+未开 CORS+写操作自带幂等键自定义头（预检不过））；请求 DTO 校验与 actor 注入；幂等键（`Idempotency-Key`）登记与重放拒绝；SSE 通道管理；同进程静态托管（env `MSF_WEB_DIST` 设置时托管前端静态产物、无扩展名路径回退 index.html——单端口单进程部署形态，登记条目 35）；统一错误响应格式 `{code, message, details, traceId}`。
 
 **DSG-M02-2 公开接口**
 
@@ -103,8 +103,8 @@ HLD §1 横切服务列有「命令事务」，但 §3 模块表未为其分配�
 依赖 M03~M08、M12、M13 的公开接口做路由分发；调用 M11 记录 API 级审计流水。禁止：包含任何业务分支逻辑；直接访问数据库。
 
 **DSG-M02-4 内部结构**
-- `AuthMiddleware`、`ValidationPipe`、`IdempotencyInterceptor`；
-- `Controllers`（按域分组，纯转发）；
+- `AuthMiddleware`（缺省放行本地默认身份；env 双设时启用 HMAC 签名 cookie 简易登录门与登录限流，口径见 DSG-M02-1）、`ValidationPipe`、`IdempotencyInterceptor`；
+- `Controllers`（按域分组，纯转发；`FilesController`=对象存储代理只读端点 `GET /api/v1/files`——公网部署形态（env `MSF_FILES_PROXY=1`）签名直链不可达时由本进程流式回源，key 校验+RFC 5987 下载头，2026-10-10 差异回补，登记条目 36）；
 - `SseGateway`：统一 SSE 基础设施与事件信封，三个逻辑通道 `/streams/ai`（M08 流式输出）、`/streams/jobs`（M03/M09 作业进度）、`/streams/notifications`（M13 通知）（统稿 D-5）；
 - `ErrorFilter`（域错误码 → HTTP 状态映射表）。
 
@@ -350,7 +350,7 @@ REQ-501~511、REQ-712、BR-03/06/07/09/10/11。
 
 **DSG-M08-1 职责**
 一句话：全平台唯一的 AI 出入口——基于 Pi SDK（@earendil-works/pi-*）的 AI 编排，平台强制层包在 Pi 之外（REQ-615）。
-详述：内部按 Pi 分层实现——pi-ai 承载统一多供应商模型接入与 token/成本计量；pi-agent-core 承载 agent 运行时与工具执行（agent loop、turn/message 事件、steering（注入消息机制）/follow-up 队列）；pi-coding-agent 嵌入 SDK 承载会话管理（SessionManager JSONL 会话树、fork/branch、自动压缩）、模型注册与会话内切换（ModelRegistry）、提示词扩展。平台强制层在其外提供：会话管理（多会话、历史保留）；流式输出（SSE 透传、暂停/继续/停止且无半截残留——停止=Pi abort；暂停/继续=平台缓冲层：暂停时停止消费并缓冲事件流，恢复时重放缓冲后继续）；思考强度档位；按用途路由模型（规划/生成/评审等，用途→模型路由策略为平台自有层，模型注册由 Pi ModelRegistry 承载）；提示词版本化落库（每次生成记录提示词版本+输入指纹，可查看/回滚）；工具注册表（查页面、读状态、执行允许动作），平台工具包装为 Pi AgentTool 注入运行时，调用可见可审计；上下文引用装配（仅经 M03 门禁放行已定稿 Markdown，生成期间基线校验失败则拒绝提交该生成版本）；多 Agent 管理与委派任务编排（委派执行本身由 M09 适配器承担，首选 pi RPC 模式）；从消息结果提取 Usage 汇总为 token/耗时/成本展示；AI 行为边界强制——AI 通道在技术上无法触达「人工」策略分支的定稿/放行接口。
+详述：内部按 Pi 分层实现——pi-ai 承载统一多供应商模型接入与 token/成本计量；pi-agent-core 承载 agent 运行时与工具执行（agent loop、turn/message 事件、steering（注入消息机制）/follow-up 队列）；pi-coding-agent 嵌入 SDK 承载会话管理（SessionManager JSONL 会话树、fork/branch、自动压缩）、模型注册与会话内切换（ModelRegistry）、提示词扩展。平台强制层在其外提供：会话管理（多会话、历史保留；**会话粒度下沉到工件**（2026-10-10 差异回补，登记条目 34）：会话按「阶段 ctx+文档类别 doc_kind」分组绑定——req 域=crd|prd、design 域=设计八册 kind、其余阶段 NULL=阶段级会话组；会话 prompt 注入【当前工件】块，工具 kind 默认取绑定值（用户明确要求其他文档才换并说明）——根修「UI 选中册与 AI 会话上下文坐标不一致」）；流式输出（SSE 透传、暂停/继续/停止且无半截残留——停止=Pi abort；暂停/继续=平台缓冲层：暂停时停止消费并缓冲事件流，恢复时重放缓冲后继续）；思考强度档位；按用途路由模型（规划/生成/评审等，用途→模型路由策略为平台自有层，模型注册由 Pi ModelRegistry 承载）；提示词版本化落库（每次生成记录提示词版本+输入指纹，可查看/回滚）；工具注册表（查页面、读状态、执行允许动作），平台工具包装为 Pi AgentTool 注入运行时，调用可见可审计；上下文引用装配（仅经 M03 门禁放行已定稿 Markdown，生成期间基线校验失败则拒绝提交该生成版本）；多 Agent 管理与委派任务编排（委派执行本身由 M09 适配器承担，首选 pi RPC 模式）；从消息结果提取 Usage 汇总为 token/耗时/成本展示；AI 行为边界强制——AI 通道在技术上无法触达「人工」策略分支的定稿/放行接口。
 
 **DSG-M08-2 公开接口**
 
@@ -374,13 +374,13 @@ Pi SDK（@earendil-works/pi-ai / pi-agent-core / pi-coding-agent，嵌入 SDK �
 按 Pi 分层组织（REQ-615）：
 - `PiAiGateway`：封装 pi-ai——统一多供应商模型调用（流式、鉴权、模型元数据），从消息结果提取 Usage（计量附着于消息结果，非独立事件流）；
 - `AgentRuntime`：封装 pi-agent-core——agent loop、工具执行、turn/message 事件、steering（注入消息机制，非暂停/恢复）/follow-up 队列；停止映射为 Pi abort；暂停/继续不由 steering 承担，由平台缓冲层实现（见 StreamPipeline）；
-- `SessionStore`：封装 pi-coding-agent `SessionManager`（JSONL 会话树、fork/branch、自动压缩）与 `ModelRegistry`（多供应商模型注册、会话内模型切换）、`AuthStorage`（密钥引用经 M10 CredentialVault 注入）；多会话管理与分支复用 JSONL 会话树（fork/branch），平台持久层 ai_sessions 存树形引用、不复制会话内容；**会话 JSONL 持久化**（2026-09-20 评审补录）：Pi 会话目录由 app 服务以卷挂载持久化并纳入备份策略（HLD §6）；沙箱内会话声明为一次性——随容器销毁，产物经证据链回传（M09），不入备份；**自动压缩模型归属**（2026-09-20 评审补录）：自动压缩所用模型由平台按 ModelRegistry 配置选择（默认随会话模型，可配置专用小模型），其 Usage 同样从消息结果提取并计入项目用量（REQ-612）；子 Agent 的可复用能力包以 **pi skills（技能包）**承载并随会话下发（REQ-609 扩展）；
+- `SessionStore`：封装 pi-coding-agent `SessionManager`（JSONL 会话树、fork/branch、自动压缩）与 `ModelRegistry`（多供应商模型注册、会话内模型切换）、`AuthStorage`（密钥引用经 M10 CredentialVault 注入）；多会话管理与分支复用 JSONL 会话树（fork/branch），平台持久层 ai_sessions 存树形引用、不复制会话内容（`ai_sessions.doc_kind` 承载工件绑定分组——req=crd|prd、design=八册 kind、其余阶段 NULL=阶段级组；登记条目 34，表结构见 LLD-4、创建校验与过滤见 LLD-5 A08-1）；**会话 JSONL 持久化**（2026-09-20 评审补录）：Pi 会话目录由 app 服务以卷挂载持久化并纳入备份策略（HLD §6）；沙箱内会话声明为一次性——随容器销毁，产物经证据链回传（M09），不入备份；**自动压缩模型归属**（2026-09-20 评审补录）：自动压缩所用模型由平台按 ModelRegistry 配置选择（默认随会话模型，可配置专用小模型），其 Usage 同样从消息结果提取并计入项目用量（REQ-612）；子 Agent 的可复用能力包以 **pi skills（技能包）**承载并随会话下发（REQ-609 扩展）；
 - `ToolBridge`：把平台工具注册表（AGENT_TOOLS）逐项包装为 Pi AgentTool 注入运行时；参数校验与执行审计在包装层完成，写动作回调对应域命令入口；
 - `UsageCollector`：从消息结果提取 Usage 落库，按模型/用途汇总 token/耗时/成本；自定义模型须提供 cost 元数据，缺失时由平台 price_table 兜底（REQ-612，price_table 见 LLD-4 DSG-D08-5）。
 平台强制层组件（包在 Pi 之外）：
 - `StreamPipeline`（SSE 透传；停止=Pi abort；暂停/继续=平台缓冲层——暂停时停止消费并缓冲事件流，恢复时重放缓冲后继续；无半截残留。**stream.delta 重放缓冲**（2026-09-20 评审补录）：SSE 断线重连按 lastEventId 续传，delta 重放由平台缓冲层承载——Redis 滚动窗口（容量=消息条数+TTL 双限，窗口外回源会话树；参数为建议值，压测后校准）；pause 缓冲与断线重放缓冲共用同一缓冲层与重放指针，恢复/重连均自指针继续）；
 - `ModelRouter`（用途→模型，平台自有路由策略，配置来自 M13）；
-- `PromptRegistry`（版本化落库、回滚、生成登记——平台自有，提示词随会话下发给 Pi 运行时；skill 包版本随提示词版本化同步管理，REQ-609 扩展）；
+- `PromptRegistry`（版本化落库、回滚、生成登记——平台自有，提示词随会话下发给 Pi 运行时；skill 包版本随提示词版本化同步管理，REQ-609 扩展；**文档生成 prompt 的规范与模板供给**（2026-10-10 差异回补，登记条目 26~32）：文档结构规范（大章约定/节级锚点码规则，与渲染层派生编号同源）与默认文档模板库（十类文档，国际标准映射 ISO/IEC/IEEE 29148/42010、OpenAPI 3.1、WCAG 2.2、ISO/IEC 25010）为平台共享单一权威模块——conventions 管格式、templates 管内容，req/design 生成链六处 prompt 单点引用；模板经套件三级解析链供给（解析与装配流程见 LLD-2 DSG-F11，套件管理归 M13））；
 - `ContextAssembler`（门禁装配 + 基线校验）；
 - `DelegationService`（委派编排，执行经 M09，首选 pi RPC 模式）。
 
@@ -469,7 +469,7 @@ README §4 S4（假 Git 状态翻转 → 真实 Git 适配）；`targets`（委�
 
 **DSG-M11-1 职责**
 一句话：全平台的「事实底座」——规范化指纹、不可变追加证据存储、哈希链、审计流水、命令事务运行时与证据包导出。
-详述：统一实现规范化序列化 + SHA-256 指纹（治理输入指纹与内容指纹分离，readiness 字段不进内容指纹）；证据/报告/批次/决定/历史版本写入 append-only 表（DB 角色禁 UPDATE/DELETE）并以前序记录哈希成链；大体积内容入 MinIO 内容寻址（key=内容哈希），表内只存元数据+哈希引用；**命令事务运行时**：CommandBus 执行 `prepare→publish（单事务：业务写入+事件追加+审计追加）→flush（效果任务入队，ledger 逐条 pending→running→done/failed/stale，重启幂等补记）`，审计写入失败整体回滚零写；审计流水记录操作者/时间/命令/输入指纹/结果；证据包导出（备份/发布消费）；对象存储签名 URL 签发（短时有效）。证据链与审计链（双链）追加均以 `UNIQUE(prev_hash)` 兜底防并发分叉：并发 publish 读到同一链尾时仅一个事务成功，冲突事务回滚后由命令层按幂等键重读链尾、重算重试（LLD-4 DSG-D09/D11-2、LLD-2 DSG-F03-1）。
+详述：统一实现规范化序列化 + SHA-256 指纹（治理输入指纹与内容指纹分离，readiness 字段不进内容指纹）；证据/报告/批次/决定/历史版本写入 append-only 表（DB 角色禁 UPDATE/DELETE）并以前序记录哈希成链；大体积内容入 MinIO 内容寻址（key=内容哈希），表内只存元数据+哈希引用；**命令事务运行时**：CommandBus 执行 `prepare→publish（单事务：业务写入+事件追加+审计追加）→flush（效果任务入队，ledger 逐条 pending→running→done/failed/stale，重启幂等补记）`，审计写入失败整体回滚零写；审计流水记录操作者/时间/命令/输入指纹/结果；证据包导出（备份/发布消费）；对象存储签名 URL 签发（短时有效；**公网代理形态**（2026-10-10 差异回补，登记条目 36）：env `MSF_FILES_PROXY=1` 时签发改发本进程代理相对 URL `/api/v1/files?key=…`（经 M02 FilesController 流式回源），未设 env=直签不变——「MinIO 不直接暴露浏览器」的边界（HLD §6）两种形态下均成立）。证据链与审计链（双链）追加均以 `UNIQUE(prev_hash)` 兜底防并发分叉：并发 publish 读到同一链尾时仅一个事务成功，冲突事务回滚后由命令层按幂等键重读链尾、重算重试（LLD-4 DSG-D09/D11-2、LLD-2 DSG-F03-1）。
 
 **DSG-M11-2 公开接口**
 
@@ -543,7 +543,7 @@ REQ-711、BR-06（人工确认点）、BR-07/09（求值约束）、BR-13（授�
 
 **DSG-M13-1 职责**
 一句话：项目生命周期、通知与事件、任务中心、系统设置（模型/提示词/Agent/密钥引用）与备份导出的管理面。
-详述：项目卡片网格、新建/编辑、项目内五阶段推进状态；阶段准入汇总展示（门禁判定本身委托 M12/各域 guard 接口，本模块不复制判定逻辑）；通知中心与事件流（本期形态：顶栏铃铛 + 抽屉式通知中心，消费 M11 事件表投影；webhook 列后续扩展，统稿 D-20）；跨阶段任务中心（只读聚合 M06/M07 任务视图）；设置管理（模型配置与价目表、提示词版本入口、Agent 配置、密钥引用——密钥本体由 M10 CredentialVault 保管，本模块只存引用）；备份与导出编排（PG dump + MinIO 版本化桶，经 M11 导出）；示例数据隔离（示例项目独立标记，不作为任何真实门禁依据）。
+详述：项目卡片网格、新建/编辑、项目内五阶段推进状态；阶段准入汇总展示（门禁判定本身委托 M12/各域 guard 接口，本模块不复制判定逻辑）；通知中心与事件流（本期形态：顶栏铃铛 + 抽屉式通知中心，消费 M11 事件表投影；webhook 列后续扩展，统稿 D-20）；跨阶段任务中心（只读聚合 M06/M07 任务视图）；设置管理（模型配置与价目表、提示词版本入口、Agent 配置、密钥引用——密钥本体由 M10 CredentialVault 保管，本模块只存引用）；**文档模板套件管理**（2026-10-10 差异回补，登记条目 30~32）：模板版本管理=命名套件（全局可复用，套件名唯一=「一整套=一个命名版本」），项目绑定活动套件+文档类别级换源；默认模板以代码模块为基线（M08 生成链消费，管理纪律见 LLD-2 DSG-F11-2），套件为覆盖层（前身 sys_settings 单覆盖设施上线一天即随套件化退役）；自定义类别 `x-` 前缀命名空间+AI 起草人工定稿（草案不落库）；全部写操作命令化记审计、保存条目过 validateTemplate 专业度闸（与代码默认测试门槛同标）；REST 见 LLD-5 A10-1、表结构见 LLD-4（迁移 0027/0028）、设置页编辑器与项目卡关联行见 LLD-6 §3.9/§3.1；备份与导出编排（PG dump + MinIO 版本化桶，经 M11 导出）；示例数据隔离（示例项目独立标记，不作为任何真实门禁依据）。
 
 **DSG-M13-2 公开接口**
 
@@ -560,7 +560,7 @@ REQ-711、BR-06（人工确认点）、BR-07/09（求值约束）、BR-13（授�
 M11（事件投影、导出）、M12（读取策略状态供设置面展示）、各域只读聚合接口（M03/M04/M05/M06/M07 的列表/状态查询）。禁止：复制领域数据建本地副本（聚合实时查询）；经本模块写领域对象（写一律回到对应域命令入口）；存放明文密钥。
 
 **DSG-M13-4 内部结构**
-`ProjectService`、`StageGateAggregator`（委托各域 guard + M12 状态）、`NoticeProjector`（事件→通知投影）、`TaskCenterQuery`、`SettingsService`（模型/提示词/Agent/系统）、`BackupService`。
+`ProjectService`、`StageGateAggregator`（委托各域 guard + M12 状态）、`NoticeProjector`（事件→通知投影）、`TaskCenterQuery`、`SettingsService`（模型/提示词/Agent/系统）、`TemplateSetsService`（文档模板套件 CRUD/项目绑定/类别级换源，写命令后刷新模板缓存使生成链即时生效，登记条目 31/32）、`BackupService`。
 
 **DSG-M13-5 错误处理**
 错误码（注册表见 LLD-3 §14）：`VALIDATION_FAILED`（非法配置→拒绝并回滚该项）、`BACKUP_FAILED`（备份失败→告警重试，不影响业务）。恢复策略：投影可重建（事件表为源）；备份失败不产生半个备份件。
@@ -615,3 +615,4 @@ REQ-701/702/703/704/705/708/709（设置面承载工件多语言配置入口）�
 | 2026-09-20 | §2 接口表约定、DSG-M09-1/M09-4、DSG-M11-1 | 波次 1 评审整改：§2 Actor kind 枚举对齐 LLD-3 DSG-C01-3 权威（human/assistant/sub-agent/autopilot/system）；M09 补沙箱出向设计——网络默认关闭的唯一例外为经 egress-proxy 的模型出向（域名白名单=已配置模型供应商端点），模型密钥平台侧保管、会话级临时注入沙箱环境变量、不写盘、用后销毁；M09 补沙箱编排选型（默认 docker.sock 挂载+最小权限补偿，rootless DinD 列为加固选项，权衡见 HLD ADR-8）；M11-1 补证据/审计双链 UNIQUE(prev_hash) 并发分叉兜底与冲突重试职责 |
 | 2026-09-20 | DSG-M01-4、DSG-M08（1/4/5）、DSG-M09-1 | 波次 2 评审整改（C 组，Pi SDK 集成表述修正与缺失决策补录）：pause/resume 误述修正——steering 明确为注入消息机制（非暂停/恢复），停止=Pi abort，暂停/继续=平台缓冲层（暂停=停止消费并缓冲事件流，恢复=重放缓冲后继续）；计量表述修正——「pi-ai 计量事件」改为「从消息结果提取 Usage 落库」，自定义模型 cost 元数据缺失时由平台 price_table 兜底（UsageCollector）；pi-web-ui 限定为参考实现/浅 fork+裁剪依赖（版本滞后 0.75.3 vs 0.86.0，维护责任归平台）；SessionStore 补 Pi 会话 JSONL 持久化（app 服务卷挂载纳入备份、沙箱内会话一次性随容器销毁、产物经证据链回传）与自动压缩模型归属（平台配置选择、计入项目用量）；StreamPipeline 补 stream.delta 重放缓冲（Redis 滚动窗口、与 pause 缓冲共用缓冲层与重放指针）；M09-1 补沙箱镜像清单（版本锁定 tag+digest 锚定、变更走人工裁决） |
 | 2026-09-21 | DSG-M04（1/2/4/5）、DSG-M06-1 | 二轮评审整改（裁决 R-02-1/7）：M06-1 开发自测四门显示名对齐原型「功能检查/联调与冒烟/UI 符合度/开发审核」（gates 键 functional/integration/ui/review 不变，权威 PRD REQ-413）；M04 健康度口径对齐 LLD-3 DSG-C04-6 四指标——rtmHealth 出参补 l0c/l0d、HealthGate 职责与 M04-1 详述补 L0c=1 为开发入口门禁条件（REQ-310）与 L0d 信息性说明；M04-5 明确开发入口 L0c 缺口用专用子码 `L0C_BELOW`（§15(e)）、`RTM_HEALTH` 仅作汇总级 |
+| 2026-10-10 | DSG-M02-1/-4、DSG-M08-1/-4、DSG-M11-1、DSG-M13-1/-4 | 差异回补（登记条目 26~32、34~36）：M02 补 env 门控简易登录（HMAC 签名 cookie/登录限流/豁免面）与同进程静态托管、FilesController 对象存储代理端点；M08 会话粒度下沉到工件（ctx+doc_kind 分组+【当前工件】prompt 注入）、PromptRegistry 补文档结构规范与默认模板库单一权威供给（三级解析链引 LLD-2 DSG-F11）；M11 签名 URL 补公网代理形态；M13 新增 TemplateSetsService（文档模板套件：命名套件/项目绑定/类别级换源/自定义类别 AI 起草人工定稿，写命令化+validateTemplate 专业度闸） |

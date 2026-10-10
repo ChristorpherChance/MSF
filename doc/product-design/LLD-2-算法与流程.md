@@ -723,11 +723,47 @@ flowchart TD
 2. 切换成功 → 通知项目**全部成员** + 审计（操作者/旧新模式/理由/策略版本），**切换留痕入 `policy_gate_events`**；每次自动放行同样逐次留痕（策略版本 + 求值快照 + 证据指纹集合），可在审计流中回放「这次放行依据哪版策略、哪组证据」。
 3. 失效联动：上游内容变化使证据失效时，处于 auto 的确认点**立即回到阻断态**（BR-07），不因为曾经自动放行而豁免新内容的重新求值。
 
-## 11. 待澄清
+## 11. 文档模板解析与装配流程（DSG-F11）
+
+### DSG-F11-1 文档结构规范单一权威（doc-conventions）
+
+承接：补充设计（2026-10-06/07 用户拍板「章节规范须收敛到生成链共享的一处」——差异登记条目 26，章码组合关系实机抓修随条目 33 一并回补；服务于 REQ-201/202/301 的生成质量目标，无独立需求条目）。实现出处：`platform/doc-conventions.ts`。
+
+1. **规范落点**：文档骨架是生成链产物，结构规范必须收敛到生成链共享的单一权威模块；dock 阶段指南不内嵌规范细节（agent 提案同样走生成链 prompt，规范经生成链单点生效，指南只管行为纪律）。
+2. **CHAPTER_RULE 大章约定**：大章标题形如 `## 一、总体设计`（中文数字+顿号；禁「第X章」/阿拉伯数字变体），条目节落在合适大章之后；与渲染层派生编号 `deriveNumbering` 的大章判定是同一枚硬币的两面（生成侧约定 ⇄ 渲染侧判定），改动必须两侧同步。
+3. **节级锚点码规则**：reqSectionRule——CRD=`CR-nnn`、PRD=`REQ-nnn`（RTM 锚点链按此派生；新增在最大编号后顺延、不得复用）；designSectionRule——册前缀 `-n`（h/o/g/k/d/a/u/n，即 LLD-4 chapter_prefix 单字母）。**章码组合关系（2026-10-07 实机抓修「章码双轨」）**：大章只分组、自身不带锚点码、不重复条目内容；条目节紧随所属大章之后；禁止章码双轨——同一主题不得既出大章标题又出同主题条目节标题。
+4. **消费面**：req 初稿/rewrite 与设计初稿/增量/rewrite/对话改文档共六处生成 prompt 全部单点引用本模块。
+
+### DSG-F11-2 默认模板库与生成链装配（doc-templates）
+
+承接：补充设计（2026-10-06 用户拍板「每种文档一份默认模板参考，用户不提供就按国际标准默认模板来」「默认的也要很专业」——差异登记条目 27~29）。实现出处：`platform/doc-templates.ts`。
+
+1. **十类内置模板**（crd/prd+设计八册）各一份 `DocTemplate{standard/quality/writingRules[]/chapters[大章⇢内容要求]}`；标准映射：CRD/PRD=ISO/IEC/IEEE 29148、HLD/MOD/ALG/CLS/DB=ISO/IEC/IEEE 42010、API=OpenAPI 3.1/REST、UI=WCAG 2.2、NFR=ISO/IEC 25010。**管理纪律**：默认模板的唯一权威落点是代码模块（修改走 git 评审+标准映射测试+check-codes 闸），界面只读呈现；项目级自定义不走代码——用户模板传资料挂参考即「用户模板优先」。
+2. **分工**：doc-conventions 管「格式」（大章形态/锚点码），doc-templates 管「内容」（有什么章、写什么、质量 bar）。
+3. **装配时机**：`buildTemplateGuide(domain, kind, projectId)` 组装【默认文档模板】注入块（依据标准+质量要求+编写规则+大章⇢内容要求+编号与锚点格式引 doc-conventions+「用户模板优先」声明——参考资料本就全文注入生成 prompt，用户提供模板自然压过默认模板）；**仅初稿与 rewrite 注入**（req/design 共四处调用点），增量修订不重复模板；类别无模板时返回空块（自定义类别无生成链落点）。
+4. **专业度闸（validateTemplate）**：standard ≥4 字、quality ≥10 字、编写规则 ≥3 条且每条 ≥10 字、大章 ≥4 且章名中文数字+顿号、每章内容要求 ≥20 字（可验收粒度）；自定义类别（`x-` 前缀）跳过内置枚举检查但质量门槛同标、label 必填。返回人话问题清单（不落码，门面按 `VALIDATION_FAILED` 汇总抛出）；套件条目保存必经此闸——用户也不能把模板改水（与代码默认的测试门槛同源）。
+
+### DSG-F11-3 模板套件解析链（三级）
+
+承接：补充设计（2026-10-07 用户拍板「按项目创建保存一整套模板并可复用」「每个阶段文档里可查看和选择其他同类型套件或默认」——差异登记条目 31/32）。实现出处：`platform/doc-templates.ts`（解析）+ `platform/template-sets.service.ts`（写命令）。
+
+1. **数据面**（表结构见 LLD-4，迁移 0027/0028）：`sys_template_sets`（全局可复用，name UNIQUE=版本管理单位「一整套=一个命名版本」）+ `sys_template_set_items`（(set_id, kind) 主键，label 供自定义类别显示名）+ `prj_template_binding`（项目绑活动套件）+ `prj_template_kind_binding`（项目×类别指定）。
+2. **解析链**：`resolveTemplate(domain, kind, projectId)` = ① 项目×类别指定（kind 级绑定且该套件真含此 kind 条目）→ ② 项目绑定套件条目 → ③ 代码默认；条目未存的 kind 回退默认（「基于默认模板创建一整套」= 空套件+逐项编辑，回退链保证无缺项）；自定义类别无代码默认 → undefined。`templateSourceOf` 直出三态来源（kind/set/default）供「📄 模板」弹窗的来源显示。
+3. **缓存**：单进程内存三图（套件条目/项目绑定/kind 级绑定），boot（req/design 生成服务 onModuleInit）与每次写命令后刷新（生成链即时生效）；读取失败保留现状，不阻断生成链。
+4. **写纪律**：六命令（create 含克隆/rename/delete/update_item/delete_item/bind）+ bind_kind 全部命令化记审计（BR-04）；**delete 级联解绑**（同事务删除两类绑定行，绑定项目自动回退默认，回执带 unboundProjects/unboundKinds 计数）；bind_kind 守卫「指定套件须真含该 kind 条目」（否则 `INVALID_STATE`，防空解析误导）；bind/bind_kind 经项目级锁串行化。
+
+### DSG-F11-4 自定义类别 AI 起草流程（人工定稿）
+
+承接：补充设计（2026-10-07 用户拍板「可新增类别，新增的可用 AI 对话起草各项内容再人工修改」——差异登记条目 31）。实现出处：`ai/template-draft.ts`。
+
+1. **命名空间**：自定义类别用 `x-` 前缀（如 `x-acceptance` 验收方案），与内置十类隔离。
+2. **流程**：设置页「新增类别」给 slug/显示名/补充说明 → `ai/template-draft`：`buildTemplateDraftPrompt` 钉死 ```json 单围栏输出契约 → 模型产出 → `parseTemplateDraft` 容错抽取（围栏优先、首尾大括号兜底）→ validateTemplate 同闸 → **草案不落库**，回填表单由人工审改 → `template_set.update_item` 保存（「AI 起草、人工定稿」纪律不破）；用量落账 purpose=chat。
+
+## 12. 待澄清
 
 C-1/C-2/C-3/C-5/C-6/C-7 已于 2026-09-20 统稿裁决回销（分别对应 A7、A1、D-9、D-11、D-12、D-13，结论落回正文 F06-1/F02-10/F02-1/F07-1/F10-2/F02-11），详见《统稿裁决记录》。C-4（ZIP 分片上传）已于 2026-09-20 波次 2 回销：分片落库设计已落地——LLD-4 DSG-D03-7 `mat_uploads`（状态机 uploading→completed/aborted/expired）+ LLD-5 DSG-A03-1/A03-2/A03-3/A03-18（含 :abort 端点）。剩余：无。
 
-## 12. 修订记录
+## 13. 修订记录
 
 | 日期 | 条目 | 变更 |
 | --- | --- | --- |
@@ -739,3 +775,4 @@ C-1/C-2/C-3/C-5/C-6/C-7 已于 2026-09-20 统稿裁决回销（分别对应 A7�
 | 2026-09-20 | DSG-F06-1、DSG-F02-8、DSG-F03-1、DSG-F02-3 | 波次 1 评审整改：F06-1 改四指标口径（L0c=REQ→DSG 锚点覆盖率并承接开发入口门禁 REQ-310、L0d=deferred 计数不进门禁、补空分母条款，权威 PRD REQ-208）；F02-8 补 executing/reported/released 迁移行与 blocked 进入/恢复路径（每行含前置条件、触发者与拒绝码）；F03-1 补证据/审计双链追加并发纪律（UNIQUE(prev_hash) 兜底+幂等重试）；F02-3 标注 `unsupported` 落库承载字段 |
 | 2026-09-20 | DSG-F01-2、DSG-F02-1、DSG-F02-4、DSG-F02-5、DSG-F02-7、DSG-F02-12、DSG-F04-1、DSG-F06-1、§11 | 波次 2 评审整改（E 组）：F02-1 状态表谓词收紧为互斥完备（clean/dirty/finalized 三基态 + pending-review 正交标记）并锚定 INV-DOC-1~6；F02-12 补失败终态 `failed`（与 stop 同纪律、不产生版本记录）并修正 steering 误述（stop=Pi abort，pause/resume=平台缓冲层）；F02-4 补作业级五态承载字段注（mat_batch_jobs.status 待同步）；F02-5 补 task.pause/task.stop 迁移行（前置/触发者/拒绝码）并扩 task.resume 口径；F06-1 develop 门禁 L0c 缺口子码 RTM_HEALTH→`L0C_BELOW`（已裁决）、L0a/L0b 补空分母条款（分母为 0 记 1 并告警）；F04-1 补规范化序列化约定（RFC 8785 JCS 子集 + Unicode NFC 预规范化 + JSONB 往返警示）；F02-7 四门标注原型显示名（功能检查/联调与冒烟/UI 符合度/开发审核）；F01-2 补操作状态落库映射注（done→succeeded、stale/superseded 合并落库 stale、落库侧多 pending）；§11 C-4 回销（分片上传已落地 LLD-4 DSG-D03-7 + LLD-5 A03-1~3/18） |
 | 2026-09-21 | DSG-F02-4、DSG-F02-5、DSG-F06-1、全册原型出处 | 二轮评审整改：F06-1 L0a 分母统一为 active R（deferred 不计入，与 L0b/L0c 同构，裁决；空分母条款同步改 active R），`rtmHealth` 出处改 L2001 并改实算口径描述（原型波次 3 X2 起按 RTM_ROWS 实算，不再硬编码）；F02-4 行级五态承载列名改正为 `mat_batch_items.result`（LLD-4 DSG-D03-6）并补 running→done 显式迁移行（全部行终态收尾）；F02-5 补评审驳回回路——`task.rework` 迁移行（review→queue 重入，前置/拒绝码/codeRev 递增与旧 PR 转历史只读处置写全，原型 devBeginRework/devConfirmRework）与状态图补 review→queue 驳回返工边；全册原型出处行号按波次 3/4 与工具栏改动后漂移逐处核实重刷（需求区 ±14、中部 +20、V1.11 块 +20；RH 引用经复核未漂移） |
+| 2026-10-10 | §11 DSG-F11-1~4（新增）、§12/§13 序号顺延 | 差异回补（登记条目 26~32，章码组合关系随条目 33 一并回补）：新增「文档模板解析与装配流程」——DSG-F11-1 文档结构规范单一权威 doc-conventions（大章约定/节级锚点码/章码组合关系，六处生成 prompt 单点引用）；DSG-F11-2 默认模板库 doc-templates（十类国际标准映射、初稿/rewrite 注入而增量不注入、validateTemplate 专业度闸、用户模板优先）；DSG-F11-3 模板套件三级解析链（项目×类别指定→项目绑定套件条目→代码默认；缓存刷新与写纪律、delete 级联解绑、bind_kind 守卫）；DSG-F11-4 自定义类别 AI 起草人工定稿流程 |

@@ -261,7 +261,7 @@ interface ReqDocument {
 }
 ```
 
-不变式：草稿、提交、定稿是三个独立动作（REQ-203）；已定稿文档不可原地修改，修改 = 基于定稿产生新草稿（REQ-209）；同一文档同一时刻一个写者（REQ-210）。
+不变式：草稿、提交、定稿是三个独立动作（REQ-203）；已定稿文档不可原地修改，修改 = 基于定稿产生新草稿（REQ-209）；同一文档同一时刻一个写者（REQ-210）。**提交链上游变更联动（2026-10-05，差异登记条目 18）**：`doc.commit-version` 同事务判定下游滞后（口径=下游有已提交版本且上游当前版本 `submitted_at` 更晚，纯只读派生零 schema，链路 CRD→PRD→设计八册不跨级），命中即写入 `sys_notifications`（type `req.upstream.changed`，携带跳转路由）+ `evd_events` 同 kind 留痕；UI 徽标与 agent 联动提醒与该判定同源同口径。
 表映射：`req_documents` + `req_doc_refs`（参考关联）。
 
 ### DSG-C04-2 DocVersion（不可变，承接 REQ-203、REQ-209、BR-03、BR-05）
@@ -304,7 +304,11 @@ interface Draft {
 interface PendingPatch {
   id: Id; documentId: Id;
   targetSectionId: string;
-  oldText: string; newText: string;      // 最小补丁，禁止重写全文（原型 edit_patch 纪律）
+  /** 补丁类型（2026-10-05 增，差异登记条目 15）：add/modify/del 为最小补丁；replace=整篇重写提案
+      （单条补丁整篇替换、无定位依赖；空 newText 拒绝防误清空）——删除诉求无法经 markdown
+      增量表达，通道为 replace 或编辑态 doc.section.del */
+  type: 'add' | 'modify' | 'del' | 'replace';
+  oldText: string; newText: string;      // 最小补丁；replace 例外=整篇新文（差异登记条目 15）
   /** 新增节落位锚点（2026-10-04 增，向后兼容）：缺席=追加文末；''=文首前言之后；
       非空=插到同名标题节后（同名取首个命中），锚点落空退化追加文末、不抛错 */
   after?: string;
@@ -316,7 +320,7 @@ interface PendingPatch {
 }
 ```
 
-不变式：AI 提案不直接落稿，必须人工逐条接受/拒绝（REQ-205、BR-06）；接受时要求 `oldText` 在当前内容中精确匹配，不匹配整条命令失败（原型 accept-pending）；基线指纹变化 → `stale`。**定位失配回退（2026-10-04）**：`targetSectionId` 为位置性瞬时值（不落库、重切分即重派），命中失配时回退按锚点码→精确标题重定位，且 `oldText` 须为重定位命中节全文的子串（防错节静默命中）；重定位仍落空则按不匹配处理、整条失败。
+不变式：AI 提案不直接落稿，必须人工逐条接受/拒绝（REQ-205、BR-06）；接受时要求 `oldText` 在当前内容中精确匹配，不匹配整条命令失败（原型 accept-pending）；基线指纹变化 → `stale`。**定位失配回退（2026-10-04）**：`targetSectionId` 为位置性瞬时值（不落库、重切分即重派），命中失配时回退按锚点码→精确标题重定位，且 `oldText` 须为重定位命中节全文的子串（防错节静默命中）；重定位仍落空则按不匹配处理、整条失败。**统一命中口径（2026-10-04，差异登记条目 13）**：节定位单点为 `findSection`——锚点码任意位置提取 → 标题精确 → 剥离编号前缀（数字多级/第 N 章/第 N 节）精确 → ≥4 字符后缀兜底；normalizePatches、applyPatch 回退重定位、add 的 after 锚点三处同用（修「第五章改不到位」：UI 派生编号是渲染层产物，模型按编号指代/输出带编号标题时双落空退化为 add）。**改后接受（2026-10-04/06，差异登记条目 12/24）**：accept-pending 载荷可带 `newText`（非 del 且非空时覆盖提案新文再应用，reason 自动记「改后接受」随审计留痕；del/空串抛 VALIDATION_FAILED），需求/设计两域同构。**编号呈现口径（2026-10-07，差异登记条目 33②）**：UI 派生编号层（deriveNumbering，`@msf/shared` 前后端同函数）锚点码识别除需求域 `CR|REQ-nnn` 外泛化认设计册前缀码 `[hogkdaun]-\d{1,3}`，统一呈现 `1.1 标题（h-1）` 括号后缀形态，与生成链 buildNumberGuide「UI 编号 ⇢ 原始标题」对照表同源。
 表映射：`req_pendings`。
 
 ### DSG-C04-5 RtmLink（承接 REQ-207）
@@ -826,6 +830,9 @@ interface ReleaseDecision {
 interface AiSession {
   id: Id; projectId: Id;
   ctx: string;                       // 页面上下文：material/req/design/dev/test（REQ-601 上下文感知）
+  /** 会话绑定的文档工件（2026-10-08 增，差异登记条目 34）：req=crd|prd、design=八册 kind、
+      其余阶段缺席=阶段级会话组；会话粒度下沉到工件，修「选中详细设计某册却改了概要设计」 */
+  docKind?: string;
   name: string;
   createdAt: IsoTime; createdBy: Id;
   modelId?: Id; thinkLevel?: ThinkLevel;   // 会话级覆盖，缺省用助手默认
@@ -1027,6 +1034,9 @@ type DocContentCommand =
   | 'doc.propose-pending'       // AI 提案入待确认，不直接落稿
   | 'doc.import-draft'
   | 'doc.unlock'                // 解除定稿 readiness，触发下游输入失效观察（BR-07）
+  | 'doc.section.add' | 'doc.section.del'   // 编辑态增/删节（2026-10-05 增，差异登记条目 15：
+                                            // 镜像 save-html 锁+乐观锁链，写草稿自带 undo 栈；
+                                            // del 守卫 s0 文首不可删+至少保留一节）
   | 'doc.add-reference' | 'doc.remove-reference';
 ```
 
@@ -1120,7 +1130,13 @@ type SysCommand =
   | 'project.create' | 'project.update' | 'project.open' | 'project.leave'
   | 'policy.switch'                       // manual↔auto，本身永远 manual（REQ-711）
   | 'setting.update' | 'notification.read'
-  | 'rtm.deferred.mark' | 'rtm.deferred.unmark';
+  | 'rtm.deferred.mark' | 'rtm.deferred.unmark'
+  | 'rtm.rebuild'                         // RTM 锚点链幂等重扫重插（2026-10-05 增，差异登记条目 20：
+                                          // 定稿后人工核对入口 rtm:rebuild-check 内部经本命令重建+即时返回健康度）
+  // 文档模板套件（2026-10-07 增，差异登记条目 31/32；落 sys_template_sets 三表，LLD-4 DSG-D10-9）
+  | 'template_set.create' | 'template_set.rename' | 'template_set.delete'   // delete=同事务级联解绑，绑定方自动回退默认
+  | 'template_set.update_item' | 'template_set.delete_item'                 // 条目保存过 validateTemplate 专业度闸
+  | 'template_set.bind' | 'template_set.bind_kind';                         // 项目套件绑定 / 项目×文档类别级指定
 ```
 
 ### DSG-C10-3 领域事件类型（append-only 事件表载荷；承接 REQ-703、REQ-706）
@@ -1141,6 +1157,7 @@ type DomainEventType =
   | 'stage.material' | 'stage.req' | 'stage.design' | 'stage.dev' | 'stage.test'
   | 'material.parsed' | 'material.finalized' | 'material.bulk.done'
   | 'req.version.committed' | 'req.doc.finalized' | 'rtm.health.changed'
+  | 'req.upstream.changed'                // 提交链下游滞后通知（2026-10-05 增，差异登记条目 18；通知本体落 sys_notifications）
   | 'design.catalog.built' | 'design.prototype.generated' | 'design.prototype.checked' | 'design.baseline.confirmed'
   | 'baseline.change' | 'plan.invalidate' | 'dev.task.moved' | 'dev.pr.merged' | 'dev.build.completed'
   | 'dev.selftest.completed' | 'dev.transfer.confirmed'
@@ -1730,3 +1747,7 @@ class SystemError extends DomainError {}      // 平台/命令事务横切
 | 2026-09-20 | DSG-C03-4、DSG-C04-6、DSG-C06-5、DSG-C06-6、DSG-C08-2、DSG-C12-1、DSG-C13-1/2/3/4、§15(e)、§8 章首注、§16 | 波次 2 评审整改（E 组）：§15(e) 补注册 `L0C_BELOW`（与 `L0A_BELOW` 对称，develop 门禁 L0c 缺口专用子码，`RTM_HEALTH` 回归汇总级）；不变式可执行性 3 处——INV-DOC-6 拆 6a/6b/6c 机器可验子句（版本链连续/断链处置/恢复只追加）、INV-IMM-2 补验证方式（静态扫描+篡改测试）、INV-SCORE-1 消解 unknown 矛盾（status 闭集 {pass,fail,skipped,not-run}，闭集外记 `UI_OUTCOME_UNKNOWN` 按不通过计）；C06-6 导出格式 md/json→md+html（统稿 D-22，pdf 后续）；C04-6 补 l0a/l0b 空分母条款（分母为 0 记 1 并告警）；C06-5 SelfTestGate 补 gates 键→原型显示名映射（functional=功能检查、integration=联调与冒烟、ui=UI 符合度、review=开发审核）；C08-2 流式状态补 `failed` 终态（对齐 LLD-2 F02-12 与 LLD-4 ai_messages 落库枚举）；C03-4 按 REQ-111 新口径回改 basisSnapshot（弹窗整批快照+开始整批复核+执行中变化行跳过）并补作业级五态承载字段 `status`（INV-BULK-1 同步改述）；C12-1 声明规范化序列化以 LLD-2 DSG-F04-1 为权威（RFC 8785 JCS 子集+NFC）；§8 章首注 UsageRecord 改「从 Pi 消息结果提取 Usage」口径；§16 待澄清编号统一 C-<n> 制式 |
 | 2026-09-21 | DSG-C01-2、DSG-C03-1、DSG-C03-4、DSG-C04-5、DSG-C04-6、DSG-C06-1、DSG-C06-3、DSG-C08-2、DSG-C08-7、DSG-C10-2(c)(d) | 二轮评审整改：C04-6/LLD-2 F06-1 L0a 分母统一为 active R（deferred 不计入，与 L0b/L0c 同构，裁决）；C06-3 OperationStatus 补 `stale` 为六值（与 LLD-4 DSG-D06-3/LLD-5 A10-7 一致，承接 F01-2 stale/superseded 落库合并值）；C04-5 RtmLink 以 DB 为准（裁决）——relation 枚举改 `'refines'|'implements'|'verifies'|'deferred'|'dropped'`，删除独立 `deferred: boolean` 字段（deferred 以关系取值表达，明细随 rtm_health.deferred_items）；C08-7 DelegationStatus 以 LLD-4 六值为准（裁决）——改 `queued/running/succeeded/failed/failed_timeout/cancelled`，删「超时以 failed+errorMessage 记录」注；C08-2 补 `paused` 界定（运行时缓冲层状态，不落 ai_messages.status）；C03-1 source 枚举对齐 LLD-4 DSG-D03-2（`upload|zip_extract|inline_extract`）；C06-1 删 dev_tasks evidence JSONB 列误注（LLD-4 实无该列，改注 CI 结论落 dev_ci_reports、单测证据经 evd_records）；C03-4 删「LLD-4 DSG-D03-5 枚举待同步对齐」过期注（实际已对齐）并补行级落库列名 mat_batch_items.result；C10-2(d) 补上传会话生命周期命令 4 条（material.upload.create/part/complete/abort，对应 LLD-5 A03-1/2/3/18）、C10-2(c) 补 `ci.callback.receive`（LLD-5 A06-21），命令闭集审计链闭环；C03-1 原型出处行号重刷（devStableString/devHash L4717-4718，删不存在的 K()/H() 引用） |
 | 2026-10-04 | DSG-C04-4 | 差异回补（`doc/dev-plan/AI会话互通与对话改文档-差异登记.md` 条目 9）：PendingPatch 增可选 `after` 落位锚点（三态：缺席=追加文末兼容 / ''=文首前言后 / 非空=同名标题节后，落空退化追加不抛错）——修整篇重生成新增大章堆文末逆序；不变式补定位失配回退（锚点码→标题重定位 + old⊆命中节校验防错节静默命中） |
+| 2026-10-10 | DSG-C04-4 | 差异回补（登记条目 13、15、33②）：PendingPatch 增 `type` 闭集 add/modify/del/replace（replace=整篇重写提案，无定位依赖、空 newText 拒绝；del 不经 markdown 增量表达，删除走 rewrite 或 doc.section.del）；补统一命中口径不变式（findSection 单点：锚点码任意位置→标题精确→剥离编号前缀→≥4 字符后缀兜底，normalizePatches/applyPatch/after 锚点三处同用）；补改后接受口径（accept-pending 载荷 newText 覆盖提案新文，两域同构）；补编号呈现口径（deriveNumbering 泛化认设计册前缀码 `[hogkdaun]-\d{1,3}`，`1.1 标题（h-1）` 括号后缀形态） |
+| 2026-10-10 | DSG-C04-1、DSG-C10-3 | 差异回补（登记条目 18）：提交链上游变更联动——`doc.commit-version` 同事务判定下游滞后（下游有已提交版本且上游当前版本 submitted_at 更晚，纯只读派生零 schema，CRD→PRD→设计八册不跨级），命中写 `sys_notifications`+`evd_events`（type `req.upstream.changed`，DomainEventType 同步注册） |
+| 2026-10-10 | DSG-C10-2 | 差异回补（登记条目 15、20、31/32）：(a) 组增 `doc.section.add`/`doc.section.del` 编辑态增删节命令；(f) 组增 `rtm.rebuild`（rtm:rebuild-check 定稿后人工核对入口内部命令）与模板套件七命令 `template_set.create/rename/delete/update_item/delete_item/bind/bind_kind` |
+| 2026-10-10 | DSG-C08-1 | 差异回补（登记条目 34）：AiSession 增可选 `docKind` 工件绑定（req=crd|prd、design=八册 kind、缺席=阶段级会话组；落库列 `ai_sessions.doc_kind`，迁移 0029）——会话粒度下沉到工件 |

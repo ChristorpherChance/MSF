@@ -33,10 +33,17 @@ const NON_CODE = new Set([
   'HTML', 'HTTP', 'HTTPS', 'REST', 'JSON', 'JSONB', 'JSONL', 'CSRF', 'SSRF',
   'OIDC', 'LDAP', 'RBAC', 'ASCII', 'ISO8601', 'SHA256', 'UUID', 'ULID',
   'CRC32', 'DEFLATE', 'STORE', 'ZIP64', 'EOCD', 'YOLO', 'CRUD',
+  'CORS', 'HMAC', 'IEEE', 'WCAG', 'ECONNRESET', 'DIRTY',
   // HTTP/SQL 动词与关键字（LLD-4 DDL、LLD-5 端点表）
   'POST', 'PATCH', 'DELETE', 'UPDATE', 'INSERT', 'SELECT', 'WHERE', 'FROM',
   'JOIN', 'LIMIT', 'NULL', 'DEFAULT', 'UNIQUE', 'CHECK', 'BEFORE', 'RAISE',
   'EXCEPTION', 'TRUNCATE', 'DESC', 'APPEND_ONLY', 'BRIN', 'HOME',
+  'ORDER', 'LEFT', 'DISTINCT', 'CASCADE',
+  // 部署 env 变量名（条目 35/36 部署形态口径引用；非平台码值）
+  'MSF_AUTH_USER', 'MSF_AUTH_PASS', 'MSF_WEB_DIST', 'MSF_FILES_PROXY',
+  'MSF_MINIO_ENDPOINT',
+  // 生成链共享模块常量/配置标识符（doc-conventions/stage-guides/流式管线）
+  'CHAPTER_RULE', 'STAGE_GUIDES', 'MAX_RELAY_ROUNDS', 'DOC_READ_CAP',
   // 文档/散文词/文件名
   'README', 'CONTRIBUTING', 'UPPER_SNAKE', 'STOPPED', 'VERIFY',
   // 原型事实源标识符（非本平台码值；仅允许出现在「原型出处」语境，靠评审约束）

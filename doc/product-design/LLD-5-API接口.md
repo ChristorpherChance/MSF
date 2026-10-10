@@ -23,7 +23,9 @@
 - 本期为本地默认身份（单工程师）：未配置账号体系时，鉴权中间件放行并注入默认身份 `local-default`，但**所有响应与审计中的 `actor` 字段必须携带该身份**，不留空（REQ-707、ADR-9）。
 - 预留 OIDC/LDAP：认证过滤器链按「本地会话 → OIDC Bearer → LDAP Bind」扩展点设计，本期仅实现第一环。
 - 虚拟执行者身份：AI/autopilot 发起的服务端内部调用携带 `X-Actor-Type: assistant|sub-agent|autopilot` 与 `X-Run-Id`/`X-Run-Token`，与人工 `human` 严格区分（BR-08、BR-13；操作者类型枚举以 LLD-3 DSG-C01-3 为权威：`human|assistant|sub-agent|autopilot|system`）。外部客户端不得伪造这两个头，网关在入站时剥离。
-- CSRF：Cookie 会话的写请求要求 `X-CSRF-Token`（双提交 Cookie）。
+- CSRF：Cookie 会话的写请求要求 `X-CSRF-Token`（双提交 Cookie）。部署形态现状注（2026-10-08）：env 门控简易登录会话的 CSRF 防线 = `SameSite=Lax` + 未开 CORS（跨站写请求浏览器层拦截）+ 写操作必带 `Idempotency-Key` 自定义头（跨站预检不过），未另发 X-CSRF-Token；双提交令牌为账号体系接入后的完整形态。
+- **部署形态：env 门控简易登录（2026-10-08，REQ-707 分期口径：本地默认身份 → env 门控简易登录 → OIDC/LDAP 预留扩展点）**：`MSF_AUTH_USER`+`MSF_AUTH_PASS` 双 env 同时设置才启用（**未设置 = 本地开发零鉴权，上方默认身份口径完全不变**；口令只经部署 env 注入，不落库不落文档不进 git）。启用后鉴权中间件挂在身份注入之前，`/api/**` 无有效会话 Cookie → 401 `UNAUTHENTICATED`；豁免 `/api/auth/login`、`/api/auth/whoami`（前端启动探测）、`/health`（探活）；静态前端产物不拦（bundle 无敏感数据，数据全走 API）。会话 = HMAC-SHA256 签名 Cookie `msf_auth`（`<exp>.<sig>`，无状态 7 天，`HttpOnly; SameSite=Lax`，签名密钥由平台根密钥派生、与数据加密同根不同域）。端点三件套挂 `/api/auth`（部署设施面，不进 `/api/v1` 版本线）：`GET /api/auth/whoami`（`{enabled,user}` 两态恒 200）、`POST /api/auth/login`（口令恒时比较防时序侧信道；限流双闸 = 同 IP（反向代理取 XFF 首跳）错 5 次锁 10 分钟 + XFF 可伪造补全局 30 次/10 分钟，429 `RATE_LIMITED`）、`POST /api/auth/logout`（清 Cookie）。
+- **同进程静态托管（2026-10-08）**：`MSF_WEB_DIST` 设置且 index.html 存在时，应用进程直接托管前端构建产物，无扩展名 GET 路径回退 index.html（SPA 路由），`/api`、`/health` 除外——单端口单进程部署形态，免独立 Web 服务器。
 - 承接：REQ-707、REQ-803、BR-08、BR-13。
 
 ### 1.3 幂等与命令事务（DSG-A01-3）
@@ -103,6 +105,7 @@ HTTP 状态码约定：
 | --- | --- | --- |
 | `stream.delta` | AI 流式增量分片 | `streamReply/tickStream` |
 | `stream.done` / `stream.error` | 流结束/失败 | 同上 |
+| `stream.notice` | 流式过程提示（非终态通知，不改变流状态；data 含 `message`） | 生成链断流自动重试（见本条下文） |
 | `operation.progress` | 异步操作进度（operationId+percent+message） | BR-08 |
 | `operation.completed` / `operation.failed` / `operation.stale` | 异步操作终态 | BR-08 |
 | `parse.progress` / `parse.completed` / `parse.failed` | 资料解析进度 | `v11Parse/batchParse` |
@@ -116,6 +119,8 @@ HTTP 状态码约定：
 | `notice.created` | 通知中心新通知 | REQ-703 |
 
 - 生成类专用短通道：文档/AI 生成也可直接以 SSE 响应（`POST ...:generate`、`POST .../messages` 返回 `text/event-stream`），事件类型同上 `stream.*`；完成后通道关闭。**消费方式约束（波次 2 补充）**：浏览器 `EventSource` 仅支持 GET，不能消费本类 POST-SSE 响应；前端必须用 `fetch` + `ReadableStream`（或等价的 SSE-over-fetch 库）读取响应流并自行解析事件帧。POST-SSE 无自动重连：中断后须以同一 `Idempotency-Key` 重新发起命令（服务端幂等去重、不产生重复执行），已产出增量经对应查询端点（如消息游标分页）补拉；无需请求体的长连订阅一律走上方 GET 通道（`EventSource` + `Last-Event-ID` 续播）。
+- **反代直通头（2026-10-09 公网部署适配）**：全部 SSE 端点（AI 消息发送/断线续挂、需求/设计文档生成、原型页级生成、系统通知流）响应统一带 `X-Accel-Buffering: no`——前置 nginx 默认 `proxy_buffering=on` 会把 SSE 整包缓冲到响应结束才吐（公网链路实测单 chunk 3368ms 整包 vs 直连真流式），此头令其逐帧直通；无前置代理的本地部署不受影响。
+- **断流有界重试（2026-10-09）**：生成链对传输层断流自动重试，命中形态由分类器界定（stream closed before/disconnected/premature close/socket hang up/ECONNRESET/fetch failed/timeout 等）；限流 429/鉴权 401·403/配额类明确排除（重试无意义且放大成本）。上限：文档域（DSG-A04-4/A05-2）各 1 次；原型（含页级，DSG-A05-6）总上限 2 次且断流重试不消耗契约修正机会；`status=stopped` 绝不重试（stop 语义不破）。每次重试先经 `stream.notice` 帧告知客户端（不静默）；**客户端对未知帧型必须显式分支，不得在 else 兜底按失败处理**（实机教训帧）。AI 会话消息流（DSG-A08-3，含接力轮）不在此列——消息用户可重发，且已广播 delta 无法回收，重试会污染消息内容。
 - 承接：REQ-202、REQ-603、REQ-703、BR-08。
 
 ---
@@ -314,6 +319,8 @@ HTTP 状态码约定：
 - 请求：`{ "referenceFileIds": ["f_9"], "referenceFingerprints": { "f_9": "sha256:…" }, "instruction": "生成 CRD 初稿", "thinkingLevel": "mid" }`
 - 响应事件：`stream.delta`（若干）→ `stream.done`（含 `operationId`、`proposedPatchIds`）。生成内容以**待确认补丁**呈现，不直接落稿（REQ-205）。
 - 消费方式：本端点为 POST-SSE，浏览器 `EventSource` 不可用；前端必须以 `fetch` + `ReadableStream` 消费事件流（约束与断线重试纪律见 DSG-A01-6）。
+- **生成 prompt 构成（单一权威，2026-10-04~08 差异回补）**：文档结构规范收敛于共享模块 doc-conventions——CHAPTER_RULE 大章约定（中文数字+顿号，与渲染层 `deriveNumbering` 判定同源）、reqSectionRule 节级锚点码（CR-nnn/REQ-nnn）、designSectionRule 册前缀码（h/o/g/k/d/a/u/n-n）及**章码组合关系**（大章只分组不带码不载内容、条目节紧随所属大章、同一主题禁止章码双出）；需求/设计两侧初稿、增量、rewrite 与对话提案六处 prompt 全部单点引用该模块。十类默认文档模板（doc-templates，标准映射：CRD/PRD=ISO/IEC/IEEE 29148、设计五册=ISO/IEC/IEEE 42010、API=OpenAPI 3.1、UI=WCAG 2.2、NFR=ISO/IEC 25010）经 buildTemplateGuide 注入初稿与整篇重写 prompt（增量修订不重复注入），含质量 bar、结构骨架、编写规则与「用户模板优先」声明（参考资料中的用户模板自然压过默认模板）；模板解析链三级 = 项目×类别指定 → 项目绑定套件条目 → 代码默认（设施见 DSG-A10-8）。**增量修订分支**：instruction 与 currentContent 双非空时只输出变化节，并附 buildNumberGuide「UI 派生编号 ⇢ 原始标题」对照表与「输出禁止带编号前缀」约束（整篇生成无基线不注入）——UI 编号是渲染层产物，模型只见原始标题（「第五章改不到位」根修）。**rewrite 附加口径**：用户指示按模板重写时以模板结构骨架为准重排大章，未指示时保持基线结构。
+- **断流重试**：本端点生成流适用 DSG-A01-6 断流有界重试口径（1 次），重试经 `stream.notice` 帧告知。
 - 错误码：`REFERENCE_NOT_FINAL`、`REFERENCE_STALE`。承接：REQ-202、REQ-114、REQ-115、REQ-205、REQ-608。
 
 ### DSG-A04-5 生成过程控制
@@ -327,7 +334,7 @@ HTTP 状态码约定：
 - 说明：草稿 → 新历史版本；**已提交版本字节不可变、编号不复用**。
 - 请求：`{ "note": "用户提交", "baseVersion": 13 }`
 - 响应 201：`{ "v": 4, "versionFingerprint": "sha256:…", "at": "…" }`
-- 错误码：`INVALID_STATE`（无未提交修改）、`VERSION_CONFLICT`。承接：REQ-203、REQ-209、BR-05、`commitVer`。
+- 错误码：`INVALID_STATE`（无未提交修改）、`VERSION_CONFLICT`。**上游变更联动（2026-10-05）**：提交同事务判定下游滞后（口径 = 下游有已提交版本且上游当前版本 submitted_at 更晚；链路 CRD→PRD→设计八册，不跨级；下游从未提交/上游无版本不标）即写入通知中心（type `req.upstream.changed`，带目标路由与滞后册清单，见 DSG-A10-2 注）并留 evd_events 事件；noticeId 随命令回执由包装层补推 SSE `notice.created`。下游文档列表/详情查询（DSG-A04-1/A04-2、DSG-A05-1）携带 `upstreamStale`/`upstreamVersionNo` 派生标记（纯只读派生，零存储变更），供 UI 滞后徽标与 agent 联动提醒（DSG-A08-3）同源消费。承接：REQ-203、REQ-209、BR-05、`commitVer`。
 
 ### DSG-A04-7 版本定稿
 - `POST /api/v1/projects/{projectId}/requirements/docs/{docId}/versions/{v}:finalize` ｜ 命令型 ｜ 幂等：必需
@@ -349,9 +356,11 @@ HTTP 状态码约定：
 ### DSG-A04-10 待确认补丁：查询 / 接受 / 拒绝
 - `GET .../docs/{docId}/patches` ｜ 查询型：`{ "items": [ { "patchId": "pd_1", "secId": "s1", "type": "modify", "old": "…", "new": "…", "source": "ai", "status": "pending", "reason": null } ] }`（`reason` 为处置理由，未裁决或未填写为 null——R-04-1）
 - `POST .../docs/{docId}/patches/{patchId}:accept | :reject` ｜ 命令型 ｜ 幂等：必需
-- 请求：`{ "reason": "…" }`（可选；处置理由随裁决落库 req_pendings.reason，UI「处置留痕」回放——R-04-1）
+- 请求：`{ "reason": "…" }`（可选；处置理由随裁决落库 req_pendings.reason，UI「处置留痕」回放——R-04-1）；accept 另支持 `newText`（2026-10-04/06，处置四态之「改后接受」：非 del 且非空时覆盖提案新文再落稿，reason 自动记「改后接受」，payload 随命令审计留痕；del 补丁或空串传 newText → `VALIDATION_FAILED`）。
 - 响应 200：`{ "patchId": "pd_1", "applied": true, "version": 14 }`
 - 说明：逐条人工处理；接受 → 落草稿并标 modified；拒绝 → 恢复原内容。承接：REQ-205、`acceptPend/rejectPend`。
+- **补丁类型扩 `replace`（2026-10-05）**：整篇重写·全文替换补丁，由对话改文档 `mode:'rewrite'` 提案通道产出（DSG-A08-5），单条承载整篇新文；接受 = 全文整替（空 new 拒绝不落稿防误清空），`newText` 改后接受同构可用；查询响应补丁项 `type ∈ add|modify|del|replace`。
+- **批次顺序（2026-10-04，迁移 0025）**：propose 批内补丁带 `seq` 序号，列表查询按 `ORDER BY created_at, seq` 双列排序——同事务批写 created_at 同值，单列排序次序不定会打乱链式 after 锚点的接受顺序（req/design 两域同治）。
 
 ### DSG-A04-11 RTM 查询
 - `GET /api/v1/projects/{projectId}/requirements/rtm` ｜ 查询型
@@ -366,8 +375,26 @@ HTTP 状态码约定：
 ### DSG-A04-13 文档导出
 - `POST .../docs/{docId}/versions/{v}:export` ｜ 命令型 ｜ 幂等：必需
 - 请求：`{ "format": "md|html" }`（本期交付 md+html，pdf 列后续扩展）；响应 202 `{ "operationId": "op_exp_1" }`，完成事件带签名下载 URL。
-- **派生编号注入（2026-10-04）**：导出各格式标题经 `withNumberedTitles` 注入派生章节编号（大章=中文数字+顿号标题保留原文，其下节编 `X.Y`；普通节顺序编号；含 CR-/REQ- 锚点码节以「编号 + 标题（锚点码）」呈现），与页面目录栏同函数同口径（`packages/shared` `deriveNumbering` 前后端共享）；存储零改动、RTM 内容锚点不断链。
+- **派生编号注入（2026-10-04）**：导出各格式标题经 `withNumberedTitles` 注入派生章节编号（大章=中文数字+顿号标题保留原文，其下节编 `X.Y`；普通节顺序编号；含 CR-/REQ- 锚点码节以「编号 + 标题（锚点码）」呈现），与页面目录栏同函数同口径（`packages/shared` `deriveNumbering` 前后端共享）；存储零改动、RTM 内容锚点不断链。（2026-10-06/07 扩展）设计八册导出同口径包 `withNumberedTitles`；`deriveNumbering` 锚点码识别由 CR-/REQ- 泛化为设计册前缀码 `[hogkdaun]-\d{1,3}`，统一「编号 标题（锚点码）」括号后缀形态（与生成 prompt 注入的 buildNumberGuide 对照表同源，DSG-A04-4 注）。
 - 承接：REQ-203、`dlPopover`（原型模拟导出 → 真实导出）。
+
+### DSG-A04-14 RTM 覆盖闭环（重建映射 + AI 补齐缺口）
+- `POST /api/v1/projects/{projectId}/requirements/rtm:rebuild-check` ｜ 命令型 ｜ 幂等：必需
+- 说明（2026-10-05 差异回补）：RTM 锚点映射幂等重建（`rtm.rebuild` 命令）+ 实时健康度即时返回。锚点链本随 `versions:commit` 自动重建，本入口面向**定稿后人工核对**场景。
+- 响应 200：健康度结构同 DSG-A04-12（四指标 + thresholds + gaps + deferredItems）。
+- `POST /api/v1/projects/{projectId}/requirements/rtm:coverage-fix` ｜ 命令型 ｜ 幂等：必需
+- 说明：按当前健康度缺口清单分组生成补齐提案——`L0A_BELOW`（R→CR 缺口）对 CRD 提案、`RTM_HEALTH`（CR→REQ 缺口）对 PRD 提案，经对话提案通道同构服务路径（DSG-A08-5 req.doc.propose_edits：守卫人话/竞态翻译/usage 落账）产出待确认补丁，**不直写文档**；缺口条目编号作为提案承接锚点、节编号顺延。PRD 侧提案纪律（实机教训：CRD 重编号场景下「只新增」= 整批复制既有 REQ 语义）：**优先**整章重写语义对应但承接锚点陈旧/缺失的既有 REQ 节，确无语义对应才新增，不得重复新增。无缺口时幂等返回空结果。**长耗时同步调用**（真模型 1~3 分钟）：客户端须挂常驻进度提示，完成后引导用户到目标文档页处置补丁（确认补丁 → 提交 → 回本页再检查的回环）。
+- 响应 200：`{ "ok": true, "results": [ { "kind": "crd", "ok": true, "patchCount": 2 }, { "kind": "prd", "ok": false, "reason": "已定稿，请先解锁" } ] }`（无缺口时 `results` 为空数组）。
+- 错误码：`INVALID_STATE`（提案守卫：文档未生成/已定稿未解锁/有待确认补丁等）。承接：REQ-205、REQ-207、REQ-208。
+
+### DSG-A04-15 章节增删（编辑态）
+- `POST .../docs/{docId}/sections` ｜ 命令型 ｜ 幂等：必需（命令 `doc.section.add`，2026-10-05 差异回补）
+- 说明：编辑态在指定节后新增章节；守卫：title 非空且剥离 `#` 前缀、md 禁带 `## ` 节标题。管线与草稿保存同口径：文档锁 → 可编辑断言 → 草稿优先 → 双因子乐观锁 → 写草稿（自带 undo 栈，可 ↩ 撤销）→ 不变量断言。
+- 请求：`{ "afterSecId": "s1", "title": "新章节", "md": "…", "baseVersion": 14 }`
+- 响应 200：`{ "secId": "s2", "version": 15 }`
+- `POST .../docs/{docId}/sections/{secId}:delete` ｜ 命令型 ｜ 幂等：必需（命令 `doc.section.del`）
+- 说明：删除指定节；守卫：文首前言节（s0）不可删、至少保留一节；可 ↩ 撤销。
+- 错误码：`VALIDATION_FAILED`（title/md 守卫）、`INVALID_STATE`（已定稿/s0/末节守卫）、`NOT_FOUND`（节不存在）、`VERSION_CONFLICT`。承接：REQ-203、REQ-204、BR-05、BR-12。
 
 ---
 
@@ -378,11 +405,12 @@ HTTP 状态码约定：
 ### DSG-A05-1 设计文档八册：列表
 - `GET /api/v1/projects/{projectId}/design/docs` ｜ 查询型
 - 响应 200：`{ "items": [ { "id": "hld", "book": "h", "title": "概要设计说明书", "finalized": true }, { "id": "lld-module", "book": "o", "title": "模块/组件详细设计", "finalized": false } ] }`
-- 说明：共 8 册——概要 1 册（`h`）+ 详细 7 册（`o/g/k/d/a/u/n`），章节前缀以此为准（RTM 设计节点类型同此枚举）。各册的草稿编辑、版本、生成、补丁、undo/redo **复用需求域端点形态**（DSG-A04-3~10），路径为 `/design/docs/{docId}/...`，此处不重复定义。承接：REQ-301、REQ-302。
+- 说明：共 8 册——概要 1 册（`h`）+ 详细 7 册（`o/g/k/d/a/u/n`），章节前缀以此为准（RTM 设计节点类型同此枚举）。各册的草稿编辑、版本、生成、补丁、undo/redo **复用需求域端点形态**（DSG-A04-3~10），路径为 `/design/docs/{docId}/...`，此处不重复定义。**设计域补丁处置对齐（2026-10-06，迁移 0026）**：accept-pending 增 `reason`/`newText`（「改后接受」覆盖提案新文、del/空串 `VALIDATION_FAILED`、reason 记「改后接受」，与需求域逐字同构），reject-pending 增 `reason` 落库（dsg_pendings.reason）；导出与需求域同口径注入派生编号（DSG-A04-13 注）；八册列表/详情携带 `upstreamStale`/`upstreamVersionNo` 上游滞后派生标记（DSG-A04-6 注口径）。承接：REQ-301、REQ-302。
 
 ### DSG-A05-2 设计文档 AI 生成（SSE）
 - `POST /api/v1/projects/{projectId}/design/docs/{docId}:generate` ｜ 命令型 ｜ SSE，同 DSG-A04-4（POST-SSE 消费方式约束同 DSG-A01-6：EventSource 不可用，须 fetch + ReadableStream）
 - 请求：`{ "referenceFileIds": ["f_9"], "basedOnDocVersions": { "prd": 4 }, "instruction": "生成模块册", "thinkingLevel": "high" }`
+- **生成 prompt 构成（2026-10-06 差异回补）**：与 DSG-A04-4 注同口径——doc-conventions 单一权威（designSectionRule 册前缀码与章码组合关系：大章只分组不带码、条目节紧随所属大章、同一主题禁章码双出）、doc-templates 按册标准映射注入初稿与 rewrite；**增量修订分支**（instruction+currentContent 双非空）同样只输出变化节并附 buildNumberGuide 编号对照表（设计域此前增量走初稿 prompt 整篇重出、无基线无对照表，「第五章改不到位」同患根修）。断流重试 1 次（DSG-A01-6 口径）。
 - 承接：REQ-302。
 
 ### DSG-A05-3 设计评审项
@@ -408,6 +436,7 @@ HTTP 状态码约定：
 - 说明：目录驱动生成完整可交互 UI 原型（页面×状态×视口）；生成动作与规划可见；前置门禁按 `generate` 求值（PLAN_REQUIRED/PLAN_STALE/PROTOTYPE_DIRTY/PROTOTYPE_FINALIZED）。
 - 请求：`{ "planId": "plan_3", "planFingerprint": "sha256:…" }`
 - 响应 202：`{ "operationId": "op_pg_1", "prototypeVersionId": "pv_5" }`
+- **断流重试（2026-10-09）**：原型（含页级）生成流传输层断流自动重试总上限 2 次，且断流重试不消耗契约修正机会（attempt 回退）；重试经 `stream.notice` 帧告知（口径见 DSG-A01-6）。
 - 错误码：`GATE_BLOCKED`（423，issues 见 DSG-A05-10）。承接：REQ-305、`designGeneratePrototype`。
 
 ### DSG-A05-7 原型检查
@@ -733,17 +762,22 @@ HTTP 状态码约定：
 - `POST /api/v1/projects/{projectId}/ai/sessions` ｜ 命令型：请求 `{ "context": { "stage": "req", "docId": "doc_crd" } }`，响应 201 `{ "sessionId": "ss_1" }`
 - `GET /api/v1/projects/{projectId}/ai/sessions` ｜ 查询型（历史保留）
 - 说明：AI 会话一律归属项目、挂在项目路径下（波次 2 修订，对齐 DSG-A01-1 项目隔离规则：服务端校验会话 `project_id` 与路径一致，不一致 403 `FORBIDDEN` + 缺口子码 `PROJECT_SCOPE`）；LLD-4 `ai_sessions.project_id` 的 NULL 全局会话为扩展预留，本期不产生端点。
+- **会话粒度下沉到工件（2026-10-08，迁移 0029 `ai_sessions.doc_kind`）**：创建请求 `context` 增 `docKind`（req=crd|prd、design=八册 kind、其余阶段 NULL=阶段级会话组）；非法/越阶段 `VALIDATION_FAILED`；默认会话名带文档标签（如「模块设计·ss_6」）。列表查询增 `?docKind=` 精确过滤（NULL 组兼容，缺省=不过滤的老口径）。前端 dock 按 `ctx:docKind` 分组会话列表与草稿、页面自报当前工件——人（UI 选中文档）与 AI（会话上下文）坐标一致（根修「选中详细设计某册、AI 却改了概要设计」）；会话系统提示注入【当前工件】块，工具 kind 默认用绑定值（DSG-A08-3 注）。
 - 承接：REQ-601、REQ-602。
 
 ### DSG-A08-2 消息：历史查询
 - `GET /api/v1/projects/{projectId}/ai/sessions/{sessionId}/messages?cursor=…` ｜ 查询型
 - 响应 200：`{ "items": [ { "id": "m_1", "role": "user|assistant|tool", "text": "…", "tool": { "name": "parser.rerun", "detail": "耗时 12.6s · tokens 4.2k" }, "at": "…" } ], "nextCursor": "…" }`
+- 排序注（2026-10-05）：`ORDER BY created_at DESC, (role='ai') DESC` 同刻决胜——user+ai 两条消息同事务插入、created_at 同为事务时间戳，单列排序次序不确定（前端反转后偶发 ai 压 user）；补 role 决胜后展示恒 user 在上、user→ai 严格交替。
 - 承接：REQ-602。
 
 ### DSG-A08-3 发送消息（SSE 流式）
 - `POST /api/v1/projects/{projectId}/ai/sessions/{sessionId}/messages` ｜ 命令型 ｜ 幂等：必需 ｜ 响应 `text/event-stream`
 - 说明：流式逐字输出；页面上下文感知（请求带当前视图/选中工件）；引用已定稿资料受 REQ-114/115 门禁约束。
 - **系统提示构成（2026-10-04）**：buildPrompt 注入【能力边界】（AI 不直写文档/代码/原型/放行，改文档走 `req.doc.propose_edits` 提案通道，结果未知不断言「已提交」）+【可用工具】声明 +【他阶段会话】注入块（同项目其他阶段最近会话摘要，预算 3000 字，注入查询失败静默降级不影响主流程）；用户指令截 2000 字知情截断。
+- **系统提示构成（续，2026-10-05~08 差异回补）**：buildPrompt 另注入——【当前工件】块（会话 docKind 绑定文档名+kind+「工具 kind 默认用绑定值，用户明确要求其他文档才换并说明」，DSG-A08-1 注）；【阶段职责与方法】块（STAGE_GUIDES 按会话 ctx 六枚举注入：req/design/proto/dev/test/material 各数百字，未知 ctx 不注入；总纲「诊断 → 方案 → 落到可确认提案/可照做步骤」——有提案通道的 req/design 阶段查出缺口**必须主动补齐成 propose_edits 提案**（缺失→add 编号顺延、口径不全→modify 对应节、大面积重排→rewrite），不得只把建议写在对话里；无提案通道阶段给「哪个页签、点哪个按钮、准备什么内容」的步骤化方案；req 指南钉死覆盖核对方法论（读齐全文 → 逐条映射表引原文 → 明确结论 → 主动补齐）；**批量重编号/批量改标题类诉求必须用 `mode:rewrite`**——patch 通道按标题/锚点匹配，标识符即匹配键，一变全误判新增）；【联动提醒】块（上游滞后：PRD/设计册滞后清单+双方版本号+主动询问是否跟随修订，与 UI 徽标同源同口径，派生失败静默降级不阻断聊天，口径见 DSG-A04-6 注）。生成/提案 prompt 的文档结构规范与模板注入为共享模块单点（doc-conventions/doc-templates，口径见 DSG-A04-4 注），agent 提案与生成链走同一 prompt 来源、单点生效。
+- **agentic 接力循环（2026-10-05 上线、2026-10-09 调参）**：模型回复中的 ` ```msf-tool ` 围栏块在流末剥离并执行后，**执行结果回喂模型续跑**——同一条消息内多轮接力：换 provider 新会话续跑（续跑 prompt = basePrompt +【工具执行结果】JSON（单结果截 16000 字）+「直接给结论」指引），content 逐轮拼接、usage 逐轮累加（input/output/cost）、stop 传导终结；仅在流 run 的 onFinish 内、终帧广播前进行（消息未 done，重放完整性不破），thinkLevel 沿用首轮，delta 走同一 emit 管线（滚动窗+暂停缓冲，前端无感衔接）；invoke 失败同样以 `{error}` 回喂。接力上限 `MAX_RELAY_ROUNDS=8`（初版 3——读密集流程 3 轮耗尽后提案发不出、围栏原文残留消息尾，2026-10-09 上调；防失控靠「内容无围栏即停」而非轮数），末轮续跑 prompt 带 lastChance 警告（「最后一次工具回喂机会：直接给结论/提案，别再发起读取」）；**封顶善后**：退出时仍带围栏则剥除不执行（raw 围栏露出会让用户以为「AI 答应却没动静」），消息内补「回复『继续』我会接着完成」并后端 console.warn 留痕。**接力轮失败可观测化**：续跑失败（如网关瞬断 503）catch 留痕（console.error）并在消息内补用户可见提示「续答生成失败……请重发你的问题」，同时**终止接力**（故障期继续接力只会连败至上限）；首轮成果与工具卡保留、消息仍 done、usage 仅计已成功轮。工具声明文本尾句同步为「结果以工具卡随消息呈现、并自动回给你继续回答」（声明点口径同步纪律）。
+- **未闭合尾围栏容错（2026-10-06）**：围栏块采集为 span 制——闭合块照常；回合末尾**未闭合围栏在体部 JSON 完整合法时按一个块收**（剥离+执行+回喂接力全链照常）；半截 JSON（流被截断形态）绝不执行（防半参数调用）、现场保留不崩溃。
 - 请求：`{ "text": "生成 CRD 初稿", "context": { "view": "stage-req" }, "referenceFileIds": ["f_9"], "thinkingLevel": "low|mid|high" }`
 - 响应事件：`stream.delta` × N → `stream.done`（含 `messageId`、`usage`、`toolCalls[]`）。
 - 消费方式：本端点为 POST-SSE，浏览器 `EventSource` 不可用；前端必须以 `fetch` + `ReadableStream` 消费事件流（约束与断线重试纪律见 DSG-A01-6）。
@@ -759,7 +793,10 @@ HTTP 状态码约定：
 - `GET /api/v1/ai/tools` ｜ 查询型
 - 响应 200：`{ "items": [ { "name": "nav.goto", "description": "按名称跳转平台视图", "params": { "view": "string" }, "risk": "read|write", "enabled": true } ] }`
 - 说明：工具清单注册式管理；调用过程可见、可审计（每次调用入审计流）。**保留全局路径、不挂项目作用域（波次 2 裁决）**：工具注册表为平台级注册、内容不随项目变化，无项目归属语义。承接：REQ-605、REQ-606、`AGENT_TOOLS/registerTool/NAV_MAP`。
-- **工具桥两分（2026-10-04）**：①内置工具经 `ai.tool.invoke` 命令事务（写工具越界名单拒绝并留痕）；dock 会话允许集为六件套——`nav.goto`（导航）/`doc.read`+`chat.history.read`（只读，`chat.history.read` 跨阶段读同项目他阶段会话历史）/`req.doc.propose_edits`（propose 档：对话改文档提案，产出待确认补丁不直写）等，`ToolDef.kind` 扩为 `'read'|'nav'|'propose'` 三值。②**外部工具注册表旁路**（`registerExternalTool`）：嵌套在 LLM 工具循环内执行的工具（如 `req.doc.propose_edits`）不经 `ai.tool.invoke` 命令事务，留痕=ai_tool_calls recordDirect（成功/失败两路）+ 内部命令审计行（doc.propose-pending），不产生 ai.tool.invoke 审计行（设计口径）。**机制约束**：旁路入口先查注册表即执行、绕开写工具拒绝名单与允许集校验——新注册旁路工具时必须在旁路入口补名单校验，否则 REQ-606 越界拦截被静默击穿（终审登记，当前注册表仅 propose_edits 无暴露面）。
+- **工具桥两分（2026-10-04）**：①内置工具经 `ai.tool.invoke` 命令事务（写工具越界名单拒绝并留痕）；dock 会话允许集为六件套——`nav.goto`（导航）/`doc.read`+`chat.history.read`（只读，`chat.history.read` 跨阶段读同项目他阶段会话历史）/`req.doc.propose_edits`（propose 档：对话改文档提案，产出待确认补丁不直写）等，`ToolDef.kind` 扩为 `'read'|'nav'|'propose'` 三值。②**外部工具注册表旁路**（`registerExternalTool`）：嵌套在 LLM 工具循环内执行的工具（如 `req.doc.propose_edits`）不经 `ai.tool.invoke` 命令事务，留痕=ai_tool_calls recordDirect（成功/失败两路）+ 内部命令审计行（doc.propose-pending），不产生 ai.tool.invoke 审计行（设计口径）。**机制约束**：旁路入口先查注册表即执行、绕开写工具拒绝名单与允许集校验——新注册旁路工具时必须在旁路入口补名单校验，否则 REQ-606 越界拦截被静默击穿（终审登记；2026-10-05 起注册表为 req/design 两个 propose_edits 旁路工具，暴露面可控）。
+- **允许集七件套（2026-10-05）**：+`design.doc.propose_edits`（propose 档，设计八册对话提案通道，与 req.doc.propose_edits 同构：守卫四人话（未生成/已定稿先解锁/有待确认补丁/枚举校验）、竞态三码翻译、增量与 rewrite 双模式、mock 确定性通道，route='/design'）；旁路注册表同步登记，能力边界声明「CRD/PRD 用 req、设计八册用 design」。
+- **doc.read 能力扩展（2026-10-04/05，「5.1 节看不到」根修）**：①草稿优先——LEFT JOIN 草稿表，有未提交修改读草稿并带 `modified` 标记（与 UI 草稿优先口径一致）；②标题注入界面派生编号（withNumberedTitles，与导出/目录同函数）+ 始终附 `sections` 章节清单（60 条封顶）；③`anchor` 可选参数定向读单节不截断——编号 token/「第五章」大章序/锚点码/标题四形态（findSectionByAnchor，token 精确比较防「5.1」误中「5.10」），未命中返回 `anchorFound:false` + sections 供模型自助重试（人话不落码）；④`offset` 分页参数——内容截断时返回 `nextOffset` 续读，越界人话报错。DOC_READ_CAP 截断与 anchor/offset 互补：先 anchor 定向、再分页补读。
+- **propose_edits 提案通道扩展（2026-10-04~06）**：①`mode:'patch'|'rewrite'`（枚举校验人话不落码）——rewrite 走专用整篇重写 prompt（当前全文为基线、明确要求整篇重出、用户指示删除的章节不再输出、保留既有锚点码/新增顺延），产单条 `EditPatch{type:'replace'}` 全文替换补丁（DSG-A04-10）；②增量 patch 与 rewrite prompt 均注入 buildNumberGuide「UI 编号 ⇢ 原始标题」对照表+「输出禁止带编号前缀」约束（整篇生成无基线不注入；「第五章改不到位」根修）；③节匹配 findSection 统一命中口径——锚点码任意位置提取 → 标题精确 → 剥离编号前缀（数字多级/第 N 章/第 N 节）精确 → ≥4 字符后缀兜底，normalizePatches/applyPatch 回退重定位/add 的 after 锚点三处同用；④工具结果携带 `kind` 字段，供工具卡「前往审阅 →」跳转定位目标文档页签。
 
 ### DSG-A08-6 下一步建议
 - `GET /api/v1/ai/next-steps?projectId=…&stage=…` ｜ 查询型
@@ -789,6 +826,14 @@ HTTP 状态码约定：
 - `GET /api/v1/ai/usage?projectId=…&from=…&to=…` ｜ 查询型
 - 响应 200：`{ "items": [ { "model": "m1", "tokensIn": 120400, "tokensOut": 38100, "durationSec": 930, "estimatedCost": 2.41, "currency": "USD" } ], "total": { "estimatedCost": 2.41 } }`
 - 说明：**保留全局路径 + `projectId` 参数（波次 2 裁决）**：成本汇总存在跨项目视图（顶栏「本月成本」popover 跨项目聚合），不挂单一项目路径。承接：REQ-612、`usage`。
+- `GET /api/v1/projects/{projectId}/ai/usage/breakdown` ｜ 查询型（2026-10-04 差异回补）：项目内用量三视图拆分——`totals` + `byCtx`（分上下文）+ `bySession`（分会话）；ai_usage LEFT JOIN ai_sessions，session_id NULL（文档生成等直落账）归 null 桶、已删会话留账标「已删除会话」；只读直查不经命令事务，与项目级 usage 汇总同口径。dock 📊 统计面板数据源。
+
+### DSG-A08-11 模板 AI 起草
+- `POST /api/v1/projects/{projectId}/ai/template-draft` ｜ 命令型 ｜ 幂等：必需
+- 说明（2026-10-07 差异回补）：自定义模板类别（`x-` 前缀命名空间，DSG-A10-8）的 AI 对话起草——按「显示名+补充说明」生成符合 DocTemplate 结构的草案（prompt 钉死 ```json 输出契约；解析围栏优先+首尾大括号兜底；过 validateTemplate 专业度同闸，水化草案拒收）。**草案不落库**，人工审改后存套件——AI 起草、人工定稿纪律；用量落账 purpose=chat。
+- 请求：`{ "name": "验收方案", "hint": "面向部委验收场景" }`
+- 响应 200：`{ "draft": { "standard": "…", "quality": "…", "writingRules": ["…"], "chapters": [ { "title": "一、…", "requires": "…" } ] } }`
+- 错误码：`VALIDATION_FAILED`。承接：REQ-601、REQ-608。
 
 ---
 
@@ -831,6 +876,7 @@ HTTP 状态码约定：
 - `POST /api/v1/system/notifications/{noticeId}:read` ｜ 命令型：`{ "unread": false }`
 - `POST /api/v1/system/notifications:read-all` ｜ 命令型
 - 说明：本期仅站内通知（顶栏铃铛 + 抽屉）；邮件/webhook 等外部通道列后续扩展。承接：REQ-703、`notices`。
+- 通知类型注（2026-10-05 差异回补）：`req.upstream.changed`——上游文档提交致下游滞后（CRD→PRD、PRD→设计八册，判定口径见 DSG-A04-6 注），提交命令同事务写入并留 evd_events 事件，noticeId 随命令回执由包装层补推 SSE `notice.created`；data 含目标路由（`/req?tab=prd`、`/design`）与滞后册清单。
 
 ### DSG-A10-3 审计查询
 - `GET /api/v1/system/audit?projectId=…&actor=…&command=…&cursor=…` ｜ 查询型（游标）
@@ -857,6 +903,25 @@ HTTP 状态码约定：
 - 响应 200：`{ "operationId": "op_st_1", "action": "selftest.start", "owner": "autopilot", "status": "running", "progress": 62 }`
 - 说明：异步操作状态枚举 `pending/running/succeeded/failed/cancelled/stale`（M4 统一，波次 2 补 `stale` 落库值，LLD-4 DSG-D06-3）：`stale`=操作过期/被取代（输入失效或被同范围新操作取代，承接 LLD-2 DSG-F01-2 的 `stale`/`superseded` 落库合并值）；操作行置 `stale` 终态时推送 SSE `operation.stale` 事件，过期/被取代不产生任何业务写入（BR-08/14，DSG-A11-2）。
 - 承接：BR-08、BR-14。
+
+### DSG-A10-8 文档模板：查看 / 套件管理 / 绑定
+- 模板体系（2026-10-06~08 差异回补）：默认模板唯一权威基线为代码模块 doc-templates（十类：crd/prd+设计八册，标准映射/编写规则/大章骨架见 DSG-A04-4 注；修改走 git 评审 + 标准映射测试闸），DB 侧为覆盖层——模板套件（sys_template_sets，name UNIQUE，版本管理单位「一整套=一个命名版本」）+ 套件条目（sys_template_set_items，set_id+kind 主键，label 列供自定义类别显示名）+ 绑定两表（prj_template_binding 项目绑活动套件、prj_template_kind_binding 项目×类别指定，均随套件/项目删除级联）。**解析链三级**：项目×类别指定 → 项目绑定套件条目 → 代码默认；套件未存的 kind 回退代码默认（回退链无缺项）。写后刷新内存缓存，生成链即时生效。自定义类别用 `x-` 前缀命名空间（label 必填，质量门槛同标）。沿革注：`sys_settings['doc_template_overrides']` 单覆盖设施（2026-10-06 上线）无在途数据，已被套件口径取代退役。
+- `GET /api/v1/projects/{projectId}/doc-templates` ｜ 查询型：十类模板结构化直出（standard/quality/writingRules/chapters +「用户模板优先」说明），每项带 `customized`/`source`（`kind|set|default` 三态来源）/`sourceSetId`，响应带 `activeSetId`；读前刷新覆盖缓存。
+- `GET /api/v1/projects/{projectId}/doc-templates/{kind}:default` ｜ 查询型：代码默认模板（编辑器「载入默认」参照，不含套件覆盖）；kind 枚举外 → `VALIDATION_FAILED`。
+- 套件管理（命令型均幂等必需，命令闭集 template_set.create/rename/delete/update_item/delete_item/bind/bind_kind）：
+  - `GET .../template-sets` ｜ 查询型：全套件清单+当前项目 activeSetId；`GET /api/v1/system/template-sets` ｜ 查询型（系统级）：全套件+全项目绑定一次拉（项目管理页卡片数据源）。
+  - `POST .../template-sets`：新建——`cloneFrom`='default'/省略=空套件逐项编辑、=setId 克隆既有套件条目。
+  - `POST .../template-sets/{setId}:rename`、`POST .../template-sets/{setId}:delete`：重命名/删除——删除为**同事务级联解绑**（随行删项目绑定与类别绑定，回执 `unboundProjects`/`unboundKinds` 计数，绑定项目自动回退默认）。
+  - `GET .../template-sets/{setId}/items/{kind}` ｜ 查询型：条目编辑初值（套件条目 ?? 代码默认；自定义类别 null，待 AI 起草（DSG-A08-11）/人工填）。
+  - `PUT .../template-sets/{setId}/items/{kind}`、`DELETE .../template-sets/{setId}/items/{kind}`：保存（过 validateTemplate 专业度闸——standard ≥4 字/quality ≥10 字/编写规则 ≥3 条各 ≥10 字/大章 ≥4 且中文数字+顿号/内容要求各 ≥20 字/kind 枚举或 x- 前缀自定义类别，与测试门槛同源，违例 `VALIDATION_FAILED` 汇总人话）/删除（该 kind 在套件内回退代码默认）。
+  - `PUT .../template-binding`：项目绑定/解绑活动套件（`{ "setId": null }` 解绑回默认）。
+  - `PUT .../template-binding/{kind}`：类别级换源（📄 模板弹窗内：跟随项目套件/系统默认 ⇄ 指定套件；指定套件须真含该 kind 条目，否则 `INVALID_STATE` 防空解析误导；`{ "setId": null }` 回退跟随项目套件）。
+- 错误码：`VALIDATION_FAILED`、`INVALID_STATE`、`NOT_FOUND`。承接：REQ-705、REQ-706、BR-04。
+
+### DSG-A10-9 对象存储文件代理读取（公网部署形态）
+- `GET /api/v1/files?key=<enc>&dl=<enc>&ct=<enc>` ｜ 查询型（2026-10-08 差异回补）
+- 说明：env `MSF_FILES_PROXY=1` 时，presignedGet 全部调用点（设计/需求导出、原型预览、资料文件、备份）改发**本进程代理相对 URL**——部署态对象存储只绑回环地址，直签 URL 公网浏览器不可达；query 传 key 避开 %2F 路径段被 Web 服务器/代理规范化问题，原型预览 `#pageId` hash 后缀与 query 形式兼容。本端点流式 pipe 对象内容：`key` 校验非空/≤512/无 `..`；`ct` 缺省 application/octet-stream；`dl`（下载文件名）走 RFC 5987 Content-Disposition。**未设 env 行为完全不变**（继续直签）；GET 无 CSRF 面，`/api/**` 由 DSG-A01-2 会话 Cookie 门覆盖（未授权 401）。
+- 错误码：`VALIDATION_FAILED`（key 非法）、`NOT_FOUND`。承接：REQ-803、REQ-804。
 
 ---
 
@@ -918,3 +983,4 @@ HTTP 状态码约定：
 | 2026-09-21 | DSG-A07-13/A07-14（新增）、A07-1、A06-22（新增）、A06-21、A06-16、A01-3、A01-6、A03-2、A03-15、A11-1 | 二轮评审整改：① 新增 A07-13/A07-14 批次阻断/恢复端点（与 LLD-2 F02-8 `batch.block`/`batch.unblock` 迁移行逐条对应，A07-1 补指引；命令已注册 LLD-3 C10-2(e)）；② 新增 A06-22 项目 CI webhook secret 登记端点（只写不读、密文存储落 `sys_webhook_secrets`，HMAC 口径与 A06-21 呼应），A06-21 认证注改指 A06-22；③ A06-16 响应 gates 键 unit/smoke/ui/audit 改 PRD REQ-413 权威键 functional/integration/ui/review（四门中文名功能检查/联调与冒烟/UI 符合度/开发审核）；④ A01-6 补 SSE 断线续传基板界定（GET 通道只覆盖 M11 持久事件；stream.delta 仅 Redis 滚动窗内可续，窗外经查询端点补拉）；⑤ A03-2 分片 PUT 天然键幂等豁免 Idempotency-Key 的说明补入 A11-1 与 A01-3，并补同会话并发分片 parts 更新行锁串行化（落库细节 LLD-4 DSG-D03-7）；⑥ A03-15 补作业落库时机权威指引（LLD-4 DSG-D03-5）；⑦ A03-16 复核：作业级五态与 F02-4 最新口径一致，无需同步变更 |
 | 2026-09-21 | DSG-A04-12 | 二轮评审整改（W5A 移交同步）：A04-12 说明中 L0a 权威口径同步 R-03 裁决（分母=active R，deferred 不计；active R 为 0 时记 1 并告警），与 PRD REQ-208/LLD-2 DSG-F06-1 一致 |
 | 2026-10-04 | DSG-A04-13、DSG-A08-3、DSG-A08-5 | 差异回补（`doc/dev-plan/AI会话互通与对话改文档-差异登记.md` 条目 1/2/4）：A08-5 补工具桥两分（内置经 ai.tool.invoke 命令事务+WRITE_TOOLS 名单 / 外部注册表旁路 registerExternalTool 双链留痕）与 dock 允许集六件套（+chat.history.read 只读、+req.doc.propose_edits propose 档，ToolDef.kind 扩 read/nav/propose）及旁路名单校验机制约束注；A08-3 补系统提示构成（能力边界/可用工具/他阶段会话注入块 3000 字静默降级）；A04-13 补导出标题派生编号注入（withNumberedTitles 与页面目录同函数同口径） |
+| 2026-10-10 | DSG-A01-2、A01-6、A04-4、A04-6、A04-10、A04-13、A04-14（新增）、A04-15（新增）、A05-1、A05-2、A05-6、A08-1、A08-2、A08-3、A08-5、A08-10、A08-11（新增）、A10-2、A10-8（新增）、A10-9（新增） | 差异回补（`doc/dev-plan/AI会话互通与对话改文档-差异登记.md` 条目 11~38 中 LLD-5 目标部分）：A01-2 补 env 门控简易登录（msf_auth HMAC Cookie + /api/auth 三端点 + 限流双闸）与同进程静态托管；A01-6 事件表加 stream.notice 帧、补 X-Accel-Buffering:no 反代直通头与断流有界重试口径（文档域 1 次/原型 2 次/stopped 不重试/会话流不重试）；A04-4 补生成 prompt 构成单一权威（doc-conventions 章码组合关系+doc-templates 模板注入+增量分支编号对照）与断流重试；A04-6 补上游滞后提交即通知（req.upstream.changed+SSE 补推+upstreamStale 派生标记）；A04-10 补 accept newText 改后接受/replace 整篇重写补丁类型/批内 seq 双列排序；A04-13 补设计八册导出编号与册前缀码泛化 [hogkdaun]；新增 A04-14 RTM 覆盖闭环（rtm:rebuild-check/rtm:coverage-fix，缺口分组定向提案+重编号优先改写纪律）与 A04-15 章节增删（doc.section.add/del）；A05-1 补设计域补丁处置对齐（reason/newText/0026）；A05-2 补设计生成增量分支；A05-6 补原型断流重试；A08-1 补会话 docKind 工件绑定（迁移 0029）；A08-2 补消息同刻排序决胜；A08-3 补系统提示构成续（当前工件/阶段职责总纲/重编号必走 rewrite 纪律/联动提醒）+agentic 接力循环（结果回喂续跑，MAX_RELAY_ROUNDS=8+lastChance+封顶善后+失败可观测终止）+未闭合尾围栏容错；A08-5 补允许集七件套（+design.doc.propose_edits）/doc.read 扩展（草稿优先/编号注入/anchor/offset）/propose_edits 扩展（mode:rewrite/编号对照/findSection 统一命中/kind 回传）；A08-10 补 usage/breakdown 三视图；新增 A08-11 模板 AI 起草（草案不落库）；A10-2 补 req.upstream.changed 通知类型；新增 A10-8 文档模板套件设施（三级解析链/级联删除/kind 级换源/validateTemplate 专业度闸）与 A10-9 文件代理读取（MSF_FILES_PROXY） |

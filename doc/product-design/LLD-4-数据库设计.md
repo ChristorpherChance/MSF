@@ -35,6 +35,7 @@
 | `S.models` / `S.usage` | `ai_models` + `ai_usage` | 模型配置与计量 |
 | `S.delegations` / `S.targets` | `ai_delegations` + `ai_delegation_targets` | 委派执行记录与执行目标注册（统稿裁决 M8） |
 | `S.notices` | `sys_notifications` | 通知中心 |
+| 文档模板套件（产品化新增，无原型对应） | `sys_template_sets` + `sys_template_set_items` + `prj_template_binding` + `prj_template_kind_binding` | 代码基线+套件覆盖层，解析链三级回退（DSG-D10-9，2026-10-07 差异登记条目 31/32） |
 | `S.tasks`（跨阶段任务汇总） | `sys_tasks_view`（视图，非表） | REQ-704 任务中心为跨域只读视图 |
 | （原型无对应，新增） | `evd_records` / `sys_commands` / `sys_effects` / `policy_gates` / `sys_users` / `sys_settings` / `sys_webhook_secrets` | ADR-3/5/7/9 落地；`sys_webhook_secrets` 为 CI webhook 项目级密钥（二轮评审新增 DSG-D10-8，承接 LLD-5 A06-22） |
 
@@ -71,6 +72,7 @@
 
 - PostgreSQL 存：领域元数据、状态机、指纹、JSONB 柔性载荷、小体积文本（Markdown 草稿正文）。
 - MinIO 存：资料原件、解析大附件、原型 HTML、构建工件、截图/日志证据、导出文件；key 为内容寻址 `sha256/<hex>`（§11.3）；表内仅存 `object_key` + `content_fingerprint` + `size_bytes`。承接 README §4 映射 S6、REQ-102、REQ-412。
+- **公网代理接线（2026-10-08 增，差异登记条目 36）**：presignedGet 直签 URL 指向 `MSF_MINIO_ENDPOINT`，部署态 MinIO 只绑回环时公网浏览器不可达；env `MSF_FILES_PROXY=1` 时全部预签调用点改发本进程代理相对 URL `/api/v1/files?key=<enc>&dl=<enc>&ct=<enc>`（query 传 key 避开 %2F 路径段规范化问题；流式 pipe，经 `GET /api/v1/files`），未设 env 行为完全不变（本地继续直签）。
 
 ## 2. ER 概览（DSG-D02）
 
@@ -133,6 +135,9 @@ erDiagram
     projects ||--o{ policy_gates : gates
     policy_gates ||--o{ policy_gate_events : "switch & release log"
     projects ||--o{ sys_webhook_secrets : "ci webhook secrets"
+    sys_template_sets ||--o{ sys_template_set_items : contains
+    projects ||--o| prj_template_binding : "active template set"
+    projects ||--o{ prj_template_kind_binding : "per-kind template override"
     sys_users ||--o{ audit_log : actor
 ```
 
@@ -299,6 +304,8 @@ erDiagram
 ## 4. 需求域（DSG-D04）
 
 > 版本/草稿分离的同构模式见专题 §12；本域与 §5 设计域共用该模式，字段定义写全不省略。
+>
+> **提交链上游变更联动（2026-10-05，差异登记条目 18）**：`doc.commit-version` 同事务判定下游滞后——口径=下游有已提交版本且上游当前版本 `submitted_at` 更晚（纯只读派生，零 schema 变更；链路 CRD→PRD→设计八册，不跨级；下游从未提交=「未生成」不标）——命中即同事务 INSERT `sys_notifications`（type `req.upstream.changed`，携带跳转路由 `/req?tab=prd` 或 `/design`）+ `evd_events` 同 kind 留痕，通知随命令回执推送。
 
 ### DSG-D04-1 `req_documents` — 需求文档
 
@@ -365,7 +372,7 @@ erDiagram
 | --- | --- | --- | --- |
 | id | uuid | PK | |
 | document_id | uuid | NOT NULL → req_documents.id | |
-| patch | jsonb | NOT NULL | edit_patch 结构（定位+最小变更，禁止全文重写） |
+| patch | jsonb | NOT NULL | edit_patch 结构（定位+最小变更；type 闭集 add/modify/del/replace——replace=整篇重写提案单条整替，2026-10-05 差异登记条目 15） |
 | target_fingerprint | char(64) | NOT NULL | 提出时草稿指纹；接受前重验，不一致则补丁过期（BR-07） |
 | proposed_by | text | NOT NULL | AI 身份（actor_kind=assistant） |
 | status | text | NOT NULL DEFAULT 'pending' CHECK IN ('pending','accepted','rejected','stale') | |
@@ -375,6 +382,8 @@ erDiagram
 | created_at | | NOT NULL | |
 
 索引：`(document_id, status)`。承接 REQ-205、REQ-613、BR-07。
+
+> 设计域同构表 `dsg_pendings`：结构同本表（迁移 0025 `seq` 同批同治）；2026-10-06 迁移 0026 增 `reason` 处置理由列（与本表 `reason` 同口径，接受/拒绝/改后接受可选填写、随裁决落库；旧行 NULL 不回填）——差异登记条目 24。
 
 ### DSG-D04-5 `rtm_links` — RTM 追踪链
 
@@ -946,12 +955,13 @@ erDiagram
 | id | uuid | PK | |
 | project_id | uuid | NULL → projects.id | 全局会话可为空 |
 | ctx | text | NOT NULL | 上下文页签（material/req/design/proto/dev/test，原型 `chatCtx`） |
+| doc_kind | text | NULL | 会话绑定的文档工件（2026-10-08 增列，迁移 0029，差异登记条目 34）：req=crd/prd、design=八册 kind（hld/mod/alg/cls/db/api/ui/nfr），其余阶段 NULL=阶段级会话组；列表按 (ctx, doc_kind) 精确分组（NULL 组兼容老数据），会话粒度下沉到工件——修「选中详细设计某册却改了概要设计」（人与 AI 坐标不一致） |
 | name | text | NOT NULL | 会话名 |
 | refs | jsonb | NOT NULL DEFAULT '[]' | 引用上下文快照 [{parsed_id, fingerprint}]（REQ-608，受 REQ-114/115 门禁） |
 | think_level | text | NOT NULL DEFAULT 'mid' CHECK IN ('low','mid','high') | 思考强度档位（REQ-604；枚举统稿裁决 M4） |
 | created_by / created_at / updated_at | | 总则 | |
 
-索引：`(project_id, ctx)`。承接 REQ-601/602/604/608。
+索引：`(project_id, ctx)`（迁移 0029 未新增索引：doc_kind 过滤复用该复合索引+`IS NOT DISTINCT FROM` 等值，会话表单项目行数小）。承接 REQ-601/602/604/608。
 
 > **树形会话注（REQ-615 扩展，注释级补充，不增列）**：多会话的分支结构（fork/branch）由 Pi SessionManager 的 JSONL 会话树承载；本表只存平台侧会话身份与元数据，树形父子/分支关系以会话 ID 引用挂接（LLD-3 DSG-C08-1 `treeRef`），不复制 JSONL 会话内容、不新增表列；JSONL 运行态不作为平台证据来源，证据仍以 M11 登记为准。
 
@@ -973,6 +983,8 @@ erDiagram
 | created_at | | NOT NULL | |
 
 索引：`(session_id, created_at)`。承接 REQ-603/608/614、REQ-115。
+
+> **同刻对排序 tiebreaker（2026-10-05，差异登记条目 15②）**：ai.message.send 同事务插入 user+ai 两行时 `created_at` 同值，列表查询须 `ORDER BY created_at DESC, (role='ai') DESC`——同刻对中 ai 先排，前端 reverse 后 user 恒在上（修「AI 回复跑到我的问题上方」）。
 
 ### DSG-D08-3 `ai_tool_calls` — 工具调用记录（append-only）
 
@@ -1244,7 +1256,7 @@ erDiagram
 | id | uuid | PK | |
 | project_id | uuid | NULL | |
 | user_id | text | NULL → sys_users.id | 空=全员 |
-| type | text | NOT NULL | 事件类型（artifact.version/stage.material/stage.dev…，原型 `events[].type`） |
+| type | text | NOT NULL | 事件类型（artifact.version/stage.material/stage.dev/req.upstream.changed…，原型 `events[].type`；req.upstream.changed=提交链下游滞后通知，2026-10-05 差异登记条目 18） |
 | text | text | NOT NULL | |
 | unread | boolean | NOT NULL DEFAULT true | |
 | source_command_id | uuid | NULL → sys_commands.id | 由效果 ledger 产生（notify 类效果） |
@@ -1305,6 +1317,42 @@ erDiagram
 
 索引：`UNIQUE(project_id, provider)`。
 承接 REQ-407、REQ-710、REQ-712、LLD-5 DSG-A06-21/22。
+
+### DSG-D10-9 文档模板套件（`sys_template_sets` / `sys_template_set_items` / `prj_template_binding` / `prj_template_kind_binding`）
+
+用途：文档模板的套件化版本管理与项目绑定（2026-10-07 差异登记条目 31/32；迁移 0027/0028）。架构=**代码基线 + 套件覆盖层**：十类内置文档（crd/prd+设计八册）的默认模板以代码模块 `platform/doc-templates.ts` 为唯一权威基线（git 评审+标准映射测试钉死），套件存按 kind 的覆盖条目；解析链三级——`prj_template_kind_binding`（项目×文档类别指定）→ `prj_template_binding`（项目活动套件）→ 代码默认，未覆盖的 kind 逐级回退无缺项。**前日 sys_settings['doc_template_overrides'] 单覆盖设施（2026-10-06 条目 30）已弃用**（上线一天无在途数据，被套件设施取代）。
+
+`sys_template_sets`（全局可复用，无 project_id，与 ai_models 同口径）：
+
+| 字段 | 类型 | 约束 | 说明 |
+| --- | --- | --- | --- |
+| id | uuid | PK | |
+| name | text | NOT NULL UNIQUE | 套件名=版本管理单位（一整套=一个命名版本） |
+| description | text | NOT NULL DEFAULT '' | |
+| created_by / created_at / updated_at | | 总则 | |
+
+`sys_template_set_items`（套件内按 kind 的模板条目）：
+
+| 字段 | 类型 | 约束 | 说明 |
+| --- | --- | --- | --- |
+| set_id | uuid | NOT NULL → sys_template_sets.id ON DELETE CASCADE | PK(set_id, kind) |
+| kind | text | NOT NULL | 内置 crd/prd/hld/mod/alg/cls/db/api/ui/nfr；自定义类别用 `x-` 前缀命名空间（AI 起草人工定稿，草案不落库） |
+| label | text | NOT NULL DEFAULT '' | 显示名（自定义类别必填；内置类别派生） |
+| standard / quality | text | NOT NULL | 依据标准 / 质量要求 |
+| writing_rules / chapters | jsonb | NOT NULL | 编写规则 / 大章⇢内容要求；保存过 validateTemplate 专业度闸（与代码基线测试门槛同源——用户也不能把模板改水） |
+| updated_by / updated_at | | 总则 | |
+
+`prj_template_binding`（项目绑活动套件）与 `prj_template_kind_binding`（项目×类别级指定，📄 模板弹窗换源）：
+
+| 字段 | 类型 | 约束 | 说明 |
+| --- | --- | --- | --- |
+| project_id | uuid | → projects.id ON DELETE CASCADE | prj_template_binding 以此列为 PK；prj_template_kind_binding PK(project_id, kind) |
+| set_id | uuid | NOT NULL → sys_template_sets.id ON DELETE CASCADE | kind 级指定守卫：目标套件须真含该 kind 条目，否则 INVALID_STATE 防空解析误导 |
+| （kind） | text | | 仅 prj_template_kind_binding：内置十类或 x- 自定义类别 |
+| updated_by / updated_at | | 总则 | |
+
+纪律：套件删除=**同事务级联解绑**（随行删两绑定表，绑定方自动回退默认，回执带解绑计数；2026-10-07 由「绑定中拒绝」改级联，条目 32）；四表均非 append-only，走 `template_set.*` 命令闭集（LLD-3 DSG-C10-2(f)）+ audit_log 留痕；套件/绑定属系统级设施，随 sys_settings 同口径暂不进项目备份（已登记已知边界）。
+承接 REQ-705（设置项命令化）与 LLD-5 A10-1、LLD-6 §3.9。
 
 ## 11. 专题：不可变证据存储（DSG-D11）
 
@@ -1419,6 +1467,7 @@ WHERE t.handoff_fingerprint = $1 AND r.report_fingerprint = t.report_fingerprint
 | audit_log | 100,000~500,000 | 全量写留痕（审计查询 p95<2s 按 10 万级校准，D22） |
 | ai_messages / ai_usage | ≤5,000 / ≤10,000 | AI 域规模假设：单项目 ≤5000 会话消息（统稿裁决 D22） |
 | sys_webhook_secrets | 个位数 | 每项目每 provider 一条，本期仅 CI 回传（DSG-D10-8） |
+| sys_template_sets / sys_template_set_items / prj_template_binding / prj_template_kind_binding | 十级 / 百级 / 个位数 / 十级 | 套件全局共享；条目=套件数 × 文档类别；绑定每项目 ≤1 套+按需类别级指定（DSG-D10-9） |
 
 结论：单表单项目最大约 50 万行（audit_log），PostgreSQL 16 单节点在既定索引下远低于性能拐点；大对象一律在 MinIO，PG 行体积可控（REQ-801）。
 
@@ -1458,3 +1507,8 @@ WHERE t.handoff_fingerprint = $1 AND r.report_fingerprint = t.report_fingerprint
 | 2026-09-21 | DSG-D04-6 | 二轮评审整改（W5A 移交同步）：rtm_health.l0a 分母口径按 R-03 裁决改 active R（deferred 不计），空分母条款改「active R 为 0 时记 1 并告警」，与 l0b/l0c 同构 |
 | 2026-09-21 | DSG-D04-6 | 二轮收尾顺手项：l0b 空分母条款措辞与 l0a/l0c 取齐（「active CR 为 0 时记 1 并告警」，语义不变） |
 | 2026-10-04 | DSG-D04-4 | 差异回补（`doc/dev-plan/AI会话互通与对话改文档-差异登记.md` 条目 10）：`req_pendings` 增 `seq` 批内序号列（迁移 0025，`dsg_pendings` 同治；additive 不动旧数据）——修 listPatches 因同事务 created_at 同值乱序致链式 after 落位被打乱 |
+| 2026-10-10 | DSG-D04-4、DSG-D04 引言、DSG-D10-5 | 差异回补（登记条目 15、18、24）：`req_pendings.patch` 补 type 闭集说明（replace=整篇重写提案单条整替，条目 15）；`dsg_pendings` 增 `reason` 处置理由列（迁移 0026，与 req 域同口径、旧行 NULL 不回填，条目 24）；提交链上游变更联动——`doc.commit-version` 同事务判定下游滞后即 INSERT `sys_notifications`+`evd_events`（type `req.upstream.changed`，纯只读派生零 schema，条目 18） |
+| 2026-10-10 | DSG-D08-2 | 差异回补（登记条目 15②）：ai_messages 同刻对排序 tiebreaker——`ORDER BY created_at DESC, (role='ai') DESC`，前端 reverse 后 user 恒在上 |
+| 2026-10-10 | DSG-D10-9（新增）、DSG-D00、DSG-D02、DSG-D15-1 | 差异回补（登记条目 30/31/32）：新增文档模板套件四表——`sys_template_sets`（全局可复用，name UNIQUE=版本管理单位）/`sys_template_set_items`（PK(set_id,kind)，validateTemplate 专业度闸）/`prj_template_binding`（项目活动套件）/`prj_template_kind_binding`（项目×类别级指定，迁移 0027/0028）；解析链三级回退（类别指定→项目套件→代码默认）；套件删除改同事务级联解绑；条目 30 的 sys_settings 单覆盖设施弃用说明；同步 D00 映射、D02 ER、D15-1 规模估算 |
+| 2026-10-10 | DSG-D08-1 | 差异回补（登记条目 34）：`ai_sessions` 增 `doc_kind` 列（迁移 0029）——会话粒度下沉到工件（req=crd|prd、design=八册 kind、NULL=阶段级会话组，老数据 NULL 归入阶段级），修「选中详细设计某册却改了概要设计」 |
+| 2026-10-10 | DSG-D01-5 | 差异回补（登记条目 36）：对象存储接线补 `MSF_FILES_PROXY=1` 公网代理口径——presignedGet 改发本进程代理相对 URL `/api/v1/files?key=…`（query 传 key 避开 %2F 规范化；未设 env 行为不变） |
