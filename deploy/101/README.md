@@ -47,8 +47,9 @@
   （或拆开跑：先 `pnpm dev`，另窗 vite 加 --host）。
 - env：`deploy/101/msf.env`（600）只有 `MSF_FILES_PROXY=1`——**nest watch 进程需带着它起**
   （`set -a; . deploy/101/msf.env; set +a; pnpm dev`）。
-- 代码同步：101 仓库为开发主库；116 生产升级 = 101 上 `git archive`/`git push` 走 116 手册的升级路径
-  （101→116 的 SSH 授权按「新增密钥不复制旧私钥」纪律另行建立）。
+- 代码同步（**双线并行**，2026-10-10 用户拍板）：Windows 本机环境永久保留（排障/部署他机用），101 为日常开发机。
+  两仓互同步用增量 bundle：改方 `git bundle create x.bundle main --not <对方已有sha>` → scp → 对方 `git fetch x.bundle main && git merge --ff-only FETCH_HEAD`。
+  116 生产升级仍从 Windows 本机出包（git archive → scp → 116 build + restart，见 116 手册）。
 - Redis 不回拷（缓存态，dev 重建即可）。
 
 ## 踩坑预防（101 首装实测 + 继承 116 实录）
