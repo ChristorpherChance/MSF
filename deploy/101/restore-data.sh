@@ -20,7 +20,9 @@ rm -f /tmp/msf-pg.dump
 
 echo "== 2/4 MinIO 数据落位 + 起容器 =="
 if [ -f /tmp/msf-minio.tar ]; then
-  tar -xf /tmp/msf-minio.tar -C "$DATA/minio"
+  # tar 约定=-C ~/msf-data minio 打包（顶层带 minio/ 包裹目录）——必须 --strip-components=1，
+  # 否则落位成 minio/minio/ 嵌套、bucket 全空（2026-10-10 首装实测踩中）
+  tar -xf /tmp/msf-minio.tar -C "$DATA/minio" --strip-components=1
   rm -f /tmp/msf-minio.tar
 fi
 # minio 镜像被国内加速站封禁时：从 116 docker save 经管理机中转 docker load（见 README）

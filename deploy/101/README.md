@@ -51,8 +51,10 @@
   （101→116 的 SSH 授权按「新增密钥不复制旧私钥」纪律另行建立）。
 - Redis 不回拷（缓存态，dev 重建即可）。
 
-## 踩坑预防（继承 116 实录）
+## 踩坑预防（101 首装实测 + 继承 116 实录）
 
+- **minio tar 嵌套**（101 首装踩中）：tar 是 `-C ~/msf-data minio` 打的（顶层带 `minio/` 包裹），
+  restore 必须 `--strip-components=1`（已修进脚本）；否则 bucket 全空且首次启动会初始化出一份新 .minio.sys。
 - Windows 编辑的 `.sh`/`.env` scp 到 Linux 后 `sed -i 's/\r$//'`（CRLF 灾难，116 坑①⑤）。
 - env 文件注释独立行（systemd 不支持行内注释；101 虽无 systemd，保持纪律）。
 - 迁移脚本对已含全 schema 的恢复库报列名冲突=正常（116 坑④）。
