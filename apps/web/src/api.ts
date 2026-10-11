@@ -104,3 +104,64 @@ export async function postSse(
     }
   }
 }
+
+/* —— ⇄ 模板重排批量刷新（设计 §1 四端点；帧闭集五型，未知帧前端忽略不报错） —— */
+
+export interface RefreshPreflightItem {
+  kind: string;
+  domain: 'req' | 'design';
+  hasContent: boolean;
+  finalized: boolean;
+  pending: number;
+  mismatch: boolean | null;
+}
+
+export interface RefreshFrame {
+  type: 'refresh.kind.started' | 'refresh.kind.done' | 'refresh.kind.failed' | 'refresh.kind.skipped' | 'refresh.done';
+  seq?: number;
+  kind?: string;
+  patchCount?: number;
+  reason?: string;
+  domain?: 'req' | 'design';
+  summary?: { done: number; failed: number; skipped: number };
+}
+
+export const templateRefreshApi = {
+  preflight: (pid: string) =>
+    api.get<{ items: RefreshPreflightItem[] }>(`/api/v1/projects/${pid}/template-refresh/preflight`).then((r) => r.items),
+  start: (pid: string, kinds: string[]) =>
+    api.post<{ operationId: string }>(`/api/v1/projects/${pid}/template-refresh/start`, { kinds }),
+  stop: (pid: string, opId: string) =>
+    api.post(`/api/v1/projects/${pid}/template-refresh/${opId}:stop`, {}),
+};
+
+/** SSE 进度逐帧回调（data: 行解析，注释帧/心跳天然跳过；镜像 sendMessageSse；signal 供组件卸载断流） */
+export async function streamRefresh(
+  pid: string,
+  opId: string,
+  onFrame: (f: RefreshFrame) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const res = await fetch(`/api/v1/projects/${pid}/template-refresh/${opId}/stream`, signal ? { signal } : {});
+  if (!res.ok || !res.body) {
+    const err = (await res.json().catch(() => null)) as { error?: { code?: string; message?: string } } | null;
+    if (res.status === 401 && err?.error?.code === 'UNAUTHENTICATED') {
+      useAuthStore.getState().needLogin();
+    }
+    throw new ApiError(err?.error?.code ?? 'INTERNAL', err?.error?.message ?? `SSE ${res.status}`, res.status);
+  }
+  const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buf = '';
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += value;
+    const lines = buf.split('\n');
+    buf = lines.pop() ?? '';
+    for (const line of lines) {
+      if (line.startsWith('data:')) {
+        try { onFrame(JSON.parse(line.slice(5).trimStart()) as RefreshFrame); } catch { /* 忽略坏帧 */ }
+      }
+    }
+  }
+}

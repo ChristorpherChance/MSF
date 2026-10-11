@@ -18,7 +18,8 @@ interface TemplateSetRow {
   items: Array<{ kind: string; label: string }>;
 }
 
-const KIND_LABELS: Record<string, string> = {
+/** 十类文档 kind→名称权威映射（⇄ 模板重排弹窗 import 复用，勿另抄副本防口径漂移） */
+export const KIND_LABELS: Record<string, string> = {
   crd: 'CRD 客户需求文档', prd: 'PRD 产品需求文档',
   hld: 'HLD 概要设计', mod: 'MOD 模块设计', alg: 'ALG 算法与流程', cls: 'CLS 类与数据结构',
   db: 'DB 数据库设计', api: 'API 接口', ui: 'UI 设计', nfr: 'NFR 非功能规则',

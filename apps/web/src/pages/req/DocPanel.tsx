@@ -9,6 +9,7 @@ import { StatusChips, type StatusChipItem } from '../../ui/StatusChips';
 import { toast } from '../../ui/toast';
 import { downloadFile } from '../../ui/download';
 import { DocTemplateButton } from '../../ui/DocTemplateButton';
+import { TemplateRefreshModal } from '../../ui/TemplateRefreshModal';
 import { useStagesStore } from '../../ui/GateBanner';
 import { reqApi, type DocKind, type HealthView, type PatchItem } from './api';
 import { diffText } from './diff';
@@ -74,6 +75,7 @@ function Toolbar({
   const [dlOpen, setDlOpen] = useState(false);
   const [genOpen, setGenOpen] = useState(false);
   const [unlockOpen, setUnlockOpen] = useState(false);
+  const [refreshOpen, setRefreshOpen] = useState(false);
   const [instruction, setInstruction] = useState('');
   const [msg, setMsg] = useState<string | null>(null);
   if (!projectId || !doc) return null;
@@ -141,6 +143,8 @@ function Toolbar({
         )}
       </div>
       <DocTemplateButton projectId={projectId} kind={kind} label={kind === 'crd' ? 'CRD' : 'PRD'} />
+      <button className="act" title="按当前生效模板骨架批量重排文档（提案逐册人工确认后生效）" onClick={() => setRefreshOpen(true)}>⇄ 模板重排…</button>
+      {refreshOpen && <TemplateRefreshModal projectId={projectId} onClose={() => setRefreshOpen(false)} />}
       <button
         className="act primary"
         disabled={readonly || !doc.modified || generating}

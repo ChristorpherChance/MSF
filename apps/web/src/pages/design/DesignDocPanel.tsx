@@ -8,6 +8,7 @@ import { ConfirmModal } from '../../ui/ConfirmModal';
 import { toast } from '../../ui/toast';
 import { downloadFile } from '../../ui/download';
 import { DocTemplateButton } from '../../ui/DocTemplateButton';
+import { TemplateRefreshModal } from '../../ui/TemplateRefreshModal';
 import { useDockStore } from '../../assistant/dock-store';
 import { diffText } from '../req/diff';
 import { deriveNumbering } from '@msf/shared/doc-numbering';
@@ -78,6 +79,7 @@ function Toolbar() {
   const [refsOpen, setRefsOpen] = useState(false);
   const [tlOpen, setTlOpen] = useState(false);
   const [unlockOpen, setUnlockOpen] = useState(false);
+  const [refreshOpen, setRefreshOpen] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   if (!projectId || !doc) return null;
   const readonly = doc.finalized || doc.viewing !== null;
@@ -165,6 +167,8 @@ function Toolbar() {
         )}
       </div>
       <DocTemplateButton projectId={projectId} kind={selKind} label={bookTitle} />
+      <button className="act" title="按当前生效模板骨架批量重排文档（提案逐册人工确认后生效）" onClick={() => setRefreshOpen(true)}>⇄ 模板重排…</button>
+      {refreshOpen && <TemplateRefreshModal projectId={projectId} onClose={() => setRefreshOpen(false)} />}
       <button
         className="act primary"
         disabled={readonly || !doc.modified || generating || pendCount > 0}
