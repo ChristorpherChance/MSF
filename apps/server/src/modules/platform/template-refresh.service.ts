@@ -32,6 +32,7 @@ interface RefreshOp {
   done: boolean; stopRequested: boolean;
   summary?: { done: number; failed: number; skipped: number };
   startedAt: number; finishedAt?: number;
+  nextSeq: number; // 帧序号单调计数（滚动窗 shift 后不复用——lastEventId 断线重放口径）
   resolveDone: (() => void) | null;
 }
 
@@ -58,7 +59,7 @@ export class TemplateRefreshService {
         id: randomUUID(), projectId: p.projectId, kinds,
         states: new Map<string, KindState>(kinds.map((k) => [k, { status: 'queued' as const }])),
         events: [], subscribers: new Set(),
-        done: false, stopRequested: false, startedAt: Date.now(), resolveDone: null,
+        done: false, stopRequested: false, startedAt: Date.now(), nextSeq: 1, resolveDone: null,
       };
       this.ops.set(op.id, op);
       return { operationId: op.id };
@@ -91,7 +92,11 @@ export class TemplateRefreshService {
 
   private async drive(op: RefreshOp, ctx: CommandContext): Promise<void> {
     for (const kind of op.kinds) { // 逐册串行
-      if (op.stopRequested) { this.setState(op, kind, { status: 'skipped', reason: '人工停止' }); continue; }
+      if (op.stopRequested) {
+        this.setState(op, kind, { status: 'skipped', reason: '人工停止' });
+        this.emit(op, 'refresh.kind.skipped', { kind, reason: '人工停止' }); // 帧型闭集：停止跳过与预检跳过同帧，前端按帧渲染不停留 queued
+        continue;
+      }
       const skip = await this.precheck(op.projectId, kind);
       if (skip) {
         this.setState(op, kind, { status: 'skipped', reason: skip });
@@ -205,9 +210,13 @@ export class TemplateRefreshService {
 
   private setState(op: RefreshOp, kind: string, s: KindState): void { op.states.set(kind, s); }
   private emit(op: RefreshOp, type: string, data: Record<string, unknown>): void {
-    const e: RefreshEvent = { seq: op.events.length + 1, type, data };
+    const e: RefreshEvent = { seq: op.nextSeq++, type, data };
     op.events.push(e);
     if (op.events.length > WINDOW) op.events.shift();
-    for (const sub of op.subscribers) sub(e);
+    for (const sub of op.subscribers) { // 订阅者异常隔离：SSE 写已断socket 不得炸掉批次/吞掉终帧
+      try { sub(e); } catch (err) {
+        console.error(`[template-refresh] subscriber threw op=${op.id} seq=${e.seq}: ${err instanceof Error ? err.message : err}`);
+      }
+    }
   }
 }

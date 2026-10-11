@@ -136,12 +136,19 @@ describe('模板重排·批量编排器（集成，需 DB）', async () => {
     resetRefreshHandlers();
     registerRefreshHandler('crd', () => gate.promise); // 在飞册挂起，保证 stop 先落
     const { operationId } = await svc.start(PID, ['crd', 'api'], CTX);
+    const unsub = svc.subscribe(operationId, () => { throw new Error('socket gone'); }); // 订阅者异常不得炸掉批次/吞掉终帧
     await svc.stop(PID, operationId, CTX); // 经 executeCommand 落审计
     gate.resolve({ ok: true });
     await svc.waitDone(operationId);
+    unsub();
     const op = svc.get(operationId)!;
     expect(op.states.get('crd')!.status).toBe('done'); // 当前册跑完（不中断在飞册=已知限制）
     expect(op.states.get('api')).toMatchObject({ status: 'skipped', reason: '人工停止' });
     expect(op.summary).toEqual({ done: 1, failed: 0, skipped: 1 });
+    const types = op.events.map((e) => e.type); // 停止跳过同发 skipped 帧（帧型闭集，前端按帧渲染）
+    expect(types).toEqual([
+      'refresh.kind.started', 'refresh.kind.done', 'refresh.kind.skipped', 'refresh.done',
+    ]);
+    expect(op.events[2]!.data).toMatchObject({ kind: 'api', reason: '人工停止' });
   });
 });
