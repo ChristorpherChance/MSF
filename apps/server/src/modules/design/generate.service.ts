@@ -8,7 +8,7 @@ import { registerExternalTool } from '../platform/external-tools.js';
 import { CHAPTER_RULE, designSectionRule } from '../platform/doc-conventions.js';
 import { buildTemplateGuide, refreshTemplateOverrides } from '../platform/doc-templates.js';
 import { AI_PROVIDER, type AiProvider, type AiUsage } from '../ai/ai-provider.interface.js';
-import { classifyAiError, isRetryableStreamCut, sanitizeAiError } from '../ai/stream-pipeline.js';
+import { classifyAiError, isRetryableStreamCut, sanitizeAiError, withStreamCutRetry } from '../ai/stream-pipeline.js';
 import { DesignDocsService, DESIGN_BOOKS, type DesignKind } from './docs.service.js';
 
 /**
@@ -84,7 +84,10 @@ export class DesignGenerateService {
       if (!instruction) return { ok: false, reason: 'instruction 必填（描述要改什么）' };
       const modeRaw = String(call.args['mode'] ?? 'patch');
       if (modeRaw !== 'patch' && modeRaw !== 'rewrite') return { ok: false, reason: 'mode 枚举 patch|rewrite' };
-      return this.proposeEditsFromChat(projectId, kind as DesignKind, instruction, ctx, modeRaw);
+      return this.proposeEditsFromChat(projectId, kind as DesignKind, instruction, ctx, modeRaw, {
+        ...(call.sessionId !== undefined ? { sessionId: call.sessionId } : {}),
+        ...(call.messageId !== undefined ? { messageId: call.messageId } : {}),
+      });
     });
   }
 
@@ -100,6 +103,8 @@ export class DesignGenerateService {
     instruction: string,
     ctx: CommandContext,
     mode: 'patch' | 'rewrite' = 'patch',
+    /** A6 usage 归因：dock 对话内触发时挂回触发会话/消息（编排层 runToolBlocks 旁路传入） */
+    attribution?: { sessionId?: string; messageId?: string },
   ): Promise<{ ok: boolean; patchCount?: number; route?: string; kind?: DesignKind; reason?: string }> {
     const doc = await query<{ id: string; final_version_id: string | null; current_version_id: string | null }>(
       'SELECT id, final_version_id, current_version_id FROM dsg_documents WHERE project_id=$1 AND doc_kind=$2',
@@ -136,14 +141,18 @@ export class DesignGenerateService {
     let usage: AiUsage | undefined;
     if (this.ai?.kind === 'pi') {
       try {
-        const session = await this.ai.createSession({ projectId, purpose: 'generation' });
         const existingCodes = [...new Set(effective.match(/\b[A-Z]{2,5}-\d{3}\b/g) ?? [])].sort();
-        const prompt = mode === 'rewrite'
-          ? buildDesignRewritePrompt(book.name, book.kind, book.prefix, cut, existingCodes, effective, projectId)
-          : buildDesignEditPrompt(book.name, book.prefix, cut, existingCodes, effective);
-        const { deltas, result } = session.stream(prompt);
-        for await (const d2 of deltas) void d2; // 非 SSE 内部调用：delta 排干不转发
-        const res = await result;
+        // A2 断流重试（2026-10-11）：嵌套提案是全链最长单次裸奔调用（单册 rewrite 3~8 分钟），
+        // 命中 isRetryableStreamCut 自动整轮重发 1 次（重试 console.warn 留痕，有界不静默）
+        const res = await withStreamCutRetry(`design propose_edits kind=${kind}`, async () => {
+          const session = await this.ai!.createSession({ projectId, purpose: 'generation' });
+          const prompt = mode === 'rewrite'
+            ? buildDesignRewritePrompt(book.name, book.kind, book.prefix, cut, existingCodes, effective, projectId)
+            : buildDesignEditPrompt(book.name, book.prefix, cut, existingCodes, effective);
+          const { deltas, result } = session.stream(prompt);
+          for await (const d2 of deltas) void d2; // 非 SSE 内部调用：delta 排干不转发
+          return await result;
+        });
         text = res.text;
         modelId = res.modelId;
         usage = res.usage;
@@ -164,11 +173,14 @@ export class DesignGenerateService {
       return { ok: false, reason: '未产出有效修改，可换种说法重试' };
     }
     // 用量与生成流同口径（purpose='generation'），先于落补丁（与需求域同构）
+    // A6：dock 触发时挂回触发会话/消息，统计面板可按会话归因
     if (modelId && usage) {
       await executeCommand('ai.usage.record', {
         projectId, modelId, purpose: 'generation',
         tokensIn: usage.inputTokens, tokensOut: usage.outputTokens,
         durationMs: Date.now() - t0, cost: usage.cost ?? 0,
+        ...(attribution?.sessionId !== undefined ? { sessionId: attribution.sessionId } : {}),
+        ...(attribution?.messageId !== undefined ? { messageId: attribution.messageId } : {}),
       }, { projectId, actorKind: 'assistant', actorId: 'pi' });
     }
     try {
@@ -495,7 +507,7 @@ function buildMock(kind: DesignKind, instruction: string): { chunks: string[]; p
 }
 
 /** 对话改设计册·增量 prompt（与需求域增量修订同构：只输出变化节；注入 UI 编号对照表防「按编号指代」落空） */
-function buildDesignEditPrompt(bookName: string, prefix: string, instruction: string, existingCodes: string[], currentContent: string): string {
+export function buildDesignEditPrompt(bookName: string, prefix: string, instruction: string, existingCodes: string[], currentContent: string): string {
   return [
     `你是软件工厂的设计助手。本次是设计文档《${bookName}》的**增量修订**：只输出需要新增或修改的章节（每章一个 \`## \` 标题；修改某章时保持原标题不变、整章重写输出），**不要复述未变化的章节，不要整篇重出**。`,
     `要求：中文 markdown；${designSectionRule(prefix)}既有锚点码格式不得改动；新增条目如需编号，使用未占用编号顺延（已占用：${existingCodes.join('、') || '无'}）；新增大章标题必须遵循大章约定（${CHAPTER_RULE}）。`,
@@ -505,11 +517,15 @@ function buildDesignEditPrompt(bookName: string, prefix: string, instruction: st
   ].join('\n\n');
 }
 
-/** 对话改设计册·整篇重写 prompt（mode='rewrite'：当前全文为基线，输出完整文档一节不漏） */
-function buildDesignRewritePrompt(bookName: string, kind: DesignKind, prefix: string, instruction: string, existingCodes: string[], currentContent: string, projectId?: string): string {
+/** 对话改设计册·整篇重写 prompt（mode='rewrite'：当前全文为基线，输出完整文档一节不漏）。
+ *  骨架默认化（2026-10-11 用户拍板）：默认以模板骨架重排大章——旧册多产自大章约定/模板钉死之前，
+ *  结构常与模板不对版；用户明确要求保持既有结构时除外。禁元话术（同日拍板）：实机模型曾把
+ *  「本文是待确认提案」类自我声明写进正文——文档状态由系统管理，正文只写文档内容。 */
+export function buildDesignRewritePrompt(bookName: string, kind: DesignKind, prefix: string, instruction: string, existingCodes: string[], currentContent: string, projectId?: string): string {
   return [
     `你是软件工厂的设计助手。本次是设计文档《${bookName}》的**整篇重写**：以当前全文为基线、按用户指示输出重写后的**完整文档**（从一级标题到最后一节，一节不漏，不复述思考过程，只输出文档本体）。`,
-    `要求：中文 markdown；${CHAPTER_RULE}${designSectionRule(prefix)}保留仍然有效的既有锚点码与编号；新增条目使用未占用编号顺延（已占用：${existingCodes.join('、') || '无'}）；用户指示删除/合并的章节不再输出。用户指示要求按模板/标准重写或重新组织时，以上方模板结构骨架为准重排大章（基线内容按主题归入模板章节，不保留基线自有大章划分）；未要求时保持基线结构。`,
+    `要求：中文 markdown；${CHAPTER_RULE}${designSectionRule(prefix)}保留仍然有效的既有锚点码与编号；新增条目使用未占用编号顺延（已占用：${existingCodes.join('、') || '无'}）；用户指示删除/合并的章节不再输出。**默认以模板结构骨架为准重排大章**（基线内容按主题归入模板章节，不保留基线自有大章划分）；仅当用户指示明确要求保持既有结构时才保留基线结构。`,
+    '输出即文档正文：禁止写「本文是提案/待确认/未定稿声明/由 AI 生成」类元话术——文档状态由系统管理，与正文无关。',
     buildTemplateGuide('design', kind, projectId),
     `用户指示：${instruction}`,
     `【当前文档全文（重写基线）】\n\n${currentContent}`,

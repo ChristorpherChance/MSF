@@ -5,7 +5,7 @@ import { query } from '../../db/pool.js';
 import { executeCommand, registerCommand, type CommandContext } from '../evidence/command-bus.js';
 import { mdToPatches, normalizePatches, sha256Text, splitSections, buildNumberGuide, type EditPatch } from '../platform/doc-sections.js';
 import { AI_PROVIDER, type AiProvider, type AiUsage } from '../ai/ai-provider.interface.js';
-import { classifyAiError, isRetryableStreamCut, sanitizeAiError } from '../ai/stream-pipeline.js';
+import { classifyAiError, isRetryableStreamCut, sanitizeAiError, withStreamCutRetry } from '../ai/stream-pipeline.js';
 import { registerExternalTool } from '../platform/external-tools.js';
 import { CHAPTER_RULE, reqSectionRule } from '../platform/doc-conventions.js';
 import { buildTemplateGuide, refreshTemplateOverrides } from '../platform/doc-templates.js';
@@ -93,7 +93,10 @@ export class GenerateService {
       // mode：patch=增量补丁（默认）；rewrite=整篇重写（产单条 replace 补丁，同样人工确认后生效）
       const modeRaw = String(call.args['mode'] ?? 'patch');
       if (modeRaw !== 'patch' && modeRaw !== 'rewrite') return { ok: false, reason: 'mode 枚举 patch|rewrite' };
-      return this.proposeEditsFromChat(projectId, kind, instruction, ctx, modeRaw);
+      return this.proposeEditsFromChat(projectId, kind, instruction, ctx, modeRaw, undefined, {
+        ...(call.sessionId !== undefined ? { sessionId: call.sessionId } : {}),
+        ...(call.messageId !== undefined ? { messageId: call.messageId } : {}),
+      });
     });
   }
 
@@ -301,6 +304,8 @@ export class GenerateService {
     mode: 'patch' | 'rewrite' = 'patch',
     /** RTM 覆盖闭环 mock 定向产出（离线可测「缺口→锚点补丁→接受→转绿」全链；pi 通道忽略） */
     mockText?: string,
+    /** A6 usage 归因（2026-10-11）：dock 对话内触发时挂回触发会话/消息（编排层旁路传入） */
+    attribution?: { sessionId?: string; messageId?: string },
   ): Promise<{ ok: boolean; patchCount?: number; route?: string; kind?: 'crd' | 'prd'; reason?: string }> {
     const doc = await query<{ id: string; final_version_id: string | null; current_version_id: string | null }>(
       'SELECT id, final_version_id, current_version_id FROM req_documents WHERE project_id=$1 AND doc_kind=$2',
@@ -336,15 +341,19 @@ export class GenerateService {
     let usage: AiUsage | undefined;
     if (this.ai?.kind === 'pi') {
       try {
-        const session = await this.ai.createSession({ projectId, purpose: 'generation' });
         const existingCodes = [...new Set(effective.match(kind === 'crd' ? /\bCR-\d{3}\b/g : /\bREQ-\d{3}\b/g) ?? [])].sort();
-        // rewrite：整篇重写 prompt——当前全文为基线入 prompt（增量 prompt 只让模型输出变化节，无法表达整篇重写/删除）
-        const prompt = mode === 'rewrite'
-          ? buildRewritePrompt(kind, cut, existingCodes, effective, projectId)
-          : buildPrompt(kind, cut, [], existingCodes, effective, '', projectId);
-        const { deltas, result } = session.stream(prompt);
-        for await (const d2 of deltas) void d2; // 非 SSE 内部调用：delta 排干不转发
-        const res = await result;
+        // A2 断流重试（2026-10-11）：嵌套提案是全链最长单次裸奔调用（rewrite 整篇 3~8 分钟），
+        // 命中 isRetryableStreamCut 自动整轮重发 1 次（重试 console.warn 留痕，有界不静默）
+        const res = await withStreamCutRetry(`req propose_edits kind=${kind}`, async () => {
+          const session = await this.ai!.createSession({ projectId, purpose: 'generation' });
+          // rewrite：整篇重写 prompt——当前全文为基线入 prompt（增量 prompt 只让模型输出变化节，无法表达整篇重写/删除）
+          const prompt = mode === 'rewrite'
+            ? buildRewritePrompt(kind, cut, existingCodes, effective, projectId)
+            : buildPrompt(kind, cut, [], existingCodes, effective, '', projectId);
+          const { deltas, result } = session.stream(prompt);
+          for await (const d2 of deltas) void d2; // 非 SSE 内部调用：delta 排干不转发
+          return await result;
+        });
         text = res.text;
         modelId = res.modelId;
         usage = res.usage;
@@ -371,6 +380,8 @@ export class GenerateService {
         projectId, modelId, purpose: 'generation',
         tokensIn: usage.inputTokens, tokensOut: usage.outputTokens,
         durationMs: Date.now() - t0, cost: usage.cost ?? 0,
+        ...(attribution?.sessionId !== undefined ? { sessionId: attribution.sessionId } : {}),
+        ...(attribution?.messageId !== undefined ? { messageId: attribution.messageId } : {}),
       }, { projectId, actorKind: 'assistant', actorId: 'pi' });
     }
     try {
@@ -516,7 +527,7 @@ function sleep(ms: number): Promise<void> {
 }
 
 /** 真接提示词：角色 + 章节口径（`## ` 条目）+ 编号顺延 + 用户指示 + 参考正文 + 上游/当前文档（W2-006/W2-009） */
-function buildPrompt(
+export function buildPrompt(
   kind: 'crd' | 'prd',
   instruction: string,
   refTexts: Array<{ name: string; md: string }>,
@@ -584,8 +595,10 @@ function buildMock(
 
 /** 整篇重写 prompt（mode='rewrite'）：当前全文为基线入 prompt，输出重写后的完整文档（从 h1 到末节一节不漏）。
  *  与增量 prompt 的关键差异：明确要求整篇重出（增量 prompt 恰好禁止整篇重出），
- *  用户指示删除/合并的章节不再输出——「彻底删除第五章」类诉求的通道 */
-function buildRewritePrompt(
+ *  用户指示删除/合并的章节不再输出——「彻底删除第五章」类诉求的通道。
+ *  骨架默认化+禁元话术（2026-10-11 用户拍板）：默认以模板骨架重排大章（旧稿多与模板不对版），
+ *  用户明确要求保持既有结构时除外；正文禁写「本文是提案/待确认」类元话术（状态由系统管理）。 */
+export function buildRewritePrompt(
   kind: 'crd' | 'prd',
   instruction: string,
   existingCodes: string[],
@@ -596,7 +609,8 @@ function buildRewritePrompt(
     `你是软件工厂的需求分析助手。本次是${kind === 'crd' ? '客户需求文档（CRD）' : '产品需求文档（PRD）'}的**整篇重写**：以当前文档全文为基线、按用户指示输出重写后的**完整文档**（从一级标题到最后一节，一节不漏，不复述思考过程，只输出文档本体）。`,
     `要求：中文 markdown；${CHAPTER_RULE}${reqSectionRule(kind)}条目正文含承接来源与需求描述、验收要点。`,
     buildTemplateGuide('req', kind, projectId),
-    `保留仍然有效的既有锚点码与编号；新增条目必须使用未占用编号（已占用：${existingCodes.join('、') || '无'}），在最大编号后顺延。用户指示删除/合并的章节不再输出，其承接关系在保留章节中说明。用户指示要求按模板/标准重写或重新组织时，以上方模板结构骨架为准重排大章（基线内容按主题归入模板章节，不保留基线自有大章划分）；未要求时保持基线结构。`,
+    `保留仍然有效的既有锚点码与编号；新增条目必须使用未占用编号（已占用：${existingCodes.join('、') || '无'}），在最大编号后顺延。用户指示删除/合并的章节不再输出，其承接关系在保留章节中说明。**默认以模板结构骨架为准重排大章**（基线内容按主题归入模板章节，不保留基线自有大章划分）；仅当用户指示明确要求保持既有结构时才保留基线结构。`,
+    '输出即文档正文：禁止写「本文是提案/待确认/未定稿声明/由 AI 生成」类元话术——文档状态由系统管理，与正文无关。',
     `用户指示：${instruction}`,
     `【当前文档全文（重写基线）】\n\n${currentContent}`,
   ].join('\n\n');
