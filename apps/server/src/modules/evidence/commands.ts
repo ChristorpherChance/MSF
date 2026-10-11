@@ -19,6 +19,8 @@ export const COMMANDS = [
   'template_set.delete_item', // 模板套件：删除 kind 条目（回退代码默认）
   'template_set.bind', // 模板套件：项目绑定/解绑活动套件
   'template_set.bind_kind', // 模板套件：项目×文档类别级指定（📄 模板弹窗换源）
+  'template_refresh.start', // ⇄ 模板重排：批量任务启动（内存任务注册表，同项目并发闸 INVALID_STATE）
+  'template_refresh.stop',  // ⇄ 模板重排：停止剩余（当前册跑完，剩余标 skipped）
   'system.notification.emit', // 通知产生（写路径副作用；BR-10 失败定位）
   'system.notification.read',
   'system.notification.read_all',
