@@ -195,6 +195,7 @@ export function TemplateRefreshModal({ projectId, onClose }: { projectId: string
         <p className="trefresh-sub">
           以当前全文为基线、按当前生效模板骨架重排大章（内容语义不变，锚点码与编号保留）。
           每册产一条「整篇重写」提案，<b>经你逐册确认后才生效</b>。已定稿 / 有待确认补丁 / 未生成的册会自动跳过。
+          「与模板不对版」徽标仅为格式启发式，最终以你的判断为准。
         </p>
         {err && <p className="trefresh-sub trefresh-err">{err}</p>}
         {items === null && !err && <p className="trefresh-sub">预检加载中…</p>}
