@@ -148,7 +148,12 @@ export async function streamRefresh(
     if (res.status === 401 && err?.error?.code === 'UNAUTHENTICATED') {
       useAuthStore.getState().needLogin();
     }
-    throw new ApiError(err?.error?.code ?? 'INTERNAL', err?.error?.message ?? `SSE ${res.status}`, res.status);
+    throw new ApiError(
+      err?.error?.code ?? 'INTERNAL',
+      // 人话兜底同 request() 口径：5xx 无响应体不裸显英文
+      err?.error?.message ?? (res.status >= 500 ? '服务暂时不可用，请稍后重试' : res.statusText),
+      res.status,
+    );
   }
   const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
   let buf = '';

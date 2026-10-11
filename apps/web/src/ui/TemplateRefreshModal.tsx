@@ -47,6 +47,7 @@ export function TemplateRefreshModal({ projectId, onClose }: { projectId: string
   const [summary, setSummary] = useState<{ done: number; failed: number; skipped: number } | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
+  const [starting, setStarting] = useState(false);
 
   // 打开即预检（选册数据；恢复订阅时同样加载，供域/名称参照）
   useEffect(() => {
@@ -58,13 +59,14 @@ export function TemplateRefreshModal({ projectId, onClose }: { projectId: string
         // 默认勾选 = 可跑 且 与模板不对版 的册
         setChecked(new Set(its.filter((i) => runnable(i) && i.mismatch === true).map((i) => i.kind)));
       })
-      .catch((e) => { if (live) setErr(e instanceof ApiError ? `${e.code}: ${e.message}` : '预检加载失败'); });
+      .catch((e) => { if (live) setErr(e instanceof ApiError ? e.message : '预检加载失败'); });
     return () => { live = false; };
   }, [projectId]);
 
-  // SSE 订阅（run/done 均挂载：done 后流自然结束；卸载 AbortController 断流，服务端批次照跑）
+  // SSE 订阅（deps 不含 phase——refresh.done 切相位若重连，无 lastEventId 会全量重放致 kind.done 重复派发；
+  // select 相位 opId 恒 null，opId 仅在新批次/重试时变化；卸载 AbortController 断流，服务端批次照跑）
   useEffect(() => {
-    if (!opId || phase === 'select') return;
+    if (!opId) return;
     const ctrl = new AbortController();
     const note = (k: string) => setBatchKinds((ks) => (ks.includes(k) ? ks : [...ks, k]));
     const onFrame = (f: RefreshFrame) => {
@@ -111,10 +113,14 @@ export function TemplateRefreshModal({ projectId, onClose }: { projectId: string
     };
     void streamRefresh(projectId, opId, onFrame, ctrl.signal).catch((e) => {
       if (ctrl.signal.aborted) return;
-      setErr(e instanceof ApiError ? `${e.code}: ${e.message}` : '进度流中断（可关窗后重开恢复订阅）');
+      // 批次失效逃逸口（服务端 ops 为内存态：部署重启后流 404）——清会话记忆退回选册相位，不留 404 死循环
+      if (activeOp?.opId === opId) activeOp = null;
+      setOpId(null);
+      setPhase('select');
+      toast(e instanceof ApiError ? e.message : '进度流中断', 'warn');
     });
     return () => ctrl.abort();
-  }, [phase, opId, projectId]);
+  }, [opId, projectId]);
 
   // 进行秒表（仅 run 相位走针；done 定格）
   useEffect(() => {
@@ -125,6 +131,8 @@ export function TemplateRefreshModal({ projectId, onClose }: { projectId: string
   }, [phase, opId]);
 
   const startBatch = async (kinds: string[]) => {
+    if (starting) return; // 防连点（服务端并发闸兜底，但不在途重发）
+    setStarting(true);
     setErr(null);
     try {
       const r = await templateRefreshApi.start(projectId, kinds);
@@ -138,6 +146,8 @@ export function TemplateRefreshModal({ projectId, onClose }: { projectId: string
     } catch (e) {
       // INVALID_STATE（并发闸）等一律人话 toast
       toast(e instanceof ApiError ? e.message : '启动失败', 'warn');
+    } finally {
+      setStarting(false);
     }
   };
 
@@ -147,7 +157,15 @@ export function TemplateRefreshModal({ projectId, onClose }: { projectId: string
       await templateRefreshApi.stop(projectId, opId);
       toast('已请求停止：当前册跑完后，剩余册将标记跳过');
     } catch (e) {
-      toast(e instanceof ApiError ? e.message : '停止失败', 'warn');
+      // 批次已消亡（404：服务端重启/已终结）——清记忆退回选册，不再钉死在进度相位
+      if (e instanceof ApiError && e.status === 404) {
+        if (activeOp?.opId === opId) activeOp = null;
+        setOpId(null);
+        setPhase('select');
+        toast(e.message, 'warn');
+      } else {
+        toast(e instanceof ApiError ? e.message : '停止失败', 'warn');
+      }
     }
   };
 
@@ -271,7 +289,7 @@ export function TemplateRefreshModal({ projectId, onClose }: { projectId: string
             <button className="act" onClick={onClose}>取消</button>
             <button
               className="act primary"
-              disabled={checked.size === 0}
+              disabled={checked.size === 0 || starting}
               onClick={() => void startBatch([...checked].sort((a, b) => KIND_ORDER.indexOf(a) - KIND_ORDER.indexOf(b)))}
             >
               开始重排
