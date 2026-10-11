@@ -5,6 +5,8 @@ import { query } from '../../db/pool.js';
 import { executeCommand, registerCommand, type CommandContext } from '../evidence/command-bus.js';
 import { mdToPatches, normalizePatches, sha256Text, splitSections, buildNumberGuide, type EditPatch } from '../platform/doc-sections.js';
 import { registerExternalTool } from '../platform/external-tools.js';
+import { registerRefreshHandler } from '../platform/template-refresh.service.js';
+import { REFRESH_INSTRUCTION } from '../platform/template-refresh.js';
 import { CHAPTER_RULE, designSectionRule } from '../platform/doc-conventions.js';
 import { buildTemplateGuide, refreshTemplateOverrides } from '../platform/doc-templates.js';
 import { AI_PROVIDER, type AiProvider, type AiUsage } from '../ai/ai-provider.interface.js';
@@ -89,6 +91,11 @@ export class DesignGenerateService {
         ...(call.messageId !== undefined ? { messageId: call.messageId } : {}),
       });
     });
+    // ⇄ 模板重排处理器（编排器注册表，零模块图边）：rewrite 通道骨架默认化重排，提案人工确认后生效
+    for (const b of DESIGN_BOOKS) {
+      registerRefreshHandler(b.kind, (pid, kind, c) =>
+        this.proposeEditsFromChat(pid, kind as DesignKind, REFRESH_INSTRUCTION, c, 'rewrite'));
+    }
   }
 
   /**

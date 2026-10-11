@@ -1,15 +1,22 @@
-/** ⇄ 模板重排·批量编排器（集成，需 DB）：顺序执行/失败隔离/全跳过汇总/并发闸/停止 五例（fake handler；SSE 帧序与真链路端到端见 Task 4） */
+/** ⇄ 模板重排·批量编排器（集成，需 DB）：顺序执行/失败隔离/全跳过汇总/并发闸/停止 五例（fake handler）+ SSE 帧序 + 真链路端到端（Task 4） */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { pool, query } from '../../db/pool.js';
 import { resetCommands, type CommandContext } from '../evidence/command-bus.js';
+import { PolicyService } from '../policy/policy.service.js';
+import { ReqDocsService } from '../req/docs.service.js';
+import { GenerateService } from '../req/generate.service.js';
+import { DesignDocsService } from '../design/docs.service.js';
+import { DesignGenerateService } from '../design/generate.service.js';
 import {
   TemplateRefreshService, registerRefreshHandler, resetRefreshHandlers,
 } from './template-refresh.service.js';
 
 const PID = '00000000-0000-0000-0000-0000000000f1';
 const PID2 = '00000000-0000-0000-0000-0000000000f2';
+const PID3 = '00000000-0000-0000-0000-0000000000f3'; // 真链路端到端专用（provisioning 模板 v1）
 const CTX: CommandContext = { projectId: PID, actorKind: 'human', actorId: 'local' };
 const CTX2: CommandContext = { projectId: PID2, actorKind: 'human', actorId: 'local' };
+const CTX3: CommandContext = { projectId: PID3, actorKind: 'human', actorId: 'local' };
 
 async function infraUp(): Promise<boolean> {
   try { await query('SELECT 1 FROM req_documents LIMIT 1'); return true; } catch { return false; }
@@ -50,10 +57,11 @@ describe('模板重排·批量编排器（集成，需 DB）', async () => {
   beforeAll(async () => {
     await query("INSERT INTO projects (id, name) VALUES ($1,'tr-f1') ON CONFLICT (id) DO NOTHING", [PID]);
     await query("INSERT INTO projects (id, name) VALUES ($1,'tr-f2') ON CONFLICT (id) DO NOTHING", [PID2]);
+    await query("INSERT INTO projects (id, name) VALUES ($1,'tr-f3') ON CONFLICT (id) DO NOTHING", [PID3]);
   });
   afterAll(async () => {
     resetRefreshHandlers(); // 处理器注册表模块级全局，勿污染后续套件（Task 4 真处理器）
-    for (const pid of [PID, PID2]) {
+    for (const pid of [PID, PID2, PID3]) {
       for (const dom of ['req', 'dsg'] as const) {
         await query(`DELETE FROM ${dom}_pendings WHERE document_id IN (SELECT id FROM ${dom}_documents WHERE project_id=$1)`, [pid]);
         await query(`DELETE FROM ${dom}_drafts WHERE document_id IN (SELECT id FROM ${dom}_documents WHERE project_id=$1)`, [pid]);
@@ -150,5 +158,51 @@ describe('模板重排·批量编排器（集成，需 DB）', async () => {
       'refresh.kind.started', 'refresh.kind.done', 'refresh.kind.skipped', 'refresh.done',
     ]);
     expect(op.events[2]!.data).toMatchObject({ kind: 'api', reason: '人工停止' });
+  });
+
+  it('SSE 帧序：fake handler 全 ok 两册 → started/done 交替 + refresh.done 收，seq 1..5 连续', async () => {
+    resetRefreshHandlers();
+    registerRefreshHandler('crd', async () => ({ ok: true, patchCount: 1 }));
+    registerRefreshHandler('hld', async () => ({ ok: true, patchCount: 1 }));
+    const { operationId } = await svc.start(PID, ['crd', 'hld'], CTX); // crd/hld 首例已 seed（预检放行）
+    await svc.waitDone(operationId);
+    const op = svc.get(operationId)!;
+    expect(op.events.map((e) => e.type)).toEqual([
+      'refresh.kind.started', 'refresh.kind.done',
+      'refresh.kind.started', 'refresh.kind.done',
+      'refresh.done',
+    ]);
+    expect(op.events.map((e) => e.seq)).toEqual([1, 2, 3, 4, 5]); // 每批 seq 自 1 单调连续
+    expect(op.summary).toEqual({ done: 2, failed: 0, skipped: 0 });
+  });
+
+  it('真链路端到端：req/design 自注册处理器走 rewrite 通道，crd+hld 各落 1 条「整篇重写」pending', async () => {
+    resetRefreshHandlers(); // 清 fake，换装真处理器（onModuleInit 自注册；多服务重复注册撞「重复注册」，故先清再只装要测的域）
+    const reqDocs = new ReqDocsService(new PolicyService());
+    const reqGen = new GenerateService(); // 无 AI_PROVIDER 注入 → mock 确定性产出（propose-edits.integration.test.ts 同装配）
+    const dsgDocs = new DesignDocsService();
+    const dsgGen = new DesignGenerateService(dsgDocs);
+    reqDocs.onModuleInit();
+    reqGen.onModuleInit();
+    dsgDocs.onModuleInit();
+    dsgGen.onModuleInit();
+    await reqDocs.listDocs(PID3, CTX3); // provisioning CRD/PRD 模板 v1
+    await dsgDocs.listDocs(PID3, CTX3); // provisioning 八册模板 v1
+    const { operationId } = await svc.start(PID3, ['crd', 'hld'], CTX3);
+    await svc.waitDone(operationId);
+    const op = svc.get(operationId)!;
+    expect(op.states.get('crd')).toMatchObject({ status: 'done' });
+    expect(op.states.get('hld')).toMatchObject({ status: 'done' });
+    expect(op.summary).toEqual({ done: 2, failed: 0, skipped: 0 });
+    const rp = await query<{ title: string }>( // rewrite 通道=单条 replace「整篇重写」pending（人工确认后生效）
+      `SELECT p.patch->>'title' AS title FROM req_pendings p JOIN req_documents d ON d.id=p.document_id
+       WHERE d.project_id=$1 AND d.doc_kind='crd' AND p.status='pending'`, [PID3]);
+    const dp = await query<{ title: string }>(
+      `SELECT p.patch->>'title' AS title FROM dsg_pendings p JOIN dsg_documents d ON d.id=p.document_id
+       WHERE d.project_id=$1 AND d.doc_kind='hld' AND p.status='pending'`, [PID3]);
+    expect(rp.rows).toHaveLength(1);
+    expect(rp.rows[0]!.title).toBe('整篇重写');
+    expect(dp.rows).toHaveLength(1);
+    expect(dp.rows[0]!.title).toBe('整篇重写');
   });
 });

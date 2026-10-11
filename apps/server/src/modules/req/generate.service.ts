@@ -7,6 +7,8 @@ import { mdToPatches, normalizePatches, sha256Text, splitSections, buildNumberGu
 import { AI_PROVIDER, type AiProvider, type AiUsage } from '../ai/ai-provider.interface.js';
 import { classifyAiError, isRetryableStreamCut, sanitizeAiError, withStreamCutRetry } from '../ai/stream-pipeline.js';
 import { registerExternalTool } from '../platform/external-tools.js';
+import { registerRefreshHandler } from '../platform/template-refresh.service.js';
+import { REFRESH_INSTRUCTION } from '../platform/template-refresh.js';
 import { CHAPTER_RULE, reqSectionRule } from '../platform/doc-conventions.js';
 import { buildTemplateGuide, refreshTemplateOverrides } from '../platform/doc-templates.js';
 import { ReqDocsService } from './docs.service.js';
@@ -98,6 +100,11 @@ export class GenerateService {
         ...(call.messageId !== undefined ? { messageId: call.messageId } : {}),
       });
     });
+    // ⇄ 模板重排处理器（编排器注册表，零模块图边）：rewrite 通道骨架默认化重排，提案人工确认后生效
+    for (const k of ['crd', 'prd'] as const) {
+      registerRefreshHandler(k, (pid, _kind, c) =>
+        this.proposeEditsFromChat(pid, k, REFRESH_INSTRUCTION, c, 'rewrite'));
+    }
   }
 
   /** A04-4 启动生成：校验参考输入 + PRD 门禁（CRD 已定稿），返回 operationId */

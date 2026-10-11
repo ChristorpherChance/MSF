@@ -38,4 +38,8 @@ describe('生成 prompt 契约（骨架默认化+禁元话术+模板注入边界
     expect(first).toContain('不得自行归章');
     expect(first).toContain('负面样例');
   });
+  it('模板重排 instruction 常量（编排器单点持有，处理器共享）', async () => {
+    const { REFRESH_INSTRUCTION } = await import('./template-refresh.js');
+    expect(REFRESH_INSTRUCTION).toBe('按默认模板骨架重排整篇：内容按主题归入模板大章，保留有效锚点码与编号，不增删需求语义');
+  });
 });
