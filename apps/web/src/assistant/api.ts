@@ -27,9 +27,10 @@ export interface AiMessageRow {
 }
 
 export interface StreamFrame {
-  type: 'stream.start' | 'stream.delta' | 'stream.done' | 'stream.error';
+  type: 'stream.start' | 'stream.delta' | 'stream.done' | 'stream.error' | 'stream.notice';
   operationId?: string;
   seq?: number;
+  /** delta=增量文本；notice=进度提示（工具执行/接力轮次/自动重试，2026-10-11 A4） */
   text?: string;
   status?: string;
   code?: string;

@@ -69,7 +69,7 @@ interface DockState {
   sessions: AiSessionRow[];
   currentId: string | null;
   messages: AiMessageRow[];
-  streaming: { messageId: string; text: string; paused: boolean; startedAt: number } | null;
+  streaming: { messageId: string; text: string; paused: boolean; startedAt: number; notice?: string } | null;
   thinkLevel: 'low' | 'mid' | 'high';
   usage: { tokens_in: string; tokens_out: string; cost: string; calls: string } | null;
   /** 用量分解（统计面板：当前会话/分上下文/分会话）；随 refreshUsage 同刷 */
@@ -279,6 +279,10 @@ export const useDockStore = create<DockState>((set, get) => ({
           acc += f.text;
           const st = get().streaming;
           if (st) set({ streaming: { ...st, text: acc } });
+        } else if (f.type === 'stream.notice' && f.text) {
+          // A4 进度提示（工具执行/接力轮次/自动重试）：状态行滚动呈现，不进正文
+          const st = get().streaming;
+          if (st) set({ streaming: { ...st, notice: f.text } });
         } else if (f.type === 'stream.error') {
           // W2-002：错误帧带脱敏 message——失败原因行内可见（不再只有 code/静默）
           set({

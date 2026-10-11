@@ -405,12 +405,14 @@ export class AiSessionsService implements OnModuleInit {
     const prompt = await this.buildPrompt(projectId, sessionId, body.content, body.referenceFileIds ?? []);
     this.pipeline.register({
       messageId: prep.messageId, sessionId, projectId, ai, prompt,
+      // A3 零流出断流安全重试的会话工厂（断流重建同档会话重发）
+      makeSession: () => this.provider.createSession({ projectId, purpose: 'chat' }),
     });
     return { messageId: prep.messageId };
   }
 
   /**
-   * W2-053：解析回复中的 ```msf-tool 围栏块，逐个经 ai.tool.invoke 编排执行（封顶 3 个，
+   * W2-053：解析回复中的 ```msf-tool 围栏块，逐个经 ai.tool.invoke 编排执行（每轮封顶 MAX_TOOL_SPANS_PER_ROUND 个，
    * 调用挂 session_id+message_id——前端工具卡按消息聚合的前提），返回剔除围栏后的正文+执行结果。
    * 命中外部工具注册表（external-tools.ts）的工具走旁路：handler 无事务执行（含嵌套 LLM
    * 的工具绝不在命令事务内跑）+ recordDirect 留痕 ai_tool_calls；未命中经 ai.tool.invoke。
@@ -426,32 +428,61 @@ export class AiSessionsService implements OnModuleInit {
   ): Promise<{ stripped: string; results: Array<{ name: string; result: unknown }> }> {
     const spans = findToolSpans(content);
     if (spans.length === 0) return { stripped: content, results: [] };
-    const results: Array<{ name: string; result: unknown }> = [];
+    // 先全量解析（非法 JSON 块忽略），再按「连续只读段并行、写类串行」调度（A7，2026-10-11）：
+    // 只读工具（doc.read/read_context 等无内部命令事务）Promise.all 并行缩短多文档读取墙钟；
+    // 写类工具（propose_edits 旁路外部工具）保持声明顺序串行（提案间可能有先后依赖语义）。
+    // results 顺序=块声明顺序（并行组按完成序留痕 ai_tool_calls，created_at 自然排序）
+    const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
     for (const { body: raw } of spans) {
       try {
         const call = JSON.parse(raw) as { name?: string; args?: Record<string, unknown> };
-        if (!call.name) continue;
-        // 外部工具旁路：含嵌套 LLM 的工具绝不在 ai.tool.invoke 命令事务内跑——
-        // handler 无事务执行（内部命令独立事务），recordDirect 补落 ai_tool_calls（成功/失败两路留痕）
-        const external = getExternalTool(call.name);
-        if (external) {
-          const p = { sessionId, messageId, toolName: call.name, args: call.args ?? {} };
-          try {
-            const result = await external(projectId, { sessionId, messageId, args: call.args ?? {} }, ctx);
-            await this.tools.recordDirect(p, result['ok'] === false ? 'failed' : 'ok', result);
-            results.push({ name: call.name, result });
-          } catch (e) {
-            const err = { error: e instanceof Error ? e.message : String(e) };
-            await this.tools.recordDirect(p, 'failed', err);
-            results.push({ name: call.name, result: err });
-          }
-          continue;
-        }
-        const r = await this.tools
-          .invoke(projectId, { sessionId, messageId, toolName: call.name, args: call.args ?? {} }, ctx)
-          .catch((e) => ({ result: { error: e instanceof Error ? e.message : String(e) } }));
-        results.push({ name: call.name, result: r.result });
+        if (call.name) calls.push({ name: call.name, args: call.args ?? {} });
       } catch { /* 非法 JSON 块忽略 */ }
+    }
+    const results: Array<{ name: string; result: unknown }> = [];
+    const execOne = async (call: { name: string; args: Record<string, unknown> }): Promise<{ name: string; result: unknown }> => {
+      // A4：工具执行用户可见——propose_edits 是长调用（嵌套 LLM 单册 3~8 分钟），单独口径防「卡住」误判
+      this.pipeline.emitNotice(
+        messageId,
+        call.name.endsWith('.propose_edits')
+          ? `正在生成修改提案（${call.name}，长调用约需数分钟）…`
+          : `正在执行 ${call.name}…`,
+      );
+      // 外部工具旁路：含嵌套 LLM 的工具绝不在 ai.tool.invoke 命令事务内跑——
+      // handler 无事务执行（内部命令独立事务），recordDirect 补落 ai_tool_calls（成功/失败两路留痕）
+      const external = getExternalTool(call.name);
+      if (external) {
+        const p = { sessionId, messageId, toolName: call.name, args: call.args };
+        try {
+          const result = await external(projectId, { sessionId, messageId, args: call.args }, ctx);
+          await this.tools.recordDirect(p, result['ok'] === false ? 'failed' : 'ok', result);
+          return { name: call.name, result };
+        } catch (e) {
+          const err = { error: e instanceof Error ? e.message : String(e) };
+          await this.tools.recordDirect(p, 'failed', err);
+          return { name: call.name, result: err };
+        }
+      }
+      const r = await this.tools
+        .invoke(projectId, { sessionId, messageId, toolName: call.name, args: call.args }, ctx)
+        .catch((e) => ({ result: { error: e instanceof Error ? e.message : String(e) } }));
+      return { name: call.name, result: r.result };
+    };
+    let i = 0;
+    while (i < calls.length) {
+      const call = calls[i]!;
+      const readonly = READONLY_TOOLS.has(call.name) && !getExternalTool(call.name);
+      if (!readonly) {
+        results.push(await execOne(call));
+        i++;
+        continue;
+      }
+      // 收集连续只读段并行执行
+      let j = i;
+      while (j < calls.length && READONLY_TOOLS.has(calls[j]!.name) && !getExternalTool(calls[j]!.name)) j++;
+      const group = await Promise.all(calls.slice(i, j).map(execOne));
+      results.push(...group);
+      i = j;
     }
     // span 剥离（闭合/未闭合同路径，未闭合尾块一并无残留）
     const stripped = stripToolSpans(content, spans);
@@ -635,7 +666,12 @@ export class AiSessionsService implements OnModuleInit {
         if (results.length === 0) break;
         toolLog.push(...results);
         const ai2 = await this.provider.createSession({ projectId: e.projectId, purpose: 'chat' });
-        const r2 = await this.pipeline.runContinuation(messageId, ai2, buildToolFollowup(e.prompt, toolLog, MAX_RELAY_ROUNDS - rounds));
+        // A4：接力轮次用户可见（长静默期不再是黑盒）
+        this.pipeline.emitNotice(messageId, `接力第 ${rounds} 轮：工具结果已回喂，正在继续生成`);
+        const r2 = await this.pipeline.runContinuation(
+          messageId, ai2, buildToolFollowup(e.prompt, toolLog, MAX_RELAY_ROUNDS - rounds),
+          () => this.provider.createSession({ projectId: e.projectId, purpose: 'chat' }),
+        );
         content = `${content}\n\n${r2.content}`.trim();
         if (r2.usage) {
           usage = usage
@@ -696,15 +732,23 @@ export class AiSessionsService implements OnModuleInit {
   }
 }
 
+/** 只读工具集（A7 并行调度口径，2026-10-11）：无写副作用，连续段可 Promise.all 并行；
+ *  写类（propose_edits 等旁路外部工具）不在此列，保持声明顺序串行 */
+const READONLY_TOOLS = new Set(['doc.read', 'read_context', 'chat.history.read', 'propose_next_step', 'nav.goto']);
+
+/** 每轮最多解析执行的工具块数（A5 2026-10-11：3→6——多文档任务一轮常带 4~5 个 doc.read，
+ *  残留块白烧接力轮；16 轮 × 6 块仍严格有界，防失控靠「内容无围栏即停」不变） */
+const MAX_TOOL_SPANS_PER_ROUND = 6;
+
 /** 闭合围栏块定位；另收「回合末尾未闭合但体部完整合法」的围栏——2026-10-06 实机：模型在长 JSON 后
  *  漏写收尾 ```，闭合 RE 零命中 → 围栏原文露出给用户 + 提案静默未执行（本次根修现场） */
 function findToolSpans(content: string): Array<{ body: string; start: number; end: number }> {
   const spans: Array<{ body: string; start: number; end: number }> = [];
   for (const mm of content.matchAll(/```msf-tool\s*\n([\s\S]*?)```/g)) {
-    if (spans.length >= 3) break;
+    if (spans.length >= MAX_TOOL_SPANS_PER_ROUND) break;
     spans.push({ body: mm[1]!.trim(), start: mm.index!, end: mm.index! + mm[0].length });
   }
-  if (spans.length < 3) {
+  if (spans.length < MAX_TOOL_SPANS_PER_ROUND) {
     const tailStart = spans.length > 0 ? spans[spans.length - 1]!.end : 0;
     const om = /```msf-tool\s*\n([\s\S]*)$/.exec(content.slice(tailStart));
     if (om) {

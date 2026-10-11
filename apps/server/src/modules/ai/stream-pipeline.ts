@@ -13,7 +13,8 @@ import type { AiSession, AiUsage } from './ai-provider.interface.js';
 
 export interface StreamFrame {
   seq: number;
-  type: 'stream.delta' | 'stream.done' | 'stream.error';
+  /** stream.notice（2026-10-11）：进度提示帧（工具执行/接力轮次/自动重试）——进滚动窗+Redis 镜像可重放，前端状态行滚动呈现 */
+  type: 'stream.delta' | 'stream.done' | 'stream.error' | 'stream.notice';
   data: Record<string, unknown>;
 }
 
@@ -55,6 +56,22 @@ export function isRetryableStreamCut(raw: string): boolean {
   return /stream closed before|disconnected before completion|premature close|socket hang up|terminated|ECONNRESET|ECONNREFUSED|ETIMEDOUT|ENOTFOUND|fetch failed|other side closed|network|timed? ?out/i.test(raw);
 }
 
+/**
+ * 非 SSE 内部调用断流重试（2026-10-11 A2）：嵌套提案（propose_edits pi 通道，单册 3~8 分钟）
+ * 是全链最长单次裸奔调用——命中 isRetryableStreamCut 自动整轮重发 1 次（与三处 driveReal 同口径）。
+ * 有界不静默：重试 console.warn 留痕；非断流错误（限流/鉴权/配额）原样上抛。
+ */
+export async function withStreamCutRetry<T>(label: string, fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (e) {
+    const raw = e instanceof Error ? e.message : String(e);
+    if (!isRetryableStreamCut(raw)) throw e;
+    console.warn(`[ai] ${label} 断流，自动重试 1 次：${raw.slice(0, 200)}`);
+    return await fn();
+  }
+}
+
 interface PipelineEntry {
   messageId: string;
   sessionId: string;
@@ -73,6 +90,8 @@ interface PipelineEntry {
   started: boolean;
   /** 首轮 thinkLevel——接力轮（agentic loop）沿用同一推理档位 */
   thinkLevel?: string | undefined;
+  /** 断流重试用会话工厂（2026-10-11 A3）：零流出断流重建会话重发；缺省（测试直注册）则无重试 */
+  makeSession?: (() => Promise<AiSession>) | undefined;
 }
 
 const WINDOW = 200;
@@ -111,6 +130,7 @@ export class StreamPipeline implements OnModuleInit, OnModuleDestroy {
   register(init: {
     messageId: string; sessionId: string; projectId: string;
     ai: AiSession; prompt: string;
+    makeSession?: (() => Promise<AiSession>) | undefined;
   }): void {
     let resolveCompletion!: (c: PipelineCompletion) => void;
     const completion = new Promise<PipelineCompletion>((res) => { resolveCompletion = res; });
@@ -171,29 +191,54 @@ export class StreamPipeline implements OnModuleInit, OnModuleDestroy {
     e.started = true;
     e.thinkLevel = extra.thinkLevel;
     void (async () => {
-      const { deltas, result } = e.ai.stream(e.prompt, { thinkLevel: extra.thinkLevel as never });
-      result.catch(() => null); // 失败经 deltas 迭代抛出，此处仅防 unhandled
       let content = '';
       let usage: AiUsage | undefined;
-      try {
-        for await (const d of deltas) {
-          content += d;
-          this.emit(e, { seq: 0, type: 'stream.delta', data: { text: d } });
-          if (e.paused) await this.waitResume(e);
+      let retried = false;
+      for (;;) {
+        const { deltas, result } = e.ai.stream(e.prompt, { thinkLevel: extra.thinkLevel as never });
+        result.catch(() => null); // 失败经 deltas 迭代抛出，此处仅防 unhandled
+        try {
+          for await (const d of deltas) {
+            content += d;
+            this.emit(e, { seq: 0, type: 'stream.delta', data: { text: d } });
+            if (e.paused) await this.waitResume(e);
+          }
+          const r = await result.catch(() => null);
+          usage = r?.usage;
+          await this.finish(e, { status: e.stopped ? 'stopped' : 'done', content, ...(usage ? { usage } : {}) }, onFinish);
+          return;
+        } catch (err) {
+          const raw = err instanceof Error ? err.message : String(err);
+          // A3 零流出安全重试（2026-10-11）：断流发生在任何 delta 流出之前 → 整轮重发无重复文本风险，
+          // 重建会话自动重试 1 次（有界不静默：stream.notice + console.warn）；已有流出则维持
+          // 「保留已流出+failed」纪律（已广播 delta 无法回收）
+          if (!retried && content === '' && !e.stopped && e.makeSession && isRetryableStreamCut(raw)) {
+            retried = true;
+            console.warn(`[ai] stream cut before any delta, retrying once messageId=${messageId}: ${raw.slice(0, 200)}`);
+            try {
+              e.ai = await e.makeSession();
+            } catch (e2) {
+              const raw2 = e2 instanceof Error ? e2.message : String(e2);
+              console.error(`[ai] retry session rebuild failed messageId=${messageId}: ${raw2}`);
+              await this.finish(e, {
+                status: 'failed', content: '',
+                error: classifyAiError(raw2), errorMessage: sanitizeAiError(raw2),
+              }, onFinish);
+              return;
+            }
+            this.emitNotice(messageId, '上游连接瞬断，已自动重试 1 次');
+            continue;
+          }
+          // W2-002：后端日志留痕（原静默无日志）；DomainError 保留其闭集码，原始供应商错误归类+脱敏
+          console.error(`[ai] stream failed messageId=${messageId}: ${raw}`);
+          await this.finish(e, {
+            status: 'failed', content,
+            error: err instanceof DomainError ? err.code : classifyAiError(raw),
+            errorMessage: sanitizeAiError(raw),
+            ...(usage ? { usage } : {}),
+          }, onFinish);
+          return;
         }
-        const r = await result.catch(() => null);
-        usage = r?.usage;
-        await this.finish(e, { status: e.stopped ? 'stopped' : 'done', content, ...(usage ? { usage } : {}) }, onFinish);
-      } catch (err) {
-        // W2-002：后端日志留痕（原静默无日志）；DomainError 保留其闭集码，原始供应商错误归类+脱敏
-        const raw = err instanceof Error ? err.message : String(err);
-        console.error(`[ai] stream failed messageId=${messageId}: ${raw}`);
-        await this.finish(e, {
-          status: 'failed', content,
-          error: err instanceof DomainError ? err.code : classifyAiError(raw),
-          errorMessage: sanitizeAiError(raw),
-          ...(usage ? { usage } : {}),
-        }, onFinish);
       }
     })();
   }
@@ -208,29 +253,60 @@ export class StreamPipeline implements OnModuleInit, OnModuleDestroy {
     messageId: string,
     ai: AiSession,
     prompt: string,
+    /** A3 零流出安全重试：接力轮断流时尚零 delta 流出则重建会话重发 1 次（同 run 口径） */
+    makeSession?: () => Promise<AiSession>,
   ): Promise<{ content: string; usage?: AiUsage; stopped: boolean; failed?: string }> {
     const e = this.get(messageId);
-    e.ai = ai; // stop/pause 作用于当前轮会话
-    const { deltas, result } = ai.stream(prompt, { thinkLevel: e.thinkLevel as never });
-    result.catch(() => null);
+    let cur = ai;
+    e.ai = cur; // stop/pause 作用于当前轮会话
     let content = '';
     let failed: string | undefined;
-    try {
-      for await (const d of deltas) {
-        content += d;
-        this.emit(e, { seq: 0, type: 'stream.delta', data: { text: d } });
-        if (e.paused) await this.waitResume(e);
+    let retried = false;
+    for (;;) {
+      const roundContentStart = content.length;
+      const { deltas, result } = cur.stream(prompt, { thinkLevel: e.thinkLevel as never });
+      result.catch(() => null);
+      try {
+        for await (const d of deltas) {
+          content += d;
+          this.emit(e, { seq: 0, type: 'stream.delta', data: { text: d } });
+          if (e.paused) await this.waitResume(e);
+        }
+        const r = await result.catch(() => null);
+        return { content, ...(r?.usage ? { usage: r.usage } : {}), stopped: e.stopped };
+      } catch (err) {
+        const raw = err instanceof Error ? err.message : String(err);
+        // 本轮零流出断流 → 重建会话重试 1 次（无重复文本风险）；已有流出则保留+failed 提示不回收
+        if (!retried && content.length === roundContentStart && !e.stopped && makeSession && isRetryableStreamCut(raw)) {
+          retried = true;
+          console.warn(`[ai] continuation cut before any delta, retrying once messageId=${messageId}: ${raw.slice(0, 200)}`);
+          try {
+            cur = await makeSession();
+            e.ai = cur;
+          } catch (e2) {
+            failed = sanitizeAiError(e2 instanceof Error ? e2.message : String(e2));
+            console.error(`[ai] continuation retry session rebuild failed messageId=${messageId}: ${failed}`);
+            break;
+          }
+          this.emitNotice(messageId, '续答连接瞬断，已自动重试 1 次');
+          continue;
+        }
+        // 接力轮流失败：保留已流出部分，由调用方决定以现有内容终结（不再抛——首轮成果已可用）。
+        // 但绝不能静默——2026-10-05 实机曾整轮失败零痕迹（回复只剩开场白），排查无据；
+        // failed 回传调用方，由其在消息内补用户可见的续答失败提示
+        failed = sanitizeAiError(raw);
+        console.error(`[ai] continuation stream failed messageId=${messageId}: ${failed}`);
+        break;
       }
-    } catch (err) {
-      // 接力轮流失败：保留已流出部分，由调用方决定以现有内容终结（不再抛——首轮成果已可用）。
-      // 但绝不能静默——2026-10-05 实机曾整轮失败零痕迹（回复只剩开场白），排查无据；
-      // failed 回传调用方，由其在消息内补用户可见的续答失败提示
-      const raw = err instanceof Error ? err.message : String(err);
-      failed = sanitizeAiError(raw);
-      console.error(`[ai] continuation stream failed messageId=${messageId}: ${failed}`);
     }
-    const r = await result.catch(() => null);
-    return { content, ...(r?.usage ? { usage: r.usage } : {}), stopped: e.stopped, ...(failed ? { failed } : {}) };
+    return { content, stopped: e.stopped, ...(failed ? { failed } : {}) };
+  }
+
+  /** 进度提示帧（A4：工具执行/接力轮次/自动重试用户可见）——进滚动窗+Redis 镜像，重放同口径 */
+  emitNotice(messageId: string, text: string): void {
+    const e = this.peek(messageId);
+    if (!e || e.done) return;
+    this.emit(e, { seq: 0, type: 'stream.notice', data: { text: text.slice(0, 200) } });
   }
 
   private emit(e: PipelineEntry, frame: StreamFrame): void {

@@ -113,7 +113,11 @@ export class SystemController {
         res.write(`data: ${JSON.stringify({ type: 'notice.created', notice: n })}\n\n`);
       }
     });
-    req.on('close', unsubscribe);
+    // A1 SSE 心跳（2026-10-11）：通知流是永久长闲置连接，无心跳必被中间代理空闲超时杀
+    const ping = setInterval(() => {
+      try { res.write(': ping\n\n'); } catch { /* 连接已断，close 事件清理 */ }
+    }, 15000);
+    req.on('close', () => { clearInterval(ping); unsubscribe(); });
   }
 
   // ---- A10-3 审计查询（只读；无改删端点） ----

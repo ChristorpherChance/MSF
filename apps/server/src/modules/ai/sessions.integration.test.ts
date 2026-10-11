@@ -27,15 +27,18 @@ class FakeSession implements AiSession {
   chunks: string[] | null = null;
   /** agentic 接力：记录每轮 stream 收到的 prompt（断言工具结果回喂） */
   onStream: ((prompt: string) => void) | null = null;
-  /** 接力轮失败注入：deltas 首迭代即抛、result 拒绝（模拟网关 503 瞬断） */
+  /** 接力轮失败注入：deltas 首迭代即抛、result 拒绝（模拟网关 503 瞬断——不可重试口径） */
   fail = false;
+  /** 断流注入（可重试口径：stream closed before ……命中 isRetryableStreamCut，A3 零流出安全重试用） */
+  failCut = false;
   stream(prompt?: string): { deltas: AsyncIterable<string>; result: Promise<AiMessageResult> } {
     if (prompt !== undefined) this.onStream?.(prompt);
-    if (this.fail) {
-      const result = Promise.reject<AiMessageResult>(new Error('boom-503 upstream auth_unavailable'));
+    if (this.fail || this.failCut) {
+      const msg = this.failCut ? 'stream closed before response.completed' : 'boom-503 upstream auth_unavailable';
+      const result = Promise.reject<AiMessageResult>(new Error(msg));
       result.catch(() => undefined);
       const deltas = (async function* (): AsyncGenerator<string> {
-        throw new Error('boom-503 upstream auth_unavailable');
+        throw new Error(msg);
       })();
       return { deltas, result };
     }
@@ -84,10 +87,13 @@ class FakeProvider implements AiProvider {
   capturedPrompts: string[] = [];
   /** 按 createSession 调用序的失败注入队列（首轮→接力轮依次出队） */
   failQueue: boolean[] = [];
+  /** 断流注入队列（可重试口径；与 failQueue 同序出队） */
+  failCutQueue: boolean[] = [];
   async createSession(): Promise<AiSession> {
     const s = new FakeSession();
     s.chunks = this.nextChunks ?? this.roundQueue.shift() ?? null;
     s.fail = this.failQueue.shift() ?? false;
+    s.failCut = this.failCutQueue.shift() ?? false;
     s.onStream = (p) => this.capturedPrompts.push(p);
     this.nextChunks = null;
     this.last = s;
@@ -127,6 +133,9 @@ describe('AI 会话/消息/流式管线（集成，需 DB）', async () => {
   await pipeline.onModuleInit(); // Redis 可达则镜像，否则降级
   const tools = new AiToolsService();
   tools.onModuleInit();
+  // A6 usage 归因测试用：注册 ai.usage.record 命令（生产由模块 onModuleInit 注册）
+  const { AiUsageService } = await import('./usage.service.js');
+  new AiUsageService().onModuleInit();
   const sessions = new AiSessionsService(provider, models, pipeline, tools);
   sessions.onModuleInit();
 
@@ -375,6 +384,79 @@ describe('AI 会话/消息/流式管线（集成，需 DB）', async () => {
     // 恰两轮（首轮+失败的接力轮）：失败即终止，不再向故障网关连败至 3 轮上限
     expect(provider.capturedPrompts.length).toBe(2);
     provider.failQueue = [];
+  });
+
+  it('A3 接力轮零流出断流安全重试：stream cut 自动重建会话重试 1 次+notice 帧；A4 进度帧全程可见', async () => {
+    provider.capturedPrompts = [];
+    provider.nextChunks = ['我先读取需求页。', '\n```msf-tool\n{"name":"nav.goto","args":{"tab":"req"}}\n```'];
+    // 首轮正常 → 接力轮断流（可重试口径，零 delta 流出）→ 重试会话正常续答
+    provider.failCutQueue = [false, true, false];
+    provider.roundQueue.push(['x']); // 占位给断流轮（failCut 优先于 chunks，不出队不挂闸——此条实际被断流会话持有）
+    provider.roundQueue.push(['断流重试后续答完成。']); // 重试会话
+    const frames: Array<{ type: string; text?: string }> = [];
+    const { messageId } = await sessions.send(PID, sessionId, { content: '读一下' }, CTX);
+    const c = await sessions.drive(messageId, (f) => frames.push(f as { type: string; text?: string }), { ctx: CTX });
+    expect(c.status).toBe('done');
+    // 三轮会话：首轮+断流接力轮+重试轮（恰 1 次重试，不连败）
+    expect(provider.capturedPrompts.length).toBe(3);
+    const msgs = await sessions.messages(PID, sessionId);
+    const aiMsg = msgs.items.find((m) => m.id === messageId)! as unknown as { content: string };
+    expect(aiMsg.content).toContain('断流重试后续答完成');
+    expect(aiMsg.content).not.toContain('续答生成失败'); // 重试成功不留失败提示
+    // A4 notice 帧：工具执行+接力轮次+断流重试三类进度用户可见
+    const notices = frames.filter((f) => f.type === 'stream.notice').map((f) => f.text ?? '');
+    expect(notices.some((t) => t.includes('正在执行 nav.goto'))).toBe(true);
+    expect(notices.some((t) => t.includes('接力第 1 轮'))).toBe(true);
+    expect(notices.some((t) => t.includes('自动重试'))).toBe(true);
+    provider.failCutQueue = [];
+  });
+
+  it('A5 单轮工具块上限 6：一轮 5 块全执行不残留（原 3 块上限残留块白烧接力轮）', async () => {
+    provider.capturedPrompts = [];
+    const blocks = ['req', 'design', 'proto', 'dev', 'test']
+      .map((t) => '\n```msf-tool\n{"name":"nav.goto","args":{"tab":"' + t + '"}}\n```\n');
+    provider.nextChunks = ['五页都看一下。', ...blocks];
+    provider.roundQueue.push(['五页结果都在，给结论。']); // 接力轮收束
+    const { messageId } = await sessions.send(PID, sessionId, { content: '五页巡检' }, CTX);
+    const c = await sessions.drive(messageId, () => {}, { ctx: CTX });
+    expect(c.status).toBe('done');
+    expect(provider.capturedPrompts.length).toBe(2); // 恰一轮接力（5 块全执行，无残留触发第二轮）
+    const relay = provider.capturedPrompts[1]!;
+    for (const t of ['req', 'design', 'proto', 'dev', 'test']) {
+      expect(relay).toContain(`"route":"/${t}"`); // 五个结果同轮回喂
+    }
+    const msgs = await sessions.messages(PID, sessionId);
+    const aiMsg = msgs.items.find((m) => m.id === messageId)! as unknown as {
+      content: string; toolCalls: Array<{ toolName: string; status: string }>;
+    };
+    expect(aiMsg.toolCalls.length).toBe(5);
+    expect(aiMsg.content).toContain('五页结果都在');
+  });
+
+  it('A6 usage 归因：ai.usage.record 带 sessionId/messageId 落账，按会话可归因', async () => {
+    const { executeCommand } = await import('../evidence/command-bus.js');
+    const model = await query<{ id: string }>('SELECT id FROM ai_models LIMIT 1', []);
+    const msg = await query<{ id: string }>(
+      'SELECT id FROM ai_messages WHERE session_id=$1 LIMIT 1', [sessionId]);
+    await executeCommand('ai.usage.record', {
+      projectId: PID, modelId: model.rows[0]!.id, purpose: 'generation',
+      tokensIn: 100, tokensOut: 50, durationMs: 10, cost: 0,
+      sessionId, messageId: msg.rows[0]!.id,
+    }, CTX);
+    const row = await query<{ session_id: string | null; message_id: string | null }>(
+      `SELECT session_id, message_id FROM ai_usage
+       WHERE project_id=$1 AND purpose='generation' ORDER BY created_at DESC LIMIT 1`, [PID]);
+    expect(row.rows[0]!.session_id).toBe(sessionId);
+    expect(row.rows[0]!.message_id).toBe(msg.rows[0]!.id);
+    // 不带归因的旧调用方（页面直发生成/委派）不受影响：NULL 落账口径不变
+    await executeCommand('ai.usage.record', {
+      projectId: PID, modelId: model.rows[0]!.id, purpose: 'generation',
+      tokensIn: 1, tokensOut: 1, durationMs: 1, cost: 0,
+    }, CTX);
+    const row2 = await query<{ session_id: string | null }>(
+      `SELECT session_id FROM ai_usage
+       WHERE project_id=$1 AND purpose='generation' ORDER BY created_at DESC LIMIT 1`, [PID]);
+    expect(row2.rows[0]!.session_id).toBeNull();
   });
 
   it('未闭合尾围栏容错：模型漏写收尾 ``` 时体部合法照样执行并剥离；半截 JSON 绝不执行', async () => {

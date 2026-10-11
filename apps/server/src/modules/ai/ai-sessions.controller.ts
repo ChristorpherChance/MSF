@@ -123,8 +123,17 @@ export class AiSessionsController {
     res.setHeader('X-Accel-Buffering', 'no'); // 前置 nginx 默认 proxy_buffering=on 会整包缓冲 SSE（2026-10-09 公网实测）；此头令其直通
     res.setHeader('Connection', 'keep-alive');
     const emit = (data: unknown) => res.write(`data: ${JSON.stringify(data)}\n\n`);
+    // A1 SSE 心跳（2026-10-11）：长静默期（嵌套提案 3~8 分钟/接力工具执行）nginx proxy_read_timeout
+    // 会杀空闲连接——15s 注释帧保活（SSE 注释行不占帧序号、不进滚动窗，前端解析循环天然跳过）
+    const ping = setInterval(() => {
+      try { res.write(': ping\n\n'); } catch { /* 连接已断，由驱动侧终结 */ }
+    }, 15000);
     emit({ type: 'stream.start', operationId: messageId });
-    await this.sessions.drive(messageId, emit, { thinkLevel: body.thinkLevel, ctx });
+    try {
+      await this.sessions.drive(messageId, emit, { thinkLevel: body.thinkLevel, ctx });
+    } finally {
+      clearInterval(ping);
+    }
     res.end();
   }
 
@@ -171,7 +180,15 @@ export class AiSessionsController {
     res.setHeader('X-Accel-Buffering', 'no'); // 前置 nginx 默认 proxy_buffering=on 会整包缓冲 SSE（2026-10-09 公网实测）；此头令其直通
     res.setHeader('Connection', 'keep-alive');
     const emit = (data: unknown) => res.write(`data: ${JSON.stringify(data)}\n\n`);
-    await this.sessions.attach(projectId, messageId, lastEventId ? Number(lastEventId) : 0, emit);
+    // A1 SSE 心跳：重挂续订期间同样可能长静默（接力工具执行期），15s 注释帧保活
+    const ping = setInterval(() => {
+      try { res.write(': ping\n\n'); } catch { /* 连接已断 */ }
+    }, 15000);
+    try {
+      await this.sessions.attach(projectId, messageId, lastEventId ? Number(lastEventId) : 0, emit);
+    } finally {
+      clearInterval(ping);
+    }
     res.end();
   }
 

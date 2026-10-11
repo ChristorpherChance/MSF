@@ -229,6 +229,9 @@ function DockInner({ global }: { global: boolean }) {
             {s.streaming.paused ? '⏸ 已暂停（上下文已保留，可继续）' : '⚡ 生成中…'}
             <Elapsed since={s.streaming.startedAt} />
           </span>
+          {s.streaming.notice && !s.streaming.paused && (
+            <span className="status-notice" title={s.streaming.notice}>⚙ {s.streaming.notice}</span>
+          )}
           {s.streaming.paused
             ? <button className="sm primary" onClick={() => void s.control('resume')}>▶ 继续</button>
             : <button className="sm" onClick={() => void s.control('pause')}>⏸ 暂停</button>}

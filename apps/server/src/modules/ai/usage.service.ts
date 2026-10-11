@@ -16,12 +16,16 @@ export class AiUsageService {
       const p = payload as {
         projectId: string; modelId: string | null; purpose: string;
         tokensIn: number; tokensOut: number; durationMs: number; cost: number;
+        /** A6 归因（2026-10-11）：dock 对话内触发的嵌套生成（propose_edits 等）挂回触发会话/消息，
+         *  dock 统计面板「文档生成等（无会话）」桶只剩真无会话调用（页面直发生成/委派） */
+        sessionId?: string | undefined; messageId?: string | undefined;
       };
       await client.query(
         `INSERT INTO ai_usage (project_id, session_id, message_id, model_id, purpose,
            tokens_in, tokens_out, duration_ms, cost)
-         VALUES ($1,NULL,NULL,$2,$3,$4,$5,$6,$7)`,
-        [p.projectId, p.modelId, p.purpose, p.tokensIn, p.tokensOut, p.durationMs, p.cost]);
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+        [p.projectId, p.sessionId ?? null, p.messageId ?? null, p.modelId, p.purpose,
+          p.tokensIn, p.tokensOut, p.durationMs, p.cost]);
       return { recorded: true };
     });
   }
