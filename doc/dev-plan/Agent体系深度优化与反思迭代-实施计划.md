@@ -49,11 +49,13 @@ describe('DEFAULT_AGENTS 二十套基底结构断言', () => {
       expect(a.prompt.length, `${k} 字数`).toBeLessThanOrEqual(2000);
     }
   });
-  it('子 Agent 四段齐全、200~800 字', () => {
+  it('子 Agent 四段齐全、200~800 字，且段标题为行首【】形态（Task 3 narrowTrim 按行首切段的硬约束）', () => {
     for (const k of SUB_KEYS) {
       const a = DEFAULT_AGENT_MAP[k]!;
       expect(a.role === 'sub' || a.role === 'overlay').toBe(true);
-      for (const s of ['职责', '方法论', '反模式', '质量闸']) expect(a.prompt, `${k} 缺 ${s}`).toContain(s);
+      for (const s of ['职责', '方法论', '反模式', '质量闸']) {
+        expect(a.prompt, `${k} 缺 ${s}`).toMatch(new RegExp(`^【${s}】`, 'm'));
+      }
       expect(a.prompt.length).toBeGreaterThanOrEqual(200);
       expect(a.prompt.length).toBeLessThanOrEqual(800);
     }
@@ -153,7 +155,9 @@ export async function assembleAgentBlocks(ctx: string | null, docKind: string | 
 ```
 
 - [ ] **Step 3: sessions.service.ts 重构**——`buildPrompt`（513 行起）拆分：`buildSystemPrompt(projectId, sessionId)` 返回 system 段；
-  【阶段职责与方法】块整段替换为 assembleAgentBlocks 三块（位置提前至【当前上下文】之前，其余块序列不动）；
+  【阶段职责与方法】块整段替换为 assembleAgentBlocks 三块（位置提前至【当前上下文】之前，其余块序列不动）。
+  **注意：provider 接口是单字符串 prompt——【会话历史】与【本次请求】仍是拼接在 system 块之后的同一字符串尾部，
+  不「移动」只保持原位**；prompt 内容的测试观测口=FakeProvider.capturedPrompts（sessions.integration 先例）。
   send() 内盖戳改口径：`prompt_version_id`=assemble 返回的 stampId（不再查 assistant 单点），
   input_fingerprint=sha256hex(`${versionIds.join('|')}|${refsFp}`)。
   ai.message.send 命令（155-156 行单点查 assistant）相应改造——命令需要拿到 stampId：
@@ -212,10 +216,20 @@ export function narrowTrim(agentKey: string, text: string): string {
 ```
 （子 Agent 基底段落标题须与裁剪谓词一致——Task 1 的子 Agent 四段标题固定为【职责】【方法论】【反模式】【质量闸】。）
 
-- [ ] **Step 3: 接线**——send()/drive 链透传 band：send() 解析会话模型（绑定模型或 chat 路由行）取
-  context_window → band；PipelineEntry 增 `band?: ContextBand`（缺省 wide）；buildToolFollowup 的
-  TOOL_LOG_BUDGET 改 `BAND_BUDGETS[band].toolLog`；tools.service doc.read 的 DOC_READ_CAP 同理参数化
-  （tools 调用点从会话上下文取 band，缺省 wide——查 tools.service 调用链把 band 透传进去）。
+- [ ] **Step 3: 接线**——三处透传 + 两处窄档行为补齐（评审 I1/I2/I3 修法）：
+  1. **band 计算**：send() 解析会话模型（绑定模型或 chat 路由行）取 context_window → band；
+     PipelineEntry 增 `band?: ContextBand`（缺省 wide）；
+  2. **I1 装配裁剪**：`assembleAgentBlocks(ctx, docKind, band='wide')` 增第三参——band='narrow' 时对
+     role==='sub' 的子块套 narrowTrim（role==='overlay' 的 dev.coding-std 不裁——编码规范是标准援引非方法论）；
+  3. **I3 doc.read 预算透传链（逐跳写死，防实现者走 args 走私）**：runToolBlocks 组装的
+     `ai.tool.invoke` payload 增 `band` 字段 → 命令 handler 取出 → `ToolDef.run(client, projectId, args, opts?: { band?: ContextBand })`
+     签名加第四参 → doc.read 内 `const cap = BAND_BUDGETS[opts?.band ?? 'wide'].docRead`；
+  4. **toolLog 预算**：buildToolFollowup 的 TOOL_LOG_BUDGET 改 `BAND_BUDGETS[band].toolLog`
+     （drive 从 PipelineEntry.band 取，缺省 wide）；
+  5. **I2 窄档两块**：（a）工具声明双版本——【可用工具】块抽出 `TOOL_BLOCK_FULL`/`TOOL_BLOCK_CONDENSED`
+     （condensed=每工具一行签名+一句用途，砍示例与长篇口径），窄档用 condensed（**签名与纪律句保留**，
+     砍的是示例段落）；（b）【当前上下文】门禁缺口文案窄档 120 字截断改 60 字；
+  6. **M5**：STAGE_GUIDES 兼容导出在本任务删除（sessions.service 已在 Task 2 迁走，grep 确认零引用后删）。
 
 - [ ] **Step 4:** 本机单测绿 + `npx tsc --noEmit` + 仓根 lint + 101 跑 sessions 套件（盖戳/budget 相关回归）
 
@@ -264,19 +278,27 @@ UPDATE ai_prompt_versions SET agent_key='dev.coding-std' WHERE agent_key='dev-co
 ```
 
 - [ ] **Step 3: models.service.ts**——PURPOSES 增 `'reflection'`（枚举校验自动放行）；
-  reflection.service 用的解析方法（新增 export，动态兜底钉死）：
+  **路由兜底直接改进 resolve（评审 C1 修法——独立 resolveReflection 会是死代码：pi 网关 createSession 只走
+  models.resolve(purpose)，路由未配即抛）**：
 
 ```ts
-/** reflection 路由解析：显式路由优先；无路由=enabled 中 context_window 最大者（动态兜底，不做种子） */
-async resolveReflection(): Promise<{ row: ModelRow; apiKey: string | null }> {
+async resolve(purpose: Purpose): Promise<{ row: ModelRow; apiKey: string | null }> {
   const r = await query<ModelRow>(
-    "SELECT * FROM ai_models WHERE enabled AND routes ? 'reflection' ORDER BY updated_at DESC LIMIT 1", []);
-  const row = r.rows[0] ?? (await query<ModelRow>(
-    'SELECT * FROM ai_models WHERE enabled ORDER BY context_window DESC, updated_at DESC LIMIT 1', [])).rows[0];
-  if (!row) throw new DomainError('MODEL_UNAVAILABLE', '无可用模型（请先在设置页注册并启用模型）', 'reflection');
+    'SELECT * FROM ai_models WHERE enabled AND routes ? $1 ORDER BY updated_at DESC LIMIT 1', [purpose]);
+  let row = r.rows[0];
+  // reflection 动态兜底（设计 §2）：无显式路由=enabled 中 context_window 最大者，永远跟随模型池
+  if (!row && purpose === 'reflection') {
+    row = (await query<ModelRow>(
+      'SELECT * FROM ai_models WHERE enabled ORDER BY context_window DESC, updated_at DESC LIMIT 1', [])).rows[0];
+  }
+  if (!row) {
+    throw new DomainError('MODEL_UNAVAILABLE', `用途 ${purpose} 无路由模型（请先注册模型并配置路由）`, purpose);
+  }
   return { row, apiKey: row.api_key_enc ? decryptText(row.api_key_enc) : null };
 }
 ```
+反思执行器取会话=`provider.createSession({ projectId, purpose: 'reflection' })`——pi 模式走上面兜底，
+mock 模式 MockAiProvider 按 purpose 分发（Task 5 加 reflection 分支）。
 
 - [ ] **Step 4:** `npx tsc --noEmit` + lint + check-codes 零违规；101 起库跑迁移幂等验证（两跑不炸）
 
@@ -324,19 +346,21 @@ export class ReflectionService implements OnModuleInit, OnModuleDestroy {
     registerCommand('ai.reflect.run', async (client, payload) => { /* 落库写：ai_reflections 行 + 提案版本直插（FOR UPDATE 取号同 publish 口径、is_current=false 无条件、created_by='reflection'） */ });
     registerCommand('ai.reflect.proposal.resolve', async (client, payload) => { /* adopt=翻转 is_current（先摘后挂同 rollback 口径）+ proposals 状态回写；reject=仅状态回写 */ });
     this.timer = setInterval(() => { void this.tick(); }, 3600_000); // 每小时探一次
+    this.timer.unref?.(); // 直实例化场景（测试/CLI）不吊住进程
   }
   onModuleDestroy(): void { if (this.timer) clearInterval(this.timer); }
   /** 调度判定（导出供测试）：无历史=到期；窗口内零新消息=不跑 */
   async shouldRun(now = new Date()): Promise<boolean> { /* COALESCE(max(created_at),'-infinity') + ai_messages 窗口计数 */ }
   private async tick(): Promise<void> { if (await this.shouldRun()) await this.run('scheduled', SYS_CTX).catch((e) => console.error(`[reflection] ${e instanceof Error ? e.message : e}`)); }
-  /** 主流程：并发闸 → 取样装配（事务外）→ resolveReflection → LLM（事务外）→ ai.reflect.run 落库 → 通知 */
+  /** 主流程：并发闸 → 取样装配（事务外）→ provider.createSession({purpose:'reflection'})（事务外）→ ai.reflect.run 落库 → 通知 */
   async run(trigger: 'scheduled' | 'manual', ctx: CommandContext): Promise<{ reflectionId: string }> { /* … */ }
 }
 ```
 取样查询（全项目跨域只读）：窗口内 ai_messages 联 ai_sessions 按 ctx/doc_kind 分组计数；
 req_pendings/dsg_pendings 窗口内 status 计数；ai_tool_calls 窗口内按工具名计数+错误率；ai_usage 分组求和；
 被拒提案历史（proposals status='rejected' 的 agentKey+summary）。采样超窗按组截断、统计全文保留。
-SYS_CTX = `{ actorKind: 'system', actorId: 'system' }`（CommandContext.projectId 可选——reflect 全局跨项目）。
+SYS_CTX = `{ projectId: null, actorKind: 'system', actorId: 'system' }`（CommandContext.projectId 是
+string|null 必填位不是可选位——reflect 全局跨项目传 null）。
 
 - [ ] **Step 3:** 101 跑集成全绿；本机 tsc+lint+check-codes
 
@@ -370,10 +394,11 @@ Co-Authored-By: Claude Code <noreply@anthropic.com>"
 ### Task 7: 前端设置页 Agent 区重做
 
 **Files:**
-- Modify: `apps/web/src/pages/platform/SettingsPage.tsx`（AGENTS 名册树重构）
+- Modify: `apps/web/src/pages/platform/SettingsPage.tsx`（AGENTS 名册树重构 + 旧 GLOBAL_BASE/GLOBAL_KEY 常量移除
+  （27-28 行，引用点 68/84/317/339 同步改造）+ 第 284 行 `agentKey="dev-coding-std"` 同步换点号 key）
 - Modify: `apps/web/src/pages/platform/api.ts`（reflections api 三方法+基底获取）
 - Modify: `apps/web/src/pages/platform/settings.css`（.prompt-editor min-height 180→420；名册树样式）
-- Modify: `apps/web/src/pages/dev/StdPanel.tsx`（key 'dev-coding-std'→'dev.coding-std'）
+- Modify: `apps/web/src/pages/dev/StdPanel.tsx`（第 5 行 key 'dev-coding-std'→'dev.coding-std'）
 - 新端点配套：`promptsApi` 增 `baseline(agentKey)`（后端补 GET 基底端点，或前端直接引 shared 常量——**注意**：基底在服务端 stage-guides.ts，前端要显示须加只读端点 `GET /api/v1/system/agent-baseline?key=`，放 Task 7 顺带在 system.controller 加）
 
 - [ ] **Step 1: 名册树**：全局助手 + 六阶段主（可展开）+ 各阶段子分组缩进（需求：CRD/PRD；设计：八册；
@@ -409,11 +434,12 @@ ssh -i ~/.ssh/id_ed25519_superopen_192_168_0_143 -o IdentitiesOnly=yes -o Strict
 ```
 101 工作副本被 scp 覆盖后先 `git checkout -- apps/server/src` 再 bundle ff（未跟踪新文件先 rm 同名再 ff）。
 
-- [ ] **Step 2: 差异登记条目 43**（格式同条目 42：背景一句+分点+测试口径+「待 13 册下轮基线回补
+- [ ] **Step 2: 差异登记条目 43**（追加到 `doc/dev-plan/AI会话互通与对话改文档-差异登记.md`——现末条=42；
+  格式同条目 42：背景一句+分点+测试口径+「待 13 册下轮基线回补
   LLD-5 A08（阶段指南→Agent 三层链）/LLD-4（ai_reflections 表）/LLD-6 U02（设置页）」）；
   升级通告口径写明两行为变更：库里既有 assistant 用户版本上线即生效、盖戳语义从 assistant 单点改注入链首层。
 
-- [ ] **Step 3: 全量闸**——双端 tsc / 仓根 lint / check-codes / 101 全量
+- [ ] **Step 3: 全量闸**——双端 tsc / 仓根 `pnpm lint` / `node doc/product-design/tools/check-codes.mjs` / 101 全量
   `npx vitest run --exclude "**/sandbox.integration.test.ts" --exclude "**/storage.service.test.ts"`（306 基线+新增全绿）
 
 - [ ] **Step 4: Commit** `docs(dev-plan): 差异登记条目 43——Agent 体系深度优化与反思迭代（待 13 册下轮基线回补）`
