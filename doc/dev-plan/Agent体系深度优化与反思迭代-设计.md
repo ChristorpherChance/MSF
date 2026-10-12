@@ -24,9 +24,9 @@
 | 需求子 ×2 | `req.crd`/`req.prd` | 轻量四段式（300~500 字） | 会话 doc_kind 命中即叠加 |
 | 设计子 ×8 | `design.hld/mod/alg/cls/db/api/ui/nfr` | 轻量四段式 | 同上 |
 | 资料子 ×2 | `material.file-parse`/`material.content-ops` | 四段式 | **管道型**：供上传解析/加工作业管道调用，不进 dock 叠加 |
-| 开发子 ×1 | `dev.coding-std` | 叠加区 | 现有「编码规范叠加区」收编（kind='std' 先例原位升级） |
+| 开发子 ×1 | `dev.coding-std` | 叠加区 | 现有「编码规范叠加区」收编（kind='std'）；注入规则：ctx=dev 恒叠加（dev 会话 doc_kind 恒 NULL，不走 doc_kind 命中规则）。0030 迁移含键名搬迁 `UPDATE ai_prompt_versions SET agent_key='dev.coding-std' WHERE agent_key='dev-coding-std'`（既有版本行不失联，前端 StdPanel/设置页同步换 key） |
 
-RTM 不单列子 Agent——refines 图纪律写入 req 主 Agent 方法论段（RTM 页签 dock 会话 ctx=req 天然吃主 Agent）。
+RTM 不单列子 Agent——refines 图纪律写入 req 主 Agent 方法论段（RTM 页签当前不挂 dock——ReqPage 在 subTab='rtm' 时隐藏 dock，不存在 ctx='rtm' 的孤值会话）。
 旧 `ag-*` 六员（原型口径，从未接运行时）退役：库中版本行**保留可读**不删除，设置页不再展示，运行时不引用。
 
 **三层链**（每套 Agent 独立）：
@@ -41,18 +41,25 @@ RTM 不单列子 Agent——refines 图纪律写入 req 主 Agent 方法论段�
 **有用户版本=base_prompt+overlay_text 拼接生效，无=代码基底**（mock 期/未配置零阻断，与现状口径一致）。
 版本 id 照旧盖戳 ai_messages.prompt_version_id（主 Agent 版本 id；子叠加时逗号并入 input_fingerprint 计算，审计可溯源）。
 
-**装配顺序**（buildSystemPrompt parts 序列）：
+**装配顺序**（现 buildPrompt 重构拆分出 buildSystemPrompt；新序列，⬢=内容不动仅位置标注）：
 
 ```
-【角色与方法·主】（agent_key=ctx 解析）        ← 替代现【阶段职责与方法】
-【角色与方法·子】（agent_key=`${ctx}.${doc_kind}` 命中才注入）
-【当前上下文】（项目名+五阶段准入，现有不动）
-【当前工件】（0029 绑定块，现有不动）
-【联动提醒】（upstream-stale 派生，现有不动）
-【能力边界】（代码强制，现有不动）
-【可用工具】（代码强制，现有不动）
-【参考资料】（现有不动）
+【全局基底·assistant】（agent_key='assistant' 三层链解析；现为代码常量 GLOBAL_BASE 升级版。
+  注意行为变更：库里既有 assistant 用户版本此前从未生效，本特性上线后即真实生效——升级通告写明）
+【角色与方法·主】（agent_key=ctx 解析）        ← 替代现【阶段职责与方法】（位置提前至上下文块之前）
+【角色与方法·子】（agent_key=`${ctx}.${doc_kind}` 命中才注入；dev 会话 doc_kind 恒 NULL，
+  dev.coding-std 规则另定：ctx=dev 恒叠加，见名册表）
+【当前上下文】（项目名+五阶段准入，⬢ 内容不动、位置自第 1 块降为第 4）
+【当前工件】（0029 绑定块，⬢ 不动）
+【联动提醒】（upstream-stale 派生，⬢ 不动）
+【能力边界】（代码强制，⬢ 不动）
+【可用工具】（代码强制，⬢ 不动）
+【参考资料】（⬢ 不动）
+【他阶段会话摘要】（cross-session digest，⬢ 不动，保持在参考资料之后原位）
 ```
+会话历史与本次请求不进 system prompt（现有即如此：消息序列拼装不变，本特性只动 system 段）。
+**生效时点**：prompt 按每条消息发送时组装——is_current 翻转/提案采用后**下一条消息**即吃新版，
+在途流不受影响；代码基底变更=代码部署生效。
 
 **治理面不开放**：能力边界/工具声明两块永远代码常量，Agent 可编辑区只管「怎么当好角色」，
 管不到「能做什么」——用户版本与反思提案都碰不到治理面（防自伤/防越权）。
@@ -86,8 +93,11 @@ RTM 不单列子 Agent——refines 图纪律写入 req 主 Agent 方法论段�
 | 窄档 | <128k | 主全段+子精简段（只留职责边界+反模式）；工具声明砍示例留签名行；【当前上下文】缺口文案再截短；toolLog 预算 16000 |
 
 裁段顺序钉死：先裁示例细节→再裁方法论展开→**能力边界/工具签名/反模式永不进裁剪表**。
-**反思执行器路由解耦**：新增 `reflection` 用途路由，默认挂 context_window 最大的已启用模型
-（运行时聊天可用小模型，后台反思用大模型互不绑架）。
+**无模型/mock 期=宽档**（会话解析不到模型时不降档，现状行为与 306 基线测试口径完全不变；
+行为变更只发生在绑定真实模型且窗口 <512k 时——默认 128000 的模型落标准档，toolLog 预算 40000，升级通告写明）。
+**反思执行器路由解耦**：PURPOSES 增 `reflection` 用途路由；解析口径钉死为**动态兜底**——
+无 reflection 路由时取 enabled 中 context_window 最大者（不做迁移种子，永远跟随模型池现状；
+运行时聊天可用小模型，后台反思用大模型互不绑架）。反思执行遇全无可用模型抛既有码 MODEL_UNAVAILABLE（闭集内，前端人话提示去设置页配模型）。
 
 ## 3. 使用记录与质量信号（反思输入，零新埋点）
 
@@ -118,8 +128,9 @@ CREATE TABLE ai_reflections (
 
 ## 4. 反思执行器（四步流，全留痕）
 
-**触发**：服务端调度器 setInterval 每小时查「max(ai_reflections.created_at) 距今 ≥7 天
-且窗口内有新消息」→ 自动跑（进程重启自然漂移不追钟点；零新消息跳过不空跑）；
+**触发**：服务端调度器 setInterval 每小时查「距上次反思 ≥7 天且窗口内有新消息」→ 自动跑
+（**无历史即视为到期**——空表首跑正常触发；`COALESCE(max(created_at), '-infinity')` 口径；
+进程重启自然漂移不追钟点；零新消息跳过不空跑）；
 手动=设置页「🪞 立即反思」（同刻一场并发闸 INVALID_STATE，模板重排先例）。
 
 **执行**：
@@ -127,9 +138,11 @@ CREATE TABLE ai_reflections (
    超反思模型窗口预算时按组截断、统计全文保留+对话原文采样头尾（信号优先）；
 2. **分析**：反思 Agent（专用系统 prompt 代码内置**不可编辑**——管 Agent 的 Agent 不开放自改防自指漂移）
    逐组产出：保持项/问题模式（反复纠正点/提案被拒集中点/工具误用）/改进建议；
-3. **提案**：每个有改进点的 Agent 产**修订版全文**（非 diff——prompt 修订必须整篇可审）落
-   ai_prompt_versions 新版本（is_current=false、created_by='reflection'、name 带反思场次号）；
-   **零提案是合法结论**（「本期无需调整」报告照发）；ai_reflections.proposals 同步登记关联；
+3. **提案**：每个有改进点的 Agent 产**修订版全文**（非 diff——prompt 修订必须整篇可审）。
+   **落库不走 ai.prompt.publish**（其「首版强制 is_current=true」规则会击穿提案制——评审 C1 抓修）：
+   由 `ai.reflect.run` 命令同事务直插 ai_prompt_versions（is_current=false 无条件、
+   created_by='reflection'、name 带反思场次号）；**零提案是合法结论**（「本期无需调整」报告照发）；
+   ai_reflections.proposals 同步登记关联；
 4. **通知**：既有 notifications 通道「🪞 反思报告：N 条 Agent 改进提案待审」。
 
 **确认生效**：设置页 Agent 卡「反思提案」区——当前版 vs 反思版并排对照（补丁页 diff UX 口径）
@@ -146,9 +159,10 @@ CREATE TABLE ai_reflections (
 - 版本列表保留（设当前/改名/删除现有功能不动）+「反思提案」区（§4）；
 - 全局助手卡的工具启用区/执行自检保留原位。
 
-**模板编辑区加大**（DocTemplatesGroup）：章条 requires textarea `rows=2 → 5 + resize:vertical`
-（新模板 80~160 字复合粒度 requires 在 2 行框里展不开——用户直接痛点）；章条输入区整行加宽；
-其余布局不动。样式纪律：全 var() 令牌零写死色。
+**模板编辑区加大**（DocTemplatesGroup）：章条 requires textarea `rows=2 → 5`（新模板 80~160 字复合粒度
+requires 在 2 行框里展不开——用户直接痛点）；「质量要求」textarea 同源痛点 `rows=2 → 4`；两处补
+`resize:vertical`。Agent prompt 编辑区 `.prompt-editor` 已有 resize:vertical，只升 min-height。
+章条输入区整行加宽；其余布局不动。样式纪律：全 var() 令牌零写死色。
 
 ## 纪律与测试口径
 
