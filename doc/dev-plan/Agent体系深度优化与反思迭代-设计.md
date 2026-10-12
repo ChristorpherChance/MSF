@@ -39,7 +39,10 @@ RTM 不单列子 Agent——refines 图纪律写入 req 主 Agent 方法论段�
 
 运行时解析：`SELECT base_prompt, overlay_text FROM ai_prompt_versions WHERE agent_key=$1 AND is_current`；
 **有用户版本=base_prompt+overlay_text 拼接生效，无=代码基底**（mock 期/未配置零阻断，与现状口径一致）。
-版本 id 照旧盖戳 ai_messages.prompt_version_id（主 Agent 版本 id；子叠加时逗号并入 input_fingerprint 计算，审计可溯源）。
+版本盖戳：`prompt_version_id` 盖**主 Agent（或 assistant）当前版本 id**——行为变更写明：现盖戳语义是
+assistant 版本 id，本特性后改为「实际注入链最高层版本 id」（assistant→主→子取首层有用户版本者，
+全无用户版本则盖 NULL=纯基底）；三层实际使用的版本 id 全并入 `input_fingerprint`（assistant|主|子
+三段拼哈希），审计溯源不缺层。
 
 **装配顺序**（现 buildPrompt 重构拆分出 buildSystemPrompt；新序列，⬢=内容不动仅位置标注）：
 
@@ -92,7 +95,8 @@ RTM 不单列子 Agent——refines 图纪律写入 req 主 Agent 方法论段�
 | 标准档 | 128k~512k | 主+子全量；toolLog 预算 80000→40000；doc.read 截断阈值收紧 |
 | 窄档 | <128k | 主全段+子精简段（只留职责边界+反模式）；工具声明砍示例留签名行；【当前上下文】缺口文案再截短；toolLog 预算 16000 |
 
-裁段顺序钉死：先裁示例细节→再裁方法论展开→**能力边界/工具签名/反模式永不进裁剪表**。
+裁段顺序钉死：先裁示例细节→再裁方法论展开→**能力边界/工具签名/反模式永不进裁剪表**；
+**窄档下 assistant 全局基底与主 Agent 同权全段保留**（全局身份定位裁了伤一致性，字数本就受控）。
 **无模型/mock 期=宽档**（会话解析不到模型时不降档，现状行为与 306 基线测试口径完全不变；
 行为变更只发生在绑定真实模型且窗口 <512k 时——默认 128000 的模型落标准档，toolLog 预算 40000，升级通告写明）。
 **反思执行器路由解耦**：PURPOSES 增 `reflection` 用途路由；解析口径钉死为**动态兜底**——
@@ -140,8 +144,12 @@ CREATE TABLE ai_reflections (
    逐组产出：保持项/问题模式（反复纠正点/提案被拒集中点/工具误用）/改进建议；
 3. **提案**：每个有改进点的 Agent 产**修订版全文**（非 diff——prompt 修订必须整篇可审）。
    **落库不走 ai.prompt.publish**（其「首版强制 is_current=true」规则会击穿提案制——评审 C1 抓修）：
-   由 `ai.reflect.run` 命令同事务直插 ai_prompt_versions（is_current=false 无条件、
-   created_by='reflection'、name 带反思场次号）；**零提案是合法结论**（「本期无需调整」报告照发）；
+   由 `ai.reflect.run` 命令直插 ai_prompt_versions（is_current=false 无条件、
+   created_by='reflection'、name 带反思场次号）；version_no 取号沿用 publish 口径
+   （`SELECT ... ORDER BY version_no DESC LIMIT 1 FOR UPDATE` 防撞号）；
+   **事务边界钉死：取样与 LLM 分析在命令事务外跑（嵌套 LLM 绝不在命令事务内——既有纪律），
+   落库写（ai_reflections 行+提案版本行）收进 ai.reflect.run 命令事务**；
+   **零提案是合法结论**（「本期无需调整」报告照发）；
    ai_reflections.proposals 同步登记关联；
 4. **通知**：既有 notifications 通道「🪞 反思报告：N 条 Agent 改进提案待审」。
 
