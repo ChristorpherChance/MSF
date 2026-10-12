@@ -79,8 +79,27 @@ describe('Agent 三层链装配（集成，需 DB）', async () => {
   const snapshot = (await query<{ id: string }>(
     'SELECT id FROM ai_prompt_versions WHERE agent_key = ANY($1) AND is_current', [AGENT_KEYS]))
     .rows.map((r) => r.id);
-  await query('UPDATE ai_prompt_versions SET is_current=false WHERE agent_key = ANY($1)', [AGENT_KEYS]);
   const createdVersionIds: string[] = [];
+  // 护栏韧性（Task 3 收口）：afterAll 注册先于 is_current 全摘——摘行抛错也能恢复现场；
+  // 恢复步骤包 try/finally（删已建版本失败不跳过快照恢复）
+  afterAll(async () => {
+    await query('DELETE FROM ai_usage WHERE project_id=$1', [PID]);
+    await query('DELETE FROM ai_tool_calls WHERE session_id IN (SELECT id FROM ai_sessions WHERE project_id=$1)', [PID]);
+    await query('DELETE FROM ai_messages WHERE session_id IN (SELECT id FROM ai_sessions WHERE project_id=$1)', [PID]);
+    await query('DELETE FROM ai_sessions WHERE project_id=$1', [PID]);
+    try {
+      if (createdVersionIds.length > 0) {
+        await query('DELETE FROM ai_prompt_versions WHERE id = ANY($1::uuid[])', [createdVersionIds]);
+      }
+    } finally {
+      if (snapshot.length > 0) {
+        await query('UPDATE ai_prompt_versions SET is_current=true WHERE id = ANY($1::uuid[])', [snapshot]);
+      }
+    }
+    await pipeline.onModuleDestroy();
+    await pool.end();
+  });
+  await query('UPDATE ai_prompt_versions SET is_current=false WHERE agent_key = ANY($1)', [AGENT_KEYS]);
   const publish = async (agentKey: string, basePrompt: string, overlayText?: string) => {
     const r = await executeCommand('ai.prompt.publish', {
       agentKey, agentGroup: '测试', basePrompt, ...(overlayText ? { overlayText } : {}),
@@ -97,21 +116,6 @@ describe('Agent 三层链装配（集成，需 DB）', async () => {
       'SELECT prompt_version_id, input_fingerprint FROM ai_messages WHERE id=$1', [messageId]);
     return { prompt: provider.capturedPrompts[provider.capturedPrompts.length - 1]!, msg: m.rows[0]! };
   };
-
-  afterAll(async () => {
-    await query('DELETE FROM ai_usage WHERE project_id=$1', [PID]);
-    await query('DELETE FROM ai_tool_calls WHERE session_id IN (SELECT id FROM ai_sessions WHERE project_id=$1)', [PID]);
-    await query('DELETE FROM ai_messages WHERE session_id IN (SELECT id FROM ai_sessions WHERE project_id=$1)', [PID]);
-    await query('DELETE FROM ai_sessions WHERE project_id=$1', [PID]);
-    if (createdVersionIds.length > 0) {
-      await query('DELETE FROM ai_prompt_versions WHERE id = ANY($1::uuid[])', [createdVersionIds]);
-    }
-    if (snapshot.length > 0) {
-      await query('UPDATE ai_prompt_versions SET is_current=true WHERE id = ANY($1::uuid[])', [snapshot]);
-    }
-    await pipeline.onModuleDestroy();
-    await pool.end();
-  });
 
   it('纯基底：无用户版本时三层全量注入代码基底，盖戳 NULL', async () => {
     // 解析层：无用户版本 → 代码基底原文、versionId NULL

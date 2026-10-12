@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_AGENTS, DEFAULT_AGENT_MAP, STAGE_GUIDES } from './stage-guides.js';
+import { DEFAULT_AGENTS, DEFAULT_AGENT_MAP } from './stage-guides.js';
+import { BAND_BUDGETS, contextBand, narrowTrim } from './agent-prompts.js';
 
 const MAIN_KEYS = ['assistant', 'req', 'design', 'proto', 'dev', 'test', 'material'];
 const SUB_KEYS = ['req.crd', 'req.prd',
@@ -37,10 +38,54 @@ describe('DEFAULT_AGENTS 二十套基底结构断言', () => {
     expect(DEFAULT_AGENT_MAP['design']!.prompt).toContain('严禁重复读取');
     expect(DEFAULT_AGENT_MAP['material.file-parse']!.prompt).toContain('臆造');
   });
-  it('STAGE_GUIDES 兼容契约：键集 = 六阶段 ctx（钉住迁移期消费面，防 role 改动漂移）', () => {
-    expect(Object.keys(STAGE_GUIDES).sort()).toEqual(['design', 'dev', 'material', 'proto', 'req', 'test']);
-    for (const k of Object.keys(STAGE_GUIDES)) {
-      expect(STAGE_GUIDES[k]).toBe(DEFAULT_AGENT_MAP[k]!.prompt);
+});
+
+describe('上下文预算分档（Task 3，设计 §2 分档表）', () => {
+  it('contextBand 三档边界值钉死', () => {
+    // 无模型/mock 期=wide（306 基线口径不变）
+    expect(contextBand(null)).toBe('wide');
+    expect(contextBand(undefined)).toBe('wide');
+    // 宽档：≥512k
+    expect(contextBand(1000000)).toBe('wide');
+    expect(contextBand(512000)).toBe('wide');
+    // 标准档：128k~512k（默认 128000 落标准档）
+    expect(contextBand(256000)).toBe('standard');
+    expect(contextBand(128000)).toBe('standard');
+    // 窄档：<128k
+    expect(contextBand(127999)).toBe('narrow');
+    expect(contextBand(64000)).toBe('narrow');
+  });
+  it('BAND_BUDGETS 三档预算钉死（wide=现状常量原位参数化）', () => {
+    expect(BAND_BUDGETS.wide).toEqual({ toolLog: 80000, docRead: 12000 });
+    expect(BAND_BUDGETS.standard).toEqual({ toolLog: 40000, docRead: 8000 });
+    expect(BAND_BUDGETS.narrow).toEqual({ toolLog: 16000, docRead: 6000 });
+  });
+  it('narrowTrim：assistant/主 Agent 全段保留（窄档不降全局身份与主职责）', () => {
+    for (const k of MAIN_KEYS) {
+      const a = DEFAULT_AGENT_MAP[k]!;
+      expect(narrowTrim(k, a.prompt), k).toBe(a.prompt);
     }
+    // overlay（dev.coding-std 编码规范）是标准援引非方法论——不裁
+    const ov = DEFAULT_AGENT_MAP['dev.coding-std']!;
+    expect(narrowTrim('dev.coding-std', ov.prompt)).toBe(ov.prompt);
+  });
+  it('narrowTrim：子 Agent 只留【职责】【反模式】段（方法论/质量闸裁掉）', () => {
+    for (const k of SUB_KEYS.filter((k) => DEFAULT_AGENT_MAP[k]!.role === 'sub')) {
+      const full = DEFAULT_AGENT_MAP[k]!.prompt;
+      const trimmed = narrowTrim(k, full);
+      expect(trimmed, k).toContain('【职责】');
+      expect(trimmed, k).toContain('【反模式】');
+      expect(trimmed, k).not.toContain('【方法论】');
+      expect(trimmed, k).not.toContain('【质量闸】');
+      expect(trimmed.length, k).toBeLessThan(full.length);
+    }
+  });
+  it('narrowTrim 空结果兜底：用户版本无行首【职责】/【反模式】段标题 → 空串（装配层整块不注入）', () => {
+    expect(narrowTrim('req.crd', '一段没有任何段标题的自由文本\n仍然没有任何标题')).toBe('');
+  });
+  it('能力边界/工具签名段原文保留（narrowTrim 不作用于非子 Agent 治理面文本）', () => {
+    const gov = '【能力边界（必须遵守）】\n你不能直接修改……\n【可用工具（可自主调用）】\n- doc.read(kind)';
+    expect(narrowTrim('assistant', gov)).toBe(gov);
+    expect(narrowTrim('req', gov)).toBe(gov);
   });
 });

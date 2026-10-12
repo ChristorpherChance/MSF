@@ -2,6 +2,7 @@ import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { DomainError } from '@msf/shared';
 import { config } from '../../config.js';
 import type { AiSession, AiUsage } from './ai-provider.interface.js';
+import type { ContextBand } from './agent-prompts.js';
 
 /**
  * 流式管线（DSG-D08-2/3；A08-4；REQ-603/606）：
@@ -92,6 +93,9 @@ interface PipelineEntry {
   thinkLevel?: string | undefined;
   /** 断流重试用会话工厂（2026-10-11 A3）：零流出断流重建会话重发；缺省（测试直注册）则无重试 */
   makeSession?: (() => Promise<AiSession>) | undefined;
+  /** 上下文预算分档（Task 3）：send() 按会话模型 context_window 分档后随注册传入；
+   *  缺省（测试直注册/旧调用方）= wide——工具回喂预算与 doc.read 阈值走现状常量口径 */
+  band?: ContextBand | undefined;
 }
 
 const WINDOW = 200;
@@ -131,6 +135,7 @@ export class StreamPipeline implements OnModuleInit, OnModuleDestroy {
     messageId: string; sessionId: string; projectId: string;
     ai: AiSession; prompt: string;
     makeSession?: (() => Promise<AiSession>) | undefined;
+    band?: ContextBand | undefined;
   }): void {
     let resolveCompletion!: (c: PipelineCompletion) => void;
     const completion = new Promise<PipelineCompletion>((res) => { resolveCompletion = res; });

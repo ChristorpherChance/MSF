@@ -9,6 +9,7 @@ import {
   withNumberedTitles,
 } from '../platform/doc-sections.js';
 import { deriveNumbering } from '@msf/shared';
+import { BAND_BUDGETS, type ContextBand } from './agent-prompts.js';
 
 /**
  * ToolBridge 工具注册表（DSG-D08-3；A08-5/6；REQ-605/606/613）：
@@ -25,7 +26,9 @@ interface ToolDef {
   /** JSON Schema 简式：required 键 + 各键类型 */
   argsSchema: Record<string, 'string' | 'number' | 'boolean'>;
   required: string[];
-  run: (client: PoolClient, projectId: string, args: Record<string, unknown>) => Promise<Record<string, unknown>>;
+  /** opts.band（Task 3）：上下文分档经 ai.tool.invoke payload 逐跳透传（不走 args 防走私），
+   *  doc.read 据此取 BAND_BUDGETS 截断阈值；缺省 wide=现状常量口径 */
+  run: (client: PoolClient, projectId: string, args: Record<string, unknown>, opts?: { band?: ContextBand }) => Promise<Record<string, unknown>>;
 }
 
 /** 越界工具名单（定稿/放行/写类；出现在请求即 denied—— REQ-606 编排层拒绝） */
@@ -46,8 +49,6 @@ const ROUTES: Record<string, string> = {
 
 const DOC_REQ_KINDS = new Set(['crd', 'prd']);
 const DOC_DSG_KINDS = new Set(['hld', 'mod', 'alg', 'cls', 'db', 'api', 'ui', 'nfr']);
-/** doc.read 正文上限（字符）：防爆模型上下文（对齐会话参考注入的 12000 截断口径） */
-const DOC_READ_CAP = 12000;
 
 const TOOLS: ToolDef[] = [
   {
@@ -92,13 +93,16 @@ const TOOLS: ToolDef[] = [
     description: '读取指定文档正文（与界面同口径：草稿优先、章节标题带界面编号）。args.kind：crd|prd 需求文档；hld|mod|alg|cls|db|api|ui|nfr 设计册；args.anchor 可选——章节编号（如「5.1」「第五章」）或标题/CR 编号，定向读单节；args.offset 可选——全文被截断时从第 N 字符续读（截断返回会给 nextOffset）。回答「文档里某条怎么写的/某节内容/哪一节承接某需求」类问题前调用',
     argsSchema: { kind: 'string', anchor: 'string', offset: 'number' },
     required: ['kind'],
-    async run(client, projectId, args) {
+    async run(client, projectId, args, opts) {
       const kind = String(args['kind']);
       const isReq = DOC_REQ_KINDS.has(kind);
       if (!isReq && !DOC_DSG_KINDS.has(kind)) {
         throw new DomainError('TOOL_ARGS_INVALID',
           `kind 枚举 ${[...DOC_REQ_KINDS, ...DOC_DSG_KINDS].join('|')}`, 'kind');
       }
+      // doc.read 正文上限（字符）按上下文分档取预算（Task 3）：防爆模型上下文
+      // （wide 12000=现状常量原位参数化；standard 8000；narrow 6000）
+      const cap = BAND_BUDGETS[opts?.band ?? 'wide'].docRead;
       // SQL 直读他域表（与 read_context 同口径，只读）；草稿优先=与界面展示口径一致，附定稿/未提交态供模型如实表述
       const sql = isReq
         ? `SELECT v.version_no, COALESCE(dr.content, v.content) AS content,
@@ -136,11 +140,11 @@ const TOOLS: ToolDef[] = [
         }
         const s = secs[idx]!;
         const title = disp.get(s.id) || s.title;
-        const cut = s.md.length > DOC_READ_CAP;
+        const cut = s.md.length > cap;
         return {
           ...base, anchor, anchorFound: true, sectionTitle: title,
           truncated: cut,
-          content: `${title ? `## ${title}\n\n` : ''}${cut ? `${s.md.slice(0, DOC_READ_CAP)}\n…（节内截断，全文共 ${s.md.length} 字）` : s.md}`,
+          content: `${title ? `## ${title}\n\n` : ''}${cut ? `${s.md.slice(0, cap)}\n…（节内截断，全文共 ${s.md.length} 字）` : s.md}`,
         };
       }
       // 全文读：标题注入界面派生编号（「5.1 节」类指代据此可答）；
@@ -150,8 +154,8 @@ const TOOLS: ToolDef[] = [
       if (offset >= numbered.length && numbered.length > 0) {
         return { ...base, offset, truncated: false, content: '', message: `offset ${offset} 已超全文末尾（全文共 ${numbered.length} 字）` };
       }
-      const slice = numbered.slice(offset, offset + DOC_READ_CAP);
-      const next = offset + DOC_READ_CAP;
+      const slice = numbered.slice(offset, offset + cap);
+      const next = offset + cap;
       const truncated = next < numbered.length;
       return {
         ...base,
@@ -248,7 +252,11 @@ const byName = new Map(TOOLS.map((t) => [t.name, t]));
 export class AiToolsService implements OnModuleInit {
   onModuleInit(): void {
     registerCommand('ai.tool.invoke', async (client, payload, ctx) => {
-      const p = payload as { sessionId?: string; messageId?: string; toolName?: string; args?: Record<string, unknown> };
+      const p = payload as {
+        sessionId?: string; messageId?: string; toolName?: string; args?: Record<string, unknown>;
+        /** 上下文分档（Task 3）：编排层逐跳透传（payload 显式字段，不走 args 走私）；白名单收口，非法值=wide */
+        band?: ContextBand;
+      };
       if (!p.toolName) throw new DomainError('TOOL_ARGS_INVALID', 'toolName 必填', 'toolName');
       // 判别式结果：denied/unregistered/args_invalid 均先落 ai_tool_calls 再返回，
       // 由门面抛错——命令内抛错会回滚留痕行（REQ-606/613 要求拒绝也留痕）
@@ -278,7 +286,8 @@ export class AiToolsService implements OnModuleInit {
         }
       }
       try {
-        const result = await tool.run(client, ctx.projectId!, args);
+        const band: ContextBand = p.band === 'standard' || p.band === 'narrow' ? p.band : 'wide';
+        const result = await tool.run(client, ctx.projectId!, args, { band });
         await this.record(client, p, 'ok', result);
         return { outcome: 'ok' as const, tool: tool.name, result };
       } catch (e) {
@@ -339,7 +348,7 @@ export class AiToolsService implements OnModuleInit {
 
   async invoke(
     projectId: string,
-    p: { sessionId?: string; messageId?: string; toolName: string; args?: Record<string, unknown> },
+    p: { sessionId?: string; messageId?: string; toolName: string; args?: Record<string, unknown>; band?: ContextBand },
     ctx: CommandContext,
   ): Promise<{ tool: string; result: Record<string, unknown> }> {
     const r = await executeCommand('ai.tool.invoke', p, { ...ctx, projectId }) as

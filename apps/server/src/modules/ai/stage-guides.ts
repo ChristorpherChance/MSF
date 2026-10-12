@@ -165,7 +165,3 @@ export const DEFAULT_AGENTS: AgentDef[] = [
 ];
 
 export const DEFAULT_AGENT_MAP: Record<string, AgentDef> = Object.fromEntries(DEFAULT_AGENTS.map((a) => [a.key, a]));
-
-/** 兼容导出（sessions.service 迁移期引用；装配链迁完后删除） */
-export const STAGE_GUIDES: Record<string, string> = Object.fromEntries(
-  DEFAULT_AGENTS.filter((a) => a.role === 'main').map((a) => [a.key, a.prompt]));

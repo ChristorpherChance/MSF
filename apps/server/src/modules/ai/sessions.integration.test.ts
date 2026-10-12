@@ -9,6 +9,7 @@ import type {
   AiSession,
 } from './ai-provider.interface.js';
 import { AiModelsService } from './models.service.js';
+import { assembleAgentBlocks, type AssembledAgents, type ContextBand } from './agent-prompts.js';
 import { AiSessionsService } from './sessions.service.js';
 import { AiToolsService } from './tools.service.js';
 import { StreamPipeline } from './stream-pipeline.js';
@@ -514,6 +515,15 @@ describe('AI 会话/消息/流式管线（集成，需 DB）', async () => {
   it('接力工具结果总预算：跨轮累积超 80000 字淘汰最旧条目并明示省略（防爆窗）', async () => {
     const { registerExternalTool, resetExternalTools } = await import('../platform/external-tools.js');
     resetExternalTools();
+    // Task 3 分档口径：本用例钉 wide 档（toolLog 预算 80000）——前序用例把 chat 路由换到
+    // 默认 128000 窗口测试模型会落 standard（40000）；宽窗模型（≥512k）显式占路由恢复 wide。
+    // 共享库护栏现成：modelIds 收尾删行 + chatHolders 快照恢复
+    const wide = (await models.upsert({
+      name: `wide 模型 ${randomUUID().slice(0, 8)}`, provider: 'gateway', baseUrl: 'http://127.0.0.1:9',
+      modelCode: 'm', contextWindow: 1000000,
+    }, CTX)).id;
+    modelIds.push(wide);
+    await models.setRoute('chat', wide, CTX);
     try {
       registerExternalTool('test.big', async () => ({ ok: true, payload: 'x'.repeat(30000) }));
       provider.capturedPrompts = [];
@@ -535,6 +545,53 @@ describe('AI 会话/消息/流式管线（集成，需 DB）', async () => {
       expect(relay2.length).toBeLessThan(200000); // 预算闸生效（basePrompt+5×16000 量级，绝不 6 块全量）
     } finally {
       resetExternalTools();
+    }
+  });
+
+  it('上下文分档透传（Task 3）：窄档会话注入精简工具块+子 Agent 精简段；doc.read 阈值按 band 取预算', async () => {
+    // 窄窗模型绑定会话（64000 < 128000 → narrow；绑定模型优先于 chat 路由，设计 §2）
+    const narrowM = (await models.upsert({
+      name: `narrow 模型 ${randomUUID().slice(0, 8)}`, provider: 'gateway', baseUrl: 'http://127.0.0.1:9',
+      modelCode: 'm', contextWindow: 64000,
+    }, CTX)).id;
+    modelIds.push(narrowM);
+    const s = await sessions.create(PID, { ctx: 'req', docKind: 'crd', modelId: narrowM }, CTX) as { id: string };
+    provider.capturedPrompts = [];
+    provider.nextChunks = ['好的。'];
+    const { messageId } = await sessions.send(PID, s.id, { content: '窄档探测' }, CTX);
+    const c = await sessions.drive(messageId, () => {}, { ctx: CTX });
+    expect(c.status).toBe('done');
+    const prompt = provider.capturedPrompts[0]!;
+    // 窄档工具声明=精简版（签名与纪律句保留，示例/展开段落砍掉）
+    expect(prompt).toContain('【可用工具（可自主调用）】');
+    expect(prompt).toContain('doc.read：读取文档正文');
+    expect(prompt).not.toContain('当用户问"文档里某条怎么写的'); // FULL 版独有展开句
+    // 子 Agent（req.crd）窄档只留【职责】【反模式】段；主 Agent/全局基底窄档不降全量在场
+    expect(prompt).toContain('从参考资料提炼客户需求'); // 职责段
+    expect(prompt).toContain('实机事故正发生在 CRD 重编号'); // 反模式段
+    expect(prompt).not.toContain('先出目录大纲再逐章生成'); // 方法论段已裁
+    expect(prompt).not.toContain('来源 R-* 标注齐全'); // 质量闸段已裁
+    expect(prompt).toContain('需求分析师'); // req 主全量
+    expect(prompt).toContain('软件工厂的全局 AI 助手'); // assistant 全量
+    // doc.read 截断阈值按 band 取预算（payload 显式 band 逐跳透传，不走 args 走私）：
+    // 7006 字文档——narrow cap 6000 截断给 nextOffset；wide cap 12000 不截
+    const d = await query<{ id: string }>(
+      'INSERT INTO req_documents (project_id, doc_kind, created_by) VALUES ($1,$2,$3) RETURNING id', [PID, 'crd', 't']);
+    const ver = await query<{ id: string }>(
+      `INSERT INTO req_versions (document_id, version_no, content, content_fingerprint, governing_fingerprint, submitted_by, submitted_at)
+       VALUES ($1,1,$2,'fp-band','gf-band','t',now()) RETURNING id`,
+      [d.rows[0]!.id, `# 长文\n\n${'长'.repeat(7000)}`]);
+    await query('UPDATE req_documents SET current_version_id=$2 WHERE id=$1', [d.rows[0]!.id, ver.rows[0]!.id]);
+    try {
+      const rNarrow = await tools.invoke(PID, { sessionId: s.id, toolName: 'doc.read', args: { kind: 'crd' }, band: 'narrow' }, CTX);
+      expect(rNarrow.result['truncated']).toBe(true);
+      expect(rNarrow.result['nextOffset']).toBe(6000);
+      const rWide = await tools.invoke(PID, { sessionId: s.id, toolName: 'doc.read', args: { kind: 'crd' }, band: 'wide' }, CTX);
+      expect(rWide.result['truncated']).toBe(false);
+    } finally {
+      await query('UPDATE req_documents SET current_version_id=NULL, final_version_id=NULL WHERE id=$1', [d.rows[0]!.id]);
+      await query('DELETE FROM req_versions WHERE document_id=$1', [d.rows[0]!.id]);
+      await query('DELETE FROM req_documents WHERE id=$1', [d.rows[0]!.id]);
     }
   });
 
@@ -704,8 +761,9 @@ describe('AI 会话/消息/流式管线（集成，需 DB）', async () => {
     await sessions.send(PID, m.id, { content: '客户明确要求双人同屏协作' }, CTX);
     await new Promise((r) => setTimeout(r, 1200)); // fake 流终结
     const prompt = await (sessions as unknown as {
-      buildPrompt: (p: string, s: string, c: string, r: string[]) => Promise<string>;
-    }).buildPrompt(PID, m.id, '本次问题', []);
+      // Task 3 消重收口：buildPrompt 改收 send() 同源装配的 asm+band（私有方法直调须自装配）
+      buildPrompt: (p: string, s: string, c: string, r: string[], asm: AssembledAgents, band: ContextBand) => Promise<string>;
+    }).buildPrompt(PID, m.id, '本次问题', [], await assembleAgentBlocks('material', null, 'wide'), 'wide');
     expect(prompt).toContain('【他阶段会话');
     expect(prompt).toContain('[需求] ss_1');
     // 摘要注入在会话历史之前

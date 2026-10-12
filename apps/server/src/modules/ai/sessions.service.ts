@@ -10,7 +10,7 @@ import { designBooksStale, reqPrdStale } from '../platform/upstream-stale.js';
 import { AI_PROVIDER, type AiProvider, type AiUsage } from './ai-provider.interface.js';
 import type { ModelRow } from './models.service.js';
 import { AiModelsService } from './models.service.js';
-import { assembleAgentBlocks } from './agent-prompts.js';
+import { assembleAgentBlocks, BAND_BUDGETS, contextBand, type AssembledAgents, type ContextBand } from './agent-prompts.js';
 import { buildTemplateDraftPrompt, parseTemplateDraft } from './template-draft.js';
 import { AiToolsService } from './tools.service.js';
 import { StreamPipeline, type PipelineCompletion } from './stream-pipeline.js';
@@ -25,6 +25,10 @@ import { StreamPipeline, type PipelineCompletion } from './stream-pipeline.js';
  * - Agent prompt 三层链（设计 §1）：代码基底（stage-guides DEFAULT_AGENTS）→ ai_prompt_versions
  *   is_current 用户版本（base+overlay 拼接）→ 运行时装配（agent-prompts.assembleAgentBlocks）；
  *   prompt_version_id=注入链首层用户版本 id（assistant→主→子取首个有用户版本者，全无=NULL）
+ * - 上下文预算分档（设计 §2；Task 3）：send() 按会话模型（绑定优先/chat 路由兜底）context_window
+ *   分档（wide ≥512k / standard 128k~512k / narrow <128k；无模型/mock 期=wide 基线不变），
+ *   一次装配同源消费（盖戳/指纹/注入——消「盖戳版本 X、注入版本 Y」一致性窗口），band 经
+ *   PipelineEntry 透传到接力轮 toolLog 预算与 doc.read 截断阈值
  */
 
 const CTX_TABS = ['material', 'req', 'design', 'proto', 'dev', 'test'] as const;
@@ -412,10 +416,27 @@ export class AiSessionsService implements OnModuleInit {
   ): Promise<{ messageId: string }> {
     // 三层链装配（读侧，不进命令事务）：盖戳口径=注入链首层用户版本 id（assistant→主→子取首个
     // 有用户版本者，全无=NULL）；input_fingerprint=sha256(三层版本 id 组合|参考指纹组合)（设计 §1）。
-    // 会话不存在时 sessRow 为空、按 assistant 单层装配，随后命令内 lockSession 照旧抛 NOT_FOUND
-    const sessRow = await query<{ ctx: string; doc_kind: string | null }>(
-      'SELECT ctx, doc_kind FROM ai_sessions WHERE id=$1', [sessionId]);
-    const asm = await assembleAgentBlocks(sessRow.rows[0]?.ctx ?? null, sessRow.rows[0]?.doc_kind ?? null);
+    // 会话不存在时 sessRow 为空、按 assistant 单层装配，随后命令内 lockSession 照旧抛 NOT_FOUND。
+    // Task 3 消重收口：send() 装配一次，asm 同源传入 buildPrompt→buildSystemPrompt（盖戳版本
+    // 即注入版本，消除双装配的冗余 SELECT 与一致性窗口）；band 同源计算一并透传。
+    const sessRow = await query<{ ctx: string; doc_kind: string | null; model_id: string | null }>(
+      'SELECT ctx, doc_kind, model_id FROM ai_sessions WHERE id=$1', [sessionId]);
+    const sessInfo = sessRow.rows[0];
+    // 上下文分档（设计 §2）：会话绑定模型（仍启用）优先，chat 用途路由兜底；
+    // 解析不到=mock 期/未配置=wide（306 基线口径不变，降档只发生在绑定真实模型且窗口 <512k 时）
+    let contextWindow: number | null = null;
+    if (sessInfo?.model_id) {
+      const bound = await query<{ context_window: number }>(
+        'SELECT context_window FROM ai_models WHERE id=$1 AND enabled', [sessInfo.model_id]);
+      if (bound.rows[0]) contextWindow = bound.rows[0].context_window;
+    }
+    if (contextWindow === null) {
+      const routed = await query<{ context_window: number }>(
+        "SELECT context_window FROM ai_models WHERE enabled AND routes ? 'chat' ORDER BY updated_at DESC LIMIT 1", []);
+      if (routed.rows[0]) contextWindow = routed.rows[0].context_window;
+    }
+    const band = contextBand(contextWindow);
+    const asm = await assembleAgentBlocks(sessInfo?.ctx ?? null, sessInfo?.doc_kind ?? null, band);
     const refsFp = (body.referenceFileIds ?? [])
       .map((id) => (body.referenceFingerprints ?? {})[id] ?? '').join(',');
     const inputFingerprint = sha256hex(`${asm.versionIds.join('|')}|${refsFp}`);
@@ -427,11 +448,13 @@ export class AiSessionsService implements OnModuleInit {
     }, { ...ctx, projectId }) as { messageId: string; sessionId: string };
     const ai = await this.provider.createSession({ projectId, purpose: 'chat' });
     // 提示词组装（实机走查修复）：参考全文 + 会话历史注入——否则 AI 看不到挂载资料也说不出前文
-    const prompt = await this.buildPrompt(projectId, sessionId, body.content, body.referenceFileIds ?? []);
+    const prompt = await this.buildPrompt(projectId, sessionId, body.content, body.referenceFileIds ?? [], asm, band);
     this.pipeline.register({
       messageId: prep.messageId, sessionId, projectId, ai, prompt,
       // A3 零流出断流安全重试的会话工厂（断流重建同档会话重发）
       makeSession: () => this.provider.createSession({ projectId, purpose: 'chat' }),
+      // 分档透传（Task 3）：接力轮 toolLog 预算与 doc.read 截断阈值按此取 BAND_BUDGETS
+      band,
     });
     return { messageId: prep.messageId };
   }
@@ -450,6 +473,9 @@ export class AiSessionsService implements OnModuleInit {
     messageId: string,
     content: string,
     ctx: CommandContext,
+    /** 上下文分档（Task 3）：来源=drive() 里 PipelineEntry.band（缺省 wide）；经 ai.tool.invoke
+     *  payload 逐跳透传到 doc.read 截断阈值（显式字段，不走 args 走私） */
+    band: ContextBand = 'wide',
   ): Promise<{ stripped: string; results: Array<{ name: string; result: unknown }> }> {
     const spans = findToolSpans(content);
     if (spans.length === 0) return { stripped: content, results: [] };
@@ -489,7 +515,7 @@ export class AiSessionsService implements OnModuleInit {
         }
       }
       const r = await this.tools
-        .invoke(projectId, { sessionId, messageId, toolName: call.name, args: call.args }, ctx)
+        .invoke(projectId, { sessionId, messageId, toolName: call.name, args: call.args, band }, ctx)
         .catch((e) => ({ result: { error: e instanceof Error ? e.message : String(e) } }));
       return { name: call.name, result: r.result };
     };
@@ -538,14 +564,17 @@ export class AiSessionsService implements OnModuleInit {
    * 组装发往模型的提示词 = buildSystemPrompt 系统段 +【会话历史】+【本次请求】。
    * provider 接口是单字符串 prompt——历史与请求不是独立 system 槽位，
    * 拼接在系统段之后的同一字符串尾部（不「移动」，保持原位）。
+   * asm/band 由 send() 一次装配/计算后同源传入（Task 3 消重收口）。
    */
   private async buildPrompt(
     projectId: string,
     sessionId: string,
     content: string,
     referenceFileIds: string[],
+    asm: AssembledAgents,
+    band: ContextBand,
   ): Promise<string> {
-    const system = await this.buildSystemPrompt(projectId, sessionId, referenceFileIds);
+    const system = await this.buildSystemPrompt(projectId, sessionId, referenceFileIds, asm, band);
     const parts: string[] = [system];
     const history = await query<{ role: string; content: string }>(
       `SELECT role, content FROM ai_messages
@@ -568,20 +597,22 @@ export class AiSessionsService implements OnModuleInit {
    * system 段装配（设计 §1 序列；参考全文=内容定稿稿，单份截 12000 字/总截 32000 字）：
    * Agent 三层链三块（【全局基底】/【角色与方法】/【工件专项】，位置提前至【当前上下文】之前）
    * →【当前上下文】(U-035)→【当前工件】(0029)→【联动提醒】→【能力边界】→【可用工具】→【参考资料】→【他阶段会话摘要】
+   * asm（send() 一次装配同源传入，Task 3 消重）+ band（窄档：工具声明用精简版、缺口文案截短）。
    */
   private async buildSystemPrompt(
     projectId: string,
     sessionId: string,
-    referenceFileIds: string[] = [],
+    referenceFileIds: string[],
+    asm: AssembledAgents,
+    band: ContextBand,
   ): Promise<string> {
     const parts: string[] = [];
     const sessCtx = await query<{ ctx: string; doc_kind: string | null }>(
       'SELECT ctx, doc_kind FROM ai_sessions WHERE id=$1', [sessionId]);
     const sess = sessCtx.rows[0];
-    // Agent 三层链装配（2026-10-12，设计 §1）：assistant 全局基底 + 主（ctx）+ 子（doc_kind 命中；
-    // dev 恒叠加 coding-std）。每层独立三层链解析：is_current 用户版本（base+overlay）优先、
-    // 无则代码基底——设置页 Agent prompt 从此是运行时真身（替代旧【阶段职责与方法】代码常量块）
-    const asm = await assembleAgentBlocks(sess?.ctx ?? null, sess?.doc_kind ?? null);
+    // Agent 三层链三块（send() 装配产物同源注入；2026-10-12 设计 §1）：assistant 全局基底 + 主（ctx）
+    // + 子（doc_kind 命中；dev 恒叠加 coding-std）。每层独立三层链解析：is_current 用户版本
+    // （base+overlay）优先、无则代码基底——设置页 Agent prompt 从此是运行时真身
     parts.push(...asm.blocks);
     // U-035：注入项目与五阶段准入实时口径（跨域只 SQL 直读 projects 快照列，不写）
     const STAGE_LABEL: Record<string, string> = { material: '资料', req: '需求', design: '设计', dev: '开发', test: '测试' };
@@ -589,13 +620,15 @@ export class AiSessionsService implements OnModuleInit {
       'SELECT name, stage_gates FROM projects WHERE id=$1', [projectId]);
     if (pj.rows[0]) {
       const gates = Array.isArray(pj.rows[0].stage_gates) ? pj.rows[0].stage_gates : [];
+      // 窄档（Task 3）：门禁缺口文案截短 120→60 字
+      const gapCap = band === 'narrow' ? 60 : 120;
       const gateText = gates.length === 0
         ? '（准入未求值）'
         : gates.map((g) => {
             const label = STAGE_LABEL[g.stage] ?? g.stage;
             if (g.ok) return `${label} ✓`;
             const gap = g.issues.map((i) => i.message).join('；');
-            return `${label} ✗（缺口：${gap.length > 120 ? `${gap.slice(0, 120)}…` : gap}）`;
+            return `${label} ✗（缺口：${gap.length > gapCap ? `${gap.slice(0, gapCap)}…` : gap}）`;
           }).join(' / ');
       parts.push(`【当前上下文】\n项目：${pj.rows[0].name}\n五阶段准入：${gateText}\n（你是该软件工厂项目的内置助手，回答与操作建议应结合上述项目状态。）`);
     }
@@ -630,20 +663,9 @@ export class AiSessionsService implements OnModuleInit {
 你不能直接修改、定稿、放行任何文档、UI 原型、代码、计划或批次；也不能替用户点击任何"人工确认"。
 唯一写通道：对 CRD/PRD 的修改请求用 req.doc.propose_edits、对设计八册的修改请求用 design.doc.propose_edits 提交修改建议——产出高亮补丁，经用户逐条或批量确认后才生效；其它写诉求给出建议文本并指引落地路径（需求页/设计页 AI 生成与修订、开发页、测试页流程；定稿与放行永远是人工操作）。
 严禁声称"已修改/已定稿/已放行/已完成写入"——凡未经用户确认，系统内数据均未变化。`);
-    // W2-053 + 跨阶段互通/对话改文档：工具自主调用声明（REQ-605）——```msf-tool 围栏块流末解析执行
-    parts.push(`【可用工具（可自主调用）】
-需要时，在回复正文之外输出独立的工具围栏块（可多个；不需要则不输出）：
-\`\`\`msf-tool
-{"name":"工具名","args":{...}}
-\`\`\`
-- nav.goto：为用户打开某个页面。args: {"tab":"material|req|design|proto|dev|test|tasks|delegate|settings|rtm"}。当用户说"打开/带我去/跳转到某页"时调用，正文同时说明已发起打开。RTM 需求矩阵有直达页签：tab 用 "rtm"。
-- read_context：读取当前项目状态快照（各域条目计数）。args: {}。当需要最新项目数据回答"进展/状态"类问题时调用。
-- doc.read：读取指定文档正文（与界面同口径：草稿优先、章节标题带界面编号——「5.1 节」类指代按返回的编号对应）。args: {"kind":"crd|prd|hld|mod|alg|cls|db|api|ui|nfr","anchor":"5.1","offset":0}（anchor 可选：章节编号如「5.1」「第五章」、标题或 CR 编号，定向读单节不截断，用户按编号/章节名指代时务必带 anchor；offset 可选：全文被截断时从第 N 字符续读，截断时返回里会给出 nextOffset）。当用户问"文档里某条怎么写的/某节内容/REQ 编号原话/哪一节承接某需求"时调用；返回含 finalized（是否已定稿）、modified（是否有未提交草稿）、versionNo 与 sections 章节清单，回答时如实说明依据的版本与定稿态。found:false 表示该文档尚未生成；anchorFound:false 表示章节未命中，按 sections 清单修正后重试。
-- chat.history.read：读取本项目其它阶段会话的最近消息。args: {"sessionCode":"ss_3","limit":20}（limit 封顶 50）。当【他阶段会话】摘要不够、需要了解客户在其它阶段聊过的细节时调用。
-- propose_next_step：按项目当前状态计算下一步建议清单。args: {}。当用户问"下一步该做什么"时调用。
-- req.doc.propose_edits：提交 CRD/PRD 修改建议（高亮补丁，用户确认后才生效）。args: {"kind":"crd|prd","instruction":"要改什么","mode":"patch"}（instruction 截 2000 字；mode 默认 patch=只改涉及章节。用户要求"整篇重写/完全重新写/彻底删除某章"时 mode 用 "rewrite"：以当前全文为基线重写整篇，产一条「整篇重写」补丁，同样经用户确认后生效；rewrite 前先用 doc.read 拿齐全文）。当用户要求修改需求文档内容时调用；调用后在正文说明"已发起修改建议提交（结果见下方工具卡），提交成功时请到需求页确认"。
-- design.doc.propose_edits：提交设计八册修改建议（高亮补丁，用户确认后才生效）。args: {"kind":"hld|mod|alg|cls|db|api|ui|nfr","instruction":"要改什么","mode":"patch"}（mode 语义同 req.doc.propose_edits）。当用户要求修改设计册内容、或你核对后发现某册有缺口需要补齐时调用（kind 用册名小写）；正文说明"已发起修改建议提交，提交成功时请到设计页确认"。
-工具由系统在回复完成后执行，结果以工具卡随消息呈现、并**自动回给你继续回答**（无需用户再发话；拿到结果就直接给结论或下一步工具调用，不要说"拿到结果后我会……"）；围栏块本身不会展示给用户。除 req.doc.propose_edits / design.doc.propose_edits 的提案通道外，写操作仍须走人工路径。`);
+    // W2-053 + 跨阶段互通/对话改文档：工具自主调用声明（REQ-605）——```msf-tool 围栏块流末解析执行；
+    // 窄档用精简版（Task 3：签名与纪律句保留，砍示例段落）
+    parts.push(band === 'narrow' ? TOOL_BLOCK_CONDENSED : TOOL_BLOCK_FULL);
     if (referenceFileIds.length > 0) {
       const refs = await query<{ name: string; body_md: string }>(
         `SELECT f.name, p.body_md FROM mat_files f
@@ -706,9 +728,12 @@ export class AiSessionsService implements OnModuleInit {
       // 工具结果跨轮累积日志（2026-10-10 根修：原只回喂当轮结果，接力轮看不到更早读取的内容，
       // 多文档任务被迫重读烧轮次——116 实机「重写五册」两次撞上限 8 轮全耗在重复 doc.read）
       const toolLog: Array<{ name: string; result: unknown }> = [];
+      // 上下文分档（Task 3）：注册时按会话模型分档（缺省 wide）——toolLog 回喂预算与
+      // doc.read 截断阈值按 BAND_BUDGETS[band] 取
+      const band: ContextBand = e.band ?? 'wide';
       while (status === 'done' && content.includes('```msf-tool') && rounds < MAX_RELAY_ROUNDS) {
         rounds++;
-        const { stripped, results } = await this.runToolBlocks(e.projectId, e.sessionId, messageId, content, ctx2);
+        const { stripped, results } = await this.runToolBlocks(e.projectId, e.sessionId, messageId, content, ctx2, band);
         content = stripped;
         if (results.length === 0) break;
         toolLog.push(...results);
@@ -716,7 +741,7 @@ export class AiSessionsService implements OnModuleInit {
         // A4：接力轮次用户可见（长静默期不再是黑盒）
         this.pipeline.emitNotice(messageId, `接力第 ${rounds} 轮：工具结果已回喂，正在继续生成`);
         const r2 = await this.pipeline.runContinuation(
-          messageId, ai2, buildToolFollowup(e.prompt, toolLog, MAX_RELAY_ROUNDS - rounds),
+          messageId, ai2, buildToolFollowup(e.prompt, toolLog, MAX_RELAY_ROUNDS - rounds, band),
           () => this.provider.createSession({ projectId: e.projectId, purpose: 'chat' }),
         );
         content = `${content}\n\n${r2.content}`.trim();
@@ -779,6 +804,37 @@ export class AiSessionsService implements OnModuleInit {
   }
 }
 
+/** 【可用工具】声明双版本（Task 3，设计 §2 窄档口径）：FULL=现状全量（示例+长篇口径保留）；
+ *  CONDENSED=窄档精简——每工具一行签名+一句用途，签名与纪律句（围栏格式/自动回喂/写走人工）保留，
+ *  砍的是示例与展开段落。能力边界/工具签名永不进裁剪表（签名行即保留项）。 */
+const TOOL_BLOCK_FULL = `【可用工具（可自主调用）】
+需要时，在回复正文之外输出独立的工具围栏块（可多个；不需要则不输出）：
+\`\`\`msf-tool
+{"name":"工具名","args":{...}}
+\`\`\`
+- nav.goto：为用户打开某个页面。args: {"tab":"material|req|design|proto|dev|test|tasks|delegate|settings|rtm"}。当用户说"打开/带我去/跳转到某页"时调用，正文同时说明已发起打开。RTM 需求矩阵有直达页签：tab 用 "rtm"。
+- read_context：读取当前项目状态快照（各域条目计数）。args: {}。当需要最新项目数据回答"进展/状态"类问题时调用。
+- doc.read：读取指定文档正文（与界面同口径：草稿优先、章节标题带界面编号——「5.1 节」类指代按返回的编号对应）。args: {"kind":"crd|prd|hld|mod|alg|cls|db|api|ui|nfr","anchor":"5.1","offset":0}（anchor 可选：章节编号如「5.1」「第五章」、标题或 CR 编号，定向读单节不截断，用户按编号/章节名指代时务必带 anchor；offset 可选：全文被截断时从第 N 字符续读，截断时返回里会给出 nextOffset）。当用户问"文档里某条怎么写的/某节内容/REQ 编号原话/哪一节承接某需求"时调用；返回含 finalized（是否已定稿）、modified（是否有未提交草稿）、versionNo 与 sections 章节清单，回答时如实说明依据的版本与定稿态。found:false 表示该文档尚未生成；anchorFound:false 表示章节未命中，按 sections 清单修正后重试。
+- chat.history.read：读取本项目其它阶段会话的最近消息。args: {"sessionCode":"ss_3","limit":20}（limit 封顶 50）。当【他阶段会话】摘要不够、需要了解客户在其它阶段聊过的细节时调用。
+- propose_next_step：按项目当前状态计算下一步建议清单。args: {}。当用户问"下一步该做什么"时调用。
+- req.doc.propose_edits：提交 CRD/PRD 修改建议（高亮补丁，用户确认后才生效）。args: {"kind":"crd|prd","instruction":"要改什么","mode":"patch"}（instruction 截 2000 字；mode 默认 patch=只改涉及章节。用户要求"整篇重写/完全重新写/彻底删除某章"时 mode 用 "rewrite"：以当前全文为基线重写整篇，产一条「整篇重写」补丁，同样经用户确认后生效；rewrite 前先用 doc.read 拿齐全文）。当用户要求修改需求文档内容时调用；调用后在正文说明"已发起修改建议提交（结果见下方工具卡），提交成功时请到需求页确认"。
+- design.doc.propose_edits：提交设计八册修改建议（高亮补丁，用户确认后才生效）。args: {"kind":"hld|mod|alg|cls|db|api|ui|nfr","instruction":"要改什么","mode":"patch"}（mode 语义同 req.doc.propose_edits）。当用户要求修改设计册内容、或你核对后发现某册有缺口需要补齐时调用（kind 用册名小写）；正文说明"已发起修改建议提交，提交成功时请到设计页确认"。
+工具由系统在回复完成后执行，结果以工具卡随消息呈现、并**自动回给你继续回答**（无需用户再发话；拿到结果就直接给结论或下一步工具调用，不要说"拿到结果后我会……"）；围栏块本身不会展示给用户。除 req.doc.propose_edits / design.doc.propose_edits 的提案通道外，写操作仍须走人工路径。`;
+
+const TOOL_BLOCK_CONDENSED = `【可用工具（可自主调用）】
+需要时，在回复正文之外输出独立的工具围栏块（可多个；不需要则不输出）：
+\`\`\`msf-tool
+{"name":"工具名","args":{...}}
+\`\`\`
+- nav.goto：为用户打开页面。args: {"tab":"material|req|design|proto|dev|test|tasks|delegate|settings|rtm"}（RTM 需求矩阵直达 tab="rtm"）
+- read_context：读取项目状态快照（各域条目计数）。args: {}
+- doc.read：读取文档正文（草稿优先、章节标题带界面编号）。args: {"kind":"crd|prd|hld|mod|alg|cls|db|api|ui|nfr","anchor":"章节编号/标题/CR 编号（可选，指代章节时务必带）","offset":0}（截断时按返回的 nextOffset 续读；found:false=文档未生成；anchorFound:false 按 sections 清单修正重试）
+- chat.history.read：读取本项目其它阶段会话最近消息。args: {"sessionCode":"ss_3","limit":20}（limit 封顶 50）
+- propose_next_step：按项目状态给出下一步建议清单。args: {}
+- req.doc.propose_edits：提交 CRD/PRD 修改建议（高亮补丁，用户确认后才生效）。args: {"kind":"crd|prd","instruction":"要改什么","mode":"patch|rewrite"}（instruction 截 2000 字；rewrite=整篇重写，先 doc.read 拿齐全文）
+- design.doc.propose_edits：提交设计八册修改建议（高亮补丁，用户确认后才生效）。args: {"kind":"hld|mod|alg|cls|db|api|ui|nfr","instruction":"要改什么","mode":"patch|rewrite"}
+工具由系统在回复完成后执行，结果以工具卡随消息呈现、并**自动回给你继续回答**（拿到结果就直接给结论或下一步工具调用，不要说"拿到结果后我会……"）；围栏块本身不会展示给用户。除两件 propose_edits 提案通道外，写操作仍须走人工路径。`;
+
 /** 只读工具集（A7 并行调度口径，2026-10-11）：无写副作用，连续段可 Promise.all 并行；
  *  写类（propose_edits 等旁路外部工具）不在此列，保持声明顺序串行 */
 const READONLY_TOOLS = new Set(['doc.read', 'read_context', 'chat.history.read', 'propose_next_step', 'nav.goto']);
@@ -825,18 +881,17 @@ function stripToolSpans(content: string, spans: Array<{ body: string; start: num
  */
 const MAX_RELAY_ROUNDS = 16;
 
-/** 接力 prompt 工具结果总预算（字符）。超出时淘汰最旧条目并明示——
- *  单结果截断（16000）防爆窗不变，总预算防多轮累积无限膨胀 */
-const TOOL_LOG_BUDGET = 80000;
-
 /** agentic 接力 prompt：工具执行结果回喂（单结果截 16000 字防爆窗），模型据此同轮继续回答。
  *  与首轮同一份 basePrompt（系统声明+会话历史在场，接力轮不丢上下文）。
  *  toolLog=跨轮累积的全部工具结果（新→旧排序渲染时旧在前，淘汰最旧保最新）；
- *  roundsLeft=含本次在内还剩几次接力机会——≤3 起倒计时警告，=1 末轮硬警告（直接结论/提案，别再读） */
-function buildToolFollowup(basePrompt: string, toolLog: Array<{ name: string; result: unknown }>, roundsLeft = 1): string {
+ *  roundsLeft=含本次在内还剩几次接力机会——≤3 起倒计时警告，=1 末轮硬警告（直接结论/提案，别再读）；
+ *  band（Task 3）：回喂总预算取 BAND_BUDGETS[band].toolLog（wide 80000=现状常量原位参数化）——
+ *  超出时淘汰最旧条目并明示，总预算防多轮累积无限膨胀 */
+function buildToolFollowup(basePrompt: string, toolLog: Array<{ name: string; result: unknown }>, roundsLeft = 1, band: ContextBand = 'wide'): string {
   const blocks: string[] = [];
   let total = 0;
   let evicted = 0;
+  const budget = BAND_BUDGETS[band].toolLog;
   // 最新的结果最可能被下一步用到：从尾向头装，超预算淘汰最旧
   const kept: string[] = [];
   for (let i = toolLog.length - 1; i >= 0; i--) {
@@ -846,7 +901,7 @@ function buildToolFollowup(basePrompt: string, toolLog: Array<{ name: string; re
       ? `${json.slice(0, 16000)}…（结果过长已截断，可用 doc.read 的 anchor/offset 参数定向补读）`
       : json;
     const block = `工具 ${r.name} 执行结果：\n${cut}`;
-    if (total + block.length > TOOL_LOG_BUDGET && kept.length > 0) { evicted = i + 1; break; }
+    if (total + block.length > budget && kept.length > 0) { evicted = i + 1; break; }
     kept.unshift(block);
     total += block.length;
   }
