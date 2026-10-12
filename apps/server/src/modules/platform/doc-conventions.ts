@@ -4,8 +4,8 @@
  * 规范只在这里写一遍。deriveNumbering（渲染层派生编号）的大章判定只认中文数字+顿号，
  * 与 CHAPTER_RULE 是同一枚硬币的两面（生成侧约定 ⇄ 渲染侧判定），改动必须两侧同步。
  *
- * 注意：dock 阶段指南（ai/stage-guides.ts）不内嵌本规范细节——agent 的文档提案同样走生成链
- * prompt（proposeEditsFromChat），规范经生成链单点生效；指南只管行为纪律。
+ * 注意：Agent 基底（ai/stage-guides.ts 二十套 DEFAULT_AGENTS）不内嵌本规范细节——agent 的文档提案同样走生成链
+ * prompt（proposeEditsFromChat），规范经生成链单点生效；基底只管行为纪律。
  */
 
 /** 大章约定（全文档通用；deriveNumbering 只认此形态为大章） */

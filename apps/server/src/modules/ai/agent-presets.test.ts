@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_AGENTS, DEFAULT_AGENT_MAP } from './stage-guides.js';
+import { DEFAULT_AGENTS, DEFAULT_AGENT_MAP, STAGE_GUIDES } from './stage-guides.js';
 
 const MAIN_KEYS = ['assistant', 'req', 'design', 'proto', 'dev', 'test', 'material'];
 const SUB_KEYS = ['req.crd', 'req.prd',
@@ -36,5 +36,11 @@ describe('DEFAULT_AGENTS 二十套基底结构断言', () => {
     expect(DEFAULT_AGENT_MAP['req']!.prompt).toContain('rewrite');
     expect(DEFAULT_AGENT_MAP['design']!.prompt).toContain('严禁重复读取');
     expect(DEFAULT_AGENT_MAP['material.file-parse']!.prompt).toContain('臆造');
+  });
+  it('STAGE_GUIDES 兼容契约：键集 = 六阶段 ctx（钉住迁移期消费面，防 role 改动漂移）', () => {
+    expect(Object.keys(STAGE_GUIDES).sort()).toEqual(['design', 'dev', 'material', 'proto', 'req', 'test']);
+    for (const k of Object.keys(STAGE_GUIDES)) {
+      expect(STAGE_GUIDES[k]).toBe(DEFAULT_AGENT_MAP[k]!.prompt);
+    }
   });
 });
