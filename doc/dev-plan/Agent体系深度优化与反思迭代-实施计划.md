@@ -215,6 +215,8 @@ export function narrowTrim(agentKey: string, text: string): string {
 }
 ```
 （子 Agent 基底段落标题须与裁剪谓词一致——Task 1 的子 Agent 四段标题固定为【职责】【方法论】【反模式】【质量闸】。）
+**空结果兜底**：用户自发布版本若无行首【职责】/【反模式】段标题，keep 为空数组 → 窄档下该【工件专项·子】块
+**整块不注入**（assemble 在 trim 之后做 truthiness 检查，空串跳过），不得把空块或原文塞回去。
 
 - [ ] **Step 3: 接线**——三处透传 + 两处窄档行为补齐（评审 I1/I2/I3 修法）：
   1. **band 计算**：send() 解析会话模型（绑定模型或 chat 路由行）取 context_window → band；
@@ -224,11 +226,14 @@ export function narrowTrim(agentKey: string, text: string): string {
   3. **I3 doc.read 预算透传链（逐跳写死，防实现者走 args 走私）**：runToolBlocks 组装的
      `ai.tool.invoke` payload 增 `band` 字段 → 命令 handler 取出 → `ToolDef.run(client, projectId, args, opts?: { band?: ContextBand })`
      签名加第四参 → doc.read 内 `const cap = BAND_BUDGETS[opts?.band ?? 'wide'].docRead`；
+     runToolBlocks 本身增 band 入参（来源=drive() 里 PipelineEntry.band，缺省 wide）；
   4. **toolLog 预算**：buildToolFollowup 的 TOOL_LOG_BUDGET 改 `BAND_BUDGETS[band].toolLog`
      （drive 从 PipelineEntry.band 取，缺省 wide）；
   5. **I2 窄档两块**：（a）工具声明双版本——【可用工具】块抽出 `TOOL_BLOCK_FULL`/`TOOL_BLOCK_CONDENSED`
      （condensed=每工具一行签名+一句用途，砍示例与长篇口径），窄档用 condensed（**签名与纪律句保留**，
      砍的是示例段落）；（b）【当前上下文】门禁缺口文案窄档 120 字截断改 60 字；
+     两者都由 buildSystemPrompt 做选择 → **buildSystemPrompt 同样增 band 入参**（调用方=send() 内，
+     与第 1 条同源，缺省 wide）；
   6. **M5**：STAGE_GUIDES 兼容导出在本任务删除（sessions.service 已在 Task 2 迁走，grep 确认零引用后删）。
 
 - [ ] **Step 4:** 本机单测绿 + `npx tsc --noEmit` + 仓根 lint + 101 跑 sessions 套件（盖戳/budget 相关回归）
@@ -318,6 +323,7 @@ Co-Authored-By: Claude Code <noreply@anthropic.com>"
 **Files:**
 - Create: `apps/server/src/modules/ai/reflection.service.ts`
 - Test: `apps/server/src/modules/ai/reflection.integration.test.ts`（101 跑）
+- Modify: `apps/server/src/modules/ai/mock-ai.provider.ts`（purpose='reflection' 分支产固定样例）
 - Modify: `apps/server/src/modules/ai/ai.module.ts`（provider 装配）
 
 - [ ] **Step 1: 集成测试（先红）**——mock 反思通道：mock provider 对 purpose='reflection' 返回固定 JSON
