@@ -10,7 +10,7 @@ import { designBooksStale, reqPrdStale } from '../platform/upstream-stale.js';
 import { AI_PROVIDER, type AiProvider, type AiUsage } from './ai-provider.interface.js';
 import type { ModelRow } from './models.service.js';
 import { AiModelsService } from './models.service.js';
-import { STAGE_GUIDES } from './stage-guides.js';
+import { assembleAgentBlocks } from './agent-prompts.js';
 import { buildTemplateDraftPrompt, parseTemplateDraft } from './template-draft.js';
 import { AiToolsService } from './tools.service.js';
 import { StreamPipeline, type PipelineCompletion } from './stream-pipeline.js';
@@ -21,7 +21,10 @@ import { StreamPipeline, type PipelineCompletion } from './stream-pipeline.js';
  * - 发送消息两段式：ai.message.send 命令落库（user+streaming ai 行，同事务审计）→ 管线驱动供应商流
  *   → 终结经 ai.message.finish 落终态与用量（ai_usage，price_table 兜底成本，REQ-612）
  * - referenceFileIds 复用 M03 门禁：非定稿 REFERENCE_NOT_FINAL、指纹漂移 REFERENCE_STALE（SQL 直读 mat_files）
- * - 输入指纹 = sha256(提示词版本 + 参考指纹组合)（REQ-115）
+ * - 输入指纹 = sha256(三层注入链版本 id 组合 + 参考指纹组合)（REQ-115；2026-10-12 三层链口径升级）
+ * - Agent prompt 三层链（设计 §1）：代码基底（stage-guides DEFAULT_AGENTS）→ ai_prompt_versions
+ *   is_current 用户版本（base+overlay 拼接）→ 运行时装配（agent-prompts.assembleAgentBlocks）；
+ *   prompt_version_id=注入链首层用户版本 id（assistant→主→子取首个有用户版本者，全无=NULL）
  */
 
 const CTX_TABS = ['material', 'req', 'design', 'proto', 'dev', 'test'] as const;
@@ -59,6 +62,9 @@ interface SendPayload {
   content: string;
   referenceFileIds: string[];
   referenceFingerprints: Record<string, string>;
+  /** 三层链盖戳（2026-10-12）：send() 读侧装配后随 payload 传入；缺省回退命令内 assistant 单点查询保兼容 */
+  promptVersionId?: string | null;
+  inputFingerprint?: string;
 }
 
 @Injectable()
@@ -151,9 +157,20 @@ export class AiSessionsService implements OnModuleInit {
       if (!p.content?.trim()) throw new DomainError('VALIDATION_FAILED', '消息内容不能为空', 'content');
       const s = await this.lockSession(client, ctx.projectId!, p.sessionId);
       await this.verifyReferences(client, ctx.projectId!, p.referenceFileIds, p.referenceFingerprints);
-      // 当前提示词版本（agent=assistant；无则 null——mock 期允许无注册提示词）
-      const pv = await client.query<{ id: string }>(
-        'SELECT id FROM ai_prompt_versions WHERE agent_key=$1 AND is_current', ['assistant']);
+      // 盖戳口径（2026-10-12 三层链）：send() 读侧装配（不经命令事务）后随 payload 传入
+      // stampId/fingerprint，命令优先采用；缺省（旧调用方直发命令）回退 assistant 单点查询保兼容
+      let promptVersionId: string | null;
+      let inputFingerprint: string;
+      if (p.promptVersionId !== undefined && p.inputFingerprint !== undefined) {
+        promptVersionId = p.promptVersionId;
+        inputFingerprint = p.inputFingerprint;
+      } else {
+        const pv = await client.query<{ id: string }>(
+          'SELECT id FROM ai_prompt_versions WHERE agent_key=$1 AND is_current', ['assistant']);
+        promptVersionId = pv.rows[0]?.id ?? null;
+        const refsFp0 = p.referenceFileIds.map((id) => p.referenceFingerprints[id] ?? '').join(',');
+        inputFingerprint = sha256hex(`${promptVersionId ?? '-'}|${refsFp0}`);
+      }
       // 模型戳：会话绑定模型（仍启用）优先，否则 chat 用途路由默认，无路由（mock 期）记 null
       let modelId: string | null = null;
       if (s.model_id) {
@@ -166,15 +183,13 @@ export class AiSessionsService implements OnModuleInit {
           'SELECT id FROM ai_models WHERE enabled AND routes ? $1 ORDER BY updated_at DESC LIMIT 1', ['chat']);
         modelId = routed.rows[0]?.id ?? null;
       }
-      const refsFp = p.referenceFileIds.map((id) => p.referenceFingerprints[id] ?? '').join(',');
-      const inputFingerprint = sha256hex(`${pv.rows[0]?.id ?? '-'}|${refsFp}`);
       await client.query(
         'INSERT INTO ai_messages (session_id, role, content, status) VALUES ($1,$2,$3,$4)',
         [s.id, 'user', p.content, 'done']);
       const m = await client.query<{ id: string }>(
         `INSERT INTO ai_messages (session_id, role, content, status, prompt_version_id, model_id, input_fingerprint)
          VALUES ($1,'ai','', 'streaming', $2, $3, $4) RETURNING id`,
-        [s.id, pv.rows[0]?.id ?? null, modelId, inputFingerprint]);
+        [s.id, promptVersionId, modelId, inputFingerprint]);
       await client.query('UPDATE ai_sessions SET updated_at=now() WHERE id=$1', [s.id]);
       return { messageId: m.rows[0]!.id, sessionId: s.id };
     });
@@ -395,10 +410,20 @@ export class AiSessionsService implements OnModuleInit {
     },
     ctx: CommandContext,
   ): Promise<{ messageId: string }> {
+    // 三层链装配（读侧，不进命令事务）：盖戳口径=注入链首层用户版本 id（assistant→主→子取首个
+    // 有用户版本者，全无=NULL）；input_fingerprint=sha256(三层版本 id 组合|参考指纹组合)（设计 §1）。
+    // 会话不存在时 sessRow 为空、按 assistant 单层装配，随后命令内 lockSession 照旧抛 NOT_FOUND
+    const sessRow = await query<{ ctx: string; doc_kind: string | null }>(
+      'SELECT ctx, doc_kind FROM ai_sessions WHERE id=$1', [sessionId]);
+    const asm = await assembleAgentBlocks(sessRow.rows[0]?.ctx ?? null, sessRow.rows[0]?.doc_kind ?? null);
+    const refsFp = (body.referenceFileIds ?? [])
+      .map((id) => (body.referenceFingerprints ?? {})[id] ?? '').join(',');
+    const inputFingerprint = sha256hex(`${asm.versionIds.join('|')}|${refsFp}`);
     const prep = await executeCommand('ai.message.send', {
       sessionId, content: body.content,
       referenceFileIds: body.referenceFileIds ?? [],
       referenceFingerprints: body.referenceFingerprints ?? {},
+      promptVersionId: asm.stampId, inputFingerprint,
     }, { ...ctx, projectId }) as { messageId: string; sessionId: string };
     const ai = await this.provider.createSession({ projectId, purpose: 'chat' });
     // 提示词组装（实机走查修复）：参考全文 + 会话历史注入——否则 AI 看不到挂载资料也说不出前文
@@ -509,14 +534,55 @@ export class AiSessionsService implements OnModuleInit {
     return parseTemplateDraft(r.text);
   }
 
-  /** 组装发往模型的提示词：当前项目+阶段准入口径上下文（U-035）+ 参考全文（内容定稿稿，单份截 12000 字/总截 32000 字）+ 他阶段会话摘要（跨阶段互通读侧）+ 近 6 轮历史 + 本次请求 */
+  /**
+   * 组装发往模型的提示词 = buildSystemPrompt 系统段 +【会话历史】+【本次请求】。
+   * provider 接口是单字符串 prompt——历史与请求不是独立 system 槽位，
+   * 拼接在系统段之后的同一字符串尾部（不「移动」，保持原位）。
+   */
   private async buildPrompt(
     projectId: string,
     sessionId: string,
     content: string,
     referenceFileIds: string[],
   ): Promise<string> {
+    const system = await this.buildSystemPrompt(projectId, sessionId, referenceFileIds);
+    const parts: string[] = [system];
+    const history = await query<{ role: string; content: string }>(
+      `SELECT role, content FROM ai_messages
+       WHERE session_id=$1 AND status='done' AND role IN ('user','ai')
+       ORDER BY created_at DESC, id DESC LIMIT 12`,
+      [sessionId]);
+    const turns = history.rows.reverse();
+    if (turns.length > 0) {
+      const lines = turns.map((m) => {
+        const text = m.content.length > 1500 ? `${m.content.slice(0, 1500)}…` : m.content;
+        return `${m.role === 'user' ? '用户' : '助手'}：${text}`;
+      });
+      parts.push(`【会话历史】\n${lines.join('\n')}`);
+    }
+    parts.push(`【本次请求】\n${content}`);
+    return parts.filter((p) => p).join('\n\n');
+  }
+
+  /**
+   * system 段装配（设计 §1 序列；参考全文=内容定稿稿，单份截 12000 字/总截 32000 字）：
+   * Agent 三层链三块（【全局基底】/【角色与方法】/【工件专项】，位置提前至【当前上下文】之前）
+   * →【当前上下文】(U-035)→【当前工件】(0029)→【联动提醒】→【能力边界】→【可用工具】→【参考资料】→【他阶段会话摘要】
+   */
+  private async buildSystemPrompt(
+    projectId: string,
+    sessionId: string,
+    referenceFileIds: string[] = [],
+  ): Promise<string> {
     const parts: string[] = [];
+    const sessCtx = await query<{ ctx: string; doc_kind: string | null }>(
+      'SELECT ctx, doc_kind FROM ai_sessions WHERE id=$1', [sessionId]);
+    const sess = sessCtx.rows[0];
+    // Agent 三层链装配（2026-10-12，设计 §1）：assistant 全局基底 + 主（ctx）+ 子（doc_kind 命中；
+    // dev 恒叠加 coding-std）。每层独立三层链解析：is_current 用户版本（base+overlay）优先、
+    // 无则代码基底——设置页 Agent prompt 从此是运行时真身（替代旧【阶段职责与方法】代码常量块）
+    const asm = await assembleAgentBlocks(sess?.ctx ?? null, sess?.doc_kind ?? null);
+    parts.push(...asm.blocks);
     // U-035：注入项目与五阶段准入实时口径（跨域只 SQL 直读 projects 快照列，不写）
     const STAGE_LABEL: Record<string, string> = { material: '资料', req: '需求', design: '设计', dev: '开发', test: '测试' };
     const pj = await query<{ name: string; stage_gates: Array<{ stage: string; ok: boolean; issues: Array<{ message: string }> }> | null }>(
@@ -533,23 +599,18 @@ export class AiSessionsService implements OnModuleInit {
           }).join(' / ');
       parts.push(`【当前上下文】\n项目：${pj.rows[0].name}\n五阶段准入：${gateText}\n（你是该软件工厂项目的内置助手，回答与操作建议应结合上述项目状态。）`);
     }
-    // 阶段化 agent 预设（2026-10-05 拍板）：按 dock 所在阶段注入角色与方法论——
-    // 「核对 PRD 覆盖 CRD」类任务此前全靠模型自由发挥，现由 req 指南钉死逐条映射表输出纪律
-    const sessCtx = await query<{ ctx: string; doc_kind: string | null }>('SELECT ctx, doc_kind FROM ai_sessions WHERE id=$1', [sessionId]);
-    const stageGuide = sessCtx.rows[0] ? STAGE_GUIDES[sessCtx.rows[0].ctx] : undefined;
-    if (stageGuide) parts.push(`【阶段职责与方法】\n${stageGuide}`);
     // 会话工件绑定（0029）：req/design 会话绑定具体文档——模型与用户共享「当前在改哪篇」的坐标，
     // 根修「选中详细设计却改了概要设计」（会话池阶段级共用、模型靠猜 kind）
-    const boundKind = sessCtx.rows[0]?.doc_kind;
+    const boundKind = sess?.doc_kind;
     if (boundKind) {
-      const boundCtx = sessCtx.rows[0]!.ctx;
+      const boundCtx = sess!.ctx;
       const label = SESSION_DOC_KINDS[boundCtx]?.[boundKind] ?? boundKind;
       const toolName = boundCtx === 'design' ? 'design.doc.propose_edits' : 'req.doc.propose_edits';
       parts.push(`【当前工件】\n本会话绑定文档：《${label}》（kind=${boundKind}）。用户的修改请求默认针对该文档——doc.read 与 ${toolName} 的 kind 默认用 ${boundKind}；仅当用户明确要求处理其他文档时才换 kind，并在正文说明你改的是哪篇。`);
     }
     // 上游变更联动提醒（与 upstream-stale.ts 同源派生）：agent 看到下游滞后应主动提示用户跟随修订
     try {
-      const ctxTab = sessCtx.rows[0]?.ctx;
+      const ctxTab = sess?.ctx;
       if (ctxTab === 'req') {
         const s = await reqPrdStale(projectId);
         if (s.stale) {
@@ -620,20 +681,6 @@ export class AiSessionsService implements OnModuleInit {
       })));
       if (digest) parts.push(digest);
     } catch { /* 摘要注入失败静默降级（该块省略） */ }
-    const history = await query<{ role: string; content: string }>(
-      `SELECT role, content FROM ai_messages
-       WHERE session_id=$1 AND status='done' AND role IN ('user','ai')
-       ORDER BY created_at DESC, id DESC LIMIT 12`,
-      [sessionId]);
-    const turns = history.rows.reverse();
-    if (turns.length > 0) {
-      const lines = turns.map((m) => {
-        const text = m.content.length > 1500 ? `${m.content.slice(0, 1500)}…` : m.content;
-        return `${m.role === 'user' ? '用户' : '助手'}：${text}`;
-      });
-      parts.push(`【会话历史】\n${lines.join('\n')}`);
-    }
-    parts.push(`【本次请求】\n${content}`);
     return parts.join('\n\n');
   }
 

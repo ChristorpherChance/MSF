@@ -558,7 +558,7 @@ describe('AI 会话/消息/流式管线（集成，需 DB）', async () => {
       const { messageId } = await sessions.send(PID, s.id, { content: '你好' }, CTX);
       await sessions.drive(messageId, () => {}, { ctx: CTX });
       const prompt = provider.capturedPrompts[0]!;
-      expect(prompt).toContain('【阶段职责与方法】');
+      expect(prompt).toContain('【角色与方法】'); // Task 2 三层链：替代旧【阶段职责与方法】块名
       expect(prompt).toContain('需求分析师');
       expect(prompt).toContain('映射表'); // req 指南的覆盖核对方法论钉死
       expect(prompt).toContain('【联动提醒】');
