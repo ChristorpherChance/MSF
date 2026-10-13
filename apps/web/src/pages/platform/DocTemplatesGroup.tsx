@@ -165,7 +165,7 @@ export function DocTemplatesGroup() {
               <label>类别显示名<input value={draft.label ?? ''} disabled={isDefaultView} onChange={(e) => { setDraft({ ...draft, label: e.target.value }); setDirty(true); }} /></label>
             )}
             <label>依据标准<input value={draft.standard} disabled={isDefaultView} onChange={(e) => { setDraft({ ...draft, standard: e.target.value }); setDirty(true); }} /></label>
-            <label>质量要求<textarea rows={2} value={draft.quality} disabled={isDefaultView} onChange={(e) => { setDraft({ ...draft, quality: e.target.value }); setDirty(true); }} /></label>
+            <label>质量要求<textarea rows={4} value={draft.quality} disabled={isDefaultView} onChange={(e) => { setDraft({ ...draft, quality: e.target.value }); setDirty(true); }} /></label>
             <label>编写规则（每行一条，≥3 条）<textarea rows={5} value={draft.writingRules.join('\n')} disabled={isDefaultView} onChange={(e) => { setDraft({ ...draft, writingRules: e.target.value.split('\n') }); setDirty(true); }} /></label>
             <div className="tpl-chapters">
               <div className="tpl-chapters-head">
@@ -177,7 +177,7 @@ export function DocTemplatesGroup() {
               {draft.chapters.map((c, i) => (
                 <div key={i} className="tpl-chapter">
                   <input placeholder="一、章标题" value={c.title} disabled={isDefaultView} onChange={(e) => { setDraft({ ...draft, chapters: draft.chapters.map((x, j) => (j === i ? { ...x, title: e.target.value } : x)) }); setDirty(true); }} />
-                  <textarea rows={2} placeholder="该章内容要求（≥20 字）" value={c.requires} disabled={isDefaultView} onChange={(e) => { setDraft({ ...draft, chapters: draft.chapters.map((x, j) => (j === i ? { ...x, requires: e.target.value } : x)) }); setDirty(true); }} />
+                  <textarea rows={5} placeholder="该章内容要求（≥20 字）" value={c.requires} disabled={isDefaultView} onChange={(e) => { setDraft({ ...draft, chapters: draft.chapters.map((x, j) => (j === i ? { ...x, requires: e.target.value } : x)) }); setDirty(true); }} />
                   {!isDefaultView && (
                     <button className="act sm" title="删除本章" disabled={draft.chapters.length <= 1} onClick={() => { setDraft({ ...draft, chapters: draft.chapters.filter((_, j) => j !== i) }); setDirty(true); }}>✕</button>
                   )}

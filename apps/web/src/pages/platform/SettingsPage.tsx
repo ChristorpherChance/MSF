@@ -373,6 +373,8 @@ function ReflectionSection(props: { agentKey: string; currentText: string; onCha
   const [versions, setVersions] = useState<PromptVersionRow[]>([]);
   const [openKey, setOpenKey] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
+  // 处置在飞的提案键（防连点重复提交；服务端重复处置返回 INVALID_STATE）
+  const [resolvingKey, setResolvingKey] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const l = await reflectionsApi.list().catch(() => ({ items: [] as ReflectionListItem[] }));
@@ -414,12 +416,21 @@ function ReflectionSection(props: { agentKey: string; currentText: string; onCha
 
   const resolve = (p: ReflectionProposal & { reflectionId: string }, action: 'adopt' | 'reject') =>
     void (async () => {
+      const key = `${p.reflectionId}:${p.versionNo}`;
+      setResolvingKey(key);
       try {
         await reflectionsApi.resolve({ reflectionId: p.reflectionId, agentKey: p.agentKey, versionNo: p.versionNo, action });
         toast(action === 'adopt' ? '已采用：提案版本设为当前生效（旧版可回退）' : '已拒绝：该方向将回喂反思器，不再重复提议', 'success');
         await load();
         props.onChanged();
-      } catch (e) { toast(e instanceof ApiError ? `${e.code}: ${e.message}` : String(e), 'warn'); }
+      } catch (e) {
+        if (e instanceof ApiError && e.code === 'INVALID_STATE') {
+          toast('该提案已处置，无需重复操作', 'warn');
+          await load();
+        } else {
+          toast(e instanceof ApiError ? `${e.code}: ${e.message}` : String(e), 'warn');
+        }
+      } finally { setResolvingKey(null); }
     })();
 
   return (
@@ -450,8 +461,8 @@ function ReflectionSection(props: { agentKey: string; currentText: string; onCha
               <button className="act mini" onClick={() => setOpenKey(openKey === k ? null : k)}>
                 {openKey === k ? '收起对照' : '并排对照'}
               </button>
-              <button className="act mini primary" onClick={() => resolve(p, 'adopt')}>采用</button>
-              <button className="act mini" onClick={() => resolve(p, 'reject')}>拒绝</button>
+              <button className="act mini primary" disabled={resolvingKey === k} onClick={() => resolve(p, 'adopt')}>采用</button>
+              <button className="act mini" disabled={resolvingKey === k} onClick={() => resolve(p, 'reject')}>拒绝</button>
             </div>
             {openKey === k && (
               <div className="cmp-grid">

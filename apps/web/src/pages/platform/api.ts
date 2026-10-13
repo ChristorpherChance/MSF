@@ -146,9 +146,6 @@ export const promptsApi = {
     api.post(`/api/v1/ai/prompts/${agentKey}/versions/${versionNo}:delete`, {}),
   /** 代码默认基底名册（stage-guides DEFAULT_AGENTS 只读镜像；设置页名册树数据源，前端不再内置常量） */
   baselines: () => api.get<{ items: AgentBaselineRow[] }>('/api/v1/system/agent-baseline'),
-  /** 单套基底（?key=；未知 key 404 NOT_FOUND） */
-  baseline: (agentKey: string) =>
-    api.get<AgentBaselineRow>(`/api/v1/system/agent-baseline?key=${encodeURIComponent(agentKey)}`),
 };
 
 /** Agent 代码默认基底行（服务端 stage-guides AgentDef 同形） */
