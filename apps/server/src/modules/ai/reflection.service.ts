@@ -34,8 +34,9 @@ const TICK_MS = 3600_000;
 const MAX_PROPOSALS = 20;
 /** 对话原文采样上限（统计全文保留、采样按组截断——信号优先） */
 const SAMPLE_LIMIT = 120;
-/** run 看门狗：LLM 终态 30 分钟未达即判超时（stop 会话+抛错复位并发闸） */
-const WATCHDOG_MS = 30 * 60_000;
+/** run 看门狗：LLM 终态 30 分钟未达即判超时（stop 会话+抛错复位并发闸）；分钟数单点常量，文案插值同源防漂移 */
+const WATCHDOG_MIN = 30;
+const WATCHDOG_MS = WATCHDOG_MIN * 60_000;
 
 /** 反思全局跨项目上下文（CommandContext.projectId 是 string|null 必填位；调度触发走系统身份） */
 export const SYS_CTX: CommandContext = { projectId: null, actorKind: 'system', actorId: 'system' };
@@ -219,7 +220,8 @@ export class ReflectionService implements OnModuleInit, OnModuleDestroy {
           ? '🪞 反思报告：本期无需调整'
           : `🪞 反思报告：${proposals.length} 条 Agent 改进提案待审`,
       }).catch((e) => console.warn(`[reflection] 通知发送失败（不影响落库）: ${e instanceof Error ? e.message : e}`));
-      return out;
+      // 返回值收口（评审折入）：命令实值含 proposals 全文，HTTP 只下泄 reflectionId（防几百 KB 响应）
+      return { reflectionId: out.reflectionId };
     } finally {
       this.running = false;
     }
@@ -238,7 +240,7 @@ export class ReflectionService implements OnModuleInit, OnModuleDestroy {
     const timeout = new Promise<never>((_, reject) => {
       timer = setTimeout(() => {
         try { session.stop(); } catch { /* stop 失败不遮蔽超时主错 */ }
-        reject(new DomainError('INVALID_STATE', '反思 LLM 调用超时（30 分钟无终态），会话已终止', 'reflection'));
+        reject(new DomainError('INVALID_STATE', `反思 LLM 调用超时（${WATCHDOG_MIN} 分钟无终态），会话已终止`, 'reflection'));
       }, WATCHDOG_MS);
       timer.unref?.(); // 直实例化场景（测试/CLI）不吊住进程
     });

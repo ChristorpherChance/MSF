@@ -16,6 +16,12 @@
 .set-nav .sn-item:hover { background: var(--soft); }
 .set-nav .sn-item.active { background: var(--blue-soft); color: var(--blue); font-weight: 600; }
 .set-nav .sn-item.sub { padding-left: 24px; font-size: 12.5px; }
+/* —— Agent 名册树（Task 7：全局 + 六阶段主可展开 + 子分组再缩进） —— */
+.set-nav .sn-item.sn-tree-head { display: flex; align-items: center; gap: 4px; }
+.set-nav .sn-arrow { width: 14px; flex: none; color: var(--ink2); font-size: 10px; }
+.set-nav .sn-item.sub2 { padding-left: 42px; font-size: 12px; display: flex; align-items: center; gap: 4px; }
+.set-nav .sn-ver { margin-left: auto; font-size: 10px; color: var(--ink2); font-weight: 400; flex: none; }
+.set-nav .sn-tree-head .sn-ver { margin-left: auto; }
 .set-body { flex: 1; min-width: 0; }
 @media (max-width: 1100px) {
   .set-layout { flex-direction: column; }
@@ -46,7 +52,8 @@
   flex: 1; color: var(--ink2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 textarea.prompt-editor {
-  width: 100%; min-height: 180px; font-family: var(--font-mono); font-size: 12px; line-height: 1.55;
+  /* Task 7：180 → 420（设计 §5——1200 字 Agent 全文可编辑）；resize:vertical 保留 */
+  width: 100%; min-height: 420px; font-family: var(--font-mono); font-size: 12px; line-height: 1.55;
   border: 1px solid var(--line); border-radius: 8px; padding: 10px; resize: vertical;
 }
 textarea.prompt-editor.readonly { background: var(--soft); color: var(--ink2); }
@@ -92,6 +99,19 @@ textarea.prompt-editor.readonly { background: var(--soft); color: var(--ink2); }
   border: 1px solid var(--green); background: var(--green-soft); border-radius: 8px;
   padding: 8px 10px; font-size: 12.5px;
 }
+
+/* —— 基底对照抽屉（Task 7：基底 vs 当前版并排两栏，窄屏落单列） —— */
+.cmp-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px; }
+.cmp-col-head { font-size: 12px; font-weight: 700; color: var(--ink2); margin-bottom: 4px; }
+@media (max-width: 1100px) { .cmp-grid { grid-template-columns: 1fr; } }
+
+/* —— 反思提案区（Task 7，设计 §4/§5） —— */
+.refl-prop {
+  border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px;
+  margin-bottom: 10px; background: var(--canvas); font-size: 13px;
+}
+.refl-prop .refl-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.refl-prop .refl-sum { flex: 1; min-width: 200px; color: var(--ink); }
 
 /* 文档模板编辑器（2026-10-06）：左 kind 列 + 右表单 */
 .tpl-editor { display: flex; gap: 12px; align-items: flex-start; }

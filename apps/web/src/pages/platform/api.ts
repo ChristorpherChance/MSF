@@ -52,9 +52,10 @@ export interface ModelPublic {
   supports_thinking: boolean; context_window: number; routes: string[];
 }
 
-export const PURPOSES = ['planning', 'generation', 'review', 'translation', 'chat', 'parsing'] as const;
+export const PURPOSES = ['planning', 'generation', 'review', 'translation', 'chat', 'parsing', 'reflection'] as const;
 export const PURPOSE_NAMES: Record<string, string> = {
   planning: '规划', generation: '生成', review: '评审', translation: '翻译', chat: '对话', parsing: '解析',
+  reflection: '反思', // Agent 反思迭代用途（服务端 models.service PURPOSES 同源；无显式路由时服务端动态兜底窗口最大者）
 };
 
 export const STAGE_NAMES: Record<string, string> = {
@@ -143,6 +144,40 @@ export const promptsApi = {
     api.post(`/api/v1/ai/prompts/${agentKey}/versions/${versionNo}:rename`, { name }),
   remove: (agentKey: string, versionNo: number) =>
     api.post(`/api/v1/ai/prompts/${agentKey}/versions/${versionNo}:delete`, {}),
+  /** 代码默认基底名册（stage-guides DEFAULT_AGENTS 只读镜像；设置页名册树数据源，前端不再内置常量） */
+  baselines: () => api.get<{ items: AgentBaselineRow[] }>('/api/v1/system/agent-baseline'),
+  /** 单套基底（?key=；未知 key 404 NOT_FOUND） */
+  baseline: (agentKey: string) =>
+    api.get<AgentBaselineRow>(`/api/v1/system/agent-baseline?key=${encodeURIComponent(agentKey)}`),
+};
+
+/** Agent 代码默认基底行（服务端 stage-guides AgentDef 同形） */
+export interface AgentBaselineRow {
+  key: string; group: string; name: string;
+  role: 'global' | 'main' | 'sub' | 'overlay';
+  prompt: string;
+}
+
+/** Agent 反思（设计 §4；设置页 Agent 卡「反思提案」区 + 🪞 立即反思） */
+export interface ReflectionListItem {
+  id: string; trigger: string; windowStart: string; windowEnd: string;
+  modelId: string | null; createdAt: string;
+  counts: { pending: number; adopted: number; rejected: number };
+}
+export interface ReflectionProposal { agentKey: string; versionNo: number; summary: string; status: string }
+export interface ReflectionDetail extends ReflectionListItem {
+  report: string; proposals: ReflectionProposal[]; stats: Record<string, unknown>;
+}
+export const reflectionsApi = {
+  /** 手动触发一场反思（同刻一场并发闸，在飞再触发 INVALID_STATE；长调用同步等待终态） */
+  run: () => api.post<{ reflectionId: string }>('/api/v1/system/reflections:run', {}),
+  /** 近 50 场计数视图 */
+  list: () => api.get<{ items: ReflectionListItem[] }>('/api/v1/system/reflections'),
+  /** 单场明细（report 全文 + proposals 明细） */
+  detail: (id: string) => api.get<ReflectionDetail>(`/api/v1/system/reflections?id=${encodeURIComponent(id)}`),
+  /** 提案处置：adopt=is_current 翻转；reject=状态回写+方向回喂 */
+  resolve: (body: { reflectionId: string; agentKey: string; versionNo: number; action: 'adopt' | 'reject' }) =>
+    api.post('/api/v1/system/reflections:resolve', body),
 };
 
 /** 助手工具注册表（A08-5；设置页全局助手卡工具开关清单；项目级前缀） */

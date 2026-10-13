@@ -5,6 +5,7 @@ import type { Request } from 'express';
 import { DomainError } from '@msf/shared';
 import { getActor } from '../api/identity.middleware.js';
 import { ReflectionService } from './reflection.service.js';
+import { DEFAULT_AGENT_MAP, DEFAULT_AGENTS } from './stage-guides.js';
 
 /**
  * Agent 反思端点（设计 §4；挂 api/v1/system 区镜像 system 端点形态）。
@@ -49,5 +50,20 @@ export class ReflectionsController {
     return this.reflections.resolveProposal(
       { reflectionId: body.reflectionId, agentKey: body.agentKey, versionNo, decision: body.action },
       this.actor(req));
+  }
+
+  /**
+   * Agent 代码默认基底名册（设置页 Agent 区名册树数据源；Task 7 顺带加入口）。
+   * 只读直出 stage-guides DEFAULT_AGENTS——运行时真身同源，前端不再内置 AGENTS 常量。
+   * 无参=全量二十套（{items}）；?key= 单取 {key,name,group,role,prompt}，未知 key 404。
+   */
+  @Get('agent-baseline')
+  baseline(@Query('key') key?: string) {
+    if (key) {
+      const def = DEFAULT_AGENT_MAP[key];
+      if (!def) throw new DomainError('NOT_FOUND', `未知 agentKey「${key}」（名册外）`, key);
+      return def;
+    }
+    return { items: DEFAULT_AGENTS };
   }
 }
