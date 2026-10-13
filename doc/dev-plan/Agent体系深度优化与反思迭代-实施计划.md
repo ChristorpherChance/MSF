@@ -450,6 +450,13 @@ ssh -i ~/.ssh/id_ed25519_superopen_192_168_0_143 -o IdentitiesOnly=yes -o Strict
 
 - [ ] **Step 4: Commit** `docs(dev-plan): 差异登记条目 43——Agent 体系深度优化与反思迭代（待 13 册下轮基线回补）`
 
+- [ ] **Step 4b: Task 3 质量评审遗留打磨**（Approved 附带五条 Minor，评估后小步收口或登记跟进）：
+  1. chat 路由解析三处 inline 复制（models.service resolve/sessions 消息模型戳/sessions band 解析）——抽共享助手或注释互相点名；
+  2. TOOL_BLOCK_FULL/CONDENSED 平价测试（两块均含七工具名+围栏+纪律句，防将来加工具漏同步）；
+  3. 窄档 toolLog 16000 预算用例补钉（drive→runToolBlocks 透传链端到端）；
+  4. 备忘不修：band 绑定优先 vs pi 网关只走路由的口径分歧（设计 §2 已选绑定优先，窄模型接入后复盘）；
+     【参考资料】注入未分档（设计口径外，256k 模型跟进时纳入）。
+
 - [ ] **Step 5: 同步 101 + 部署 116（部署前问用户拍板）**；实机走查清单：设置页名册树逐套看基底 →
   改一套 req 主 Agent 发个版本 → dock 问一句验证新 prompt 生效 →「🪞 立即反思」跑一场看报告+提案 →
   采用一条提案再验证 → 模板编辑区章条框可视行数。
