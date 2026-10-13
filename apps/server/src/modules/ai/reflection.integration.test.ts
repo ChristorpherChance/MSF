@@ -143,9 +143,9 @@ describe('Agent 反思执行器（集成，需 DB）', async () => {
     const { reflectionId } = await svc.run('manual', SYS_CTX);
     const ref = await lastReflection(reflectionId);
     const proposal = ref.proposals[0]!;
-    const res = (await svc.resolveProposal(
+    const res = await svc.resolveProposal(
       { reflectionId, agentKey: 'req', versionNo: proposal.versionNo, decision: 'adopt' }, SYS_CTX,
-    )) as { status: string };
+    );
     expect(res.status).toBe('adopted');
     // 新版挂、旧版摘
     expect((await query<{ is_current: boolean }>(
@@ -166,9 +166,9 @@ describe('Agent 反思执行器（集成，需 DB）', async () => {
     const { reflectionId } = await svc.run('manual', SYS_CTX);
     const ref = await lastReflection(reflectionId);
     const proposal = ref.proposals[0]!;
-    const res = (await svc.resolveProposal(
+    const res = await svc.resolveProposal(
       { reflectionId, agentKey: 'req', versionNo: proposal.versionNo, decision: 'reject' }, SYS_CTX,
-    )) as { status: string };
+    );
     expect(res.status).toBe('rejected');
     const ver = await query<{ is_current: boolean }>(
       'SELECT is_current FROM ai_prompt_versions WHERE agent_key=$1 AND version_no=$2',
@@ -185,6 +185,7 @@ describe('Agent 反思执行器（集成，需 DB）', async () => {
 
   it('调度判定：空表到期但零新消息不跑；窗口有消息即跑；3 天前行未到期；8 天前行到期', async () => {
     // 自包含快照：清空 ai_reflections 跑判定，finally 原样回插（含本套件前面场次）
+    // 注意：本用例整表 DELETE/回插 ai_reflections——同表套件勿并行（vitest 默认文件间并行，跨文件共享库会互踩）
     const saved = (await query<ReflectionRow>('SELECT * FROM ai_reflections')).rows;
     await query('DELETE FROM ai_reflections');
     try {

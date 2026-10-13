@@ -4,6 +4,7 @@ import { PlatformModule } from '../platform/platform.module.js';
 import { AI_PROVIDER } from './ai-provider.interface.js';
 import { AiController } from './ai.controller.js';
 import { AiSessionsController } from './ai-sessions.controller.js';
+import { ReflectionsController } from './reflections.controller.js';
 import { AiDelegationsService } from './delegations.service.js';
 import { AiModelsService } from './models.service.js';
 import { AiPromptsService } from './prompts.service.js';
@@ -22,7 +23,7 @@ import { StreamPipeline } from './stream-pipeline.js';
  */
 @Module({
   imports: [ExecutorModule, PlatformModule],
-  controllers: [AiController, AiSessionsController],
+  controllers: [AiController, AiSessionsController, ReflectionsController],
   providers: [
     AiModelsService,
     AiSessionsService,

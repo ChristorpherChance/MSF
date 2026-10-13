@@ -3,7 +3,7 @@ import { DomainError } from '@msf/shared';
 import { query } from '../../db/pool.js';
 import { executeCommand, registerCommand, type CommandContext } from '../evidence/command-bus.js';
 import { NotificationsService } from '../platform/notifications.service.js';
-import { AI_PROVIDER, type AiProvider } from './ai-provider.interface.js';
+import { AI_PROVIDER, type AiMessageResult, type AiProvider, type AiSession } from './ai-provider.interface.js';
 import { DEFAULT_AGENT_MAP } from './stage-guides.js';
 
 /**
@@ -13,7 +13,10 @@ import { DEFAULT_AGENT_MAP } from './stage-guides.js';
  * - 提案直插 ai_prompt_versions 绕开 ai.prompt.publish——其「首版强制 is_current=true」会击穿提案制（评审 C1）；
  *   version_no 取号与 is_current 翻转口径照抄 publish/rollback（FOR UPDATE 取号、先摘后挂）
  * - 调度器：setInterval 每小时探一次「距上次 ≥7 天且窗口内有新消息」；无历史视为到期；零新消息跳过不空跑
- * - 并发闸：内存 running 标志（模板重排先例——单进程部署），同刻一场，在飞再 run 抛 INVALID_STATE
+ * - 并发闸：内存 running 标志（模板重排先例——单进程部署），同刻一场；手动 run 在飞再 run 抛 INVALID_STATE，
+ *   tick 在飞则静默跳过（每小时撞闸刷 console.error 是噪音，闸只留给手动入口）
+ * - run 看门狗：LLM 结果包 30 分钟超时（Promise.race），超时 session.stop() 并抛错——
+ *   防上游静默挂起致 running 永真、调度器永久卡死（评审折入，口径=看门狗方案）
  * - 反思系统 prompt 代码内置不可编辑——管 Agent 的 Agent 不开放自改（防自指漂移）
  */
 
@@ -31,6 +34,8 @@ const TICK_MS = 3600_000;
 const MAX_PROPOSALS = 20;
 /** 对话原文采样上限（统计全文保留、采样按组截断——信号优先） */
 const SAMPLE_LIMIT = 120;
+/** run 看门狗：LLM 终态 30 分钟未达即判超时（stop 会话+抛错复位并发闸） */
+const WATCHDOG_MS = 30 * 60_000;
 
 /** 反思全局跨项目上下文（CommandContext.projectId 是 string|null 必填位；调度触发走系统身份） */
 export const SYS_CTX: CommandContext = { projectId: null, actorKind: 'system', actorId: 'system' };
@@ -40,6 +45,22 @@ export interface ReflectionProposalInput {
 }
 export interface ReflectionProposalRow extends ReflectionProposalInput {
   versionNo: number; status: 'pending' | 'adopted' | 'rejected';
+}
+/** 提案处置结果（端点接缝具名类型，不再 cast） */
+export interface ReflectionResolveResult {
+  reflectionId: string; agentKey: string; versionNo: number; status: 'adopted' | 'rejected';
+}
+/** 历史列表项（proposals 按状态聚合计数，不带 report 全文） */
+export interface ReflectionListItem {
+  id: string; trigger: string; windowStart: string; windowEnd: string;
+  modelId: string | null; createdAt: string;
+  counts: { pending: number; adopted: number; rejected: number };
+}
+/** 单场次详情（?id= 单取：report 全文 + proposals 明细 + stats） */
+export interface ReflectionDetail extends ReflectionListItem {
+  report: string;
+  proposals: Array<{ agentKey: string; versionNo: number; summary: string; status: string }>;
+  stats: Record<string, unknown>;
 }
 
 @Injectable()
@@ -75,6 +96,9 @@ export class ReflectionService implements OnModuleInit, OnModuleDestroy {
         if (!agentKey || !prop.fullText?.trim()) {
           throw new DomainError('VALIDATION_FAILED', '提案 agentKey/fullText 必填', 'proposals');
         }
+        // 命令侧名册校验（评审折入）：未知键不再静默落 'assistant' 组兜底，直接拒
+        const def = DEFAULT_AGENT_MAP[agentKey];
+        if (!def) throw new DomainError('VALIDATION_FAILED', `未知 agentKey「${agentKey}」（名册外）`, 'proposals');
         // version_no 取号同 publish 口径（FOR UPDATE 防撞号）
         const prev = await client.query<{ version_no: number; agent_group: string }>(
           'SELECT version_no, agent_group FROM ai_prompt_versions WHERE agent_key=$1 ORDER BY version_no DESC LIMIT 1 FOR UPDATE',
@@ -83,7 +107,7 @@ export class ReflectionService implements OnModuleInit, OnModuleDestroy {
         await client.query(
           `INSERT INTO ai_prompt_versions (agent_key, agent_group, version_no, name, base_prompt, overlay_text, is_current, kind, created_by)
            VALUES ($1,$2,$3,$4,$5,'',false,'prompt','reflection')`,
-          [agentKey, prev.rows[0]?.agent_group ?? DEFAULT_AGENT_MAP[agentKey]?.group ?? 'assistant',
+          [agentKey, prev.rows[0]?.agent_group ?? def.group,
            versionNo, prop.name?.trim() || `反思改进 ${versionNo}`, prop.fullText]);
         registered.push({ agentKey, name: prop.name, summary: prop.summary ?? '', fullText: prop.fullText, versionNo, status: 'pending' });
       }
@@ -144,13 +168,15 @@ export class ReflectionService implements OnModuleInit, OnModuleDestroy {
     const lastAt = new Date(last.rows[0]?.last ?? 0); // '-infinity' → Invalid Date → NaN 比较恒 false → 视为到期
     const due = !(lastAt.getTime() > windowStart.getTime());
     if (!due) return false;
-    const msgs = await query<{ n: string }>(
-      'SELECT count(*) AS n FROM ai_messages WHERE created_at >= $1 AND created_at <= $2',
+    // 存在性探测（SELECT 1 LIMIT 1，比 count(*) 便宜——每小时跑一次）；窗口 < 半开与取样六路一致
+    const hit = await query(
+      'SELECT 1 FROM ai_messages WHERE created_at >= $1 AND created_at < $2 LIMIT 1',
       [windowStart.toISOString(), now.toISOString()]);
-    return Number(msgs.rows[0]?.n ?? 0) > 0;
+    return hit.rows.length > 0;
   }
 
   private async tick(): Promise<void> {
+    if (this.running) return; // 在飞静默跳过：闸抛错留给手动 run，调度撞闸刷 console.error 是噪音
     try {
       if (await this.shouldRun()) await this.run('scheduled', SYS_CTX);
     } catch (e) {
@@ -173,8 +199,7 @@ export class ReflectionService implements OnModuleInit, OnModuleDestroy {
       const session = await this.provider.createSession({ projectId: 'system', purpose: 'reflection' });
       const prompt = `${REFLECT_SYSTEM}\n\n【取样窗口】${windowStart.toISOString()} ~ ${windowEnd.toISOString()}\n【取样数据】\n${JSON.stringify(stats)}`;
       const { deltas, result } = session.stream(prompt);
-      for await (const d of deltas) void d; // 反思只取终态全文，delta 排空即可
-      const r = await result;
+      const r = await this.awaitModel(session, deltas, result); // 看门狗包超时：静默挂起不致闸永真
       const parsed = parseReflectionOutput(r.text);
       if (!parsed.ok) throw new DomainError('VALIDATION_FAILED', `反思模型输出不可用：${parsed.reason}`, 'report');
       const proposals = normalizeProposals(parsed.value.proposals, windowEnd);
@@ -187,10 +212,12 @@ export class ReflectionService implements OnModuleInit, OnModuleDestroy {
         proposals,
         modelId: r.modelId ?? null,
       }, ctx)) as { reflectionId: string };
-      // 通知（§4 第四步）：落库已完成，通知失败不翻盘
+      // 通知（§4 第四步）：落库已完成，通知失败不翻盘；零提案=本期无需调整（规格评审遗留修正）
       await this.notices?.emit(ctx, {
         type: 'ai.reflection.done', link: '/settings',
-        text: `🪞 反思报告：${proposals.length} 条 Agent 改进提案待审`,
+        text: proposals.length === 0
+          ? '🪞 反思报告：本期无需调整'
+          : `🪞 反思报告：${proposals.length} 条 Agent 改进提案待审`,
       }).catch((e) => console.warn(`[reflection] 通知发送失败（不影响落库）: ${e instanceof Error ? e.message : e}`));
       return out;
     } finally {
@@ -198,12 +225,62 @@ export class ReflectionService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  /**
+   * LLM 终态看门狗（评审折入，重要）：上游静默挂起会让 running 永真、调度器永久卡死——
+   * Promise.race 30 分钟超时即 session.stop() 并抛 INVALID_STATE，run 的 finally 复位并发闸
+   */
+  private awaitModel(
+    session: AiSession,
+    deltas: AsyncIterable<string>,
+    result: Promise<AiMessageResult>,
+  ): Promise<AiMessageResult> {
+    let timer: NodeJS.Timeout | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        try { session.stop(); } catch { /* stop 失败不遮蔽超时主错 */ }
+        reject(new DomainError('INVALID_STATE', '反思 LLM 调用超时（30 分钟无终态），会话已终止', 'reflection'));
+      }, WATCHDOG_MS);
+      timer.unref?.(); // 直实例化场景（测试/CLI）不吊住进程
+    });
+    const drain = (async () => {
+      for await (const d of deltas) void d; // 反思只取终态全文，delta 排空即可
+      return result;
+    })();
+    return Promise.race([drain, timeout]).finally(() => { if (timer) clearTimeout(timer); });
+  }
+
   /** 提案处置入口（设置页 Agent 卡「反思提案」区；Task 6 端点接） */
   resolveProposal(
     input: { reflectionId: string; agentKey: string; versionNo: number; decision: 'adopt' | 'reject' },
     ctx: CommandContext,
-  ): Promise<unknown> {
-    return executeCommand('ai.reflect.proposal.resolve', input, ctx);
+  ): Promise<ReflectionResolveResult> {
+    return executeCommand('ai.reflect.proposal.resolve', input, ctx) as Promise<ReflectionResolveResult>;
+  }
+
+  /** 历史列表（端点读）：缺省近 50 场计数视图；传 id 单取含 report 全文 + proposals 明细 + stats */
+  async list(id?: string): Promise<{ items: ReflectionListItem[] } | ReflectionDetail> {
+    if (id) {
+      const r = await query<{
+        id: string; trigger: string; window_start: string; window_end: string;
+        stats: Record<string, unknown>; report: string;
+        proposals: Array<{ agentKey: string; versionNo: number; summary: string; status: string }>;
+        model_id: string | null; created_at: string;
+      }>('SELECT * FROM ai_reflections WHERE id=$1', [id]);
+      if (!r.rows[0]) throw new DomainError('NOT_FOUND', '反思场次不存在', id);
+      const row = r.rows[0];
+      return {
+        ...toListItem(row, row.proposals),
+        report: row.report, proposals: row.proposals, stats: row.stats,
+      };
+    }
+    const r = await query<{
+      id: string; trigger: string; window_start: string; window_end: string;
+      proposals: Array<{ agentKey: string; versionNo: number; summary: string; status: string }>;
+      model_id: string | null; created_at: string;
+    }>(
+      'SELECT id, trigger, window_start, window_end, proposals, model_id, created_at FROM ai_reflections ORDER BY created_at DESC LIMIT 50',
+      []);
+    return { items: r.rows.map((row) => toListItem(row, row.proposals)) };
   }
 
   /**
@@ -253,6 +330,22 @@ export class ReflectionService implements OnModuleInit, OnModuleDestroy {
       samples: samples.rows,
     };
   }
+}
+
+/** 行 → 列表项映射：proposals 在 JS 侧按状态聚合计数（jsonb 行内数组，SQL 三趟 lateral 不如内存直数） */
+function toListItem(
+  row: { id: string; trigger: string; window_start: string; window_end: string; model_id: string | null; created_at: string },
+  proposals: Array<{ status: string }>,
+): ReflectionListItem {
+  const counts = { pending: 0, adopted: 0, rejected: 0 };
+  for (const p of proposals) {
+    if (p.status === 'pending' || p.status === 'adopted' || p.status === 'rejected') counts[p.status] += 1;
+  }
+  return {
+    id: row.id, trigger: row.trigger,
+    windowStart: row.window_start, windowEnd: row.window_end,
+    modelId: row.model_id, createdAt: row.created_at, counts,
+  };
 }
 
 /** 容错抽取（template-draft 先例+未闭合尾围栏容错）：围栏优先 → 未闭合围栏兜底 → 首尾大括号兜底 */
