@@ -3,4 +3,4 @@
 -- 「选中详细设计却改了概要设计」。doc_kind 记录会话绑定的文档（req: crd|prd；design: 八册 kind；
 -- 其余阶段/原型/评审页签为 NULL=阶段级会话）。列表按 (ctx, doc_kind) 精确分组，老数据 NULL
 -- 归入阶段级（原型/评审等无工件页签下仍可见可管理）。
-ALTER TABLE ai_sessions ADD COLUMN doc_kind text;
+ALTER TABLE ai_sessions ADD COLUMN IF NOT EXISTS doc_kind text;
