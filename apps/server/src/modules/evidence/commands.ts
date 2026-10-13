@@ -191,6 +191,8 @@ export const COMMANDS = [
   'ai.prompt.rollback',
   'ai.prompt.rename', // Prompt 版本重命名（LLD-6 §3.9 pver-row ✏；C10-2(f) 之外补，差异登记）
   'ai.prompt.delete', // Prompt 历史版本删除（当前生效版拒绝；差异登记）
+  'ai.reflect.run',               // 🪞 Agent 反思：执行+落库（取样/LLM 在事务外，落库写在事务内）
+  'ai.reflect.proposal.resolve',  // 🪞 反思提案处置（采用=is_current 翻转 / 拒绝=状态回写）
   'ai.session.rename', // dock ⋯ 菜单会话重命名（DSG-U02-4；差异登记）
   'ai.session.delete', // dock ⋯ 菜单会话删除（消息随行，ai_usage 留账；差异登记）
   'ai.model.upsert',

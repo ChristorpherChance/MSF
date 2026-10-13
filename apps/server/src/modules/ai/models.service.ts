@@ -12,8 +12,8 @@ import { decryptText, encryptText } from '../platform/crypto.service.js';
  * - 连通自检 conn_status：网络探测在事务外执行，结果经 ai.model.test 命令落库（审计留痕）
  */
 
-/** 用途集合：D08-5 四类 + chat（助手 dock 对话用途，差异登记待 M6 验收） + parsing（资料解析 AI 整理，差异登记） */
-export const PURPOSES = ['planning', 'generation', 'review', 'translation', 'chat', 'parsing'] as const;
+/** 用途集合：D08-5 四类 + chat（助手 dock 对话用途，差异登记待 M6 验收） + parsing（资料解析 AI 整理，差异登记） + reflection（Agent 反思迭代，设计 §2 末段） */
+export const PURPOSES = ['planning', 'generation', 'review', 'translation', 'chat', 'parsing', 'reflection'] as const;
 export type Purpose = (typeof PURPOSES)[number];
 
 const PROVIDERS = ['anthropic', 'openai', 'gateway'] as const;
@@ -215,7 +215,13 @@ export class AiModelsService implements OnModuleInit {
   async resolve(purpose: Purpose): Promise<{ row: ModelRow; apiKey: string | null }> {
     const r = await query<ModelRow>(
       'SELECT * FROM ai_models WHERE enabled AND routes ? $1 ORDER BY updated_at DESC LIMIT 1', [purpose]);
-    const row = r.rows[0];
+    let row = r.rows[0];
+    // reflection 动态兜底（设计 §2 末段）：无显式路由=enabled 中 context_window 最大者，
+    // 不做迁移种子、永远跟随模型池现状（运行时聊天可用小模型，后台反思用大模型互不绑架）
+    if (!row && purpose === 'reflection') {
+      row = (await query<ModelRow>(
+        'SELECT * FROM ai_models WHERE enabled ORDER BY context_window DESC, updated_at DESC LIMIT 1', [])).rows[0];
+    }
     if (!row) {
       throw new DomainError('MODEL_UNAVAILABLE', `用途 ${purpose} 无路由模型（请先注册模型并配置路由）`, purpose);
     }
