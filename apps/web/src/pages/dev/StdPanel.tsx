@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { stdApi, type StdVersion } from './api';
 import { useDevStore } from './store';
 
-const STD_AGENT_KEY = 'dev-coding-std';
+const STD_AGENT_KEY = 'dev.coding-std';
 
 /** 系统默认编码规范（只读；原型 DEV_STANDARDS 口径，自定义叠加版本在下方维护） */
 const DEV_STANDARDS: Array<{ cat: string; rule: string; detail: string }> = [

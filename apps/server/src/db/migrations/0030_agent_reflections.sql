@@ -13,4 +13,6 @@ CREATE TABLE IF NOT EXISTS ai_reflections (
 );
 -- 编码规范叠加区键名收编：代码名册 key 为 'dev.coding-std'（点式对齐全域命名），
 -- 存量库若曾以 'dev-coding-std' 落库则归一（UPDATE 天然幂等，零行命中即 no-op）。
-UPDATE ai_prompt_versions SET agent_key='dev.coding-std' WHERE agent_key='dev-coding-std';
+-- 防撞守卫：目标键同 version_no 行已存在时跳过（UNIQUE(agent_key,version_no) 防 42710 撞号）。
+UPDATE ai_prompt_versions SET agent_key='dev.coding-std' WHERE agent_key='dev-coding-std'
+  AND NOT EXISTS (SELECT 1 FROM ai_prompt_versions t WHERE t.agent_key='dev.coding-std' AND t.version_no = ai_prompt_versions.version_no);

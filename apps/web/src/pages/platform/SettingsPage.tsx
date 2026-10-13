@@ -281,7 +281,7 @@ function StdOverlayCard({ basePrompt }: { basePrompt: string }) {
       </div>
       <VersionEditor
         key={tick}
-        agentKey="dev-coding-std" agentGroup="dev" kind="std"
+        agentKey="dev.coding-std" agentGroup="dev" kind="std"
         basePrompt={basePrompt}
         placeholder="在此编写编码规范叠加内容（如：门户语境附加约束），另存为新版本…"
         onChanged={() => setTick((x) => x + 1)}

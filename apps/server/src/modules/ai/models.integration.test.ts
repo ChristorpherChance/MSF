@@ -95,6 +95,50 @@ describe('AI 模型注册/路由 + Pi 网关（集成，需 DB）', async () => 
     await expect(models.resolve('generation')).rejects.toMatchObject({ code: 'MODEL_UNAVAILABLE' });
   });
 
+  it('reflection 兜底：显式路由优先 / 无路由取 enabled 窗口最大者 / 全禁抛 MODEL_UNAVAILABLE', async () => {
+    // 反思路由快照（同 generation 口径：route.set 先摘后挂会动共库路由，跑完还原原持有者）
+    const reflHolders = (await query<{ id: string }>("SELECT id FROM ai_models WHERE routes ? 'reflection'", [])).rows.map((r) => r.id);
+    try {
+      // ① 显式路由优先：挂载小窗模型也命中挂载行（不走窗口兜底）
+      const small = (await models.upsert({
+        name: '反思小窗模型', provider: 'openai', baseUrl: 'http://127.0.0.1:9',
+        modelCode: 'refl-small', contextWindow: 8000,
+      }, CTX)).id;
+      ids.push(small);
+      await models.setRoute('reflection', small, CTX);
+      const explicit = await models.resolve('reflection');
+      expect(explicit.row.id).toBe(small);
+      // ② 摘掉路由 → 动态兜底：enabled 中 context_window 最大者（与 SQL 口径逐行对齐，共库数据无关）
+      await models.setRoute('reflection', null, CTX);
+      const expectRow = (await query<{ id: string }>(
+        'SELECT id FROM ai_models WHERE enabled ORDER BY context_window DESC, updated_at DESC LIMIT 1', [])).rows[0];
+      if (expectRow) {
+        const fallback = await models.resolve('reflection');
+        expect(fallback.row.id).toBe(expectRow.id);
+      } else {
+        // 空库口径：兜底亦无米下锅 → 同样抛 MODEL_UNAVAILABLE
+        await expect(models.resolve('reflection')).rejects.toMatchObject({ code: 'MODEL_UNAVAILABLE' });
+      }
+      // ③ 全禁 → 既有码 MODEL_UNAVAILABLE；快照 enabled 行 finally 还原（窗口收窄，单套件运行无并行干扰）
+      const enabledIds = (await query<{ id: string }>('SELECT id FROM ai_models WHERE enabled', [])).rows.map((r) => r.id);
+      try {
+        await query('UPDATE ai_models SET enabled=false', []);
+        await expect(models.resolve('reflection')).rejects.toMatchObject({ code: 'MODEL_UNAVAILABLE' });
+      } finally {
+        for (const id of enabledIds) await query('UPDATE ai_models SET enabled=true WHERE id=$1', [id]);
+      }
+    } finally {
+      // 还原反思路由原持有者
+      await query("UPDATE ai_models SET routes = routes - 'reflection' WHERE routes ? 'reflection'", []);
+      for (const id of reflHolders) {
+        await query(
+          "UPDATE ai_models SET routes = routes || '\"reflection\"'::jsonb WHERE id=$1 AND NOT (routes ? 'reflection')",
+          [id],
+        );
+      }
+    }
+  });
+
   it('model.test：不可达地址 → conn_status=fail（探测在事务外，结果经命令落库）', async () => {
     const r = await models.test(ids[0]!, CTX);
     expect(r.connStatus).toBe('fail');
