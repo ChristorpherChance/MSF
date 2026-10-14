@@ -104,6 +104,14 @@ describe('scanOverdesign（设计覆盖检测 §1 反向维度：疑似过度设
     expect(scanOverdesign('hld', hld)).toEqual([]);
   });
 
+  it('编号边界：h-10 整体取码不误截 h-1；大写 H-1 漏报是有意的保守方向', () => {
+    const hld = '# HLD\n\n## h-10 兜底策略\n\n无 REQ 回引。\n\n## H-1 大写异常节\n\n也无回引。\n';
+    // h-10 入候选且码完整（\d+ 贪婪+\b 边界，防前缀误配截成 h-1）；H-1 大写不匹配不入候选
+    expect(scanOverdesign('hld', hld)).toEqual([
+      { book: 'hld', anchor: 'h-10', title: 'h-10 兜底策略' },
+    ]);
+  });
+
   it('deferred 扩 dsg：DSG 码（h-1 形）自指行进 deferred 集但不挤占 R/CR/REQ 分母', () => {
     const { links, nodes } = deriveLinks(CRD, PRD);
     const h = computeHealth(nodes, [

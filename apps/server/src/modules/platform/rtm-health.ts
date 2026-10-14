@@ -132,7 +132,9 @@ export interface OverdesignCandidate {
 
 /** 逐册扫「无 REQ 回引的锚点条目节」（分节复用 splitSections，与 deriveLinks 反向派生同构） */
 export function scanOverdesign(bookKind: string, content: string): OverdesignCandidate[] {
-  // 节锚点码前缀=chapter_prefix 单字母小写形态（template-refresh.ts anchorPrefixOf 同口径）
+  // 节锚点码前缀=chapter_prefix 单字母小写形态（template-refresh.ts anchorPrefixOf 同口径）。
+  // 只认小写：大写 H-1 形态漏报是有意的保守方向——锚点码规范即小写（doc-conventions），
+  // 大写属异常内容，宁漏（候选清单本就要人工复核）不误（宽匹配把规范外文本也卷进清单）。
   const prefix = (DSG_BOOK_LETTER[bookKind] ?? bookKind).toLowerCase();
   const reAnchor = new RegExp(`\\b${prefix}-(\\d+)\\b`);
   const out: OverdesignCandidate[] = [];
