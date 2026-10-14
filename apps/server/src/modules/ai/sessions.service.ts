@@ -175,18 +175,10 @@ export class AiSessionsService implements OnModuleInit {
         const refsFp0 = p.referenceFileIds.map((id) => p.referenceFingerprints[id] ?? '').join(',');
         inputFingerprint = sha256hex(`${promptVersionId ?? '-'}|${refsFp0}`);
       }
-      // 模型戳：会话绑定模型（仍启用）优先，否则 chat 用途路由默认，无路由（mock 期）记 null
-      let modelId: string | null = null;
-      if (s.model_id) {
-        const bound = await client.query<{ id: string }>(
-          'SELECT id FROM ai_models WHERE id=$1 AND enabled', [s.model_id]);
-        modelId = bound.rows[0]?.id ?? null;
-      }
-      if (!modelId) {
-        const routed = await client.query<{ id: string }>(
-          'SELECT id FROM ai_models WHERE enabled AND routes ? $1 ORDER BY updated_at DESC LIMIT 1', ['chat']);
-        modelId = routed.rows[0]?.id ?? null;
-      }
+      // 模型戳：会话绑定模型（仍启用）优先，否则 chat 用途路由默认，无路由（mock 期）记 null。
+      // Task 9 收口：解析口径单点=models.resolveChatModelRow（与 send() 分档解析同源；命令事务内走 client）
+      const chatRow = await this.models.resolveChatModelRow(s.model_id, client);
+      const modelId = chatRow?.id ?? null;
       await client.query(
         'INSERT INTO ai_messages (session_id, role, content, status) VALUES ($1,$2,$3,$4)',
         [s.id, 'user', p.content, 'done']);
@@ -422,19 +414,11 @@ export class AiSessionsService implements OnModuleInit {
     const sessRow = await query<{ ctx: string; doc_kind: string | null; model_id: string | null }>(
       'SELECT ctx, doc_kind, model_id FROM ai_sessions WHERE id=$1', [sessionId]);
     const sessInfo = sessRow.rows[0];
-    // 上下文分档（设计 §2）：会话绑定模型（仍启用）优先，chat 用途路由兜底；
+    // 上下文分档（设计 §2）：会话绑定模型（仍启用）优先，chat 用途路由兜底——解析口径单点
+    // =models.resolveChatModelRow（Task 9 收口，与命令内消息模型戳同源）；
     // 解析不到=mock 期/未配置=wide（306 基线口径不变，降档只发生在绑定真实模型且窗口 <512k 时）
-    let contextWindow: number | null = null;
-    if (sessInfo?.model_id) {
-      const bound = await query<{ context_window: number }>(
-        'SELECT context_window FROM ai_models WHERE id=$1 AND enabled', [sessInfo.model_id]);
-      if (bound.rows[0]) contextWindow = bound.rows[0].context_window;
-    }
-    if (contextWindow === null) {
-      const routed = await query<{ context_window: number }>(
-        "SELECT context_window FROM ai_models WHERE enabled AND routes ? 'chat' ORDER BY updated_at DESC LIMIT 1", []);
-      if (routed.rows[0]) contextWindow = routed.rows[0].context_window;
-    }
+    const chatRow = await this.models.resolveChatModelRow(sessInfo?.model_id);
+    const contextWindow = chatRow?.context_window ?? null;
     const band = contextBand(contextWindow);
     const asm = await assembleAgentBlocks(sessInfo?.ctx ?? null, sessInfo?.doc_kind ?? null, band);
     const refsFp = (body.referenceFileIds ?? [])
@@ -806,8 +790,10 @@ export class AiSessionsService implements OnModuleInit {
 
 /** 【可用工具】声明双版本（Task 3，设计 §2 窄档口径）：FULL=现状全量（示例+长篇口径保留）；
  *  CONDENSED=窄档精简——每工具一行签名+一句用途，签名与纪律句（围栏格式/自动回喂/写走人工）保留，
- *  砍的是示例与展开段落。能力边界/工具签名永不进裁剪表（签名行即保留项）。 */
-const TOOL_BLOCK_FULL = `【可用工具（可自主调用）】
+ *  砍的是示例与展开段落。能力边界/工具签名永不进裁剪表（签名行即保留项）。
+ *  导出供 agent-presets.test.ts 平价测试钉死（Task 9）：两块均含全部七个工具名+围栏格式+
+ *  自动回喂纪律句——新增工具必须两版同步，漏同步 condensed 测试即红。 */
+export const TOOL_BLOCK_FULL = `【可用工具（可自主调用）】
 需要时，在回复正文之外输出独立的工具围栏块（可多个；不需要则不输出）：
 \`\`\`msf-tool
 {"name":"工具名","args":{...}}
@@ -821,7 +807,7 @@ const TOOL_BLOCK_FULL = `【可用工具（可自主调用）】
 - design.doc.propose_edits：提交设计八册修改建议（高亮补丁，用户确认后才生效）。args: {"kind":"hld|mod|alg|cls|db|api|ui|nfr","instruction":"要改什么","mode":"patch"}（mode 语义同 req.doc.propose_edits）。当用户要求修改设计册内容、或你核对后发现某册有缺口需要补齐时调用（kind 用册名小写）；正文说明"已发起修改建议提交，提交成功时请到设计页确认"。
 工具由系统在回复完成后执行，结果以工具卡随消息呈现、并**自动回给你继续回答**（无需用户再发话；拿到结果就直接给结论或下一步工具调用，不要说"拿到结果后我会……"）；围栏块本身不会展示给用户。除 req.doc.propose_edits / design.doc.propose_edits 的提案通道外，写操作仍须走人工路径。`;
 
-const TOOL_BLOCK_CONDENSED = `【可用工具（可自主调用）】
+export const TOOL_BLOCK_CONDENSED = `【可用工具（可自主调用）】
 需要时，在回复正文之外输出独立的工具围栏块（可多个；不需要则不输出）：
 \`\`\`msf-tool
 {"name":"工具名","args":{...}}

@@ -211,7 +211,34 @@ export class AiModelsService implements OnModuleInit {
     return { id, connStatus: probe.ok ? 'ok' : 'fail', detail: probe.detail };
   }
 
-  /** 路由解析（内部用；返回含解密 key，绝不向 HTTP 序列化） */
+  /**
+   * chat 路由解析统一口径（2026-10-14，Task 9 收口）：「会话绑定模型（仍启用）优先，否则 chat
+   * 用途路由中最近更新的启用模型」——此语义此前有三份 inline 拷贝（本类 resolve() 的用途路由
+   * 查询、sessions.service 消息模型戳、sessions.service 上下文分档解析），现单点持有：
+   * sessions 两处同源调本方法；resolve() 按任意 purpose 直查路由且 reflection 另有动态兜底，
+   * 形态不同不合并，仅注释互相点名。三处原 SQL 口径核对无差异，统一钉死：enabled 过滤 +
+   * ORDER BY updated_at DESC LIMIT 1（最新配置生效）；绑定模型已停用按未绑定回落路由
+   * （停用不应锁死存量会话）；解析不到返 null（mock 期/未配置不阻断，调用方各自降级：
+   * 消息戳记 null、分档按 wide 基线）。
+   * q 兼容命令事务 client 与池级 query（消息模型戳在 ai.message.send 命令事务内执行）。
+   */
+  async resolveChatModelRow(
+    boundModelId?: string | null,
+    q: { query: typeof query } = { query },
+  ): Promise<ModelRow | null> {
+    if (boundModelId) {
+      const bound = await q.query<ModelRow>('SELECT * FROM ai_models WHERE id=$1 AND enabled', [boundModelId]);
+      if (bound.rows[0]) return bound.rows[0];
+    }
+    const routed = await q.query<ModelRow>(
+      "SELECT * FROM ai_models WHERE enabled AND routes ? 'chat' ORDER BY updated_at DESC LIMIT 1", []);
+    return routed.rows[0] ?? null;
+  }
+
+  /** 路由解析（内部用；返回含解密 key，绝不向 HTTP 序列化）。
+   *  chat 用途的「绑定优先+路由兜底」统一口径在 resolveChatModelRow（Task 9 收口，
+   *  sessions.service 消息模型戳/分档解析两处调用）；本方法按任意 purpose 直查路由，
+   *  排序口径与之一致（enabled + updated_at DESC） */
   async resolve(purpose: Purpose): Promise<{ row: ModelRow; apiKey: string | null }> {
     const r = await query<ModelRow>(
       'SELECT * FROM ai_models WHERE enabled AND routes ? $1 ORDER BY updated_at DESC LIMIT 1', [purpose]);

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_AGENTS, DEFAULT_AGENT_MAP } from './stage-guides.js';
 import { BAND_BUDGETS, contextBand, narrowTrim } from './agent-prompts.js';
+import { TOOL_BLOCK_CONDENSED, TOOL_BLOCK_FULL } from './sessions.service.js';
 
 const MAIN_KEYS = ['assistant', 'req', 'design', 'proto', 'dev', 'test', 'material'];
 const SUB_KEYS = ['req.crd', 'req.prd',
@@ -87,5 +88,25 @@ describe('上下文预算分档（Task 3，设计 §2 分档表）', () => {
     const gov = '【能力边界（必须遵守）】\n你不能直接修改……\n【可用工具（可自主调用）】\n- doc.read(kind)';
     expect(narrowTrim('assistant', gov)).toBe(gov);
     expect(narrowTrim('req', gov)).toBe(gov);
+  });
+});
+
+describe('TOOL_BLOCK 双版本平价（Task 9，防将来加工具漏同步窄档精简版）', () => {
+  const SEVEN_TOOLS = ['nav.goto', 'read_context', 'doc.read', 'chat.history.read',
+    'propose_next_step', 'req.doc.propose_edits', 'design.doc.propose_edits'];
+  /** 从声明块提取工具名清单（行首 `- 工具名：` 形态，两版共用此行式） */
+  const toolNamesOf = (block: string): string[] =>
+    [...block.matchAll(/^- ([\w.]+?)：/gm)].map((m) => m[1]!).sort();
+  it('两块均含全部七个工具名+代码围栏格式+自动回喂纪律句', () => {
+    for (const block of [TOOL_BLOCK_FULL, TOOL_BLOCK_CONDENSED]) {
+      for (const t of SEVEN_TOOLS) expect(block, `缺工具 ${t}`).toContain(`- ${t}：`);
+      expect(block).toContain('```msf-tool');
+      expect(block).toContain('{"name":"工具名","args":{...}}');
+      expect(block).toContain('自动回给你继续回答'); // 接力回喂纪律句两版均不可裁
+    }
+  });
+  it('两版工具清单集合完全一致（FULL 加工具而 CONDENSED 漏同步即红）', () => {
+    expect(toolNamesOf(TOOL_BLOCK_FULL)).toEqual([...SEVEN_TOOLS].sort());
+    expect(toolNamesOf(TOOL_BLOCK_CONDENSED)).toEqual(toolNamesOf(TOOL_BLOCK_FULL));
   });
 });

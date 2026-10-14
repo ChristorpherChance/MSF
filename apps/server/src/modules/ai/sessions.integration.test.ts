@@ -548,6 +548,42 @@ describe('AI 会话/消息/流式管线（集成，需 DB）', async () => {
     }
   });
 
+  it('窄档 toolLog 预算 16000 生效（Task 9 补钉）：跨轮累积第二条即淘汰最旧并明示省略', async () => {
+    const { registerExternalTool, resetExternalTools } = await import('../platform/external-tools.js');
+    resetExternalTools();
+    // 窄窗模型绑定会话（64000 < 128000 → narrow，toolLog 总预算 16000；绑定模型优先于 chat 路由）
+    // 对照上一用例 wide 档 80000：同样两条 ~16000 结果 wide 不淘汰（32120<80000），narrow 必淘汰——
+    // 淘汰说明出现即证明窄档预算生效
+    const narrowM = (await models.upsert({
+      name: `narrow-toolLog 模型 ${randomUUID().slice(0, 8)}`, provider: 'gateway', baseUrl: 'http://127.0.0.1:9',
+      modelCode: 'm', contextWindow: 64000,
+    }, CTX)).id;
+    modelIds.push(narrowM);
+    try {
+      registerExternalTool('test.bign', async () => ({ ok: true, payload: 'x'.repeat(30000) }));
+      const s = await sessions.create(PID, { ctx: 'req', modelId: narrowM }, CTX) as { id: string };
+      provider.capturedPrompts = [];
+      const one = ['```msf-tool\n{"name":"test.bign","args":{}}\n```'];
+      provider.nextChunks = one; // 首轮 1 块
+      provider.roundQueue.push(one); // 接力轮 1：再产 1 块 → 累积两条 ~16000
+      provider.roundQueue.push(['收束。']); // 接力轮 2：无围栏收束
+      const { messageId } = await sessions.send(PID, s.id, { content: '窄档大结果' }, CTX);
+      const c = await sessions.drive(messageId, () => {}, { ctx: CTX });
+      expect(c.status).toBe('done');
+      expect(provider.capturedPrompts.length).toBe(3);
+      const relay1 = provider.capturedPrompts[1]!;
+      expect(relay1).toContain('test.bign 执行结果');
+      expect(relay1).toContain('结果过长已截断'); // 单结果截 16000（与预算同值，兜底保留防一条不剩）
+      expect(relay1).not.toContain('因上下文预算已省略');
+      const relay2 = provider.capturedPrompts[2]!;
+      expect(relay2).toContain('（更早的 1 条工具结果因上下文预算已省略'); // 第二条（最旧）被 16000 预算淘汰
+      expect(relay2.match(/工具 test\.bign 执行结果：/g)?.length).toBe(1); // 只留最新一条
+      expect(relay2.length).toBeLessThan(60000); // 预算闸生效（basePrompt 数千字+单块 ~16000 量级）
+    } finally {
+      resetExternalTools();
+    }
+  });
+
   it('上下文分档透传（Task 3）：窄档会话注入精简工具块+子 Agent 精简段；doc.read 阈值按 band 取预算', async () => {
     // 窄窗模型绑定会话（64000 < 128000 → narrow；绑定模型优先于 chat 路由，设计 §2）
     const narrowM = (await models.upsert({
