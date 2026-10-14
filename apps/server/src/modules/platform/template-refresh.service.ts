@@ -162,7 +162,7 @@ export class TemplateRefreshService {
     hasContent: boolean; finalized: boolean; pending: number; mismatch: boolean | null;
   }>> {
     const { resolveTemplate } = await import('./doc-templates.js');
-    const { detectSkeletonMismatch } = await import('./template-refresh.js');
+    const { anchorPrefixOf, auditSkeleton } = await import('./template-refresh.js');
     const items = [];
     for (const kind of REFRESH_KINDS) {
       const req = REQ_KINDS.has(kind);
@@ -187,7 +187,10 @@ export class TemplateRefreshService {
         hasContent: !!effective.trim(),
         finalized: !!(d?.final_version_id && d.final_version_id === d.current_version_id),
         pending: Number(d?.pend ?? 0),
-        mismatch: effective.trim() && t ? detectSkeletonMismatch(effective, t) : null, // 无内容/无模板不评
+        // 布尔过渡：Task 2 升 report 形态（issues 明细+上游滞后第四维），mismatch 字段届时退役
+        mismatch: effective.trim() && t
+          ? auditSkeleton(effective, t.chapters.map((c) => c.title), anchorPrefixOf(kind)).issues.length > 0
+          : null, // 无内容/无模板不评
       });
     }
     return items;
