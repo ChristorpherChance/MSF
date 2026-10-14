@@ -606,7 +606,9 @@ function buildMockDesignChatEdit(effective: string, instruction: string): string
 /** RTM 覆盖闭环 mock 定向产出·设计域（确定性：每个缺口一条 h- 新增节，承接锚点=REQ-nnn，编号顺延——
  *  接受并提交后 deriveLinks 反向派生即覆盖转绿，离线可测「缺口→提案→接受→再检查」全闭环） */
 function buildMockCoverageFix(missing: string[], effective: string): string {
-  const codes = [...effective.matchAll(/\bh-(\d+)\b/g)].map((m) => Number(m[1]));
+  // 编号只扫章节标题行：正文「详见 h-10」交叉引用不算占位（全文匹配会虚高最大码→顺延跳空
+  // →auditSkeleton 报编号不连续）
+  const codes = [...effective.matchAll(/^##\s+.*\bh-(\d+)\b/gm)].map((m) => Number(m[1]));
   let next = (codes.length > 0 ? Math.max(...codes) : 0) + 1;
   return missing.map((t) => {
     const code = `h-${next++}`;

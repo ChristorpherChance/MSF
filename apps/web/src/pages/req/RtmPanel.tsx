@@ -73,13 +73,16 @@ export function RtmPanel() {
     try {
       const hasReqGaps = health.gaps.some((g) => g.code === 'L0A_BELOW' || g.code === 'RTM_HEALTH');
       const hasDsgGaps = health.gaps.some((g) => g.code === 'L0C_BELOW');
-      const [reqFix, dsgFix] = await Promise.all([
+      // allSettled 分域隔离：一域 HTTP 抛错时 fulfilled 域照常 toast+回环广播，rejected 域单独 toast 失败原因——
+      // 拉平到结果内 ok:false 已有的分域粒度；否则一域抛错整批进 catch，另一域补丁静默落库页面毫无可见变化
+      // （正是上行注释自钉的「点了没用」实机教训同型）
+      const [reqFix, dsgFix] = await Promise.allSettled([
         hasReqGaps ? reqApi.coverageFix(projectId) : Promise.resolve(null),
         hasDsgGaps ? reqApi.designCoverageFix(projectId) : Promise.resolve(null),
       ]);
       let handled = 0;
-      if (reqFix) {
-        for (const it of reqFix.results) {
+      if (reqFix.status === 'fulfilled' && reqFix.value) {
+        for (const it of reqFix.value.results) {
           handled += 1;
           if (it.ok) {
             // 回环：与 dock 提案同通道（req store 监听→切页签+重拉+常驻 toast）
@@ -92,9 +95,12 @@ export function RtmPanel() {
             it.ok ? 'success' : 'warn',
           );
         }
+      } else if (reqFix.status === 'rejected') {
+        handled += 1;
+        toast(`CRD/PRD 补齐失败：${reqFix.reason instanceof ApiError ? reqFix.reason.message : String(reqFix.reason)}`, 'warn');
       }
-      if (dsgFix) {
-        for (const it of dsgFix.results) {
+      if (dsgFix.status === 'fulfilled' && dsgFix.value) {
+        for (const it of dsgFix.value.results) {
           handled += 1;
           if (it.ok) {
             // 回环：design/store.ts 监听 msf:dsg-proposed——设计页落位 hld 册+补丁区自刷新
@@ -107,6 +113,9 @@ export function RtmPanel() {
             it.ok ? 'success' : 'warn',
           );
         }
+      } else if (dsgFix.status === 'rejected') {
+        handled += 1;
+        toast(`HLD 概要设计补齐失败：${dsgFix.reason instanceof ApiError ? dsgFix.reason.message : String(dsgFix.reason)}`, 'warn');
       }
       if (handled === 0) {
         toast('覆盖检查已通过，无缺口需补齐', 'success');

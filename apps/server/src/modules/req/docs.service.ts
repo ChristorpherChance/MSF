@@ -874,6 +874,8 @@ export class ReqDocsService {
    * W2-029 盲区显性化：R 层权威=CRD 承接锚点（规格如此，分母不变）——但内容定稿参考资料中的
    * 诉求编码（FR-/NFR-/R- 形）若未在 CRD 出现即「漏承接隐身」（不进分母、L0a 虚高），
    * 此类编码以 warning 显性列出（告警不阻断，引导人工核对回补）。
+   * 反向指针：design/generate.service.ts l0cGaps 为本函数缺口段的同族镜像（platform 纯函数+SQL 直读，
+   * req 域零写入），改 gaps 口径（缺口码/分母/deferred 处理）须同步。
    */
   async computeLiveHealth(client: PoolClient | null, projectId: string) {
     const { crd, prd } = await this.currentContents(client, projectId);
