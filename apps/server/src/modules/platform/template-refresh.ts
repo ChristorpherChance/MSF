@@ -102,8 +102,10 @@ export function auditSkeleton(content: string, templateChapters: string[], ancho
   if (anchors.length > 0) {
     const nums = new Set(anchors.map((a) => parseInt(a.slice(anchorPrefix.length + 1), 10)));
     const max = Math.max(...nums);
+    // 人话码补零只动文案不动判据：需求域三位形态 CR-003/REQ-003，设计册单位数 h-3
+    const pad = anchorPrefix === 'CR' || anchorPrefix === 'REQ';
     for (let n = 1; n <= max; n++) { // 重复码第 2 维已报，此维只报空洞不重复报
-      if (!nums.has(n)) issues.push(`编号不连续：缺 ${anchorPrefix}-${n}`);
+      if (!nums.has(n)) issues.push(`编号不连续：缺 ${anchorPrefix}-${pad ? String(n).padStart(3, '0') : n}`);
     }
   }
 

@@ -93,9 +93,20 @@ describe('template-refresh 规则核对 auditSkeleton', () => {
     // 需求域三位零填充不算断号
     const crd = `## 一、背景与目标\n\n## CR-001 甲\n\nx\n\n## CR-002 乙\n\ny`;
     expect(auditSkeleton(crd, ['一、背景与目标'], 'CR').issues).toEqual([]);
+    // 需求域空洞行人话码补零（CR-003 形态；判据仍是数值比较）
+    const crdGap = `## 一、背景与目标\n\n## CR-001 甲\n\nx\n\n## CR-003 丙\n\ny`;
+    expect(auditSkeleton(crdGap, ['一、背景与目标'], 'CR').issues).toEqual(['编号不连续：缺 CR-002']);
     // 首号非 1 也算空洞
     const fromTwo = `${good}\n\n## h-2 乙\n\ny\n\n## h-3 丙\n\nz`;
     expect(auditSkeleton(fromTwo, chapters, 'h').issues).toEqual(['编号不连续：缺 h-1']);
+  });
+
+  it('7b 重复码+空洞共存：两维同火各报各的（行序=维度序），不双报', () => {
+    const both = `${good}\n\n## h-1 甲\n\nx\n\n## h-1 甲抄\n\ny\n\n## h-3 丙\n\nz`;
+    expect(auditSkeleton(both, chapters, 'h').issues).toEqual([
+      '锚点码重复：『h-1』出现 2 次', // 第 2 维：只报重复
+      '编号不连续：缺 h-2', // 第 3 维：只报空洞（重复码不在此维重复报）
+    ]);
   });
 
   it('8 优先级闸：大章编号不规范（有 ## 标题但无合规大章）→ 只报一行且第 1 维零行', () => {
@@ -104,6 +115,13 @@ describe('template-refresh 规则核对 auditSkeleton', () => {
     expect(r.issues).toHaveLength(1);
     expect(r.issues[0]).toContain('大章编号不规范');
     expect(r.issues.some((s) => s.includes('缺失'))).toBe(false); // 不双报
+  });
+
+  it('8b 优先级闸钉死：content 只有合规锚点节、零大章 → 仍报「大章编号不规范」一行（锚点合规但缺大章分组，防后续误修放开锚点维度）', () => {
+    const anchorOnly = `## h-1 条目甲\n\nx\n\n## h-2 条目乙\n\ny`;
+    const r = auditSkeleton(anchorOnly, chapters, 'h');
+    expect(r.issues).toHaveLength(1);
+    expect(r.issues[0]).toContain('大章编号不规范');
   });
 
   it('固定 instruction 文案（契约：编排器单点持有，req/design 处理器共享）', () => {
