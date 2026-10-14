@@ -180,13 +180,22 @@ export class ReviewService {
   async selfcheck(projectId: string, ctx: CommandContext): Promise<{ started: boolean; candidates: string[] }> {
     if (this.running) throw new DomainError('INVALID_STATE', '自检评审进行中（完成后可再发起）', 'selfcheck');
     if (!this.ai) throw new DomainError('INVALID_STATE', 'AI 通道未配置，无法自检评审', 'selfcheck');
-    const candidates = await this.collectCandidates(projectId);
-    if (candidates.length === 0) return { started: false, candidates: [] };
+    // 进闸检查后立即同步置位（reflection.service.ts 先例）：collectCandidates 是 DB 往返，
+    // 先 await 再置位的 check-then-set 会让两请求同挤进 await 窗口双双启动（评审抓修）
     this.running = true;
-    void this.runSelfcheck(candidates, { ...ctx, projectId })
-      .catch((e) => console.error(`[design-selfcheck] ${e instanceof Error ? e.message : e}`))
-      .finally(() => { this.running = false; });
-    return { started: true, candidates: candidates.map((c) => c.code).sort() };
+    let background = false;
+    try {
+      const candidates = await this.collectCandidates(projectId);
+      if (candidates.length === 0) return { started: false, candidates: [] };
+      background = true;
+      void this.runSelfcheck(candidates, { ...ctx, projectId })
+        .catch((e) => console.error(`[design-selfcheck] ${e instanceof Error ? e.message : e}`))
+        .finally(() => { this.running = false; });
+      return { started: true, candidates: candidates.map((c) => c.code).sort() };
+    } finally {
+      // 仅未启动后台时在此复位（候选为空/collect 抛错）；已启动则由后台的 finally 复位
+      if (!background) this.running = false;
+    }
   }
 
   /** 候选清单=八册全扫（草稿优先同 doc.read 口径）剔除 deferred 豁免（dsg 自指行码集；跨域只 SQL 直读） */
