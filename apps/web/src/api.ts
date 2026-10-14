@@ -118,9 +118,10 @@ export interface RefreshPreflightItem {
 }
 
 /** 结构问题计数（默认勾选判定用）：滞后行恒在 issues 尾部（服务端钉死约定），剔除之——
- *  仅上游滞后的册不默认勾（规格 §3 软闸：重排是结构操作，滞后是内容问题） */
+ *  仅上游滞后的册不默认勾（规格 §3 软闸：重排是结构操作，滞后是内容问题）；
+ *  Math.max(0,…) 收口：理论不存在的 stale=true+issues=[] 输入下不得返负（负数对调用方是意外形态） */
 export function structuralIssueCount(report: { issues: string[]; upstreamStale: boolean }): number {
-  return report.issues.length - (report.upstreamStale ? 1 : 0);
+  return Math.max(0, report.issues.length - (report.upstreamStale ? 1 : 0));
 }
 
 export interface RefreshFrame {

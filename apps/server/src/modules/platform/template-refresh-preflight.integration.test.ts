@@ -146,6 +146,7 @@ describe('preflight 核对报告（集成，需 DB）', async () => {
     expect(issues).toHaveLength(3); // 两行「缺失」+ 一行滞后
     expect(issues[0]).toContain('缺失');
     expect(issues[1]).toContain('缺失');
+    // 滞后文案全串等值 pin——改文案须同步 service/前端剔除注释/本测试三处
     expect(issues[2]).toBe('上游 CRD 已提交 v2（本册基于 v1）——重排只动结构不动内容，建议先对话改文档同步内容再重排');
   });
 });

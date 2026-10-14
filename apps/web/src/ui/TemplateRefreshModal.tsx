@@ -228,11 +228,12 @@ export function TemplateRefreshModal({ projectId, onClose }: { projectId: string
                       {KIND_LABELS[it.kind] ?? it.kind}
                       {ok && it.report !== null && (
                         it.report.issues.length > 0 ? (
-                          // ⚠ 徽标可点：切换问题明细展开（preventDefault 防 label 联动勾选框）
+                          // ⚠ 徽标可点：切换问题明细展开（preventDefault 防 label 联动勾选框；aria-controls 关联明细 ul）
                           <button
                             type="button"
                             className="tag tag-warn trefresh-tagbtn"
                             aria-expanded={open}
+                            aria-controls={`trefresh-issues-${it.kind}`}
                             title="点击展开/收起核对明细"
                             onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleExpanded(it.kind); }}
                           >
@@ -246,8 +247,8 @@ export function TemplateRefreshModal({ projectId, onClose }: { projectId: string
                       {!ok && skip && <span className="tag">{skip}</span>}
                     </label>
                     {open && ok && it.report !== null && it.report.issues.length > 0 && (
-                      <ul className="trefresh-issues">
-                        {it.report.issues.map((s, idx) => <li key={idx}>{s}</li>)}
+                      <ul id={`trefresh-issues-${it.kind}`} className="trefresh-issues">
+                        {it.report.issues.map((s) => <li key={s}>{s}</li>) /* 人话行天然唯一，不用数组下标当 key */}
                       </ul>
                     )}
                   </div>
