@@ -156,13 +156,19 @@ export class TemplateRefreshService {
     return null;
   }
 
-  /** preflight 弹窗数据（设计 §3）：每册 内容有无/定稿/待确认数/启发式徽标 */
+  /** preflight 弹窗数据（规则核对报告设计 §1/§2）：每册 内容有无/定稿/待确认数 + report（结构三维+上游滞后第四维） */
   async preflight(projectId: string): Promise<Array<{
     kind: string; domain: 'req' | 'design';
-    hasContent: boolean; finalized: boolean; pending: number; mismatch: boolean | null;
+    hasContent: boolean; finalized: boolean; pending: number;
+    /** 核对报告：issues 人话行（空=对版）+ upstreamStale；无内容/无模板=null 不评 */
+    report: { issues: string[]; upstreamStale: boolean } | null;
   }>> {
     const { resolveTemplate } = await import('./doc-templates.js');
     const { anchorPrefixOf, auditSkeleton } = await import('./template-refresh.js');
+    const { reqPrdStale, designBooksStale } = await import('./upstream-stale.js');
+    // 上游滞后派生循环外各取一次（designBooksStale 一次调用回八册；reqPrdStale 仅 PRD 用；CRD 无上游恒 false）
+    const prdStale = await reqPrdStale(projectId);
+    const dsgStale = await designBooksStale(projectId);
     const items = [];
     for (const kind of REFRESH_KINDS) {
       const req = REQ_KINDS.has(kind);
@@ -182,15 +188,28 @@ export class TemplateRefreshService {
       const d = r.rows[0];
       const effective = d?.draft ?? d?.cur ?? ''; // 草稿优先（doc.read 同口径）
       const t = resolveTemplate(req ? 'req' : 'design', kind, projectId);
+      let report: { issues: string[]; upstreamStale: boolean } | null = null;
+      if (effective.trim() && t) { // 无内容/无模板不评（null）
+        report = {
+          issues: auditSkeleton(effective, t.chapters.map((c) => c.title), anchorPrefixOf(kind)).issues,
+          upstreamStale: false,
+        };
+        // 上游滞后第四维（仅告知——重排是结构操作，与内容滞后正交；不进可跑判定）：
+        // 滞后行恒追加 issues 尾部（前端剔除法按「尾部」约定剔除后再判默认勾选，勿改序）；
+        // 下游无版本行时派生层 stale=false（downstreamVersionNo 必有值），不会进本分支
+        const up = kind === 'prd' ? prdStale : (req ? undefined : dsgStale[kind]);
+        if (up?.stale && up.upstreamVersionNo !== undefined && up.downstreamVersionNo !== undefined) {
+          report.issues.push(
+            `上游 ${kind === 'prd' ? 'CRD' : 'PRD'} 已提交 v${up.upstreamVersionNo}（本册基于 v${up.downstreamVersionNo}）——重排只动结构不动内容，建议先对话改文档同步内容再重排`);
+          report.upstreamStale = true;
+        }
+      }
       items.push({
         kind, domain: (req ? 'req' : 'design') as 'req' | 'design',
         hasContent: !!effective.trim(),
         finalized: !!(d?.final_version_id && d.final_version_id === d.current_version_id),
         pending: Number(d?.pend ?? 0),
-        // 布尔过渡：Task 2 升 report 形态（issues 明细+上游滞后第四维），mismatch 字段届时退役
-        mismatch: effective.trim() && t
-          ? auditSkeleton(effective, t.chapters.map((c) => c.title), anchorPrefixOf(kind)).issues.length > 0
-          : null, // 无内容/无模板不评
+        report,
       });
     }
     return items;
