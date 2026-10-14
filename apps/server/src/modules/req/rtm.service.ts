@@ -19,7 +19,9 @@ export class RtmService {
     // rtm.deferred.mark/unmark：自指标记行（from==to），记审计（经命令事务天然留痕）
     registerCommand('rtm.deferred.mark', async (client, payload, ctx) => {
       const { projectId, nodeKind, nodeCode, reason } = payload as {
-        projectId: string; nodeKind: 'cr' | 'req'; nodeCode: string; reason: string;
+        // nodeKind 扩 'dsg'（设计覆盖检测 §1 过度设计豁免）：DSG 码形态 prefix-N（h-3）不撞
+        // R/CR/REQ 编码（R-\d+/CR-\d+/REQ-\d{3}），自指行进 deferred 集但不污染 L0a/b/c 分母
+        projectId: string; nodeKind: 'cr' | 'req' | 'dsg'; nodeCode: string; reason: string;
       };
       if (!reason?.trim()) throw new DomainError('VALIDATION_FAILED', '标记 deferred 必须给理由', 'reason');
       const dup = await client.query(
@@ -37,7 +39,7 @@ export class RtmService {
 
     registerCommand('rtm.deferred.unmark', async (client, payload) => {
       const { projectId, nodeKind, nodeCode } = payload as {
-        projectId: string; nodeKind: 'cr' | 'req'; nodeCode: string;
+        projectId: string; nodeKind: 'cr' | 'req' | 'dsg'; nodeCode: string;
       };
       const r = await client.query(
         "DELETE FROM rtm_links WHERE project_id=$1 AND from_kind=$2 AND from_code=$3 AND relation IN ('deferred','dropped')",
@@ -87,6 +89,8 @@ export class RtmService {
       warnings: h.warnings,
       gaps: h.gaps,
       deferredItems: h.deferredItems,
+      // 过度设计反向筛查（设计覆盖检测 §1）：候选清单+已豁免码集（呈现层剔除已豁免）
+      overdesign: h.overdesign,
       basisFingerprint: `sha256:${h.basisFingerprint}`,
     };
   }
@@ -98,10 +102,10 @@ export class RtmService {
     return this.health(projectId);
   }
 
-  async markDeferred(projectId: string, nodeKind: 'cr' | 'req', nodeCode: string, reason: string, ctx: CommandContext) {
+  async markDeferred(projectId: string, nodeKind: 'cr' | 'req' | 'dsg', nodeCode: string, reason: string, ctx: CommandContext) {
     return executeCommand('rtm.deferred.mark', { projectId, nodeKind, nodeCode, reason }, { ...ctx, projectId });
   }
-  async unmarkDeferred(projectId: string, nodeKind: 'cr' | 'req', nodeCode: string, ctx: CommandContext) {
+  async unmarkDeferred(projectId: string, nodeKind: 'cr' | 'req' | 'dsg', nodeCode: string, ctx: CommandContext) {
     return executeCommand('rtm.deferred.unmark', { projectId, nodeKind, nodeCode }, { ...ctx, projectId });
   }
 }

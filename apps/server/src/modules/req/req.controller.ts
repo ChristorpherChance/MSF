@@ -270,14 +270,14 @@ export class ReqController {
     @Body() body: { reason?: string },
     @Req() req: Request,
   ) {
-    if (kind !== 'cr' && kind !== 'req') throw new DomainError('VALIDATION_FAILED', 'deferred 仅支持 CR/REQ 节点', 'kind');
+    if (kind !== 'cr' && kind !== 'req' && kind !== 'dsg') throw new DomainError('VALIDATION_FAILED', 'deferred 仅支持 CR/REQ/DSG 节点', 'kind');
     return this.rtm.markDeferred(projectId, kind, code, body.reason ?? '', this.actor(req, projectId));
   }
 
   @Post('rtm/:kind/:code\\:undefer')
   @HttpCode(200)
   undefer(@Param('projectId') projectId: string, @Param('kind') kind: string, @Param('code') code: string, @Req() req: Request) {
-    if (kind !== 'cr' && kind !== 'req') throw new DomainError('VALIDATION_FAILED', 'deferred 仅支持 CR/REQ 节点', 'kind');
+    if (kind !== 'cr' && kind !== 'req' && kind !== 'dsg') throw new DomainError('VALIDATION_FAILED', 'deferred 仅支持 CR/REQ/DSG 节点', 'kind');
     return this.rtm.unmarkDeferred(projectId, kind, code, this.actor(req, projectId));
   }
 

@@ -7,7 +7,7 @@ import { executeCommand, registerCommand, type CommandContext } from '../evidenc
 import { appendEvidence } from '../evidence/audit.service.js';
 import { PolicyService } from '../policy/policy.service.js';
 import { applyPatch, joinSections, sha256Text, splitSections, type EditPatch } from '../platform/doc-sections.js';
-import { deriveLinks, computeHealth } from '../platform/rtm-health.js';
+import { deriveLinks, computeHealth, scanOverdesign } from '../platform/rtm-health.js';
 import { designContents } from '../platform/doc-contents.js';
 import { NotificationsService } from '../platform/notifications.service.js';
 import { reqPrdStale } from '../platform/upstream-stale.js';
@@ -877,11 +877,23 @@ export class ReqDocsService {
    */
   async computeLiveHealth(client: PoolClient | null, projectId: string) {
     const { crd, prd } = await this.currentContents(client, projectId);
-    const { nodes } = deriveLinks(crd, prd, await designContents(client, projectId));
+    const designDocs = await designContents(client, projectId);
+    const { nodes } = deriveLinks(crd, prd, designDocs);
     const q = client ? client.query.bind(client) : query;
     const links = await q<{ from_kind: string; from_code: string; to_kind: string; to_code: string; relation: string }>(
       'SELECT from_kind, from_code, to_kind, to_code, relation FROM rtm_links WHERE project_id=$1', [projectId]);
     const health = computeHealth(nodes, links.rows);
+    // 过度设计反向筛查（设计覆盖检测与可交互原型 §1）：设计册内容跨域 SQL 直读（designContents 同口径），
+    // 逐册扫「无 REQ 回引的锚点条目节」入候选；exempted=deferred/dropped 自指行中 from_kind='dsg'
+    // 的码集（人工豁免、理由必填；候选剔除在呈现层，服务端原样返回两边）
+    const overdesign = {
+      candidates: designDocs.flatMap((d) => scanOverdesign(d.book, d.content)),
+      exempted: [...new Set(
+        links.rows
+          .filter((l) => (l.relation === 'deferred' || l.relation === 'dropped') && l.from_kind === 'dsg')
+          .map((l) => l.from_code),
+      )].sort(),
+    };
     // 盲区扫描：全部内容定稿参考资料的诉求编码 vs CRD 全文
     const refs = await q<{ body_md: string }>(
       `SELECT p.body_md FROM mat_parsed p JOIN mat_files f ON f.id=p.file_id
@@ -901,7 +913,7 @@ export class ReqDocsService {
         );
       }
     }
-    return health;
+    return { ...health, overdesign };
   }
 
   /** INV-DOC 发布前不变式断言（违反即抛错 → 命令整体回滚） */

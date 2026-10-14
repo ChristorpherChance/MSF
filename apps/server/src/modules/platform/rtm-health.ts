@@ -119,6 +119,34 @@ export function deriveLinks(
   };
 }
 
+/**
+ * 疑似过度设计候选（设计覆盖检测与可交互原型 §1 反向维度）：
+ * 设计册含本册锚点码（prefix-N）的条目节，标题与正文均无 REQ-nnn 回引即入候选清单。
+ * 册级粗链不算承接（逐节判定，册内存在粗链不豁免其它节）；无码节（大章/总则/约定节）不查。
+ */
+export interface OverdesignCandidate {
+  book: string;
+  anchor: string;
+  title: string;
+}
+
+/** 逐册扫「无 REQ 回引的锚点条目节」（分节复用 splitSections，与 deriveLinks 反向派生同构） */
+export function scanOverdesign(bookKind: string, content: string): OverdesignCandidate[] {
+  // 节锚点码前缀=chapter_prefix 单字母小写形态（template-refresh.ts anchorPrefixOf 同口径）
+  const prefix = (DSG_BOOK_LETTER[bookKind] ?? bookKind).toLowerCase();
+  const reAnchor = new RegExp(`\\b${prefix}-(\\d+)\\b`);
+  const out: OverdesignCandidate[] = [];
+  for (const sec of splitSections(content)) {
+    // 锚点码必须在标题内才算本册条目节（doc-conventions designSectionRule：标题形如 `prefix-N 简明标题`）
+    const m = reAnchor.exec(sec.title);
+    if (!m) continue;
+    if (scanCodes(`${sec.title}\n${sec.md}`, RE_REQ).length === 0) {
+      out.push({ book: bookKind, anchor: `${prefix}-${m[1]}`, title: sec.title });
+    }
+  }
+  return out;
+}
+
 export interface HealthGap {
   code: 'L0A_BELOW' | 'L0C_BELOW' | 'RTM_HEALTH';
   target: string;

@@ -95,6 +95,13 @@ export interface HealthGap {
   message: string;
 }
 
+/** 疑似过度设计候选（设计覆盖检测 §1 反向维度：册锚点条目节无 REQ 回引） */
+export interface OverdesignCandidate {
+  book: string;
+  anchor: string;
+  title: string;
+}
+
 export interface HealthView {
   ok: boolean;
   l0a: number;
@@ -105,6 +112,8 @@ export interface HealthView {
   warnings: string[];
   gaps: HealthGap[];
   deferredItems: Array<{ nodeId: string }>;
+  /** 过度设计规则筛查：candidates=全量候选（含已豁免），exempted=人工豁免码集（呈现层剔除） */
+  overdesign: { candidates: OverdesignCandidate[]; exempted: string[] };
   basisFingerprint: string;
 }
 
@@ -165,9 +174,9 @@ export const reqApi = {
   coverageFix: (pid: string) =>
     api.post<{ ok: boolean; results: Array<{ kind: 'crd' | 'prd'; ok: boolean; patchCount?: number; reason?: string }> }>(
       `${base(pid)}/rtm:coverage-fix`, {}),
-  defer: (pid: string, nodeKind: 'cr' | 'req', code: string, reason: string) =>
+  defer: (pid: string, nodeKind: 'cr' | 'req' | 'dsg', code: string, reason: string) =>
     api.post(`${base(pid)}/rtm/${nodeKind}/${code}:defer`, { reason }),
-  undefer: (pid: string, nodeKind: 'cr' | 'req', code: string) =>
+  undefer: (pid: string, nodeKind: 'cr' | 'req' | 'dsg', code: string) =>
     api.post(`${base(pid)}/rtm/${nodeKind}/${code}:undefer`, {}),
   exportDoc: (pid: string, kind: DocKind, v: number, format: 'md' | 'html' | 'docx' | 'pdf') =>
     api.post<{ downloadUrl: string; format: string }>(

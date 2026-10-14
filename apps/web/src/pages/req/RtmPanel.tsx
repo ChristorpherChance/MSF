@@ -24,11 +24,17 @@ const STATE_LABEL: Record<RtmRow['state'], string> = {
   deferred: 'deferred',
 };
 
+/** 设计册 kind → 册名（server design 域 DESIGN_BOOKS 镜像；跨域禁令下 web 侧同形镜像，改 DESIGN_BOOKS 须同步） */
+const DSG_BOOK_NAME: Record<string, string> = {
+  hld: '概要设计说明书', mod: '模块设计', alg: '算法与流程', cls: '类与数据结构',
+  db: '数据库设计', api: 'API 接口', ui: 'UI 设计', nfr: '非功能规则',
+};
+
 /** RTM 工作面（LLD-6 §3.3：标题说明 + 六 KPI 卡 + 明细表四色节点 + DSG 八册卡 + 门禁规则卡） */
 export function RtmPanel() {
   const { rtm, health, loading, error, refreshRtm, projectId } = useReqView();
-  const [deferTarget, setDeferTarget] = useState<{ kind: 'cr' | 'req'; code: string } | null>(null);
-  const [undeferTarget, setUndeferTarget] = useState<{ kind: 'cr' | 'req'; code: string } | null>(null);
+  const [deferTarget, setDeferTarget] = useState<{ kind: 'cr' | 'req' | 'dsg'; code: string } | null>(null);
+  const [undeferTarget, setUndeferTarget] = useState<{ kind: 'cr' | 'req' | 'dsg'; code: string } | null>(null);
   const [trace, setTrace] = useState<{ row: RtmRow; node: string } | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
   const [rtmBusy, setRtmBusy] = useState(false);
@@ -112,6 +118,9 @@ export function RtmPanel() {
   ).length;
   const uncovered = rtm.rows.filter((r) => r.state === 'uncovered').length;
   const l0cGaps = health.gaps.filter((g) => g.code === 'L0C_BELOW').map((g) => g.target);
+  // 过度设计候选清单（§1 反向维度）：服务端返回全量候选+豁免码集，呈现层剔除已豁免
+  const odExempted = new Set(health.overdesign.exempted);
+  const odPending = health.overdesign.candidates.filter((c) => !odExempted.has(c.anchor));
   const pct = (x: number) => `${(x * 100).toFixed(1)}%`;
 
   const kpis: Array<{ key: string; label: string; value: string; ok: boolean; note: string; ops?: ReactNode }> = [
@@ -236,6 +245,60 @@ export function RtmPanel() {
       </div>
 
       <div className="rtm-card">
+        <div className="rtm-card-head">
+          <strong>疑似过度设计候选（规则筛查）</strong>
+          <span className="mut">
+            设计册含本册锚点码的条目节、标题与正文均无 REQ 回引即入候选；册级粗链不算承接（逐节判定）。
+            豁免=人工确认为合理设计（理由必填，记审计），不污染 L0a/L0b/L0c 分母
+          </span>
+        </div>
+        {odPending.length === 0 ? (
+          <p className="pop-tip">无候选——全部锚点条目节均有 REQ 回引（或已豁免）。</p>
+        ) : (
+          <table className="rtm-table">
+            <thead>
+              <tr><th>设计册</th><th>锚点</th><th>节标题</th><th>操作</th></tr>
+            </thead>
+            <tbody>
+              {odPending.map((c) => (
+                <tr key={`${c.book}:${c.anchor}`}>
+                  <td>{DSG_BOOK_NAME[c.book] ?? c.book}</td>
+                  <td><span className="rtm-node n-dsg">{c.anchor}</span></td>
+                  <td>{c.title}</td>
+                  <td>
+                    <button
+                      className="act mini"
+                      title="人工确认该节为合理设计（理由必填，记审计）；豁免后不再出现在候选清单"
+                      onClick={() => setDeferTarget({ kind: 'dsg', code: c.anchor })}
+                    >
+                      ✋ 豁免
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+        {health.overdesign.exempted.length > 0 && (
+          <p className="pop-tip">
+            已豁免 {health.overdesign.exempted.length} 项：
+            {health.overdesign.exempted.map((code) => (
+              <span key={code} className="node-op">
+                <span className="rtm-node n-dsg deferred">{code}</span>
+                <button
+                  className="act mini"
+                  title="取消豁免（记审计）；若该节仍无 REQ 回引将重新出现在候选清单"
+                  onClick={() => setUndeferTarget({ kind: 'dsg', code })}
+                >
+                  ↩ 取消豁免
+                </button>
+              </span>
+            ))}
+          </p>
+        )}
+      </div>
+
+      <div className="rtm-card">
         <div className="rtm-card-head"><strong>门禁规则</strong></div>
         <ul className="gate-rules">
           <li>进入设计阶段：L0a（R→CR）≥ 0.95 且 L0b（CR→REQ）= 1.00，定稿时实时重算（REQ-208）</li>
@@ -341,12 +404,13 @@ function RtmRowView({
   );
 }
 
-/** deferred 标记弹窗（modal 二次确认 + 理由必填，记审计） */
-function DeferModal({ target, onClose }: { target: { kind: 'cr' | 'req'; code: string }; onClose: () => void }) {
+/** deferred 标记弹窗（modal 二次确认 + 理由必填，记审计）；kind='dsg' 时为过度设计豁免（同一 rtm deferred 通道） */
+function DeferModal({ target, onClose }: { target: { kind: 'cr' | 'req' | 'dsg'; code: string }; onClose: () => void }) {
   const { projectId, refreshRtm } = useReqView();
   const [reason, setReason] = useState('');
   const [msg, setMsg] = useState<string | null>(null);
   if (!projectId) return null;
+  const isDsg = target.kind === 'dsg';
   const submit = () => {
     setMsg(null);
     void reqApi.defer(projectId, target.kind, target.code, reason)
@@ -357,26 +421,29 @@ function DeferModal({ target, onClose }: { target: { kind: 'cr' | 'req'; code: s
   return (
     <div className="modal-mask" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h3>标记 deferred：{target.code}</h3>
+        <h3>{isDsg ? `豁免过度设计候选：${target.code}` : `标记 deferred：${target.code}`}</h3>
         <p className="pop-tip">
-          deferred 条目以 L0d 单独计数展示，不进入 L0a/L0b/L0c 分母；标记留审计，可随时撤销。理由必填。
+          {isDsg
+            ? '豁免=人工确认该条目节为合理设计（无 REQ 承接的合理技术决策），不再出现在疑似过度设计候选清单；理由必填，留审计，可随时取消豁免。'
+            : 'deferred 条目以 L0d 单独计数展示，不进入 L0a/L0b/L0c 分母；标记留审计，可随时撤销。理由必填。'}
         </p>
-        <textarea value={reason} rows={3} placeholder="暂缓理由（必填）" onChange={(e) => setReason(e.target.value)} />
+        <textarea value={reason} rows={3} placeholder={isDsg ? '豁免理由（必填）' : '暂缓理由（必填）'} onChange={(e) => setReason(e.target.value)} />
         {msg && <p className="pop-tip err">{msg}</p>}
         <div className="modal-ops">
           <button className="act" onClick={onClose}>取消</button>
-          <button className="act primary" disabled={!reason.trim()} onClick={submit}>确认标记</button>
+          <button className="act primary" disabled={!reason.trim()} onClick={submit}>{isDsg ? '确认豁免' : '确认标记'}</button>
         </div>
       </div>
     </div>
   );
 }
 
-/** 撤销 deferred 二次确认（LLD-6 §3.3：撤销记审计、modal 确认；明示重新计入分母的后果） */
-function UndeferModal({ target, onClose }: { target: { kind: 'cr' | 'req'; code: string }; onClose: () => void }) {
+/** 撤销 deferred 二次确认（LLD-6 §3.3：撤销记审计、modal 确认；明示重新计入分母的后果）；kind='dsg' 时为取消豁免 */
+function UndeferModal({ target, onClose }: { target: { kind: 'cr' | 'req' | 'dsg'; code: string }; onClose: () => void }) {
   const { projectId, refreshRtm } = useReqView();
   const [msg, setMsg] = useState<string | null>(null);
   if (!projectId) return null;
+  const isDsg = target.kind === 'dsg';
   const submit = () => {
     setMsg(null);
     void reqApi.undefer(projectId, target.kind, target.code)
@@ -387,14 +454,16 @@ function UndeferModal({ target, onClose }: { target: { kind: 'cr' | 'req'; code:
   return (
     <div className="modal-mask" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h3>撤销 {target.code} 的 deferred</h3>
+        <h3>{isDsg ? `取消 ${target.code} 的豁免` : `撤销 ${target.code} 的 deferred`}</h3>
         <p className="pop-tip">
-          撤销后该条目重新计入 L0a/L0b/L0c 分母：若仍未被承接，对应覆盖率将下降、相关门禁转为未达标。撤销留审计。
+          {isDsg
+            ? '取消豁免后，若该条目节仍无 REQ 回引将重新出现在疑似过度设计候选清单；取消留审计。'
+            : '撤销后该条目重新计入 L0a/L0b/L0c 分母：若仍未被承接，对应覆盖率将下降、相关门禁转为未达标。撤销留审计。'}
         </p>
         {msg && <p className="pop-tip err">{msg}</p>}
         <div className="modal-ops">
           <button className="act" onClick={onClose}>取消</button>
-          <button className="act primary" onClick={submit}>确认撤销</button>
+          <button className="act primary" onClick={submit}>{isDsg ? '确认取消豁免' : '确认撤销'}</button>
         </div>
       </div>
     </div>
