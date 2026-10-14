@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
-  ApiError, streamRefresh, templateRefreshApi,
+  ApiError, streamRefresh, structuralIssueCount, templateRefreshApi,
   type RefreshFrame, type RefreshPreflightItem,
 } from '../api';
 import { KIND_LABELS } from '../pages/platform/DocTemplatesGroup';
@@ -48,6 +48,7 @@ export function TemplateRefreshModal({ projectId, onClose }: { projectId: string
   const [err, setErr] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [starting, setStarting] = useState(false);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set()); // 问题明细展开的册（纯本地态，无新端点）
 
   // 打开即预检（选册数据；恢复订阅时同样加载，供域/名称参照）
   useEffect(() => {
@@ -56,8 +57,8 @@ export function TemplateRefreshModal({ projectId, onClose }: { projectId: string
       .then((its) => {
         if (!live) return;
         setItems(its);
-        // 默认勾选 = 可跑 且 与模板不对版 的册
-        setChecked(new Set(its.filter((i) => runnable(i) && i.mismatch === true).map((i) => i.kind)));
+        // 默认勾选 = 可跑 且 结构三维有问题（剔除上游滞后行——仅滞后的册不默认勾，规格 §3 软闸）
+        setChecked(new Set(its.filter((i) => runnable(i) && i.report !== null && structuralIssueCount(i.report) > 0).map((i) => i.kind)));
       })
       .catch((e) => { if (live) setErr(e instanceof ApiError ? e.message : '预检加载失败'); });
     return () => { live = false; };
@@ -177,6 +178,14 @@ export function TemplateRefreshModal({ projectId, onClose }: { projectId: string
       return n;
     });
 
+  const toggleExpanded = (k: string) =>
+    setExpanded((s) => {
+      const n = new Set(s);
+      if (n.has(k)) n.delete(k);
+      else n.add(k);
+      return n;
+    });
+
   const goConfirm = (k: string) => {
     const domain = rows[k]?.domain ?? items?.find((i) => i.kind === k)?.domain ?? inferDomain(k);
     window.dispatchEvent(new CustomEvent(domain === 'design' ? 'msf:dsg-proposed' : 'msf:req-proposed', { detail: { kind: k } }));
@@ -195,7 +204,7 @@ export function TemplateRefreshModal({ projectId, onClose }: { projectId: string
         <p className="trefresh-sub">
           以当前全文为基线、按当前生效模板骨架重排大章（内容语义不变，锚点码与编号保留）。
           每册产一条「整篇重写」提案，<b>经你逐册确认后才生效</b>。已定稿 / 有待确认补丁 / 未生成的册会自动跳过。
-          「与模板不对版」徽标仅为格式启发式，最终以你的判断为准。
+          规则核对明细（大章/锚点码/编号/上游滞后四维）——最终以你的判断为准。
         </p>
         {err && <p className="trefresh-sub trefresh-err">{err}</p>}
         {items === null && !err && <p className="trefresh-sub">预检加载中…</p>}
@@ -206,18 +215,42 @@ export function TemplateRefreshModal({ projectId, onClose }: { projectId: string
               {g.list.map((it) => {
                 const ok = runnable(it);
                 const skip = skipReason(it);
+                const open = expanded.has(it.kind);
                 return (
-                  <label key={it.kind} className={ok ? '' : 'off'}>
-                    <input
-                      type="checkbox"
-                      disabled={!ok}
-                      checked={ok && checked.has(it.kind)}
-                      onChange={(e) => toggle(it.kind, e.target.checked)}
-                    />
-                    {KIND_LABELS[it.kind] ?? it.kind}
-                    {ok && it.mismatch === true && <span className="tag tag-warn">与模板不对版</span>}
-                    {!ok && skip && <span className="tag">{skip}</span>}
-                  </label>
+                  <div key={it.kind} className={`trefresh-item${open ? ' open' : ''}`}>
+                    <label className={ok ? '' : 'off'}>
+                      <input
+                        type="checkbox"
+                        disabled={!ok}
+                        checked={ok && checked.has(it.kind)}
+                        onChange={(e) => toggle(it.kind, e.target.checked)}
+                      />
+                      {KIND_LABELS[it.kind] ?? it.kind}
+                      {ok && it.report !== null && (
+                        it.report.issues.length > 0 ? (
+                          // ⚠ 徽标可点：切换问题明细展开（preventDefault 防 label 联动勾选框）
+                          <button
+                            type="button"
+                            className="tag tag-warn trefresh-tagbtn"
+                            aria-expanded={open}
+                            title="点击展开/收起核对明细"
+                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleExpanded(it.kind); }}
+                          >
+                            ⚠ {it.report.issues.length} 项问题
+                          </button>
+                        ) : (
+                          // ✓ 对版软闸：默认不勾选，仍可手动勾（toggle 逻辑天然支持）
+                          <span className="tag tag-ok">✓ 与模板一致</span>
+                        )
+                      )}
+                      {!ok && skip && <span className="tag">{skip}</span>}
+                    </label>
+                    {open && ok && it.report !== null && it.report.issues.length > 0 && (
+                      <ul className="trefresh-issues">
+                        {it.report.issues.map((s, idx) => <li key={idx}>{s}</li>)}
+                      </ul>
+                    )}
+                  </div>
                 );
               })}
             </div>

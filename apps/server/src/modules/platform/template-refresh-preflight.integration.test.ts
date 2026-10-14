@@ -9,7 +9,8 @@ const PA = '00000000-0000-0000-0000-0000000000fa'; // 对版 CRD + 无内容册
 const PB = '00000000-0000-0000-0000-0000000000fb'; // 结构问题 CRD
 const PC = '00000000-0000-0000-0000-0000000000fc'; // 上游滞后链（CRD→PRD→HLD）
 const PD = '00000000-0000-0000-0000-0000000000fd'; // 上游不滞后（防误报）
-const PIDS = [PA, PB, PC, PD];
+const PE = '00000000-0000-0000-0000-0000000000fe'; // 结构问题 2+ 行 + 滞后行混合（尾部约定多元素钉）
+const PIDS = [PA, PB, PC, PD, PE];
 
 async function infraUp(): Promise<boolean> {
   try { await query('SELECT 1 FROM req_documents LIMIT 1'); return true; } catch { return false; }
@@ -74,6 +75,14 @@ describe('preflight 核对报告（集成，需 DB）', async () => {
     // PD：CRD v1(T1) 早于 PRD v1(T2) → 不滞后
     await seedDoc(PD, 'req', 'crd', [{ content: conforming('req', 'crd'), at: '2026-01-02T00:00:00Z' }]);
     await seedDoc(PD, 'req', 'prd', [{ content: conforming('req', 'prd'), at: '2026-01-03T00:00:00Z' }]);
+    // PE：PB 缺章夹具叠加滞后链——PRD 缺模板末两章（→ 两行「缺失」）且 CRD v2(T3) 晚于 PRD v1(T2)（→ 滞后行）
+    const prdT = resolveTemplate('req', 'prd')!;
+    const brokenPrd = prdT.chapters.slice(0, -2).map((c) => `## ${c.title}\n章节内容`).join('\n\n');
+    await seedDoc(PE, 'req', 'crd', [
+      { content: conforming('req', 'crd'), at: '2026-01-02T00:00:00Z' },
+      { content: conforming('req', 'crd'), at: '2026-01-04T00:00:00Z' },
+    ]);
+    await seedDoc(PE, 'req', 'prd', [{ content: brokenPrd, at: '2026-01-03T00:00:00Z' }]);
   });
   afterAll(async () => {
     for (const pid of PIDS) {
@@ -126,5 +135,17 @@ describe('preflight 核对报告（集成，需 DB）', async () => {
     const items = await svc.preflight(PD);
     const prd = items.find((i) => i.kind === 'prd')!;
     expect(prd.report).toEqual({ issues: [], upstreamStale: false });
+  });
+
+  it('混合场景：结构问题 2+ 行 + 滞后行——滞后行恒在 issues 尾部（多元素钉，前端剔除法依赖）', async () => {
+    const items = await svc.preflight(PE);
+    const prd = items.find((i) => i.kind === 'prd')!;
+    expect(prd.report).not.toBeNull();
+    const issues = prd.report!.issues;
+    expect(prd.report!.upstreamStale).toBe(true);
+    expect(issues).toHaveLength(3); // 两行「缺失」+ 一行滞后
+    expect(issues[0]).toContain('缺失');
+    expect(issues[1]).toContain('缺失');
+    expect(issues[2]).toBe('上游 CRD 已提交 v2（本册基于 v1）——重排只动结构不动内容，建议先对话改文档同步内容再重排');
   });
 });

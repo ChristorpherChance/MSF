@@ -196,7 +196,8 @@ export class TemplateRefreshService {
         };
         // 上游滞后第四维（仅告知——重排是结构操作，与内容滞后正交；不进可跑判定）：
         // 滞后行恒追加 issues 尾部（前端剔除法按「尾部」约定剔除后再判默认勾选，勿改序）；
-        // 下游无版本行时派生层 stale=false（downstreamVersionNo 必有值），不会进本分支
+        // 下游无版本行时派生层 stale=false（downstreamVersionNo 必有值），不会进本分支——
+        // 故下方双 undefined 闸为防御性写法，并无真实触达路径（防后人误以为存在真实路径）
         const up = kind === 'prd' ? prdStale : (req ? undefined : dsgStale[kind]);
         if (up?.stale && up.upstreamVersionNo !== undefined && up.downstreamVersionNo !== undefined) {
           report.issues.push(

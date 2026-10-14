@@ -73,6 +73,18 @@
 .trefresh-kinds label.off { color: var(--ink2); cursor: default; }
 .trefresh-kinds label.off:hover { background: none; }
 .trefresh-kinds .tag { margin-left: auto; }
+/* 核对报告明细展开（规则核对报告专项：展开时整行通栏放长句；全 var() 零写死色） */
+.trefresh-item { min-width: 0; }
+.trefresh-item.open { grid-column: 1 / -1; }
+.trefresh-tagbtn { cursor: pointer; font: inherit; }
+.trefresh-tagbtn:hover { filter: brightness(0.96); }
+.trefresh-issues {
+  margin: 2px 0 4px; padding: 6px 10px 6px 26px; /* 左缩进对齐册名（label 内边距+勾选框+间距） */
+  font-size: 12px; color: var(--ink2); line-height: 1.6;
+  background: var(--soft2); border-radius: 6px; list-style: none;
+}
+.trefresh-issues li { padding: 1px 0; }
+.trefresh-issues li + li { border-top: 1px dashed var(--line); }
 .trefresh-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-weight: 600; }
 .trefresh-head .elapsed { margin-left: auto; color: var(--ink2); font-weight: 400; font-size: 12px; }
 .trefresh-rows { border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }

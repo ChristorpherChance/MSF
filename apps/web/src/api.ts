@@ -113,7 +113,14 @@ export interface RefreshPreflightItem {
   hasContent: boolean;
   finalized: boolean;
   pending: number;
-  mismatch: boolean | null;
+  /** 核对报告：issues 人话行（空=对版）+ upstreamStale；无内容/无模板=null 不评（mismatch 布尔已退役） */
+  report: { issues: string[]; upstreamStale: boolean } | null;
+}
+
+/** 结构问题计数（默认勾选判定用）：滞后行恒在 issues 尾部（服务端钉死约定），剔除之——
+ *  仅上游滞后的册不默认勾（规格 §3 软闸：重排是结构操作，滞后是内容问题） */
+export function structuralIssueCount(report: { issues: string[]; upstreamStale: boolean }): number {
+  return report.issues.length - (report.upstreamStale ? 1 : 0);
 }
 
 export interface RefreshFrame {
