@@ -170,6 +170,15 @@ describe('AI 自检评审 → 真实 DR 项（集成，需 DB）', async () => {
     expect(o2.text).toBe('已结论勿动');
   });
 
+  it('并发闸确定性：首调未 await 即并发二调 → INVALID_STATE（check-then-set 竞态回归钉）', async () => {
+    // 评审 Minor-2：进闸即同步置位后，首调还在 collectCandidates 的 DB 往返窗口内二调确定性抛错
+    const p1 = svc.selfcheck(PID, CTX);
+    await expect(svc.selfcheck(PID, CTX)).rejects.toMatchObject({ code: 'INVALID_STATE' });
+    const r1 = await p1;
+    expect(r1.started).toBe(true);
+    await waitIdle(svc); // 后台跑放空（两码均已 done，落项 no-op），归还闸给后续用例
+  });
+
   it('并发闸：在飞时再调 → INVALID_STATE', async () => {
     let release!: () => void;
     const gate = new Promise<void>((res) => { release = res; });

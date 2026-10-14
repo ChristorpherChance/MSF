@@ -6,7 +6,7 @@ import { useDesignView } from './store';
 
 /**
  * 自检评审面板（LLD-6 §3.4 V20；S8）：
- * 工具栏（未决/已解决 tag + 规则说明 + ✦ AI 自检评审 + 🔁 重新自检评审）+ 分组表 .grp-row（概要/详细/原型三组，
+ * 工具栏（未决/已解决 tag + 规则说明 + ✦ 自检评审 + 🔁 重置种子项）+ 分组表 .grp-row（概要/详细/原型三组，
  * .sevdot 级别圆点 + 「标记已解决 / 重新打开」行内操作）。
  * ✦ AI 自检评审（设计覆盖检测 §1 过度设计侧）：后台跑+轮询 DR 列表进度（分母=启动返回的候选码集）；
  * pi 落项带「✦ AI 自检」来源标；AI 只提不判，结论仍走行内人工三值。
@@ -47,14 +47,14 @@ export function ReviewPanel() {
   const open = reviews.filter((r) => r.status === 'open');
   const done = reviews.filter((r) => r.status === 'done');
 
-  /** S8 🔁 重新自检评审（幂等补齐种子条目，不动已有结论） */
+  /** S8 🔁 重置种子项（幂等补齐三条 mock 种子，不动已有结论；与「✦ 自检评审」AI 复核是两个动作） */
   const reseed = () => {
     if (!projectId) return;
     setBusy(true);
     setMsg(null);
     void designApi.reseedReviews(projectId)
-      .then((r) => setMsg(r.count > 0 ? `自检完成：新增 ${r.count} 条发现` : '自检完成：既有发现复核仍成立，无新增'))
-      .catch((e) => setMsg(e instanceof ApiError ? `${e.code}: ${e.message}` : '自检失败'))
+      .then((r) => setMsg(r.count > 0 ? `重置完成：补回 ${r.count} 条种子项` : '重置完成：种子项齐全，无补齐'))
+      .catch((e) => setMsg(e instanceof ApiError ? `${e.code}: ${e.message}` : '重置失败'))
       .finally(() => { setBusy(false); void refreshReviews(); });
   };
 
@@ -118,7 +118,7 @@ export function ReviewPanel() {
         >
           ✦ 自检评审{sc ? `（${sc.done}/${sc.total}）` : ''}
         </button>
-        <button className="act primary" disabled={busy} onClick={reseed}>🔁 重新自检评审</button>
+        <button className="act" disabled={busy} title="幂等补齐三条内置种子评审项（不动已有结论）" onClick={reseed}>🔁 重置种子项</button>
         {sc && <span className="pop-tip">AI 自检评审进行中 {sc.done}/{sc.total}…（逐节复核，落项即更新）</span>}
         {msg && <span className="rsn">{msg}</span>}
       </div>

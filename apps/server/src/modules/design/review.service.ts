@@ -61,7 +61,7 @@ export class ReviewService {
       const { projectId, force } = payload as { projectId: string; force?: boolean };
       const existing = await client.query('SELECT 1 FROM dsg_reviews WHERE project_id=$1 LIMIT 1', [projectId]);
       if (existing.rows[0] && !force) return { seeded: false };
-      // 重新自检评审（S8 🔁）：幂等补齐缺失条目（按 code 去重，不动已有结论）
+      // 重置种子项（S8 🔁）：幂等补齐缺失条目（按 code 去重，不动已有结论）
       let added = 0;
       for (const s of SEED) {
         const r = await client.query(
@@ -158,7 +158,7 @@ export class ReviewService {
     return executeCommand('design.review.conclude', { projectId, drId, conclusion, note }, { ...ctx, projectId });
   }
 
-  /** 重新自检评审（幂等补齐种子条目；S8 🔁 按钮） */
+  /** 重置种子项（幂等补齐三条内置种子条目；S8 🔁 按钮；与 ✦ AI 自检评审是两个动作） */
   async reseed(projectId: string, ctx: CommandContext) {
     return executeCommand('design.review.seed', { projectId, force: true }, { ...ctx, projectId });
   }
@@ -311,7 +311,8 @@ function parseReviewOutput(text: string): string {
     try {
       const j = JSON.parse(raw) as { verdict?: unknown; comment?: unknown };
       if (typeof j.comment === 'string' && j.comment.trim()) {
-        const v = j.verdict === 'fail' ? '不通过' : '通过';
+        // verdict 显式判定：缺失/拼错等垃圾值落「未判定」中性文案，不渲染「倾向：通过」（评审 Minor-3）
+        const v = j.verdict === 'fail' ? '不通过' : j.verdict === 'pass' ? '通过' : '未判定';
         return `${j.comment.trim()}（AI 倾向：${v}）`;
       }
     } catch { /* 解析失败落原文兜底 */ }
