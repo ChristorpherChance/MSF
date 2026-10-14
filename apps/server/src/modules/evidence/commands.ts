@@ -106,6 +106,7 @@ export const COMMANDS = [
   'design.review.seed',
   'design.review.conclude',
   'design.review.reopen', // 已解决项重新打开（S8 分组表操作），差异登记
+  'design.review.selfcheck', // AI 自检评审单条 DR 落项（设计覆盖检测 §1：逐节一条命令事务=进度可轮询，幂等 upsert）
   // M4 开发域：任务识别/计划（LLD-3 DSG-C10-2(c) 点式映射；A06-1~7）
   'dev.identify.start',
   'dev.identify.complete',

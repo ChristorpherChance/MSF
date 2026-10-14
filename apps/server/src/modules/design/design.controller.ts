@@ -234,6 +234,14 @@ export class DesignController {
     return this.reviews.reseed(projectId, this.actor(req, projectId));
   }
 
+  /** ✦ AI 自检评审（设计覆盖检测 §1 过度设计侧）：过度设计候选逐节复核落真实 DR 项。
+   *  后台跑+并发闸（在飞 INVALID_STATE）；启动即返候选码集，进度=前端轮询 DR 列表 */
+  @Post('reviews\\:selfcheck')
+  @HttpCode(200)
+  selfcheckReviews(@Param('projectId') projectId: string, @Req() req: Request) {
+    return this.reviews.selfcheck(projectId, this.actor(req, projectId));
+  }
+
   /** S8 已解决项重新打开 */
   @Post('reviews/:drId\\:reopen')
   @HttpCode(200)
