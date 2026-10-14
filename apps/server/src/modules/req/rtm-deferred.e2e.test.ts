@@ -16,7 +16,7 @@ import { idempotencyMiddleware } from '../api/idempotency.middleware.js';
 
 // e2e PID 注册表（共享库并行跑，撞 PID=FK 级联整组炸，新增套件先查再占）：
 // e1~e6/e9+f1~f9+fa~ff 已占用（各套件文件顶部常量自查，如 req.integration f1/fa/fc~fe、
-// template-refresh-preflight fa~fe、prototype-pages fb）；本套件占 f0。
+// template-refresh-preflight fa~fe、prototype-pages fb、design/coverage-fix.integration e7）；本套件占 f0。
 const PID = '00000000-0000-0000-0000-0000000000f0';
 const BASE = `http://127.0.0.1:18102/api/v1/projects/${PID}/requirements`;
 

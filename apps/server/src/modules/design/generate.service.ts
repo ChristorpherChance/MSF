@@ -4,6 +4,8 @@ import { DomainError } from '@msf/shared';
 import { query } from '../../db/pool.js';
 import { executeCommand, registerCommand, type CommandContext } from '../evidence/command-bus.js';
 import { mdToPatches, normalizePatches, sha256Text, splitSections, buildNumberGuide, type EditPatch } from '../platform/doc-sections.js';
+import { deriveLinks, computeHealth } from '../platform/rtm-health.js';
+import { designContents } from '../platform/doc-contents.js';
 import { registerExternalTool } from '../platform/external-tools.js';
 import { registerRefreshHandler } from '../platform/template-refresh.service.js';
 import { REFRESH_INSTRUCTION } from '../platform/template-refresh.js';
@@ -86,7 +88,7 @@ export class DesignGenerateService {
       if (!instruction) return { ok: false, reason: 'instruction 必填（描述要改什么）' };
       const modeRaw = String(call.args['mode'] ?? 'patch');
       if (modeRaw !== 'patch' && modeRaw !== 'rewrite') return { ok: false, reason: 'mode 枚举 patch|rewrite' };
-      return this.proposeEditsFromChat(projectId, kind as DesignKind, instruction, ctx, modeRaw, {
+      return this.proposeEditsFromChat(projectId, kind as DesignKind, instruction, ctx, modeRaw, undefined, {
         ...(call.sessionId !== undefined ? { sessionId: call.sessionId } : {}),
         ...(call.messageId !== undefined ? { messageId: call.messageId } : {}),
       });
@@ -110,6 +112,8 @@ export class DesignGenerateService {
     instruction: string,
     ctx: CommandContext,
     mode: 'patch' | 'rewrite' = 'patch',
+    /** RTM 覆盖闭环 mock 定向产出（离线可测「缺口→锚点补丁→接受→转绿」全链；pi 通道忽略） */
+    mockText?: string,
     /** A6 usage 归因：dock 对话内触发时挂回触发会话/消息（编排层 runToolBlocks 旁路传入） */
     attribution?: { sessionId?: string; messageId?: string },
   ): Promise<{ ok: boolean; patchCount?: number; route?: string; kind?: DesignKind; reason?: string }> {
@@ -169,9 +173,9 @@ export class DesignGenerateService {
         return { ok: false, reason: `AI 调用失败：${sanitizeAiError(raw)}` };
       }
     } else {
-      text = mode === 'rewrite'
+      text = mockText ?? (mode === 'rewrite'
         ? buildMockDesignChatRewrite(book.name, effective, cut)
-        : buildMockDesignChatEdit(effective, cut);
+        : buildMockDesignChatEdit(effective, cut));
     }
     const patches: EditPatch[] = mode === 'rewrite'
       ? [{ type: 'replace', secId: 's0', title: '整篇重写', new: text.trim() }]
@@ -208,6 +212,56 @@ export class DesignGenerateService {
       }
       throw e;
     }
+  }
+
+  /**
+   * RTM 覆盖闭环·设计域段（设计覆盖检测与可交互原型 §1 覆盖侧）：L0C_BELOW（REQ→DSG 缺口）定向提案——
+   * 一次调用带全部缺口向 hld 提案承接章节（与需求域 coverageFixFromGaps 同构；逐缺口各调一次会连撞
+   * proposeEditsFromChat 的「有待确认补丁」守卫：第一条落库后第二次起全拒）。
+   * 落域=hld（需求→设计第一落点；提案本就人工确认，确认前可改），章节正文含 REQ-nnn 回引锚点——
+   * 接受并提交后 deriveLinks 反向派生即覆盖转绿，闭环成立。
+   * req 域表零写入（跨域只读纪律）：缺口清单走 platform/rtm-health 同族 SQL 直读现算。
+   */
+  async coverageFixFromGaps(
+    projectId: string,
+    ctx: CommandContext,
+  ): Promise<{ ok: boolean; results: Array<{ kind: 'hld'; ok: boolean; patchCount?: number; reason?: string }> }> {
+    const gaps = await this.l0cGaps(projectId);
+    if (gaps.length === 0) {
+      return { ok: true, results: [] }; // 覆盖检查已通过，无缺口需补齐
+    }
+    const instruction = `RTM 覆盖缺口补齐（REQ→DSG）：产品需求 ${gaps.join('、')} 在设计册尚无承接章节——为每条新增一个条目节（编号顺延，标题形如 h-n 简明标题，正文含「承接：REQ-nnn」且与该条目一一对应、设计要点）。只输出新增章节，不要复述既有内容。`;
+    const r = await this.proposeEditsFromChat(projectId, 'hld', instruction, ctx, 'patch',
+      this.ai?.kind === 'pi' ? undefined : buildMockCoverageFix(gaps, await this.hldEffective(projectId)));
+    return {
+      ok: r.ok,
+      results: [{ kind: 'hld', ok: r.ok, ...(r.patchCount !== undefined ? { patchCount: r.patchCount } : {}), ...(r.reason ? { reason: r.reason } : {}) }],
+    };
+  }
+
+  /** L0C_BELOW 缺口清单（REQ→DSG 无承接锚点）：rtm health 同口径现算——CRD/PRD/设计册正文与
+   *  rtm_links 全部 SQL 直读 + platform 纯函数派生（computeLiveHealth 同族），req 域表零写入 */
+  private async l0cGaps(projectId: string): Promise<string[]> {
+    const docs = await query<{ doc_kind: string; content: string | null }>(
+      `SELECT d.doc_kind, v.content FROM req_documents d
+       LEFT JOIN req_versions v ON v.id=d.current_version_id WHERE d.project_id=$1`, [projectId]);
+    const crd = docs.rows.find((d) => d.doc_kind === 'crd')?.content ?? '';
+    const prd = docs.rows.find((d) => d.doc_kind === 'prd')?.content ?? '';
+    const { nodes } = deriveLinks(crd, prd, await designContents(null, projectId));
+    const links = await query<{ from_kind: string; from_code: string; to_kind: string; to_code: string; relation: string }>(
+      'SELECT from_kind, from_code, to_kind, to_code, relation FROM rtm_links WHERE project_id=$1', [projectId]);
+    return computeHealth(nodes, links.rows).gaps.filter((g) => g.code === 'L0C_BELOW').map((g) => g.target);
+  }
+
+  /** hld 当前有效稿（草稿优先；coverageFix mock 定向产出取编号用——与需求域 effectiveContent 同构） */
+  private async hldEffective(projectId: string): Promise<string> {
+    const cur = await query<{ content: string }>(
+      `SELECT v.content FROM dsg_versions v JOIN dsg_documents d ON d.current_version_id=v.id
+       WHERE d.project_id=$1 AND d.doc_kind='hld'`, [projectId]);
+    const draft = await query<{ content: string }>(
+      `SELECT t.content FROM dsg_drafts t JOIN dsg_documents d ON d.id=t.document_id
+       WHERE d.project_id=$1 AND d.doc_kind='hld'`, [projectId]);
+    return draft.rows[0]?.content ?? cur.rows[0]?.content ?? '';
   }
 
   /** A05-2 启动生成：参考校验（REQ-114）+ 上游定稿门禁（HLD←PRD、LLD←HLD） */
@@ -547,6 +601,17 @@ function buildMockDesignChatEdit(effective: string, instruction: string): string
   if (hit) parts.push(`## ${hit.title}\n\n${hit.md}\n\n（mock 对话修订：${note}）`);
   parts.push(`## 对话补充条目\n\n（mock 对话新增：${note}）`);
   return parts.join('\n\n');
+}
+
+/** RTM 覆盖闭环 mock 定向产出·设计域（确定性：每个缺口一条 h- 新增节，承接锚点=REQ-nnn，编号顺延——
+ *  接受并提交后 deriveLinks 反向派生即覆盖转绿，离线可测「缺口→提案→接受→再检查」全闭环） */
+function buildMockCoverageFix(missing: string[], effective: string): string {
+  const codes = [...effective.matchAll(/\bh-(\d+)\b/g)].map((m) => Number(m[1]));
+  let next = (codes.length > 0 ? Math.max(...codes) : 0) + 1;
+  return missing.map((t) => {
+    const code = `h-${next++}`;
+    return `## ${code} RTM 覆盖补齐：${t}\n\n承接：${t}\n\n（mock 覆盖补齐：按 RTM 缺口清单定向新增，待人工确认后生效）`;
+  }).join('\n\n');
 }
 
 /** mock 整篇重写产出（确定性：保留全文骨架+重写注记——离线可测 replace 补丁通道） */

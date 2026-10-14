@@ -174,6 +174,10 @@ export const reqApi = {
   coverageFix: (pid: string) =>
     api.post<{ ok: boolean; results: Array<{ kind: 'crd' | 'prd'; ok: boolean; patchCount?: number; reason?: string }> }>(
       `${base(pid)}/rtm:coverage-fix`, {}),
+  /** RTM 覆盖闭环·设计域段：L0C（REQ→DSG）缺口向 hld 提案定向补齐（design 域端点，RTM 工作面分流调用） */
+  designCoverageFix: (pid: string) =>
+    api.post<{ ok: boolean; results: Array<{ kind: 'hld'; ok: boolean; patchCount?: number; reason?: string }> }>(
+      `/api/v1/projects/${pid}/design:coverage-fix`, {}),
   defer: (pid: string, nodeKind: 'cr' | 'req' | 'dsg', code: string, reason: string) =>
     api.post(`${base(pid)}/rtm/${nodeKind}/${code}:defer`, { reason }),
   undefer: (pid: string, nodeKind: 'cr' | 'req' | 'dsg', code: string) =>

@@ -60,31 +60,56 @@ export function RtmPanel() {
     }
   };
 
-  /** 覆盖闭环②：按缺口清单向 CRD/PRD 提案定向补齐（人工确认→提交→再检查即转绿）。
+  /** 覆盖闭环②：按缺口清单定向提案补齐（人工确认→提交→再检查即转绿）。
+   *  缺口分域分流：L0A_BELOW/RTM_HEALTH 走需求域端点（→CRD/PRD）；L0C_BELOW（REQ→DSG）走
+   *  design 域端点（→hld 册，§1 覆盖侧）——两域并发各一次调用（逐缺口各调会连撞「有待确认补丁」守卫）。
    *  实机教训（2026-10-06 用户反馈「点了没用」）：真模型需 1~3 分钟——必须给常驻进度提示，
-   *  且完成后广播 msf:req-proposed 复用需求页回环（自动切到目标文档+刷新补丁高亮），
-   *  否则补丁悄悄落在 CRD/PRD 页、RTM 页上毫无可见变化 */
+   *  且完成后广播 msf:req-proposed / msf:dsg-proposed 复用两页回环（自动切到目标文档+刷新补丁高亮），
+   *  否则补丁悄悄落在 CRD/PRD/hld 页、RTM 页上毫无可见变化 */
   const onCoverageFix = async () => {
-    if (!projectId || rtmBusy) return;
+    if (!projectId || rtmBusy || !health) return;
     setRtmBusy(true);
-    setFixNote('AI 正在按缺口清单生成补齐建议……真模型约需 1~3 分钟，完成后会自动跳到对应文档页并高亮补丁');
+    setFixNote('AI 正在按缺口清单生成补齐建议……真模型约需 1~3 分钟；CRD/PRD 补丁完成后自动跳页高亮，设计册（hld）补丁请到设计页处置');
     try {
-      const r = await reqApi.coverageFix(projectId);
-      if (r.results.length === 0) {
-        toast('覆盖检查已通过，无缺口需补齐', 'success');
-        return;
-      }
-      for (const it of r.results) {
-        if (it.ok) {
-          // 回环：与 dock 提案同通道（req store 监听→切页签+重拉+常驻 toast）
-          window.dispatchEvent(new CustomEvent('msf:req-proposed', { detail: { kind: it.kind } }));
+      const hasReqGaps = health.gaps.some((g) => g.code === 'L0A_BELOW' || g.code === 'RTM_HEALTH');
+      const hasDsgGaps = health.gaps.some((g) => g.code === 'L0C_BELOW');
+      const [reqFix, dsgFix] = await Promise.all([
+        hasReqGaps ? reqApi.coverageFix(projectId) : Promise.resolve(null),
+        hasDsgGaps ? reqApi.designCoverageFix(projectId) : Promise.resolve(null),
+      ]);
+      let handled = 0;
+      if (reqFix) {
+        for (const it of reqFix.results) {
+          handled += 1;
+          if (it.ok) {
+            // 回环：与 dock 提案同通道（req store 监听→切页签+重拉+常驻 toast）
+            window.dispatchEvent(new CustomEvent('msf:req-proposed', { detail: { kind: it.kind } }));
+          }
+          toast(
+            it.ok
+              ? `${it.kind.toUpperCase()}：已提交 ${it.patchCount} 条补齐建议——确认补丁 → 提交版本 → 回此再检查`
+              : `${it.kind.toUpperCase()}：${it.reason}`,
+            it.ok ? 'success' : 'warn',
+          );
         }
-        toast(
-          it.ok
-            ? `${it.kind.toUpperCase()}：已提交 ${it.patchCount} 条补齐建议——确认补丁 → 提交版本 → 回此再检查`
-            : `${it.kind.toUpperCase()}：${it.reason}`,
-          it.ok ? 'success' : 'warn',
-        );
+      }
+      if (dsgFix) {
+        for (const it of dsgFix.results) {
+          handled += 1;
+          if (it.ok) {
+            // 回环：design/store.ts 监听 msf:dsg-proposed——设计页落位 hld 册+补丁区自刷新
+            window.dispatchEvent(new CustomEvent('msf:dsg-proposed', { detail: { kind: it.kind } }));
+          }
+          toast(
+            it.ok
+              ? `HLD 概要设计：已提交 ${it.patchCount} 条补齐建议——到设计页确认补丁 → 提交版本 → 回此再检查`
+              : `HLD 概要设计：${it.reason}`,
+            it.ok ? 'success' : 'warn',
+          );
+        }
+      }
+      if (handled === 0) {
+        toast('覆盖检查已通过，无缺口需补齐', 'success');
       }
     } catch (e) {
       toast(`补齐失败：${e instanceof ApiError ? e.message : String(e)}`, 'warn');
@@ -177,11 +202,11 @@ export function RtmPanel() {
       {health.gaps.length > 0 && (
         <div className="req-banner warn">
           ⚠ 缺口 {health.gaps.length} 项：{health.gaps.map((g) => `${g.target}（${g.message}）`).join('；')}
-          {health.gaps.some((g) => g.code === 'L0A_BELOW' || g.code === 'RTM_HEALTH') && (
+          {health.gaps.some((g) => g.code === 'L0A_BELOW' || g.code === 'RTM_HEALTH' || g.code === 'L0C_BELOW') && (
             <button
               className="act mini primary"
               disabled={rtmBusy}
-              title="按缺口清单向 CRD/PRD 定向提案补齐（高亮补丁）：确认补丁 → 提交版本 → 回此再检查，即形成解决闭环；已定稿文档会引导先解锁"
+              title="按缺口清单定向提案补齐（高亮补丁）：CR/REQ 缺口落 CRD/PRD，REQ→DSG 缺口落设计页 hld 册；确认补丁 → 提交版本 → 回此再检查，即形成解决闭环；已定稿文档会引导先解锁"
               onClick={() => void onCoverageFix()}
             >
               ✨ AI 补齐缺口

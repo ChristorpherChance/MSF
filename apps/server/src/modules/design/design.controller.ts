@@ -117,6 +117,14 @@ export class DesignController {
     return this.gen.control(projectId, operationId, 'stop', this.actor(req, projectId));
   }
 
+  /** RTM 覆盖闭环·设计域段（设计覆盖检测 §1）：L0C（REQ→DSG）缺口定向提案落 hld（高亮补丁，人工确认后生效）。
+   *  端点落 design 域与提案落点同域；L0A/RTM_HEALTH 两域缺口仍走需求域 rtm:coverage-fix */
+  @Post('\\:coverage-fix')
+  @HttpCode(200)
+  coverageFix(@Param('projectId') projectId: string, @Req() req: Request) {
+    return this.gen.coverageFixFromGaps(projectId, this.actor(req, projectId));
+  }
+
   @Post('docs/:kind/versions\\:commit')
   @HttpCode(201)
   commit(
