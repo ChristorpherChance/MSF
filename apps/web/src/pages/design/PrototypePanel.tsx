@@ -772,8 +772,8 @@ function CatalogCard({ onChanged }: { onChanged: () => void }) {
 
 /**
  * 目录条目修订弹层（覆盖检测 §2/§3：title/note/流程步骤 steps/豁免 exempt 白名单；
- * 保存即新目录版本 → 旧规划按过期处理。flow 条目增步骤编辑（一行一步骤）；
- * exempt 为「页有册无」人工豁免标记（与 RTM deferred 两套机制，互不通用）。
+ * 编辑即产生新目录版本，需 re-plan 后反映到汇总原型（定稿门禁会以目录指纹比对强制改后重跑检查）。
+ * flow 条目增步骤编辑（一行一步骤）；exempt 为「页有册无」人工豁免标记（与 RTM deferred 两套机制，互不通用）。
  */
 function EditItemModal({ itemType, item, onClose, onChanged }: {
   itemType: string;
@@ -813,6 +813,9 @@ function EditItemModal({ itemType, item, onClose, onChanged }: {
         {itemType === 'flow' && (
           <label className="form-row">流程步骤（一行一步骤）
             <textarea value={stepsText} onChange={(e) => setStepsText(e.target.value)} rows={5} />
+            <span className="pop-tip">
+              引用页面写作 P-002 或 P-002/ST-empty（汇总原型流程视图中可点击跳转，检查时校验目标存在）；自然语言步骤仅展示不跳转。
+            </span>
           </label>
         )}
         <label className="form-row">

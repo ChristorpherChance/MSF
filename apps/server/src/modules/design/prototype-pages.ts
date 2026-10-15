@@ -385,7 +385,7 @@ export function buildPagePrompt(
     instruction ? `\n## 用户补充指示\n${instruction}` : '',
     anchorLines ? `\n## 设计锚点（上游章节）\n${anchorLines}` : '',
     upstreamPrd ? `\n## 上游 PRD 定稿（节选）\n${upstreamPrd}` : '',
-    upstreamUi ? `\n## 上游 UI 册定稿（节选）\n${upstreamUi}` : '',
+    upstreamUi ? `\n## 上游 UI 册当前版本（节选）\n${upstreamUi}` : '',
   ].filter(Boolean).join('\n');
 }
 

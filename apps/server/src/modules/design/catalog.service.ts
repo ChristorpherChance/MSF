@@ -11,8 +11,15 @@ import { UI_PAGE_SECTION_RE } from './prototype-pages.js';
  * 原型规划与设计目录（A05-4/5/12/13；REQ-304/312；F02-2 plan 阶段）。
  * 识别口径（mock）：从已定稿 PRD 的 REQ-xxx 章节派生页面条目（一章一页 + 固定骨架页/流程/状态/角色/视口），
  * 追溯引用挂 PRD 章节锚点（rule_text 快照 + ref_fingerprint，供来源审计实时比对）。
- * 人工增删（A05-13）：manual 标记、识别条目不可直删；目录变化 → 新 catalog_version → 旧规划 PLAN_STALE。
+ * 人工增删（A05-13）：manual 标记、识别条目不可直删；目录变化 → 新 catalog_version
+ * （编辑不自动反映到汇总原型，需 re-plan；finalize 门禁以目录指纹比对强制改后重跑 check）。
  */
+
+/** 目录指纹（code 基口径，S-2 终审修法单点）：条目 id 随目录版本轮换不稳定，code 跨版本稳定；
+ *  codes 排序后入指纹防查询序漂移。check 落库/finalize CHECK_STALE 比对/目录查询三面同源。 */
+export function catalogFingerprintOf(catalogVersion: string, codes: string[]): string {
+  return fingerprint({ catalogVersion, items: [...codes].sort() });
+}
 
 /** 来源审计规则集版本（REQ-312 版本化；规则变更即升版） */
 export const RULESET_VERSION = 'src-rules-1';
@@ -253,7 +260,8 @@ export class CatalogService {
     // A05-13 扩：目录条目字段修订（覆盖检测 §2 豁免落点 + §3 流程步骤编辑）。
     // 可改字段白名单=title/note/payload.steps/payload.exempt（steps/exempt 对照 CARRIED_PAYLOAD_KEYS——
     // 落 payload 的可改键必须在随行清单内，否则 re-plan 丢人工调整）；
-    // reqIds/route/verify 等识别字段一律拒绝。改即新 catalog_version（PLAN_STALE 联动同 add/remove 口径）。
+    // reqIds/route/verify 等识别字段一律拒绝。编辑即产生新目录版本，需 re-plan 后反映到汇总原型
+    // （finalize 门禁以目录指纹比对 CHECK_STALE 强制改后重跑 check）。
     registerCommand('design.catalog.update-item', async (client, payload, ctx) => {
       const raw = payload as Record<string, unknown>;
       const { projectId, itemId } = raw as { projectId: string; itemId: string };
@@ -394,8 +402,21 @@ export class CatalogService {
         anchors: anchorsByItem.get(it.id) ?? [],
       });
     }
-    const fp = fingerprint({ catalogVersion: ver, items: items.rows.map((i) => i.id) });
+    const fp = catalogFingerprintOf(ver, items.rows.map((i) => i.code)); // code 基口径（S-2 单点，原 id 基随版本轮换不稳定）
     return { catalogVersion: ver, catalogFingerprint: `sha256:${fp}`, groups };
+  }
+
+  /** 当前目录版本+指纹（check 落库与 finalize 门禁 CHECK_STALE 比对同源，S-2 单点） */
+  async currentCatalogFingerprint(
+    client: import('pg').PoolClient | null,
+    projectId: string,
+  ): Promise<{ catalogVersion: string; fingerprint: string } | null> {
+    const ver = await this.currentCatalogVersion(client, projectId);
+    if (!ver) return null;
+    const q = client ? client.query.bind(client) : query;
+    const items = await q<{ code: string }>(
+      'SELECT code FROM dsg_catalog_items WHERE project_id=$1 AND catalog_version=$2', [projectId, ver]);
+    return { catalogVersion: ver, fingerprint: catalogFingerprintOf(ver, items.rows.map((r) => r.code)) };
   }
 
   /** A05-12 来源审计：refs 锚点指纹 vs 现行定稿文档内容实时比对（REQ-312 双向） */

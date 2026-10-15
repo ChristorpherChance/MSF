@@ -175,14 +175,14 @@ describe('pickUiSections（UI 册节选，覆盖检测 §2）', () => {
 });
 
 describe('buildPagePrompt UI 册注入段', () => {
-  it('ui 非空 → 含「上游 UI 册定稿（节选）」段且与 PRD 段并列', () => {
+  it('ui 非空 → 含「上游 UI 册当前版本（节选）」段且与 PRD 段并列（S-4：注入的是当前版本非定稿，标签消歧）', () => {
     const prompt = buildPagePrompt(page, [st], [], 'PRD 节选正文', '## u-1 门户首页（页面）\n\n承接 REQ-001。', '');
     expect(prompt).toContain('## 上游 PRD 定稿（节选）\nPRD 节选正文');
-    expect(prompt).toContain('## 上游 UI 册定稿（节选）\n## u-1 门户首页（页面）');
+    expect(prompt).toContain('## 上游 UI 册当前版本（节选）\n## u-1 门户首页（页面）');
   });
   it('ui 为空串 → 不出现 UI 册段（旧目录/无 ui 册口径）', () => {
     const prompt = buildPagePrompt(page, [st], [], 'PRD 节选正文', '', '');
-    expect(prompt).not.toContain('上游 UI 册定稿');
+    expect(prompt).not.toContain('上游 UI 册');
     expect(prompt).toContain('## 上游 PRD 定稿（节选）');
   });
   it('data-nav 穿流约定入契约段 + 合法跳转目标清单（覆盖检测 §3）', () => {

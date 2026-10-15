@@ -276,4 +276,58 @@ describe('原型页↔ui 册结构化对应（集成，需 DB+MinIO）', async (
        WHERE i.project_id=$1 AND i.catalog_version=$2 AND r.ref_kind='ui' ORDER BY i.code`, [PID, cur.rows[0]!.v]);
     expect(refs.rows.map((r) => r.code)).toEqual(['P-001', 'P-002', 'P-003']);
   });
+
+  it('⑥ S-1 终审修法：编辑目录后 check 报告仍含时间基滞后 issue（版本口径=plan 锁定目录版本）', async () => {
+    // 干净起点：P-001 生成（plan3 目录版本）+ 汇总
+    const plan3 = (await query<{ id: string; plan_fingerprint: string }>(
+      'SELECT id, plan_fingerprint FROM dsg_plans WHERE project_id=$1 ORDER BY plan_no DESC LIMIT 1', [PID])).rows[0]!;
+    const st0 = await pages.start(PID, 'P-001', '', CTX);
+    await pages.drive(st0.operationId, CTX, () => {});
+    const g = (await proto.generate(PID, plan3.id, `sha256:${plan3.plan_fingerprint}`, CTX)) as { prototypeVersionId: string };
+    // 页生成时刻回拨 + ui 册新提交（章节集不变，只改正文——不引入 UNMAPPED 干扰）；
+    // ui 册在 ④ 已定稿，须先解锁再改；改完再定稿使 ⑦ 的 re-plan 仍走 uiSecs 分支（refs 链不断）
+    await query("UPDATE dsg_prototype_pages SET updated_at = now() - interval '2 hours' WHERE project_id=$1 AND page_code='P-001'", [PID]);
+    await docs.unlock(PID, 'ui', CTX);
+    await commitUi(docs, [
+      'UI 设计', '',
+      '## u-1 门户首页（页面）', '', '承接 REQ-001。布局：顶部导航 + 指标卡（v5 微调）。', '',
+      '## u-2 检索列表界面', '', '承接 REQ-002。表格 + 筛选。', '',
+      '## u-3 设置页面', '', '设置页（无目录页承接）。',
+    ].join('\n'), 'UI v5');
+    await docs.finalize(PID, 'ui', 5, 5, true, false, CTX);
+    // 编辑目录（update-item 即产新目录版本 → current≠plan 锁定版本，S-1 旧口径下滞后段空转）
+    const cat = (await catalog.getCatalog(PID)) as { groups: Record<string, Array<{ itemId: string; code: string }>> };
+    await catalog.updateItem(PID, cat.groups.flow![0]!.itemId, { note: 'S-1 回归：编辑目录' }, CTX);
+    const chk = (await proto.check(PID, g.prototypeVersionId, CTX)) as {
+      issues: Array<{ code: string; target: string; message: string }>;
+    };
+    expect(chk.issues.some((i) => i.code === 'PROTOTYPE_DIRTY' && i.target === 'P-001' && i.message.includes('已变更'))).toBe(true);
+  });
+
+  it('⑦ S-2 终审修法：check 通过后编辑目录 → finalize 门禁 CHECK_STALE 强制重跑 check', async () => {
+    // 清场：移除 P-CUSTOM（manual 条目无 ui ref 未豁免会 PAGE_UI_UNMAPPED，干扰 pass 态）→ re-plan → 生成+汇总+check pass
+    const cat0 = (await catalog.getCatalog(PID)) as { groups: Record<string, Array<{ itemId: string; code: string; source: string }>> };
+    const custom = (cat0.groups.page ?? []).find((p) => p.code === 'P-CUSTOM');
+    if (custom) await catalog.removeItem(PID, custom.itemId, CTX);
+    const plan4 = (await catalog.plan(PID, CTX)) as { planId: string; fingerprint: string };
+    const st0 = await pages.start(PID, 'P-001', '', CTX);
+    await pages.drive(st0.operationId, CTX, () => {});
+    const g = (await proto.generate(PID, plan4.planId, plan4.fingerprint, CTX)) as { prototypeVersionId: string };
+    const chk1 = (await proto.check(PID, g.prototypeVersionId, CTX)) as { status: string };
+    expect(chk1.status).toBe('pass');
+    const gf0 = (await proto.gates(PID, 'finalize')) as GateView;
+    expect(gf0.issues.filter((i) => i.code === 'CHECK_STALE')).toEqual([]);
+
+    // 编辑目录（update-item 产新目录版本）→ 不重跑 check → finalize 门禁亮 CHECK_STALE
+    const cat1 = (await catalog.getCatalog(PID)) as { groups: Record<string, Array<{ itemId: string }>> };
+    await catalog.updateItem(PID, cat1.groups.flow![0]!.itemId, { note: 'S-2 回归：改后未重跑检查' }, CTX);
+    const gf1 = (await proto.gates(PID, 'finalize')) as GateView;
+    expect(gf1.issues.some((i) => i.code === 'CHECK_STALE' && i.message.includes('目录'))).toBe(true);
+
+    // 重跑 check → 指纹重新对齐 → CHECK_STALE 解除
+    const chk2 = (await proto.check(PID, g.prototypeVersionId, CTX)) as { status: string };
+    expect(chk2.status).toBe('pass');
+    const gf2 = (await proto.gates(PID, 'finalize')) as GateView;
+    expect(gf2.issues.filter((i) => i.code === 'CHECK_STALE')).toEqual([]);
+  });
 });

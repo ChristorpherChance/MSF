@@ -126,15 +126,22 @@ export class PrototypeService {
           .map((s) => ({ id: s.id, title: s.title })),
       };
       const { issues, unverified } = checkPrototype(html, items.rows, uiInput);
-      // I-1：时间基滞后并入报告（不拦 check）——滞后页与双向检出同报，用户据 UI_SECTION_UNMAPPED 判 re-plan
-      for (const x of await this.pageUiLagIssues(client, projectId, catVer ?? '')) {
+      // I-1：时间基滞后并入报告（不拦 check）——滞后页与双向检出同报，用户据 UI_SECTION_UNMAPPED 判 re-plan。
+      // S-1 终审修法：滞后判定传页行归属的 plan 锁定目录版本（页行 catalog_version 恒为 plan 锁定版——
+      // 目录一经 add/remove/update-item 编辑 current≠plan，传 catVer 会让 pageUiLagIssues 内版本不等
+      // 全 continue 空转，「报告与门禁两张皮」），与 status()/finalize 门禁单点同口径。
+      const latestPlan = await client.query<{ catalog_version: string }>(
+        'SELECT catalog_version FROM dsg_plans WHERE project_id=$1 ORDER BY plan_no DESC LIMIT 1', [projectId]);
+      for (const x of await this.pageUiLagIssues(client, projectId, latestPlan.rows[0]?.catalog_version ?? '')) {
         issues.push({ code: x.code, message: x.message, target: x.target ?? '' });
       }
       // W2-052：run_no 发号 count+1 属 check-then-act——咨询锁串行化「计数→插入」临界区
       await lockCodeGen(client, `msf:code:proto-check:${projectId}`);
       const run = await client.query<{ n: string }>(
         'SELECT count(*) AS n FROM dsg_prototype_checks WHERE project_id=$1', [projectId]);
-      const catFp = fingerprint({ catalogVersion: catVer, items: items.rows.map((i) => i.code) });
+      // S-2：目录指纹走 CatalogService 单点（code 基口径，finalize 门禁 CHECK_STALE 比对同源）
+      const catFpNow = await this.catalog.currentCatalogFingerprint(client, projectId);
+      const catFp = catFpNow?.fingerprint ?? fingerprint({ catalogVersion: catVer, items: [] });
       const r = await client.query<{ id: string }>(
         `INSERT INTO dsg_prototype_checks (project_id, run_no, catalog_fingerprint, prototype_version_id, issues, auto_fixable, unverified, passed, created_by)
          VALUES ($1,$2,$3,$4,$5,'[]',$6,$7,$8) RETURNING id`,
@@ -519,8 +526,8 @@ export class PrototypeService {
     }
     if (action === 'finalize') {
       if (!d?.current_version_id) issues.push({ code: 'PROTOTYPE_REQUIRED', message: '原型尚未生成' });
-      const chk = await q<{ passed: boolean; prototype_version_id: string }>(
-        'SELECT passed, prototype_version_id FROM dsg_prototype_checks WHERE project_id=$1 ORDER BY run_no DESC LIMIT 1',
+      const chk = await q<{ passed: boolean; prototype_version_id: string; catalog_fingerprint: string }>(
+        'SELECT passed, prototype_version_id, catalog_fingerprint FROM dsg_prototype_checks WHERE project_id=$1 ORDER BY run_no DESC LIMIT 1',
         [projectId]);
       const latestCheck = chk.rows[0] ?? null;
       if (!latestCheck) issues.push({ code: 'CHECK_REQUIRED', message: '尚无检查报告' });
@@ -528,6 +535,13 @@ export class PrototypeService {
         if (!latestCheck.passed) issues.push({ code: 'CHECK_REQUIRED', message: '最近检查未通过', target: undefined });
         if (d && latestCheck.prototype_version_id !== d.current_version_id) {
           issues.push({ code: 'CHECK_STALE', message: '检查报告依据的原型版本已过期' });
+        }
+        // S-2 终审修法：目录编辑（add/remove/update-item 即产新目录版本）后最近报告目录指纹失配 →
+        // CHECK_STALE 强制重跑 check（flow 引用等新校验必须覆盖最新目录，堵「改后不重跑直接定稿」）。
+        // 指纹 code 基口径（catalogFingerprintOf 单点）——条目 id 随目录版本轮换不稳定。
+        const catNow = await this.catalog.currentCatalogFingerprint(client, projectId);
+        if (catNow && latestCheck.catalog_fingerprint !== catNow.fingerprint) {
+          issues.push({ code: 'CHECK_STALE', message: '目录在最近检查后已经编辑（新目录版本），须重新执行检查' });
         }
       }
       if (d?.modified) issues.push({ code: 'PROTOTYPE_DIRTY', message: '原型已修改未定稿', target: d.id });
