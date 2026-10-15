@@ -153,7 +153,7 @@ describe('catalog.update-item（集成，需 DB+MinIO）', async () => {
     expect('exempt' in p1.payload).toBe(false); // false 删键而非存 false
   });
 
-  it('③ 白名单闸：未知字段/空步骤元素/零可改字段拒绝；不存在条目 NOT_FOUND', async () => {
+  it('③ 白名单闸：未知字段/空步骤元素/零可改字段/steps 类型错位拒绝；不存在条目 NOT_FOUND', async () => {
     const cat = (await catalog.getCatalog(PID)) as CatalogView;
     const flow = cat.groups.flow!.find((i) => i.code === 'F-001')!;
     await expect(catalog.updateItem(PID, flow.itemId, { reqIds: ['REQ-009'] } as never, CTX))
@@ -162,6 +162,10 @@ describe('catalog.update-item（集成，需 DB+MinIO）', async () => {
       .rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
     await expect(catalog.updateItem(PID, flow.itemId, {}, CTX))
       .rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+    // T7 Minor 折入：steps 仅 flow 可改——page 条目带 steps 一律拒绝（防语义错位/静默吞字段）
+    const page = cat.groups.page!.find((i) => i.code === 'P-001')!;
+    await expect(catalog.updateItem(PID, page.itemId, { steps: ['x'] }, CTX))
+      .rejects.toMatchObject({ code: 'VALIDATION_FAILED', target: 'steps' });
     await expect(catalog.updateItem(PID, '00000000-0000-0000-0000-000000000099', { title: 'x' }, CTX))
       .rejects.toMatchObject({ code: 'NOT_FOUND' });
     // 拒绝零写：目录版本不前进

@@ -55,6 +55,8 @@ const esc = (s: string) =>
  *  <a data-nav> 默认跳 hash 导致 fromHash 把唯一页块隐藏的白屏）。 */
 export const NAV_SCRIPT = `<script>
 (function(){
+  // T7 Minor：手工上传 HTML 的 data-nav 值可能含非法转义（如百分号后非十六进制）——decode 抛错会打断整个点击委托，包 try/catch 回落原串
+  function dec(s){try{return decodeURIComponent(s);}catch(e){return s;}}
   function show(pageId,stateId){
     document.querySelectorAll('[data-page-block]').forEach(function(b){b.style.display=b.getAttribute('data-page-block')===pageId?'':'none';});
     document.querySelectorAll('section[data-page]').forEach(function(s){
@@ -76,13 +78,13 @@ export const NAV_SCRIPT = `<script>
       e.preventDefault();
       var v=n.getAttribute('data-nav')||'';
       var h=v.replace(/^#/,'').split('/');
-      var pid=h[0]?decodeURIComponent(h[0]):'';
+      var pid=h[0]?dec(h[0]):'';
       if(!pid)return;
       var found=false;
       document.querySelectorAll('[data-page-block]').forEach(function(b){if(b.getAttribute('data-page-block')===pid)found=true;});
       if(!found)return;
       if(location.hash!==v){location.hash=v;}
-      else{show(pid,h[1]?decodeURIComponent(h[1]):null);}
+      else{show(pid,h[1]?dec(h[1]):null);}
       return;
     }
     var t=e.target&&e.target.closest?e.target.closest('[data-show-state]'):null;
@@ -213,14 +215,27 @@ export function parseFlowStepRef(step: string): { page: string; state: string | 
   return m ? { page: m[1]!, state: m[2] ?? null } : null;
 }
 
-/** data-nav 目标校验（页级契约校验 validatePageHtml 与汇总 checkPrototype 共用单点口径）：
- *  逐条提取 → 格式合法 + 目标页/状态在目录集内；null=通过，否则返回首条问题描述。 */
+/** data-nav 目标分类（T7 Minor：页级契约校验与汇总 check 共用单点分类器，防单边漂移）：
+ *  ok=合法且目标在目录集内；bad-format=属性格式非法；unknown-page=目标页不在目录；unknown-state=目标状态不在目录 */
+export type DataNavVerdict = 'ok' | 'bad-format' | 'unknown-page' | 'unknown-state';
+export function classifyDataNavTarget(raw: string, pageCodes: ReadonlySet<string>, stateCodes: ReadonlySet<string>): DataNavVerdict {
+  const ref = parseNavRef(raw);
+  if (!ref) return 'bad-format';
+  if (!pageCodes.has(ref.page)) return 'unknown-page';
+  if (ref.state && !stateCodes.has(ref.state)) return 'unknown-state';
+  return 'ok';
+}
+
+/** data-nav 目标校验（页级契约校验 validatePageHtml 用；与汇总 checkPrototype 共用 classifyDataNavTarget，
+ *  本函数取首条、check 侧收全部——分类口径单点，消息文案各自保留）。null=通过，否则返回首条问题描述。 */
 export function findDataNavProblem(html: string, pageCodes: ReadonlySet<string>, stateCodes: ReadonlySet<string>): string | null {
   for (const raw of extractDataNavTargets(html)) {
-    const ref = parseNavRef(raw);
-    if (!ref) return `data-nav 属性格式非法（须 data-nav="#页码" 或 "#页码/状态编号"）：${raw}`;
-    if (!pageCodes.has(ref.page)) return `data-nav 目标页 ${ref.page} 不在目录页面集内`;
-    if (ref.state && !stateCodes.has(ref.state)) return `data-nav 目标状态 ${ref.state} 不在目录状态集内`;
+    const verdict = classifyDataNavTarget(raw, pageCodes, stateCodes);
+    if (verdict === 'ok') continue;
+    if (verdict === 'bad-format') return `data-nav 属性格式非法（须 data-nav="#页码" 或 "#页码/状态编号"）：${raw}`;
+    const ref = parseNavRef(raw)!; // bad-format 已在上方返回——此处必可解析
+    if (verdict === 'unknown-page') return `data-nav 目标页 ${ref.page} 不在目录页面集内`;
+    return `data-nav 目标状态 ${ref.state} 不在目录状态集内`;
   }
   return null;
 }

@@ -291,6 +291,10 @@ export class CatalogService {
         'SELECT * FROM dsg_catalog_items WHERE id=$1 AND project_id=$2', [itemId, projectId]);
       const row = item.rows[0];
       if (!row) throw new DomainError('NOT_FOUND', '目录条目不存在', itemId);
+      // T7 Minor 折入：steps 仅 flow 条目可改——其它类型带 steps 一律拒绝（防语义错位/静默吞字段）
+      if (raw.steps !== undefined && row.item_type !== 'flow') {
+        throw new DomainError('VALIDATION_FAILED', `仅流程（flow）条目可编辑流程步骤（当前条目类型 ${row.item_type}）`, 'steps');
+      }
       // W2-052：目录版本递增属 check-then-act——咨询锁串行化「取版本→复制→改」临界区
       await lockCodeGen(client, `msf:code:catalog:${projectId}`);
       // 复制源恒为当前（最新）目录版本——itemId 可能来自旧版本（改即换版，itemId 随版轮换），

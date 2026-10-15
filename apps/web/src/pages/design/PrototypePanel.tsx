@@ -787,8 +787,10 @@ function EditItemModal({ itemType, item, onClose, onChanged }: {
   const [exempt, setExempt] = useState(item.payload.exempt === true);
   const [stepsText, setStepsText] = useState(((item.payload.steps as string[] | undefined) ?? []).join('\n'));
   const [msg, setMsg] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
   if (!projectId) return null;
   const submit = () => {
+    setBusy(true);
     setMsg(null);
     const input: { title: string; note: string; exempt: boolean; steps?: string[] } = {
       title: title.trim(), note, exempt,
@@ -797,7 +799,7 @@ function EditItemModal({ itemType, item, onClose, onChanged }: {
     void designApi.updateCatalogItem(projectId, item.itemId, input)
       .then(() => { onClose(); })
       .catch((e) => setMsg(e instanceof ApiError ? `${e.code}: ${e.message}` : '保存失败'))
-      .finally(onChanged);
+      .finally(() => { setBusy(false); onChanged(); });
   };
   return (
     <div className="modal-mask" onClick={onClose}>
@@ -815,12 +817,12 @@ function EditItemModal({ itemType, item, onClose, onChanged }: {
         )}
         <label className="form-row">
           <input type="checkbox" checked={exempt} onChange={(e) => setExempt(e.target.checked)} />
-          豁免对应性检查（页有册无 不报警；re-plan 随行保留）
+          豁免对应性检查（页有册无 不报警；re-plan 随行保留；与需求侧 RTM deferred 无关）
         </label>
         {msg && <p className="pop-tip err">{msg}</p>}
         <div className="modal-ops">
           <button className="act" onClick={onClose}>取消</button>
-          <button className="act primary" disabled={!title.trim()} onClick={submit}>保存（产生新目录版本）</button>
+          <button className="act primary" disabled={busy || !title.trim()} onClick={submit}>保存（产生新目录版本）</button>
         </div>
       </div>
     </div>
@@ -836,13 +838,15 @@ function AddItemModal({ onClose, onChanged }: { onClose: () => void; onChanged: 
   const [title, setTitle] = useState('');
   const [note, setNote] = useState('');
   const [msg, setMsg] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
   if (!projectId) return null;
   const submit = () => {
+    setBusy(true);
     setMsg(null);
     void designApi.addCatalogItem(projectId, { itemType, code: code.trim(), title: title.trim(), ...(note.trim() ? { note: note.trim() } : {}) })
       .then(() => { onClose(); })
       .catch((e) => setMsg(e instanceof ApiError ? `${e.code}: ${e.message}` : '新增失败'))
-      .finally(onChanged);
+      .finally(() => { setBusy(false); onChanged(); });
   };
   return (
     <div className="modal-mask" onClick={onClose}>
@@ -860,7 +864,7 @@ function AddItemModal({ onClose, onChanged }: { onClose: () => void; onChanged: 
         {msg && <p className="pop-tip err">{msg}</p>}
         <div className="modal-ops">
           <button className="act" onClick={onClose}>取消</button>
-          <button className="act primary" disabled={!code.trim() || !title.trim()} onClick={submit}>新增（产生新目录版本）</button>
+          <button className="act primary" disabled={busy || !code.trim() || !title.trim()} onClick={submit}>新增（产生新目录版本）</button>
         </div>
       </div>
     </div>

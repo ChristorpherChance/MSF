@@ -14,11 +14,11 @@ import { splitSections } from '../platform/doc-sections.js';
 import { DesignDocsService } from './docs.service.js';
 import { CatalogService } from './catalog.service.js';
 import {
+  classifyDataNavTarget,
   composePrototype,
   extractDataNavTargets,
   extractPageParts,
   parseFlowStepRef,
-  parseNavRef,
   UI_PAGE_SECTION_RE,
   type AssemblePageInput,
 } from './prototype-pages.js';
@@ -761,14 +761,16 @@ export function checkPrototype(
       issues.push({ code: 'PAGE_UI_UNMAPPED', message: `目录页 ${p.code} 无 ui 册章节承接（骨架/通用页可人工豁免）`, target: p.code });
     }
   }
-  // 覆盖检测 §3：data-nav 目标存在性（旧版汇总无 data-nav 自然零命中——旧产物永久可预览不受新校验影响）
+  // 覆盖检测 §3：data-nav 目标存在性（旧版汇总无 data-nav 自然零命中——旧产物永久可预览不受新校验影响）。
+  // T7 Minor：与 findDataNavProblem 共用 classifyDataNavTarget 分类器（防单边漂移）；check 收全部，页级校验取首条。
   const pageCodes = new Set(items.filter((i) => i.item_type === 'page').map((i) => i.code));
   const stateCodes = new Set(items.filter((i) => i.item_type === 'state').map((i) => i.code));
   for (const raw of extractDataNavTargets(html)) {
-    const ref = parseNavRef(raw);
-    if (!ref) {
+    const verdict = classifyDataNavTarget(raw, pageCodes, stateCodes);
+    if (verdict === 'ok') continue;
+    if (verdict === 'bad-format') {
       issues.push({ code: 'DATA_NAV_TARGET_MISSING', message: `原型内 data-nav 属性格式非法（须 "#页码" 或 "#页码/状态"）：${raw}`, target: raw });
-    } else if (!pageCodes.has(ref.page) || (ref.state !== null && !stateCodes.has(ref.state))) {
+    } else {
       issues.push({ code: 'DATA_NAV_TARGET_MISSING', message: `原型内 data-nav 目标「${raw}」不在目录页面/状态集内`, target: raw });
     }
   }
