@@ -517,6 +517,12 @@ function buildDesignPrompt(
     ...(incremental ? [] : [buildTemplateGuide('design', kind, projectId)]),
     // #15 反向派生依赖回引；#11 全量承接
     '逐条承接上游 PRD 的全部 REQ 条目：每个承接章节在标题或正文显式回引 REQ-nnn 编号（追溯链按此派生），不得遗漏尾部条目。',
+    // db 册按状态对象组织（数据字典/事务契约一节服务多 REQ），逐节单挂承接做不到——
+    // 首行「关联：REQ-nnn（可多个）」约定与 DB_TEMPLATE 编写规则同源（初稿经 buildTemplateGuide 注入，
+    // 增量修订模板块不注入，故此处对 db 册常驻一行；过度设计筛查以字面 REQ-nnn 派生）
+    ...(kind === 'db'
+      ? ['数据字典/事务契约等按状态对象组织的章节，正文首行注明「关联：REQ-nnn」（可多个、逗号分隔）；命名规范等通用节免挂。']
+      : []),
     // #10 增量修订编号顺延
     existingCodes.length ? `本文档已占用章节编号：${existingCodes.join('、')}；新增章节必须使用未占用编号（顺延），不得复用。` : '',
     instruction ? `用户指示：${instruction}` : '',
