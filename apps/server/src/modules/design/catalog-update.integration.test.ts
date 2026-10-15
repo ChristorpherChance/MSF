@@ -183,4 +183,28 @@ describe('catalog.update-item（集成，需 DB+MinIO）', async () => {
     const cat = (await catalog.getCatalog(PID)) as CatalogView;
     expect(cat.groups.flow!.find((i) => i.code === 'F-001')!.payload.steps).toEqual(['打开门户首页', '提交检索']);
   });
+
+  it('⑤ I-1 回归：body 携带异项目 projectId/itemId 键不得覆盖路径归属（写+审计都落 path 项目）', async () => {
+    const ROGUE = '00000000-0000-0000-0000-000000000099';
+    const cat0 = (await catalog.getCatalog(PID)) as CatalogView;
+    const flow = cat0.groups.flow!.find((i) => i.code === 'F-001')!;
+    const auditCnt = async () => Number((await query<{ n: string }>(
+      `SELECT count(*) AS n FROM audit_log WHERE project_id=$1 AND command='design.catalog.update-item'`, [PID])).rows[0]!.n);
+    const before = await auditCnt();
+    // 路径参数兜底在后：body 的 projectId/itemId 被丢弃，handler 读写仍按路径归属
+    const r = (await catalog.updateItem(PID, flow.itemId,
+      { title: '主流程（终审）', projectId: ROGUE, itemId: ROGUE } as never, CTX)) as { catalogVersion: string };
+    expect(r.catalogVersion).toBe('V3-6');
+    const cat = (await catalog.getCatalog(PID)) as CatalogView;
+    expect(cat.catalogVersion).toBe('V3-6');
+    expect(cat.groups.flow!.find((i) => i.code === 'F-001')!.payload.title).toBe('主流程（终审）');
+    // 审计归属 path 项目（本次调用恰新增一条；异项目侧零留痕零落行）
+    expect(await auditCnt()).toBe(before + 1);
+    const rogueAudit = await query<{ n: string }>(
+      'SELECT count(*) AS n FROM audit_log WHERE project_id=$1', [ROGUE]);
+    expect(rogueAudit.rows[0]!.n).toBe('0');
+    const rogueItems = await query<{ n: string }>(
+      'SELECT count(*) AS n FROM dsg_catalog_items WHERE project_id=$1', [ROGUE]);
+    expect(rogueItems.rows[0]!.n).toBe('0');
+  });
 });

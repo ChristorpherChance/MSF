@@ -345,7 +345,8 @@ export class CatalogService {
   }
 
   async addItem(projectId: string, input: { itemType: string; code: string; title: string; note?: string }, ctx: CommandContext) {
-    return executeCommand('design.catalog.add-item', { projectId, ...input }, { ...ctx, projectId });
+    // I-1：路径参数兜底在后——body 携带同名 projectId 键不得覆盖路径归属（防跨项目写+审计错位）
+    return executeCommand('design.catalog.add-item', { ...input, projectId }, { ...ctx, projectId });
   }
 
   async removeItem(projectId: string, itemId: string, ctx: CommandContext) {
@@ -358,7 +359,8 @@ export class CatalogService {
     input: { title?: string; note?: string; steps?: string[]; exempt?: boolean },
     ctx: CommandContext,
   ) {
-    return executeCommand('design.catalog.update-item', { projectId, itemId, ...input }, { ...ctx, projectId });
+    // I-1：路径参数兜底在后——body 携带 projectId/itemId 键不得覆盖路径归属（防跨项目写+审计错位）
+    return executeCommand('design.catalog.update-item', { ...input, projectId, itemId }, { ...ctx, projectId });
   }
 
   /** A05-4 目录查询（最新版本分组；L8：条目带追溯锚点 anchors——「每项可追溯到具体文档章节锚点」） */
