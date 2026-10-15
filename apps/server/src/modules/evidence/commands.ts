@@ -103,6 +103,7 @@ export const COMMANDS = [
   // M3 设计域：目录人工增删（A05-13）与评审结论（A05-3）
   'design.catalog.add-item',
   'design.catalog.remove-item',
+  'design.catalog.update-item', // 条目字段修订（title/note/steps/exempt；改即新目录版本），差异登记 45
   'design.review.seed',
   'design.review.conclude',
   'design.review.reopen', // 已解决项重新打开（S8 分组表操作），差异登记

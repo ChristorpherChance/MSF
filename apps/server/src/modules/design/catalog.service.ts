@@ -250,9 +250,94 @@ export class CatalogService {
       );
       return { removed: itemId, catalogVersion: ver };
     });
+    // A05-13 扩：目录条目字段修订（覆盖检测 §2 豁免落点 + §3 流程步骤编辑）。
+    // 可改字段白名单=title/note/payload.steps/payload.exempt（steps/exempt 对照 CARRIED_PAYLOAD_KEYS——
+    // 落 payload 的可改键必须在随行清单内，否则 re-plan 丢人工调整）；
+    // reqIds/route/verify 等识别字段一律拒绝。改即新 catalog_version（PLAN_STALE 联动同 add/remove 口径）。
+    registerCommand('design.catalog.update-item', async (client, payload, ctx) => {
+      const raw = payload as Record<string, unknown>;
+      const { projectId, itemId } = raw as { projectId: string; itemId: string };
+      for (const k of Object.keys(raw)) {
+        if (k === 'projectId' || k === 'itemId') continue;
+        if (k !== 'title' && k !== 'note' && k !== 'steps' && k !== 'exempt') {
+          throw new DomainError('VALIDATION_FAILED', `不可修改的字段: ${k}（仅 title/note/steps/exempt 可改）`, k);
+        }
+      }
+      const patch: { title?: string; note?: string; steps?: string[]; exempt?: boolean } = {};
+      if (raw.title !== undefined) {
+        if (typeof raw.title !== 'string' || !raw.title.trim()) {
+          throw new DomainError('VALIDATION_FAILED', '条目标题必填', 'title');
+        }
+        patch.title = raw.title.trim();
+      }
+      if (raw.note !== undefined) {
+        if (typeof raw.note !== 'string') throw new DomainError('VALIDATION_FAILED', '备注须为字符串', 'note');
+        patch.note = raw.note;
+      }
+      if (raw.steps !== undefined) {
+        if (!Array.isArray(raw.steps) || raw.steps.some((s) => typeof s !== 'string' || !s.trim())) {
+          throw new DomainError('VALIDATION_FAILED', '流程步骤须为非空字符串数组', 'steps');
+        }
+        patch.steps = raw.steps.map((s) => s.trim());
+      }
+      if (raw.exempt !== undefined) {
+        if (typeof raw.exempt !== 'boolean') throw new DomainError('VALIDATION_FAILED', '豁免标记须为布尔值', 'exempt');
+        patch.exempt = raw.exempt;
+      }
+      if (Object.keys(patch).length === 0) {
+        throw new DomainError('VALIDATION_FAILED', '无可更新字段（title/note/steps/exempt 至少一项）', 'title');
+      }
+      const item = await client.query<CatalogItemRow & { catalog_version: string }>(
+        'SELECT * FROM dsg_catalog_items WHERE id=$1 AND project_id=$2', [itemId, projectId]);
+      const row = item.rows[0];
+      if (!row) throw new DomainError('NOT_FOUND', '目录条目不存在', itemId);
+      // W2-052：目录版本递增属 check-then-act——咨询锁串行化「取版本→复制→改」临界区
+      await lockCodeGen(client, `msf:code:catalog:${projectId}`);
+      // 复制源恒为当前（最新）目录版本——itemId 可能来自旧版本（改即换版，itemId 随版轮换），
+      // 从 row.catalog_version 复制会把中间版本上其它条目的修订静默回滚
+      const curVer = await this.currentCatalogVersion(client, projectId);
+      const cur = await client.query<CatalogItemRow>(
+        'SELECT * FROM dsg_catalog_items WHERE project_id=$1 AND catalog_version=$2 AND item_type=$3 AND code=$4',
+        [projectId, curVer, row.item_type, row.code]);
+      const curRow = cur.rows[0];
+      if (!curRow) throw new DomainError('NOT_FOUND', '该条目已不在当前目录版本（可能已被重规划移除）', itemId);
+      const ver = await this.nextCatalogVersion(client, projectId);
+      // 复制当前版本全部条目到新版本（目录版本化：改=新版本）
+      await client.query(
+        `INSERT INTO dsg_catalog_items (project_id, catalog_version, item_type, code, payload, required, source, content_fingerprint, created_by)
+         SELECT project_id, $2, item_type, code, payload, required, source, content_fingerprint, $3
+         FROM dsg_catalog_items WHERE project_id=$1 AND catalog_version=$4`,
+        [projectId, ver, ctx.actorId, curVer],
+      );
+      // 追溯引用随行迁移到新版本条目（按 type+code 对齐；REQ-312 审计链不断）
+      await client.query(
+        `INSERT INTO dsg_catalog_refs (item_id, ref_kind, doc_kind, section_id, anchor, rule_text, ref_fingerprint, ruleset_version)
+         SELECT n.id, r.ref_kind, r.doc_kind, r.section_id, r.anchor, r.rule_text, r.ref_fingerprint, r.ruleset_version
+         FROM dsg_catalog_refs r
+         JOIN dsg_catalog_items o ON o.id=r.item_id
+         JOIN dsg_catalog_items n ON n.project_id=o.project_id AND n.catalog_version=$2
+           AND n.item_type=o.item_type AND n.code=o.code
+         WHERE o.project_id=$1 AND o.catalog_version=$3`,
+        [projectId, ver, curVer],
+      );
+      // 合并补丁进新版本中该条目的 payload（基线=当前版本行；保留 reqIds/route/verify 等未授权字段原值）；
+      // exempt=false 删键而非存 false——豁免口径只看 payload.exempt===true，保持 payload 自包含干净
+      const merged: Record<string, unknown> = { ...curRow.payload };
+      if (patch.title !== undefined) merged.title = patch.title;
+      if (patch.note !== undefined) merged.note = patch.note;
+      if (patch.steps !== undefined) merged.steps = patch.steps;
+      if (patch.exempt !== undefined) {
+        if (patch.exempt) merged.exempt = true;
+        else delete merged.exempt;
+      }
+      const r = await client.query<{ id: string }>(
+        `UPDATE dsg_catalog_items SET payload=$5, content_fingerprint=$6
+         WHERE project_id=$1 AND catalog_version=$2 AND item_type=$3 AND code=$4 RETURNING id`,
+        [projectId, ver, row.item_type, row.code, JSON.stringify(merged), sha256Text(JSON.stringify(merged))],
+      );
+      return { itemId: r.rows[0]!.id, catalogVersion: ver };
+    });
   }
-
-  /** A05-5 plan 命令入口 */
   async plan(projectId: string, ctx: CommandContext) {
     return executeCommand('design.prototype.plan', { projectId }, { ...ctx, projectId });
   }
@@ -263,6 +348,15 @@ export class CatalogService {
 
   async removeItem(projectId: string, itemId: string, ctx: CommandContext) {
     return executeCommand('design.catalog.remove-item', { projectId, itemId }, { ...ctx, projectId });
+  }
+
+  async updateItem(
+    projectId: string,
+    itemId: string,
+    input: { title?: string; note?: string; steps?: string[]; exempt?: boolean },
+    ctx: CommandContext,
+  ) {
+    return executeCommand('design.catalog.update-item', { projectId, itemId, ...input }, { ...ctx, projectId });
   }
 
   /** A05-4 目录查询（最新版本分组；L8：条目带追溯锚点 anchors——「每项可追溯到具体文档章节锚点」） */

@@ -1,5 +1,5 @@
 import {
-  Body, Controller, Delete, Get, HttpCode, Inject, Param, Post, Query, Req, Res,
+  Body, Controller, Delete, Get, HttpCode, Inject, Param, Post, Put, Query, Req, Res,
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { DomainError } from '@msf/shared';
@@ -270,6 +270,17 @@ export class DesignController {
   async removeCatalogItem(@Param('projectId') projectId: string, @Param('itemId') itemId: string, @Req() req: Request) {
     await this.catalog.removeItem(projectId, itemId, this.actor(req, projectId));
     return { removed: itemId };
+  }
+
+  /** A05-13 扩：目录条目字段修订（title/note/steps/exempt 白名单；改即新目录版本） */
+  @Put('catalog/items/:itemId')
+  updateCatalogItem(
+    @Param('projectId') projectId: string,
+    @Param('itemId') itemId: string,
+    @Body() body: { title?: string; note?: string; steps?: string[]; exempt?: boolean },
+    @Req() req: Request,
+  ) {
+    return this.catalog.updateItem(projectId, itemId, body, this.actor(req, projectId));
   }
 
   /** A05-5 原型规划 */

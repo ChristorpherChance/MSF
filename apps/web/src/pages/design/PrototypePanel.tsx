@@ -717,11 +717,12 @@ function BaselineCard({ items, reload }: { items: BaselineItem[] | null; reload:
   );
 }
 
-/** 设计目录卡：分组摘要 + 人工增删（增删=新目录版本；识别条目不可直删，REQ-304/306） */
+/** 设计目录卡：分组摘要 + 人工增删/条目修订（增删改=新目录版本；识别条目不可直删，REQ-304/306） */
 function CatalogCard({ onChanged }: { onChanged: () => void }) {
   const { projectId, catalog } = useDesignView();
   const [addOpen, setAddOpen] = useState(false);
   const [delTarget, setDelTarget] = useState<{ itemId: string; label: string } | null>(null);
+  const [editTarget, setEditTarget] = useState<{ itemType: string; item: CatalogGroup } | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   if (!projectId || !catalog) return null;
   const groups = Object.entries(catalog.groups);
@@ -744,13 +745,15 @@ function CatalogCard({ onChanged }: { onChanged: () => void }) {
           {items.map((it) => (
             <div key={it.itemId} className="issue-row">
               <code>{it.code}</code> {(it.payload.title as string) ?? ''}
-              <span className="mut">[{it.source === 'manual' ? '人工' : '识别'}{it.required ? '·必需' : ''}]</span>
+              <span className="mut">[{it.source === 'manual' ? '人工' : '识别'}{it.required ? '·必需' : ''}{it.payload.exempt === true ? '·已豁免' : ''}]</span>
+              <button className="act" onClick={() => setEditTarget({ itemType: g, item: it })}>编辑</button>
               {it.source === 'manual' && <button className="act" onClick={() => setDelTarget({ itemId: it.itemId, label: `${it.code} ${(it.payload.title as string) ?? ''}` })}>删除</button>}
             </div>
           ))}
         </div>
       ))}
       {addOpen && <AddItemModal onClose={() => setAddOpen(false)} onChanged={onChanged} />}
+      {editTarget && <EditItemModal itemType={editTarget.itemType} item={editTarget.item} onClose={() => setEditTarget(null)} onChanged={onChanged} />}
       {delTarget && (
         <div className="modal-mask" onClick={() => setDelTarget(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -763,6 +766,63 @@ function CatalogCard({ onChanged }: { onChanged: () => void }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * 目录条目修订弹层（覆盖检测 §2/§3：title/note/流程步骤 steps/豁免 exempt 白名单；
+ * 保存即新目录版本 → 旧规划按过期处理。flow 条目增步骤编辑（一行一步骤）；
+ * exempt 为「页有册无」人工豁免标记（与 RTM deferred 两套机制，互不通用）。
+ */
+function EditItemModal({ itemType, item, onClose, onChanged }: {
+  itemType: string;
+  item: CatalogGroup;
+  onClose: () => void;
+  onChanged: () => void;
+}) {
+  const { projectId } = useDesignView();
+  const [title, setTitle] = useState((item.payload.title as string) ?? '');
+  const [note, setNote] = useState((item.payload.note as string) ?? '');
+  const [exempt, setExempt] = useState(item.payload.exempt === true);
+  const [stepsText, setStepsText] = useState(((item.payload.steps as string[] | undefined) ?? []).join('\n'));
+  const [msg, setMsg] = useState<string | null>(null);
+  if (!projectId) return null;
+  const submit = () => {
+    setMsg(null);
+    const input: { title: string; note: string; exempt: boolean; steps?: string[] } = {
+      title: title.trim(), note, exempt,
+    };
+    if (itemType === 'flow') input.steps = stepsText.split('\n').map((s) => s.trim()).filter(Boolean);
+    void designApi.updateCatalogItem(projectId, item.itemId, input)
+      .then(() => { onClose(); })
+      .catch((e) => setMsg(e instanceof ApiError ? `${e.code}: ${e.message}` : '保存失败'))
+      .finally(onChanged);
+  };
+  return (
+    <div className="modal-mask" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <h3>编辑目录条目 {item.code}</h3>
+        <p className="pop-tip">
+          仅标题/备注/{itemType === 'flow' ? '流程步骤/' : ''}豁免可改（识别字段如 REQ 关联不可改）；保存即产生新目录版本（记审计）。
+        </p>
+        <label className="form-row">标题 <input value={title} onChange={(e) => setTitle(e.target.value)} /></label>
+        <label className="form-row">备注 <input value={note} onChange={(e) => setNote(e.target.value)} /></label>
+        {itemType === 'flow' && (
+          <label className="form-row">流程步骤（一行一步骤）
+            <textarea value={stepsText} onChange={(e) => setStepsText(e.target.value)} rows={5} />
+          </label>
+        )}
+        <label className="form-row">
+          <input type="checkbox" checked={exempt} onChange={(e) => setExempt(e.target.checked)} />
+          豁免对应性检查（页有册无 不报警；re-plan 随行保留）
+        </label>
+        {msg && <p className="pop-tip err">{msg}</p>}
+        <div className="modal-ops">
+          <button className="act" onClick={onClose}>取消</button>
+          <button className="act primary" disabled={!title.trim()} onClick={submit}>保存（产生新目录版本）</button>
+        </div>
+      </div>
     </div>
   );
 }
