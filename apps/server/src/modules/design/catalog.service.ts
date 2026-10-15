@@ -338,6 +338,8 @@ export class CatalogService {
       return { itemId: r.rows[0]!.id, catalogVersion: ver };
     });
   }
+
+  /** A05-5 plan 命令入口 */
   async plan(projectId: string, ctx: CommandContext) {
     return executeCommand('design.prototype.plan', { projectId }, { ...ctx, projectId });
   }
