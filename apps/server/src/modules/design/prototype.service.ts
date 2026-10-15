@@ -118,6 +118,10 @@ export class PrototypeService {
           .map((s) => ({ id: s.id, title: s.title })),
       };
       const { issues, unverified } = checkPrototype(html, items.rows, uiInput);
+      // I-1：时间基滞后并入报告（不拦 check）——滞后页与双向检出同报，用户据 UI_SECTION_UNMAPPED 判 re-plan
+      for (const x of await this.pageUiLagIssues(client, projectId, catVer ?? '')) {
+        issues.push({ code: x.code, message: x.message, target: x.target ?? '' });
+      }
       // W2-052：run_no 发号 count+1 属 check-then-act——咨询锁串行化「计数→插入」临界区
       await lockCodeGen(client, `msf:code:proto-check:${projectId}`);
       const run = await client.query<{ n: string }>(
@@ -348,7 +352,8 @@ export class PrototypeService {
         'SELECT page_code, html_fingerprint, source, updated_at FROM dsg_prototype_pages WHERE project_id=$1 AND catalog_version=$2',
         [projectId, latestPlan.catalog_version]);
       // 时间基滞后（覆盖检测 §2 C1 修法）：页 updated_at < 其依据 ui 册当前版本 submitted_at → 「依据已变更」；
-      // 页重生成 updated_at 刷新即自动解脏（upstream-stale.ts 先例，零新增快照列）
+      // 页重生成 updated_at 刷新即自动解脏（upstream-stale.ts 先例，零新增快照列）。
+      // M-3：与 pageUiLagIssues 是同一条判定规则（两处互指，改须同步）
       const uiRefs = await query<{ code: string; section_id: string | null; anchor: string | null }>(
         `SELECT i.code, r.section_id, r.anchor FROM dsg_catalog_refs r
          JOIN dsg_catalog_items i ON i.id=r.item_id
@@ -497,7 +502,9 @@ export class PrototypeService {
       if (!latestPlan) issues.push({ code: 'PLAN_REQUIRED', message: '尚无原型规划' });
       if (!d?.current_version_id) issues.push({ code: 'PROTOTYPE_REQUIRED', message: '原型尚未生成' });
       if (d?.modified) issues.push({ code: 'PROTOTYPE_DIRTY', message: '原型已修改，须重新生成后再检查', target: d.id });
-      // 页滞后实时比对（页重生成不产生新版本，CHECK_STALE 抓不到——纯 DB 比对，复用 PROTOTYPE_DIRTY）
+      // 页滞后实时比对（页重生成不产生新版本，CHECK_STALE 抓不到——纯 DB 比对，复用 PROTOTYPE_DIRTY）。
+      // I-1：时间基滞后（pageUiLagIssues）对 check 不拦——降级为 check 报告内 issue（见该命令处并入）；
+      // 此处只推硬漂移（指纹/目录版本）。
       if (latestPlan && d?.current_version_id) {
         issues.push(...await this.pageDriftIssues(client, projectId, latestPlan.catalog_version, d.current_version_id));
       }
@@ -516,9 +523,11 @@ export class PrototypeService {
         }
       }
       if (d?.modified) issues.push({ code: 'PROTOTYPE_DIRTY', message: '原型已修改未定稿', target: d.id });
-      // 页滞后实时比对（定稿一个滞后汇总会冻结错误基线，必须拦）
+      // 页滞后实时比对（定稿一个滞后汇总会冻结错误基线，必须拦）。
+      // I-1：finalize 保留时间基滞后硬门禁（pageUiLagIssues 并列；check 动作已降级为报告内 issue）。
       if (latestPlan && d?.current_version_id) {
         issues.push(...await this.pageDriftIssues(client, projectId, latestPlan.catalog_version, d.current_version_id));
+        issues.push(...await this.pageUiLagIssues(client, projectId, latestPlan.catalog_version));
       }
     }
     if (action === 'develop') {
@@ -566,10 +575,9 @@ export class PrototypeService {
   }
 
   /**
-   * 页滞后实时比对（F02-2 失效由查询时判定、不写回 的同口径；纯 DB，不读 MinIO）：
+   * 页滞后实时比对·硬门禁部分（F02-2 失效由查询时判定、不写回 的同口径；纯 DB，不读 MinIO）：
    * 页行指纹 ≠ 当前汇总版本 manifest 记录 → 页已更新未汇总；页行 catalog_version ≠ plan 锁定版本 → 依据已过期。
-   * 时间基滞后（覆盖检测 §2）：页 updated_at < 其依据 ui 册当前版本 submitted_at → 「依据的 ui 册已变更」，
-   * 页重生成 updated_at 刷新即解脏（与 pageDriftIssues 并列的 PROTOTYPE_DIRTY 同款门禁）。
+   * 时间基滞后不在这里——见 pageUiLagIssues（I-1：对 check 降级为报告内 issue，仅 finalize 硬门禁）。
    */
   private async pageDriftIssues(
     client: PoolClient | null,
@@ -579,8 +587,8 @@ export class PrototypeService {
   ): Promise<GateIssue[]> {
     const q = client ? client.query.bind(client) : query;
     const recorded = await this.manifestFingerprints(client, currentVersionId);
-    const rows = await q<{ page_code: string; html_fingerprint: string; catalog_version: string; updated_at: string }>(
-      'SELECT page_code, html_fingerprint, catalog_version, updated_at FROM dsg_prototype_pages WHERE project_id=$1',
+    const rows = await q<{ page_code: string; html_fingerprint: string; catalog_version: string }>(
+      'SELECT page_code, html_fingerprint, catalog_version FROM dsg_prototype_pages WHERE project_id=$1',
       [projectId]);
     const issues: GateIssue[] = [];
     for (const r of rows.rows) {
@@ -590,27 +598,46 @@ export class PrototypeService {
         issues.push({ code: 'PROTOTYPE_DIRTY', message: `页面 ${r.page_code} 原型已更新未汇总，须重新汇总生成`, target: r.page_code });
       }
     }
-    // 时间基滞后：仅本 plan 目录版本且有 ui ref 的页参与（旧目录无 ui refs 不适用，判别式同双向检查）
+    return issues;
+  }
+
+  /**
+   * 时间基滞后（覆盖检测 §2 C1 修法）：页 updated_at < 其依据 ui 册当前版本 submitted_at → 滞后，
+   * 页重生成 updated_at 刷新即自动解脏（upstream-stale.ts 先例，零新增快照列）。
+   * M-3：判定规则与 status() 的 uiStale/uiStalePages 派生是同一条（两处互指，改须同步）。
+   * I-1 评审修法：check 动作降级为报告内 issue（PROTOTYPE_DIRTY 出报告但不 GATE_BLOCKED 拦截——
+   * ui 册变更后用户能先跑出 check 报告看到 UI_SECTION_UNMAPPED 这类「该 re-plan」的信号，
+   * 而非被逼先烧 N 次页重生成）；finalize 保留硬门禁（定稿冻结错误基线必须拦）。
+   */
+  private async pageUiLagIssues(
+    client: PoolClient | null,
+    projectId: string,
+    planCatalogVersion: string,
+  ): Promise<GateIssue[]> {
+    const q = client ? client.query.bind(client) : query;
+    // 仅本目录版本且有 ui ref 的页参与（旧目录无 ui refs 不适用，判别式同双向检查）
     const uiRefs = await q<{ code: string; anchor: string | null }>(
       `SELECT i.code, r.anchor FROM dsg_catalog_refs r
        JOIN dsg_catalog_items i ON i.id=r.item_id
        WHERE i.project_id=$1 AND i.catalog_version=$2 AND r.ref_kind='ui' AND i.item_type='page'`,
       [projectId, planCatalogVersion]);
-    if (uiRefs.rows.length > 0) {
-      const uiCur = await q<{ at: string }>(
-        `SELECT v.submitted_at AS at FROM dsg_documents d JOIN dsg_versions v ON v.id=d.current_version_id
-         WHERE d.project_id=$1 AND d.doc_kind='ui'`, [projectId]);
-      const uiAt = uiCur.rows[0]?.at ?? null;
-      if (uiAt) {
-        const anchorByCode = new Map(uiRefs.rows.map((x) => [x.code, x.anchor]));
-        for (const r of rows.rows) {
-          if (r.catalog_version !== planCatalogVersion) continue; // 目录版本过期已单独报
-          const anchor = anchorByCode.get(r.page_code);
-          if (anchor === undefined) continue;
-          if (new Date(r.updated_at) < new Date(uiAt)) {
-            issues.push({ code: 'PROTOTYPE_DIRTY', message: `页面 ${r.page_code} 依据的 ui 册「${anchor ?? ''}」已变更（ui 册有新提交），须重新生成该页`, target: r.page_code });
-          }
-        }
+    if (uiRefs.rows.length === 0) return [];
+    const uiCur = await q<{ at: string }>(
+      `SELECT v.submitted_at AS at FROM dsg_documents d JOIN dsg_versions v ON v.id=d.current_version_id
+       WHERE d.project_id=$1 AND d.doc_kind='ui'`, [projectId]);
+    const uiAt = uiCur.rows[0]?.at ?? null;
+    if (!uiAt) return [];
+    const anchorByCode = new Map(uiRefs.rows.map((x) => [x.code, x.anchor]));
+    const rows = await q<{ page_code: string; catalog_version: string; updated_at: string }>(
+      'SELECT page_code, catalog_version, updated_at FROM dsg_prototype_pages WHERE project_id=$1',
+      [projectId]);
+    const issues: GateIssue[] = [];
+    for (const r of rows.rows) {
+      if (r.catalog_version !== planCatalogVersion) continue; // 目录版本过期由 pageDriftIssues 硬门禁单独报
+      const anchor = anchorByCode.get(r.page_code);
+      if (anchor === undefined) continue;
+      if (new Date(r.updated_at) < new Date(uiAt)) {
+        issues.push({ code: 'PROTOTYPE_DIRTY', message: `页面 ${r.page_code} 依据的 ui 册「${anchor ?? ''}」已变更（ui 册有新提交），须重新生成该页`, target: r.page_code });
       }
     }
     return issues;
@@ -707,7 +734,9 @@ export function checkPrototype(
   if (ui?.hasUiRefs) {
     const pageItems = items.filter((i) => i.item_type === 'page');
     // 册有页无：ui 册页面章节无目录页承接。匹配键=锚点标题（splitSections 的节 id 是位置序，
-    // 册内增删节后新章节会继承旧节 id——按 id 匹配会把「新章节」误判成「已被旧 ref 承接」）
+    // 册内增删节后新章节会继承旧节 id——按 id 匹配会把「新章节」误判成「已被旧 ref 承接」）。
+    // M-6 同名章节 edge：ui 册两个页面章节同名时，一个 ref 命中即两者都算被承接（保守不重复报；
+    // 同名章节本就应合并，属源文档质量问题而非对应缺口）
     for (const sec of ui.uiPageSecs) {
       const covered = pageItems.some((p) => ui.refsByCode.get(p.code)?.anchor === sec.title);
       if (!covered) {

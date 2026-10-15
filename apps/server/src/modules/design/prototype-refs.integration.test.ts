@@ -50,20 +50,11 @@ interface StatusView {
 
 interface GateView { ok: boolean; issues: Array<{ code: string; message: string; target?: string }> }
 
-/** 编辑 ui 册 s0（整文含 ## 章节）并提交为新版本；backdate=true 时把 submitted_at 回拨 2 小时（免触发时间基滞后） */
-async function commitUi(
-  docs: DesignDocsService, md: string, note: string, backdate: boolean,
-): Promise<void> {
+/** 编辑 ui 册 s0（整文含 ## 章节）并提交为新版本 */
+async function commitUi(docs: DesignDocsService, md: string, note: string): Promise<void> {
   const dv = (await docs.getDoc(PID, 'ui')) as unknown as DocView;
   await docs.saveDraft(PID, 'ui', { secId: 's0', md, baseVersion: dv.cur, baseFingerprint: dv.contentFingerprint }, CTX);
   await docs.commit(PID, 'ui', note, dv.cur, CTX);
-  if (backdate) {
-    await query(
-      `UPDATE dsg_versions SET submitted_at = now() - interval '2 hours'
-       WHERE document_id=(SELECT id FROM dsg_documents WHERE project_id=$1 AND doc_kind='ui')
-         AND version_no=(SELECT max(version_no) FROM dsg_versions WHERE document_id=(SELECT id FROM dsg_documents WHERE project_id=$1 AND doc_kind='ui'))`,
-      [PID]);
-  }
 }
 
 describe('原型页↔ui 册结构化对应（集成，需 DB+MinIO）', async () => {
@@ -154,7 +145,7 @@ describe('原型页↔ui 册结构化对应（集成，需 DB+MinIO）', async (
       '## u-2 检索列表界面',
       '',
       '承接 REQ-002。表格 + 筛选。',
-    ].join('\n'), 'UI v2', false);
+    ].join('\n'), 'UI v2');
     await docs.finalize(PID, 'ui', 2, 2, true, false, CTX);
     plan2 = (await catalog.plan(PID, CTX)) as { planId: string; fingerprint: string };
 
@@ -203,8 +194,9 @@ describe('原型页↔ui 册结构化对应（集成，需 DB+MinIO）', async (
     expect(st.pages.find((p) => p.code === 'P-001')!.uiStale).toBe(true);
     expect(st.pages.find((p) => p.code === 'P-002')!.uiStale).toBe(false); // 未生成的页不标滞后
     expect(st.uiStalePages).toContain('P-001');
+    // I-1：check 门禁不拦时间基滞后（降级为报告内 issue，见 ④）；finalize 保留硬门禁
     const gc = (await proto.gates(PID, 'check')) as GateView;
-    expect(gc.issues.some((i) => i.code === 'PROTOTYPE_DIRTY' && i.target === 'P-001' && i.message.includes('已变更'))).toBe(true);
+    expect(gc.issues.filter((i) => i.message.includes('已变更'))).toEqual([]);
     const gf = (await proto.gates(PID, 'finalize')) as GateView;
     expect(gf.issues.some((i) => i.code === 'PROTOTYPE_DIRTY' && i.target === 'P-001' && i.message.includes('已变更'))).toBe(true);
 
@@ -222,27 +214,30 @@ describe('原型页↔ui 册结构化对应（集成，需 DB+MinIO）', async (
     expect(gc3.issues.filter((i) => i.code === 'PROTOTYPE_DIRTY')).toEqual([]);
   });
 
-  it('④ 双向一致性：册有页无（ui 册新页面章节无目录页）/页有册无（人工页无 ui ref 且未豁免）', async () => {
-    // ui v4 增「u-3 设置页面」章节（无对应目录页）；submitted_at 回拨免触发滞后门禁
+  it('④ 双向一致性+滞后同报：ui 册变更后 check 可跑（报告同时含 UNMAPPED 与滞后 issue）；finalize 仍硬拦', async () => {
+    // ui v4 增「u-3 设置页面」章节（无对应目录页）；不回拨时间——v4 submitted_at 晚于 P-001 updated_at，天然带滞后
     const dv = (await docs.getDoc(PID, 'ui')) as unknown as DocView;
     await docs.saveDraft(PID, 'ui', {
       secId: 's0', md: 'UI 设计\n\n## u-3 设置页面\n\n设置页（无目录页承接）。',
       baseVersion: dv.cur, baseFingerprint: dv.contentFingerprint,
     }, CTX);
     await docs.commit(PID, 'ui', 'UI v4 增设置页', dv.cur, CTX);
-    await query(
-      `UPDATE dsg_versions SET submitted_at = now() - interval '2 hours'
-       WHERE document_id=(SELECT id FROM dsg_documents WHERE project_id=$1 AND doc_kind='ui') AND version_no=4`, [PID]);
     // ③解锁后 final 落空——重新定稿使 v4 成为 plan uiSecs 分支的读取源
     await docs.finalize(PID, 'ui', 4, 4, true, false, CTX);
 
     const ver = await query<{ current_version_id: string }>(
       "SELECT current_version_id FROM dsg_documents WHERE project_id=$1 AND doc_kind='prototype'", [PID]);
+    // I-1 新口径：check 可跑（滞后不拦门禁），报告同时含 册有页无 + 时间基滞后
     const chk = (await proto.check(PID, ver.rows[0]!.current_version_id, CTX)) as {
-      issues: Array<{ code: string; target: string }>;
+      status: string; issues: Array<{ code: string; target: string; message: string }>;
     };
+    expect(chk.status).toBe('fail');
     expect(chk.issues.some((i) => i.code === 'UI_SECTION_UNMAPPED' && i.target.includes('设置页面'))).toBe(true);
+    expect(chk.issues.some((i) => i.code === 'PROTOTYPE_DIRTY' && i.target === 'P-001' && i.message.includes('已变更'))).toBe(true);
     expect(chk.issues.filter((i) => i.code === 'PAGE_UI_UNMAPPED')).toEqual([]); // P-001/P-002 有 ref，P-HOME 已豁免
+    // I-1：finalize 保留时间基滞后硬门禁
+    const gf = (await proto.gates(PID, 'finalize')) as GateView;
+    expect(gf.issues.some((i) => i.code === 'PROTOTYPE_DIRTY' && i.target === 'P-001' && i.message.includes('已变更'))).toBe(true);
 
     // 人工补充页（无 ui ref、未豁免）→ 页有册无检出
     await catalog.addItem(PID, { itemType: 'page', code: 'P-CUSTOM', title: '自定义页' }, CTX);

@@ -186,17 +186,22 @@ export function PrototypePanel() {
                         ? ' · 已汇总'
                         : ' · 未生成'}
                 </span>
-                {/* 可追溯呈现（覆盖检测 §2）：依据 ui 册章节锚点（✓一致/⚠已变更=时间基滞后）+ PRD REQ-nnn */}
+                {/* 可追溯呈现（覆盖检测 §2）：依据 ui 册章节锚点（✓一致/⚠已变更=时间基滞后）+ PRD REQ-nnn；
+                    M-2：一致/变更徽标仅已生成页渲染（未生成页无 updated_at 可比，✓ 是伪信号） */}
                 {(pg?.uiRef || reqIds.length > 0) && (
                   <span className="mut" style={{ display: 'block', fontSize: 11 }}>
                     依据：
                     {pg?.uiRef && (
                       <>
                         ui 册「{pg.uiRef.anchor ?? pg.uiRef.sectionId}」
-                        {' '}
-                        {pg.uiStale
-                          ? <span className="tag tag-warn" title="ui 册有新提交，须重新生成该页">⚠已变更</span>
-                          : <span className="tag tag-ok">✓一致</span>}
+                        {pg.state !== 'none' && (
+                          <>
+                            {' '}
+                            {pg.uiStale
+                              ? <span className="tag tag-warn" title="ui 册有新提交，须重新生成该页">⚠已变更</span>
+                              : <span className="tag tag-ok">✓一致</span>}
+                          </>
+                        )}
                       </>
                     )}
                     {pg?.uiRef && reqIds.length > 0 && ' + '}

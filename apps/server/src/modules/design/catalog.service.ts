@@ -17,6 +17,14 @@ import { UI_PAGE_SECTION_RE } from './prototype-pages.js';
 /** 来源审计规则集版本（REQ-312 版本化；规则变更即升版） */
 export const RULESET_VERSION = 'src-rules-1';
 
+/**
+ * re-plan 随行字段（覆盖检测 §2）：派生条目（source≠'manual'）上允许人工修改、
+ * 且 re-plan 全量重导时按 type+code 迁移保留的 payload 键。
+ * 对照维护：Task 5 的 design.catalog.update-item 可改字段清单（title/note/payload.steps/payload.exempt）
+ * 中凡落 payload 的键都必须在本常量内，否则 re-plan 丢人工调整。
+ */
+const CARRIED_PAYLOAD_KEYS = ['steps', 'exempt'] as const;
+
 const FIXED_VIEWPORTS = ['1280', '1440', '1920'];
 const FIXED_ROLES = ['visitor', 'user', 'admin'];
 
@@ -119,8 +127,9 @@ export class CatalogService {
           }
           const it = items.find((i) => i.type === m.item_type && i.code === m.code);
           if (!it) continue; // 本版不再派生该条目（上游章节已删）
-          if (m.payload.steps !== undefined) it.payload.steps = m.payload.steps;
-          if (m.payload.exempt !== undefined) it.payload.exempt = m.payload.exempt;
+          for (const k of CARRIED_PAYLOAD_KEYS) {
+            if (m.payload[k] !== undefined) it.payload[k] = m.payload[k];
+          }
         }
       }
 

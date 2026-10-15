@@ -61,7 +61,7 @@ export interface ProtoStatus {
   }>;
   /** 存在「页已更新未汇总」 */
   pagesStale: boolean;
-  /** 依据的 ui 册已变更的页码清单（时间基滞后） */
+  /** 依据的 ui 册已变更的页码清单（时间基滞后；为顶层横幅预留——当前行内徽标消费 pages[].uiStale） */
   uiStalePages?: string[];
   latestCheck: {
     reportId: string; runNo: number; passed: boolean; prototypeVersionId: string;

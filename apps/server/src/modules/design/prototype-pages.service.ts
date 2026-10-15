@@ -131,7 +131,9 @@ export class PrototypePagesService {
        WHERE d.project_id=$1 AND d.doc_kind='prd'`, [projectId]);
     const prdRaw = prdRow.rows[0]?.content ?? '';
     const prd = prdRaw.length > PAGE_INPUT_CAP ? `${prdRaw.slice(0, PAGE_INPUT_CAP)}\n\n[原文过长，已截断]` : prdRaw;
-    // UI 册正文注入（覆盖检测 §2）：当前版本按页相关章节节选，上限同 PRD 口径
+    // UI 册正文注入（覆盖检测 §2）：当前版本按页相关章节节选，上限同 PRD 口径。
+    // M-1 口径钉死（三面有意不对称）：plan 读 ui 册【定稿】版本（页面种子/refs 须锚定已批准基线），
+    // 注入/check 双向/时间基滞后读【当前】版本（尽早暴露已提交未定稿的变更）——滞后判定正是两面之桥。
     const uiRow = await query<{ content: string }>(
       `SELECT v.content FROM dsg_documents d JOIN dsg_versions v ON v.id=d.current_version_id
        WHERE d.project_id=$1 AND d.doc_kind='ui'`, [projectId]);
