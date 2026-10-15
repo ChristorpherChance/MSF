@@ -27,6 +27,7 @@ const BOOK_ICONS: Record<DesignKind, string> = {
 export function DesignDocPanel({ kinds }: { kinds: DesignKind[] }) {
   const { books, selKind, selectBook } = useDesignView();
   const isDetail = kinds.length > 1;
+  const [batchOpen, setBatchOpen] = useState(false);
   return (
     <div className="design-doc-layout">
       <aside className="book-col">
@@ -55,6 +56,11 @@ export function DesignDocPanel({ kinds }: { kinds: DesignKind[] }) {
         })}
         <div className="book-col-foot">
           消费链：PRD 定稿 → 概要设计定稿 → 详细七册定稿；定稿登记 DSG-* 节点（REQ→DSG implements）。
+          {isDetail && (
+            <button className="act" style={{ marginTop: 6, width: '100%' }} onClick={() => setBatchOpen(true)}>
+              ✓ 批量定稿（七册）
+            </button>
+          )}
         </div>
       </aside>
       <div className="req-doc" style={{ flex: 1 }}>
@@ -64,6 +70,89 @@ export function DesignDocPanel({ kinds }: { kinds: DesignKind[] }) {
           <TocCol />
           <Paper />
         </div>
+      </div>
+      {batchOpen && <BatchFinalizeModal onClose={() => setBatchOpen(false)} />}
+    </div>
+  );
+}
+
+/** 批量定稿弹层（2026-10-16 拍板：除 hld 外七册一键定稿；逐册独立、失败跳过并列原因；
+ *  openReviews 为项目级门禁（finalize 命令口径）——有未决评审项须显式勾选二次确认（记审计）。 */
+function BatchFinalizeModal({ onClose }: { onClose: () => void }) {
+  const { projectId, books, openReviews, refresh } = useDesignView();
+  const [allow, setAllow] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [result, setResult] = useState<{ finalized: Array<{ kind: DesignKind; v: number }>; skipped: Array<{ kind: DesignKind; reason: string }> } | null>(null);
+  if (!projectId) return null;
+  const titleOf = (k: DesignKind) => books.find((b) => b.kind === k)?.title ?? k.toUpperCase();
+  // 预检提示（服务端仍会逐册复核，此处只是告知）：可定稿=有内容+未定稿+无未提交修改
+  const rows = (['mod', 'alg', 'cls', 'db', 'api', 'ui', 'nfr'] as DesignKind[]).map((k) => {
+    const b = books.find((x) => x.kind === k);
+    const state = !b || b.cur === 0 ? '无内容' : b.finalized ? '已定稿' : b.modified ? '有未提交修改' : `可定稿（v${b.cur}）`;
+    return { kind: k, title: titleOf(k), state, runnable: state.startsWith('可定稿') };
+  });
+  const runnableCount = rows.filter((r) => r.runnable).length;
+  const submit = () => {
+    setBusy(true);
+    setMsg(null);
+    void designApi.finalizeAll(projectId, allow)
+      .then((r) => { setResult(r); void refresh(); })
+      .catch((e) => setMsg(e instanceof ApiError ? `${e.code}: ${e.message}` : '批量定稿失败'))
+      .finally(() => setBusy(false));
+  };
+  return (
+    <div className="modal-mask" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <h3>批量定稿（详细设计七册）</h3>
+        {!result && (
+          <>
+            <p className="pop-tip">逐册独立定稿：每册单独留痕登记，某一册不满足条件只会跳过该册并在结果中列明原因，不影响其它册。</p>
+            <div style={{ margin: '8px 0' }}>
+              {rows.map((r) => (
+                <div key={r.kind} className="form-row" style={{ justifyContent: 'space-between' }}>
+                  <span>{BOOK_ICONS[r.kind]} {r.title}</span>
+                  <span className={`tag ${r.runnable ? 'tag-warn' : r.state === '已定稿' ? 'tag-ok' : ''}`}>{r.state}</span>
+                </div>
+              ))}
+            </div>
+            {openReviews > 0 && (
+              <label className="gate-box err" style={{ display: 'block' }}>
+                <input type="checkbox" checked={allow} onChange={(e) => setAllow(e.target.checked)} />
+                {''}存在 {openReviews} 条未决评审项，我确认仍要定稿（记审计）
+              </label>
+            )}
+            {msg && <p className="pop-tip err">{msg}</p>}
+            <div className="modal-acts">
+              <button className="act" onClick={onClose} disabled={busy}>取消</button>
+              <button className="act primary" disabled={busy || runnableCount === 0 || (openReviews > 0 && !allow)} onClick={submit}>
+                {busy ? '定稿中…' : `确认定稿（${runnableCount} 册）`}
+              </button>
+            </div>
+          </>
+        )}
+        {result && (
+          <>
+            <p className="pop-tip">
+              已定稿 {result.finalized.length} 册{result.skipped.length > 0 ? `；跳过 ${result.skipped.length} 册` : ''}。
+            </p>
+            {result.finalized.map((f) => (
+              <div key={f.kind} className="form-row" style={{ justifyContent: 'space-between' }}>
+                <span>{BOOK_ICONS[f.kind]} {titleOf(f.kind)}</span>
+                <span className="tag tag-ok">已定稿 v{f.v}</span>
+              </div>
+            ))}
+            {result.skipped.map((s) => (
+              <div key={s.kind} className="form-row" style={{ justifyContent: 'space-between' }}>
+                <span>{BOOK_ICONS[s.kind]} {titleOf(s.kind)}</span>
+                <span className="pop-tip err" style={{ margin: 0 }}>{s.reason}</span>
+              </div>
+            ))}
+            <div className="modal-acts">
+              <button className="act primary" onClick={onClose}>关闭</button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

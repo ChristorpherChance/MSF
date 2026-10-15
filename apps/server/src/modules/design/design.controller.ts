@@ -135,6 +135,17 @@ export class DesignController {
   }
 
   /** 设计册定稿：人工 confirm；未决评审项须 allowOpenReviews 二次确认（LLD-6 §3.4） */
+  /** 批量定稿（详细七册，hld 除外）：逐册独立、失败跳过并列原因；confirm/allowOpenReviews 透传每册人工确认语义 */
+  @Post('docs\\:batch-finalize')
+  @HttpCode(200)
+  batchFinalize(
+    @Param('projectId') projectId: string,
+    @Body() body: { confirm?: boolean; allowOpenReviews?: boolean },
+    @Req() req: Request,
+  ) {
+    return this.docs.finalizeAll(projectId, body?.confirm ?? false, body?.allowOpenReviews ?? false, this.actor(req, projectId));
+  }
+
   @Post('docs/:kind/versions/:v\\:finalize')
   @HttpCode(200)
   finalize(

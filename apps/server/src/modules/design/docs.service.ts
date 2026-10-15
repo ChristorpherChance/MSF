@@ -474,6 +474,36 @@ export class DesignDocsService {
   async finalize(projectId: string, kind: DesignKind, v: number, baseVersion: number, confirm: boolean, allowOpenReviews: boolean, ctx: CommandContext) {
     return executeCommand('design.doc.finalize', { projectId, kind, v, baseVersion, confirm, allowOpenReviews }, { ...ctx, projectId });
   }
+
+  /** 批量定稿（2026-10-16 用户拍板）：详细七册（mod/alg/cls/db/api/ui/nfr——hld 概要先单走，消费链上游）——
+   *  逐册独立调 design.doc.finalize 命令（每册独立事务+独立审计留痕），失败跳过并列原因不拖垮整批；
+   *  编排层不注册新命令（per-book 命令即留痕）；confirm/allowOpenReviews 透传到每册（人工确认点语义不变）。 */
+  async finalizeAll(projectId: string, confirm: boolean, allowOpenReviews: boolean, ctx: CommandContext) {
+    const finalized: Array<{ kind: DesignKind; v: number; finalizationId: string }> = [];
+    const skipped: Array<{ kind: DesignKind; reason: string }> = [];
+    for (const b of DESIGN_BOOKS.filter((x) => x.kind !== 'hld')) {
+      try {
+        const d = await query<DocRow>('SELECT * FROM dsg_documents WHERE project_id=$1 AND doc_kind=$2', [projectId, b.kind]);
+        const doc = d.rows[0];
+        const cur = doc ? await this.currentVersion(null, doc) : null;
+        if (!doc || !cur) { skipped.push({ kind: b.kind, reason: '无内容（未生成）' }); continue; }
+        if (doc.final_version_id !== null && doc.final_version_id === doc.current_version_id) {
+          skipped.push({ kind: b.kind, reason: '当前版本已定稿' });
+          continue;
+        }
+        const r = (await this.finalize(projectId, b.kind, cur.version_no, cur.version_no, confirm, allowOpenReviews, ctx)) as { finalVer: number; finalizationId: string };
+        finalized.push({ kind: b.kind, v: r.finalVer, finalizationId: r.finalizationId });
+      } catch (e) {
+        if (e instanceof DomainError) {
+          skipped.push({ kind: b.kind, reason: e.message });
+        } else {
+          console.error(`[design] 批量定稿 ${b.kind} 册内部错误`, e);
+          skipped.push({ kind: b.kind, reason: '内部错误（详见服务日志）' });
+        }
+      }
+    }
+    return { finalized, skipped };
+  }
   async unlock(projectId: string, kind: DesignKind, ctx: CommandContext) {
     return executeCommand('design.doc.unlock', { projectId, kind }, { ...ctx, projectId });
   }

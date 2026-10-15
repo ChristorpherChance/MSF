@@ -106,6 +106,11 @@ export const designApi = {
   finalize: (pid: string, kind: DesignKind, v: number, baseVersion: number, allowOpenReviews: boolean) =>
     api.post(`${base(pid)}/docs/${kind}/versions/${v}:finalize`, { baseVersion, confirm: true, allowOpenReviews })
       .then((r) => { refreshGates(pid); return r; }),
+  /** 批量定稿（详细七册；逐册独立、失败跳过并列原因——2026-10-16 拍板） */
+  finalizeAll: (pid: string, allowOpenReviews: boolean) =>
+    api.post<{ finalized: Array<{ kind: DesignKind; v: number; finalizationId: string }>; skipped: Array<{ kind: DesignKind; reason: string }> }>(
+      `${base(pid)}/docs:batch-finalize`, { confirm: true, allowOpenReviews })
+      .then((r) => { refreshGates(pid); return r; }),
   unlock: (pid: string, kind: DesignKind) => api.post(`${base(pid)}/docs/${kind}:unlock`, {}),
   listVersions: (pid: string, kind: DesignKind) =>
     api.get<{ items: Array<{ v: number; note: string | null; at: string; finalized: boolean }> }>(`${base(pid)}/docs/${kind}/versions`),

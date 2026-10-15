@@ -100,10 +100,11 @@ export class GenerateService {
         ...(call.messageId !== undefined ? { messageId: call.messageId } : {}),
       });
     });
-    // ⇄ 模板重排处理器（编排器注册表，零模块图边）：rewrite 通道骨架默认化重排，提案人工确认后生效
+    // ⇄ 模板重排处理器（编排器注册表，零模块图边）：rewrite 通道骨架默认化重排，提案人工确认后生效；
+    // preserveAnchors——重排只动结构不动编号（锚点=RTM 身份证），与对话重写的「从 1 重排」口径分离
     for (const k of ['crd', 'prd'] as const) {
       registerRefreshHandler(k, (pid, _kind, c) =>
-        this.proposeEditsFromChat(pid, k, REFRESH_INSTRUCTION, c, 'rewrite'));
+        this.proposeEditsFromChat(pid, k, REFRESH_INSTRUCTION, c, 'rewrite', undefined, undefined, { preserveAnchors: true }));
     }
   }
 
@@ -313,6 +314,8 @@ export class GenerateService {
     mockText?: string,
     /** A6 usage 归因（2026-10-11）：dock 对话内触发时挂回触发会话/消息（编排层旁路传入） */
     attribution?: { sessionId?: string; messageId?: string },
+    /** 模板重排专用：保留既有锚点码与编号（重排只动结构）；对话重写默认从 1 连续重排 */
+    rewriteOpts?: { preserveAnchors?: boolean },
   ): Promise<{ ok: boolean; patchCount?: number; route?: string; kind?: 'crd' | 'prd'; reason?: string }> {
     const doc = await query<{ id: string; final_version_id: string | null; current_version_id: string | null }>(
       'SELECT id, final_version_id, current_version_id FROM req_documents WHERE project_id=$1 AND doc_kind=$2',
@@ -355,7 +358,7 @@ export class GenerateService {
           const session = await this.ai!.createSession({ projectId, purpose: 'generation' });
           // rewrite：整篇重写 prompt——当前全文为基线入 prompt（增量 prompt 只让模型输出变化节，无法表达整篇重写/删除）
           const prompt = mode === 'rewrite'
-            ? buildRewritePrompt(kind, cut, existingCodes, effective, projectId)
+            ? buildRewritePrompt(kind, cut, existingCodes, effective, projectId, rewriteOpts)
             : buildPrompt(kind, cut, [], existingCodes, effective, '', projectId);
           const { deltas, result } = session.stream(prompt);
           for await (const d2 of deltas) void d2; // 非 SSE 内部调用：delta 排干不转发
@@ -611,12 +614,20 @@ export function buildRewritePrompt(
   existingCodes: string[],
   currentContent: string,
   projectId?: string,
+  opts?: { preserveAnchors?: boolean },
 ): string {
+  // 编号口径（2026-10-15 用户拍板「彻底改好」）：默认整篇重写=结构新生，条目从 1 连续重排、
+  // 旧锚点码作废——旧口径「保留锚点+顺延」在全文重构时留前导空洞（实机 d-15 起步缺 d-1~d-14）；
+  // 仅模板重排（preserveAnchors）保留既有锚点码——重排只动结构不动编号（锚点=RTM 身份证）
+  const prefix = kind === 'crd' ? 'CR' : 'REQ';
+  const numbering = opts?.preserveAnchors
+    ? `保留仍然有效的既有锚点码与编号（重排只动结构不动编号）；新增条目必须使用未占用编号（已占用：${existingCodes.join('、') || '无'}），在最大编号后顺延。`
+    : `条目编号一律从 1 开始连续重排（${prefix}-001、${prefix}-002……）——整篇重写即结构新生，不沿用旧编号（本条优先于前文条目节格式约定中的顺延说法）；用户指示明确点名保留的条目除外。`;
   return [
     `你是软件工厂的需求分析助手。本次是${kind === 'crd' ? '客户需求文档（CRD）' : '产品需求文档（PRD）'}的**整篇重写**：以当前文档全文为基线、按用户指示输出重写后的**完整文档**（从一级标题到最后一节，一节不漏，不复述思考过程，只输出文档本体）。`,
     `要求：中文 markdown；${CHAPTER_RULE}${reqSectionRule(kind)}条目正文含承接来源与需求描述、验收要点。`,
     buildTemplateGuide('req', kind, projectId),
-    `保留仍然有效的既有锚点码与编号；新增条目必须使用未占用编号（已占用：${existingCodes.join('、') || '无'}），在最大编号后顺延。用户指示删除/合并的章节不再输出，其承接关系在保留章节中说明。**默认以模板结构骨架为准重排大章**（基线内容按主题归入模板章节，不保留基线自有大章划分）；仅当用户指示明确要求保持既有结构时才保留基线结构。`,
+    `${numbering}用户指示删除/合并的章节不再输出，其承接关系在保留章节中说明。**默认以模板结构骨架为准重排大章**（基线内容按主题归入模板章节，不保留基线自有大章划分）；仅当用户指示明确要求保持既有结构时才保留基线结构。`,
     '输出即文档正文：禁止写「本文是提案/待确认/未定稿声明/由 AI 生成」类元话术——文档状态由系统管理，与正文无关。',
     `用户指示：${instruction}`,
     `【当前文档全文（重写基线）】\n\n${currentContent}`,

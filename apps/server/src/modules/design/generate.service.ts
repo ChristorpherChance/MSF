@@ -93,10 +93,11 @@ export class DesignGenerateService {
         ...(call.messageId !== undefined ? { messageId: call.messageId } : {}),
       });
     });
-    // ⇄ 模板重排处理器（编排器注册表，零模块图边）：rewrite 通道骨架默认化重排，提案人工确认后生效
+    // ⇄ 模板重排处理器（编排器注册表，零模块图边）：rewrite 通道骨架默认化重排，提案人工确认后生效；
+    // preserveAnchors——重排只动结构不动编号（锚点=RTM 身份证），与对话重写的「从 1 重排」口径分离
     for (const b of DESIGN_BOOKS) {
       registerRefreshHandler(b.kind, (pid, kind, c) =>
-        this.proposeEditsFromChat(pid, kind as DesignKind, REFRESH_INSTRUCTION, c, 'rewrite'));
+        this.proposeEditsFromChat(pid, kind as DesignKind, REFRESH_INSTRUCTION, c, 'rewrite', undefined, undefined, { preserveAnchors: true }));
     }
   }
 
@@ -116,6 +117,8 @@ export class DesignGenerateService {
     mockText?: string,
     /** A6 usage 归因：dock 对话内触发时挂回触发会话/消息（编排层 runToolBlocks 旁路传入） */
     attribution?: { sessionId?: string; messageId?: string },
+    /** 模板重排专用：保留既有锚点码与编号（重排只动结构）；对话重写默认从 1 连续重排 */
+    rewriteOpts?: { preserveAnchors?: boolean },
   ): Promise<{ ok: boolean; patchCount?: number; route?: string; kind?: DesignKind; reason?: string }> {
     const doc = await query<{ id: string; final_version_id: string | null; current_version_id: string | null }>(
       'SELECT id, final_version_id, current_version_id FROM dsg_documents WHERE project_id=$1 AND doc_kind=$2',
@@ -158,7 +161,7 @@ export class DesignGenerateService {
         const res = await withStreamCutRetry(`design propose_edits kind=${kind}`, async () => {
           const session = await this.ai!.createSession({ projectId, purpose: 'generation' });
           const prompt = mode === 'rewrite'
-            ? buildDesignRewritePrompt(book.name, book.kind, book.prefix, cut, existingCodes, effective, projectId)
+            ? buildDesignRewritePrompt(book.name, book.kind, book.prefix, cut, existingCodes, effective, projectId, rewriteOpts)
             : buildDesignEditPrompt(book.name, book.prefix, cut, existingCodes, effective);
           const { deltas, result } = session.stream(prompt);
           for await (const d2 of deltas) void d2; // 非 SSE 内部调用：delta 排干不转发
@@ -587,11 +590,17 @@ export function buildDesignEditPrompt(bookName: string, prefix: string, instruct
 /** 对话改设计册·整篇重写 prompt（mode='rewrite'：当前全文为基线，输出完整文档一节不漏）。
  *  骨架默认化（2026-10-11 用户拍板）：默认以模板骨架重排大章——旧册多产自大章约定/模板钉死之前，
  *  结构常与模板不对版；用户明确要求保持既有结构时除外。禁元话术（同日拍板）：实机模型曾把
- *  「本文是待确认提案」类自我声明写进正文——文档状态由系统管理，正文只写文档内容。 */
-export function buildDesignRewritePrompt(bookName: string, kind: DesignKind, prefix: string, instruction: string, existingCodes: string[], currentContent: string, projectId?: string): string {
+ *  「本文是待确认提案」类自我声明写进正文——文档状态由系统管理，正文只写文档内容。
+ *  编号口径（2026-10-15 用户拍板「彻底改好」）：默认整篇重写=结构新生，条目节从 1 连续重排、
+ *  旧锚点码作废——旧口径「保留锚点+顺延」在全文重构时会留下前导空洞（实机 d-15 起步缺 d-1~d-14）；
+ *  仅模板重排（preserveAnchors）保留既有锚点码——重排只动结构不动编号（锚点=RTM 身份证）。 */
+export function buildDesignRewritePrompt(bookName: string, kind: DesignKind, prefix: string, instruction: string, existingCodes: string[], currentContent: string, projectId?: string, opts?: { preserveAnchors?: boolean }): string {
+  const numbering = opts?.preserveAnchors
+    ? `保留全部既有锚点码与编号（重排只动结构不动编号）；确需新增的条目使用未占用编号顺延（已占用：${existingCodes.join('、') || '无'}）`
+    : `条目节编号一律从 1 开始连续重排（${prefix}-1、${prefix}-2……）——整篇重写即结构新生，不沿用旧编号（本条优先于前文条目节格式约定中的顺延说法）；用户指示明确点名保留的章节除外`;
   return [
     `你是软件工厂的设计助手。本次是设计文档《${bookName}》的**整篇重写**：以当前全文为基线、按用户指示输出重写后的**完整文档**（从一级标题到最后一节，一节不漏，不复述思考过程，只输出文档本体）。`,
-    `要求：中文 markdown；${CHAPTER_RULE}${designSectionRule(prefix)}保留仍然有效的既有锚点码与编号；新增条目使用未占用编号顺延（已占用：${existingCodes.join('、') || '无'}）；用户指示删除/合并的章节不再输出。**默认以模板结构骨架为准重排大章**（基线内容按主题归入模板章节，不保留基线自有大章划分）；仅当用户指示明确要求保持既有结构时才保留基线结构。`,
+    `要求：中文 markdown；${CHAPTER_RULE}${designSectionRule(prefix)}${numbering}；用户指示删除/合并的章节不再输出。**默认以模板结构骨架为准重排大章**（基线内容按主题归入模板章节，不保留基线自有大章划分）；仅当用户指示明确要求保持既有结构时才保留基线结构。`,
     '输出即文档正文：禁止写「本文是提案/待确认/未定稿声明/由 AI 生成」类元话术——文档状态由系统管理，与正文无关。',
     buildTemplateGuide('design', kind, projectId),
     `用户指示：${instruction}`,

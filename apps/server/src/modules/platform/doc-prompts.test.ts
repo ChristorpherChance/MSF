@@ -42,4 +42,23 @@ describe('生成 prompt 契约（骨架默认化+禁元话术+模板注入边界
     const { REFRESH_INSTRUCTION } = await import('./template-refresh.js');
     expect(REFRESH_INSTRUCTION).toBe('按默认模板骨架重排整篇：内容按主题归入模板大章，保留有效锚点码与编号，不增删需求语义');
   });
+  // 编号口径（2026-10-15 拍板「彻底改好」）：对话重写=结构新生从 1 连续重排（旧顺延口径实机留
+  // 前导空洞 d-15 起步缺 d-1~d-14）；模板重排 preserveAnchors 保留锚点码（重排只动结构不动编号）
+  it('rewrite 编号口径：默认从 1 连续重排不沿用旧号（req+design 双域）', () => {
+    const req = buildRewritePrompt('prd', '重写', ['REQ-001'], '# 旧文\n\n## REQ-001 x');
+    expect(req).toContain('从 1 开始连续重排');
+    expect(req).toContain('本条优先于前文条目节格式约定中的顺延说法'); // reqSectionRule 内嵌顺延措辞，重写句显式覆盖
+    const dsg = buildDesignRewritePrompt('概要设计', 'hld', 'h', '重写', ['h-1'], '# 旧文');
+    expect(dsg).toContain('从 1 开始连续重排');
+    expect(dsg).toContain('h-1、h-2');
+    expect(dsg).toContain('本条优先于前文条目节格式约定中的顺延说法');
+  });
+  it('rewrite 编号口径：preserveAnchors（模板重排）保留锚点码不顺延', () => {
+    const req = buildRewritePrompt('prd', '重排', ['REQ-001'], '# 旧文', undefined, { preserveAnchors: true });
+    expect(req).toContain('保留仍然有效的既有锚点码与编号');
+    expect(req).not.toContain('从 1 开始连续重排');
+    const dsg = buildDesignRewritePrompt('概要设计', 'hld', 'h', '重排', ['h-1'], '# 旧文', undefined, { preserveAnchors: true });
+    expect(dsg).toContain('保留全部既有锚点码与编号');
+    expect(dsg).not.toContain('从 1 开始连续重排');
+  });
 });
