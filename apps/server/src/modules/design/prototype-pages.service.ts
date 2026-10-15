@@ -14,6 +14,7 @@ import {
   buildPagePrompt,
   ensureNavScript,
   extractPageParts,
+  findDataNavProblem,
   findHiddenSectionRule,
   pickUiSections,
   type CatalogItemLike,
@@ -43,6 +44,8 @@ interface PageGenOp {
   prd: string;
   /** UI 册正文节选（页面相关章节优先，覆盖检测 §2；无 ui 册/无章节时为空串不注入） */
   ui: string;
+  /** 目录页面全集（覆盖检测 §3：data-nav 契约校验目标集 + prompt 合法跳转清单 + mock 穿流按钮） */
+  catalogPages: Array<{ code: string; title: string }>;
   instruction: string;
   /** 真接模式保留会话句柄（abort 用） */
   session?: AiSession | undefined;
@@ -140,11 +143,15 @@ export class PrototypePagesService {
     const ui = pickUiSections(uiRow.rows[0]?.content ?? '', page);
 
     const operationId = `op_pgen_${randomBytes(6).toString('hex')}`;
+    // 目录页面全集（§3 穿流）：start() 已查全量 items，页码集传入 op 供 data-nav 校验/prompt 清单/mock 穿流
+    const catalogPages = items.rows
+      .filter((i) => i.item_type === 'page')
+      .map((i) => ({ code: i.code, title: (i.payload.title as string) ?? i.code }));
     ops.set(operationId, {
       id: operationId, projectId, pageCode, catalogVersion: p.catalog_version, status: 'running',
       page, states,
       anchors: anchors.rows.map((a) => ({ docKind: a.doc_kind, sectionId: a.section_id, anchor: a.anchor })),
-      prd, ui, instruction,
+      prd, ui, catalogPages, instruction,
     });
     return { operationId, source: this.ai?.kind === 'pi' ? 'model' : 'mock' };
   }
@@ -189,9 +196,9 @@ export class PrototypePagesService {
     }
   }
 
-  /** mock 降级：整页 mock HTML 分块吐出（结构与真接同契约，source='mock' 可辨识） */
+  /** mock 降级：整页 mock HTML 分块吐出（结构与真接同契约，source='mock' 可辨识；穿流按钮=目录其它页面） */
   private async driveMock(op: PageGenOp, onDelta: (text: string) => void): Promise<string | null> {
-    const html = buildMockPage(op.page, op.states);
+    const html = buildMockPage(op.page, op.states, op.catalogPages);
     for (let i = 0; i < html.length; i += 240) {
       if (op.status === 'stopped') return null;
       onDelta(html.slice(i, i + 240));
@@ -210,8 +217,10 @@ export class PrototypePagesService {
     let lastProblem = '';
     let transportRetries = 0;
     for (let attempt = 0; attempt < 2; attempt += 1) {
-      const prompt = buildPagePrompt(op.page, op.states, op.anchors, op.prd, op.ui, op.instruction)
-        + (attempt === 1 ? `\n\n上次输出不合规（${lastProblem}），本次务必逐条满足输出契约。` : '');
+      const prompt = buildPagePrompt(
+        op.page, op.states, op.anchors, op.prd, op.ui, op.instruction,
+        op.catalogPages.filter((x) => x.code !== op.pageCode), // 穿流合法目标=目录其它页面
+      ) + (attempt === 1 ? `\n\n上次输出不合规（${lastProblem}），本次务必逐条满足输出契约。` : '');
       try {
         const session = await this.ai!.createSession({ projectId: op.projectId, purpose: 'generation' });
         op.session = session;
@@ -278,6 +287,13 @@ function validatePageHtml(html: string, op: PageGenOp): string | null {
   if (bad.length > 0) return `存在未隔离选择器（须以 #pg-${op.pageCode} 开头）：${bad.slice(0, 3).join('、')}`;
   const hidden = findHiddenSectionRule(css);
   if (hidden) return `状态 section 不得用 CSS 控制显隐（可见性由系统脚本接管），违例选择器：${hidden}`;
+  // 覆盖检测 §3：data-nav 穿流目标校验（目标页/状态须在目录集内；本页自身也是合法目标）
+  const navProblem = findDataNavProblem(
+    parts.body,
+    new Set(op.catalogPages.map((p) => p.code)),
+    new Set(op.states.map((s) => s.code)),
+  );
+  if (navProblem) return navProblem;
   return null;
 }
 

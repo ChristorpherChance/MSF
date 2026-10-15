@@ -1,15 +1,21 @@
 /** 页级原型纯函数单测（envelope 往返/scoped 校验/mock 合规/汇总拼装 + checkPrototype 复用断言
- *  + pickUiSections/buildPagePrompt UI 册注入钉；无需基础设施） */
+ *  + pickUiSections/buildPagePrompt UI 册注入钉 + data-nav 穿流/流程视图/flow 校验（覆盖检测 §3）；
+ * 无需基础设施） */
 import { describe, expect, it } from 'vitest';
 import {
+  NAV_SCRIPT,
   PAGE_INPUT_CAP,
   assertScopedStyles,
   buildMockPage,
   buildPagePrompt,
   composePrototype,
   ensureNavScript,
+  extractDataNavTargets,
   extractPageParts,
+  findDataNavProblem,
   findHiddenSectionRule,
+  parseFlowStepRef,
+  parseNavRef,
   pickUiSections,
   placeholderBlock,
   wrapPageEnvelope,
@@ -178,5 +184,118 @@ describe('buildPagePrompt UI 册注入段', () => {
     const prompt = buildPagePrompt(page, [st], [], 'PRD 节选正文', '', '');
     expect(prompt).not.toContain('上游 UI 册定稿');
     expect(prompt).toContain('## 上游 PRD 定稿（节选）');
+  });
+  it('data-nav 穿流约定入契约段 + 合法跳转目标清单（覆盖检测 §3）', () => {
+    const prompt = buildPagePrompt(page, [st], [], '', '', '', [{ code: 'P-LIST', title: '列表页' }]);
+    expect(prompt).toContain('data-nav');
+    expect(prompt).toContain('纯展示');
+    expect(prompt).toContain('P-LIST（列表页）');
+  });
+  it('navPages 缺省 → 契约段仍含 data-nav 约定但无目标清单（旧调用兼容）', () => {
+    const prompt = buildPagePrompt(page, [st], [], '', '', '');
+    expect(prompt).toContain('data-nav');
+    expect(prompt).not.toContain('可跳转目标仅限');
+  });
+});
+
+describe('data-nav 引用解析与校验（覆盖检测 §3）', () => {
+  it('parseNavRef：#页码 / #页码/状态 → 解析；缺 #、空段、裸串 → null（格式非法）', () => {
+    expect(parseNavRef('#P-002')).toEqual({ page: 'P-002', state: null });
+    expect(parseNavRef('#P-002/ST-empty')).toEqual({ page: 'P-002', state: 'ST-empty' });
+    expect(parseNavRef('#P-HOME')).toEqual({ page: 'P-HOME', state: null });
+    expect(parseNavRef('P-002')).toBeNull();
+    expect(parseNavRef('#')).toBeNull();
+    expect(parseNavRef('#P-002/')).toBeNull();
+    expect(parseNavRef('')).toBeNull();
+  });
+  it('parseFlowStepRef：P- 前缀引用才判为引用；旧格式 REQ 章节标题永不命中（兼容口径）', () => {
+    expect(parseFlowStepRef('P-001')).toEqual({ page: 'P-001', state: null });
+    expect(parseFlowStepRef('#P-HOME/ST-empty')).toEqual({ page: 'P-HOME', state: 'ST-empty' });
+    expect(parseFlowStepRef('REQ-001 门户首页')).toBeNull();
+    expect(parseFlowStepRef('用户登录并进入首页')).toBeNull();
+    expect(parseFlowStepRef('')).toBeNull();
+  });
+  it('extractDataNavTargets：双/单引号属性全提取；无 data-nav → 空', () => {
+    expect(extractDataNavTargets('<a data-nav="#P-001">x</a><button data-nav=\'#P-002/s2\'>y</button>'))
+      .toEqual(['#P-001', '#P-002/s2']);
+    expect(extractDataNavTargets('<div>no nav</div>')).toEqual([]);
+  });
+  it('findDataNavProblem：目标页/状态在目录集内 → null；不存在/格式非法 → 问题串', () => {
+    const pages = new Set(['P-001', 'P-HOME']);
+    const states = new Set(['ST-empty']);
+    expect(findDataNavProblem('<a data-nav="#P-001">x</a>', pages, states)).toBeNull();
+    expect(findDataNavProblem('<a data-nav="#P-001/ST-empty">x</a>', pages, states)).toBeNull();
+    expect(findDataNavProblem('<a data-nav="#P-404">x</a>', pages, states)).toContain('P-404');
+    expect(findDataNavProblem('<a data-nav="#P-001/ST-nope">x</a>', pages, states)).toContain('ST-nope');
+    expect(findDataNavProblem('<a data-nav="P-001">x</a>', pages, states)).toContain('格式非法');
+  });
+});
+
+describe('NAV_SCRIPT data-nav 穿流委托（覆盖检测 §3）', () => {
+  it('含 [data-nav] 事件委托 + preventDefault + 目标块不存在 no-op（单页预览防白屏）', () => {
+    expect(NAV_SCRIPT).toContain("closest('[data-nav]')");
+    expect(NAV_SCRIPT).toContain('preventDefault');
+    expect(NAV_SCRIPT).toContain('if(!found)return;');
+    // 穿流后 hash 同步（hashchange 通道复用现有选页选态协议）
+    expect(NAV_SCRIPT).toContain('location.hash');
+  });
+});
+
+describe('buildMockPage 穿流按钮（mock 降级产合法 data-nav）', () => {
+  it('带导航目标 → 渲染 data-nav 钮（自身被剔除）；缺省 → 无 data-nav 属性（旧行为兼容）', () => {
+    const html = buildMockPage(page, [st], [{ code: 'P-LIST', title: '列表页' }, { code: 'P-HOME', title: '自身' }]);
+    expect(html).toContain('data-nav="#P-LIST"');
+    expect(html).not.toContain('data-nav="#P-HOME"');
+    // NAV_SCRIPT 委托代码含 '[data-nav]' 选择器字样——断言属性形态 data-nav="# 才算穿流目标
+    expect(buildMockPage(page, [st])).not.toContain('data-nav="#');
+  });
+});
+
+describe('composePrototype 流程视图（覆盖检测 §3）', () => {
+  const flow: CatalogItemLike = { item_type: 'flow', code: 'F-001', payload: { title: '主流程', steps: ['P-HOME', 'REQ-001 门户首页'] } };
+  it('新格式步骤渲染可点 data-nav；旧格式渲染纯文本；manifest 含 flows/dataNavTargets', () => {
+    const { html, manifest } = composePrototype([...items, flow], []);
+    expect(html).toContain('data-flow="F-001"');
+    expect(html).toContain('data-nav="#P-HOME"');
+    // 新格式步骤标签=页面标题（可读）；旧格式 REQ 标题纯文本不可点
+    expect(html).toContain('>首页</a>');
+    expect(html).toContain('<li class="msf-flow-step">REQ-001 门户首页</li>');
+    expect(manifest.flows?.[0]).toMatchObject({ code: 'F-001', title: '主流程', steps: ['P-HOME', 'REQ-001 门户首页'] });
+    expect(manifest.dataNavTargets).toContain('#P-HOME');
+  });
+  it('无 flow 条目 → 不渲染流程视图，manifest 无 flows 键（旧目录兼容）', () => {
+    const { html, manifest } = composePrototype(items, []);
+    expect(html).not.toContain('msf-flow');
+    expect(manifest.flows).toBeUndefined();
+  });
+  it('flow 步骤引用不存在页面/状态 → 降级纯文本不穿流（check 侧报 FLOW_REF_MISSING）', () => {
+    const broken: CatalogItemLike = { item_type: 'flow', code: 'F-001', payload: { title: '主流程', steps: ['P-404', 'P-HOME/ST-nope'] } };
+    const { html } = composePrototype([...items, broken], []);
+    expect(html).not.toContain('data-nav="#P-404"');
+    expect(html).not.toContain('data-nav="#P-HOME/ST-nope"');
+    expect(html).toContain('P-404');
+  });
+});
+
+describe('checkPrototype 流程/穿流校验（覆盖检测 §3；issue 只进 issues jsonb）', () => {
+  const htmlBase = '<div data-page-block="P-HOME"><section data-page="P-HOME" data-state="ST-empty"></section></div>'
+    + '<div data-page-block="P-LIST"><section data-page="P-LIST" data-state="ST-empty"></section></div>';
+  it('flow 引用存在 + 旧格式步骤不校验 → 零 issue', () => {
+    const flowGood: CatalogItemLike = { item_type: 'flow', code: 'F-001', payload: { title: '主流程', steps: ['P-HOME', '#P-LIST/ST-empty', 'REQ-001 门户首页'] } };
+    expect(checkPrototype(htmlBase, [...items, flowGood]).issues).toEqual([]);
+  });
+  it('flow 引用页面/状态不存在 → FLOW_REF_MISSING 逐条报', () => {
+    const flowBad: CatalogItemLike = { item_type: 'flow', code: 'F-001', payload: { title: '主流程', steps: ['P-404', 'P-HOME/ST-nope'] } };
+    const { issues } = checkPrototype(htmlBase, [...items, flowBad]);
+    const flows = issues.filter((i) => i.code === 'FLOW_REF_MISSING');
+    expect(flows).toHaveLength(2);
+    expect(flows.every((i) => i.target === 'F-001')).toBe(true);
+  });
+  it('data-nav 目标页/状态不在目录或格式非法 → DATA_NAV_TARGET_MISSING；合法 → 不报', () => {
+    const ok = checkPrototype(`${htmlBase}<a data-nav="#P-LIST/ST-empty">去列表</a>`, items).issues;
+    expect(ok.filter((i) => i.code === 'DATA_NAV_TARGET_MISSING')).toEqual([]);
+    const badHtml = `${htmlBase}<a data-nav="#P-404">x</a><a data-nav="#P-HOME/ST-nope">y</a><a data-nav="P-HOME">z</a>`;
+    const bad = checkPrototype(badHtml, items).issues.filter((i) => i.code === 'DATA_NAV_TARGET_MISSING');
+    expect(bad).toHaveLength(3);
   });
 });

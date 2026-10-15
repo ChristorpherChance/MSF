@@ -254,4 +254,73 @@ describe('PrototypePages 页级原型（集成，需 DB+MinIO）', async () => {
     expect(manifest.pages.find((p) => p.code === code)).toMatchObject({ placeholder: true });
     expect(manifest.warnings?.some((w) => w.includes(code))).toBe(true);
   });
+
+  it('⑦ data-nav 穿流契约校验（覆盖检测 §3）：目标非目录页码 → VALIDATION_FAILED；目标存在 → 落库', async () => {
+    const code = pageCodes[1]!;
+    const target = pageCodes[0]!;
+    const sections = stateCodes.map((s) => `<section data-page="${code}" data-state="${s}">x</section>`).join('');
+    const mk = (nav: string) => wrapPageEnvelope(
+      code, '列表页', `#pg-${code} { color: red; }`,
+      `<div id="pg-${code}" data-page-block="${code}">${sections}${nav}</div>`, '(function(){})();',
+    );
+    // 非法：目标页不在目录 → 重试一次后 VALIDATION_FAILED（问题描述透传给模型修正）
+    const bad = new PrototypePagesService(docs, storage, stubAi(mk(`<a data-nav="#P-999">x</a>`)));
+    const st1 = await bad.start(PID, code, '', CTX);
+    const fin1 = await bad.drive(st1.operationId, CTX, () => {});
+    expect(fin1.status).toBe('failed');
+    expect(fin1.error).toBe('VALIDATION_FAILED');
+    // 合法：页码+状态均在目录 → done，落库产物含 data-nav 委托脚本
+    const good = new PrototypePagesService(docs, storage, stubAi(mk(`<a data-nav="#${target}">x</a><a data-nav="#${target}/${stateCodes[0]}">y</a>`)));
+    const st2 = await good.start(PID, code, '', CTX);
+    const fin2 = await good.drive(st2.operationId, CTX, () => {});
+    expect(fin2.status).toBe('done');
+    const row = await query<{ object_key: string }>(
+      'SELECT object_key FROM dsg_prototype_pages WHERE project_id=$1 AND page_code=$2', [PID, code]);
+    const obj = (await storage.getObject(row.rows[0]!.object_key)).toString('utf8');
+    expect(obj).toContain(`data-nav="#${target}"`);
+    expect(obj).toContain("closest('[data-nav]')");
+  });
+
+  it('⑧ flow 校验进 check + 汇总流程视图 + manifest 扩展（覆盖检测 §3）', async () => {
+    // ⑥ 弄坏了 P-001 对象——mock 重生成修复（顺带让汇总产物带 mock 穿流按钮）
+    const st0 = await pages.start(PID, pageCodes[0]!, '', CTX);
+    await pages.drive(st0.operationId, CTX, () => {});
+    const g3 = (await proto.generate(PID, planId, planFp, CTX)) as { prototypeVersionId: string; objectKey: string };
+    // 汇总含流程视图：F-001 原始 steps=REQ 章节标题（旧格式）→ 纯文本步骤不挂 data-nav；
+    // mock 页穿流按钮进 dataNavTargets 清单；manifest 含 flows 快照
+    const obj3 = (await storage.getObject(g3.objectKey)).toString('utf8');
+    expect(obj3).toContain('data-flow="F-001"');
+    expect(obj3).toContain('<li class="msf-flow-step">REQ-001 门户首页</li>');
+    expect(obj3).toContain(`data-nav="#${pageCodes[1]}"`); // P-001 mock 穿流按钮
+    const ver3 = await query<{ content: string }>('SELECT content FROM dsg_versions WHERE id=$1', [g3.prototypeVersionId]);
+    const manifest3 = JSON.parse(ver3.rows[0]!.content) as {
+      flows?: Array<{ code: string; steps: string[] }>; dataNavTargets?: string[];
+    };
+    expect(manifest3.flows?.find((f) => f.code === 'F-001')?.steps).toContain('REQ-001 门户首页');
+    expect(manifest3.dataNavTargets).toContain(`#${pageCodes[1]}`);
+
+    // flow 新格式引用校验：存在 → check pass（旧格式 REQ 标题步骤不校验，兼容口径）
+    const cat = (await catalog.getCatalog(PID)) as { groups: Record<string, Array<{ itemId: string; code: string }>> };
+    const flowId = cat.groups.flow![0]!.itemId;
+    const u1 = (await catalog.updateItem(PID, flowId, { steps: ['P-001', '#P-HOME/ST-empty', 'REQ-001 门户首页'] }, CTX)) as { itemId: string };
+    const chk1 = (await proto.check(PID, g3.prototypeVersionId, CTX)) as { status: string; issues: Array<{ code: string }> };
+    expect(chk1.status).toBe('pass');
+    expect(chk1.issues.filter((i) => i.code === 'FLOW_REF_MISSING')).toEqual([]);
+    // 引用不存在页面/状态 → FLOW_REF_MISSING 逐条报、check fail（拦定稿走 CHECK_REQUIRED 既有链）
+    await catalog.updateItem(PID, u1.itemId, { steps: ['P-999', 'P-001/ST-nope'] }, CTX);
+    const chk2 = (await proto.check(PID, g3.prototypeVersionId, CTX)) as { status: string; issues: Array<{ code: string; message: string }> };
+    expect(chk2.status).toBe('fail');
+    expect(chk2.issues.filter((i) => i.code === 'FLOW_REF_MISSING')).toHaveLength(2);
+
+    // 步骤改回合法引用 → re-plan（随行保留人工 steps）→ 重新汇总：新格式步骤渲染为可点 data-nav
+    const cat2 = (await catalog.getCatalog(PID)) as { groups: Record<string, Array<{ itemId: string; code: string }>> };
+    await catalog.updateItem(PID, cat2.groups.flow![0]!.itemId, { steps: ['P-001'] }, CTX);
+    const plan2 = (await catalog.plan(PID, CTX)) as { planId: string; fingerprint: string };
+    const g4 = (await proto.generate(PID, plan2.planId, plan2.fingerprint, CTX)) as { prototypeVersionId: string; v: number; objectKey: string };
+    const ver4 = await query<{ content: string }>('SELECT content FROM dsg_versions WHERE id=$1', [g4.prototypeVersionId]);
+    const obj4 = (await storage.getObject(g4.objectKey)).toString('utf8');
+    expect(obj4).toContain('data-nav="#P-001"');
+    const manifest4 = JSON.parse(ver4.rows[0]!.content) as { flows?: Array<{ code: string; steps: string[] }> };
+    expect(manifest4.flows?.find((f) => f.code === 'F-001')?.steps).toEqual(['P-001']);
+  });
 });

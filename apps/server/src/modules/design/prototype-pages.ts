@@ -12,6 +12,9 @@
  * - 状态 section 可见性由 NAV_SCRIPT 独占（inline display）：页 CSS 不得对 section[data-page] 设
  *   display:none/visibility:hidden（入库前 validatePageHtml 拒收）；页内态切换钮统一 data-show-state 属性，
  *   NAV_SCRIPT 事件委托接管点击切换与激活态，模型脚本无需也不应自管 section 显隐。
+ * - 跨页穿流（覆盖检测 §3）：跳转类按钮/链接挂 data-nav="#P-002"（可带状态 "#P-002/s2"；纯展示不挂）；
+ *   NAV_SCRIPT 事件委托接管点击（目标块不存在 no-op——单页预览直开防白屏）+ hash 同步；
+ *   validatePageHtml 校验目标页/状态在目录集内（start() 查全量 items 传入）。
  */
 
 import { splitSections, type DocSection } from '../platform/doc-sections.js';
@@ -46,7 +49,10 @@ const esc = (s: string) =>
 
 /** S3（DSG-U04-2）选页选态协议——单页文档与汇总文档共用；无 hash 时默认显示首页首态。
  *  状态 section 可见性由本脚本独占（inline display）：事件委托接管 [data-show-state] 点击并同步激活态，
- *  页 CSS 一律不得隐藏 section（生成契约，validatePageHtml 拒收 display:none/visibility:hidden）。 */
+ *  页 CSS 一律不得隐藏 section（生成契约，validatePageHtml 拒收 display:none/visibility:hidden）。
+ *  覆盖检测 §3 穿流：document 级 click 委托接管 [data-nav]（"#页码" 或 "#页码/状态"）——
+ *  切目标页+hash 同步；目标块不存在时 no-op（单页预览直开场景防白屏，preventDefault 先行拦截
+ *  <a data-nav> 默认跳 hash 导致 fromHash 把唯一页块隐藏的白屏）。 */
 export const NAV_SCRIPT = `<script>
 (function(){
   function show(pageId,stateId){
@@ -65,6 +71,20 @@ export const NAV_SCRIPT = `<script>
   window.prototypeNavigate=show;
   window.addEventListener('message',function(e){var d=e.data||{};if(d.type==='v19-prototype-select')show(d.pageId,d.stateId);});
   document.addEventListener('click',function(e){
+    var n=e.target&&e.target.closest?e.target.closest('[data-nav]'):null;
+    if(n){
+      e.preventDefault();
+      var v=n.getAttribute('data-nav')||'';
+      var h=v.replace(/^#/,'').split('/');
+      var pid=h[0]?decodeURIComponent(h[0]):'';
+      if(!pid)return;
+      var found=false;
+      document.querySelectorAll('[data-page-block]').forEach(function(b){if(b.getAttribute('data-page-block')===pid)found=true;});
+      if(!found)return;
+      if(location.hash!==v){location.hash=v;}
+      else{show(pid,h[1]?decodeURIComponent(h[1]):null);}
+      return;
+    }
     var t=e.target&&e.target.closest?e.target.closest('[data-show-state]'):null;
     if(!t)return;
     var blk=t.closest('[data-page-block]');
@@ -169,6 +189,42 @@ export function assertScopedStyles(css: string, code: string): string[] {
   return problems;
 }
 
+// ---------- 跨页穿流（覆盖检测 §3） ----------
+
+/** data-nav 属性提取（双/单引号均认；返回原始属性值含 # 前缀，供校验/manifest 清单用） */
+export function extractDataNavTargets(html: string): string[] {
+  const out: string[] = [];
+  for (const m of html.matchAll(/data-nav\s*=\s*"([^"]*)"|data-nav\s*=\s*'([^']*)'/g)) {
+    out.push(m[1] ?? m[2] ?? '');
+  }
+  return out;
+}
+
+/** data-nav 属性值解析：契约钉死 "#页码" 或 "#页码/状态编号"（须 # 开头）；非法 → null */
+export function parseNavRef(v: string): { page: string; state: string | null } | null {
+  const m = /^#([\w-]+?)(?:\/([\w-]+))?$/.exec(v.trim());
+  return m ? { page: m[1]!, state: m[2] ?? null } : null;
+}
+
+/** 流程步骤引用判别（覆盖检测 §3 兼容口径）：仅 P- 前缀页码形态（可带 # 与 /状态）算「声明了引用」；
+ *  旧格式 steps（REQ 章节标题字符串，REQ-/中文开头）永不命中 → 按「未声明引用」不校验不渲染跳转。 */
+export function parseFlowStepRef(step: string): { page: string; state: string | null } | null {
+  const m = /^#?(P-[\w-]+?)(?:\/([\w-]+))?$/.exec(step.trim());
+  return m ? { page: m[1]!, state: m[2] ?? null } : null;
+}
+
+/** data-nav 目标校验（页级契约校验 validatePageHtml 与汇总 checkPrototype 共用单点口径）：
+ *  逐条提取 → 格式合法 + 目标页/状态在目录集内；null=通过，否则返回首条问题描述。 */
+export function findDataNavProblem(html: string, pageCodes: ReadonlySet<string>, stateCodes: ReadonlySet<string>): string | null {
+  for (const raw of extractDataNavTargets(html)) {
+    const ref = parseNavRef(raw);
+    if (!ref) return `data-nav 属性格式非法（须 data-nav="#页码" 或 "#页码/状态编号"）：${raw}`;
+    if (!pageCodes.has(ref.page)) return `data-nav 目标页 ${ref.page} 不在目录页面集内`;
+    if (ref.state && !stateCodes.has(ref.state)) return `data-nav 目标状态 ${ref.state} 不在目录状态集内`;
+  }
+  return null;
+}
+
 /** 占位块（未生成页汇总回落；保留 data-page-block/data-page/data-state 标记，对应性检查不受影响） */
 export function placeholderBlock(page: CatalogItemLike, states: CatalogItemLike[]): string {
   const title = (page.payload.title as string) ?? page.code;
@@ -181,11 +237,20 @@ export function placeholderBlock(page: CatalogItemLike, states: CatalogItemLike[
   return `  <div data-page-block="${page.code}">\n${statesHtml}\n  </div>`;
 }
 
-/** mock 降级单页（AI_PROVIDER 未注入时；标记/封装/scoped 样式全合规，内容含标题+需求点 chip+每态骨架） */
-export function buildMockPage(page: CatalogItemLike, states: CatalogItemLike[]): string {
+/** mock 降级单页（AI_PROVIDER 未注入时；标记/封装/scoped 样式全合规，内容含标题+需求点 chip+每态骨架）。
+ *  navTargets=目录其它页面（自身剔除，上限 6）→ 渲染 data-nav 穿流按钮，汇总版即可点穿流。 */
+export function buildMockPage(
+  page: CatalogItemLike,
+  states: CatalogItemLike[],
+  navTargets: Array<{ code: string; title: string }> = [],
+): string {
   const code = page.code;
   const title = (page.payload.title as string) ?? code;
   const reqIds = (page.payload.reqIds as string[] | undefined) ?? [];
+  const navs = navTargets.filter((t) => t.code !== code).slice(0, 6);
+  const navRow = navs.length > 0
+    ? `  <p class="mock-nav">穿流跳转：${navs.map((t) => `<button type="button" class="act-btn" data-nav="#${t.code}">${esc(t.title)}</button>`).join(' ')}</p>`
+    : '';
   const style = `
 #pg-${code} { font: 14px/1.6 system-ui, -apple-system, sans-serif; color: #1f2937; padding: 20px; background: #f7f8fa; }
 #pg-${code} .pg-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; border-bottom: 2px solid #e5e7eb; padding-bottom: 10px; margin-bottom: 16px; }
@@ -193,6 +258,7 @@ export function buildMockPage(page: CatalogItemLike, states: CatalogItemLike[]):
 #pg-${code} .pg-code { color: #6b7280; font-size: 12px; }
 #pg-${code} .req-chip { background: #eef2ff; color: #1a6bbb; border-radius: 999px; padding: 1px 8px; font-size: 12px; }
 #pg-${code} .mock-note { background: #fffbeb; border: 1px solid #fcd34d; border-radius: 8px; padding: 8px 12px; font-size: 12.5px; color: #92400e; margin-bottom: 14px; }
+#pg-${code} .mock-nav { margin: 0 0 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 12.5px; color: #6b7280; }
 #pg-${code} .card-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 14px; }
 #pg-${code} .stat { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 10px 12px; }
 #pg-${code} .stat b { display: block; font-size: 18px; }
@@ -225,7 +291,7 @@ export function buildMockPage(page: CatalogItemLike, states: CatalogItemLike[]):
   </section>`;
   }).join('\n');
   const body = `<div id="pg-${code}" data-page-block="${code}">
-${stateSecs}
+${navRow}${stateSecs}
 </div>`;
   return wrapPageEnvelope(code, title, style, body, '(function(){})();');
 }
@@ -260,7 +326,8 @@ export function pickUiSections(content: string, page: CatalogItemLike): string {
   return out;
 }
 
-/** AI 单页生成提示词（输出契约即本文件头部契约；锚点/PRD/UI 册定稿注入使页面内容 grounded） */
+/** AI 单页生成提示词（输出契约即本文件头部契约；锚点/PRD/UI 册定稿注入使页面内容 grounded）。
+ *  navPages=目录其它页面清单（覆盖检测 §3 穿流契约的合法跳转目标；缺省=旧调用不列清单） */
 export function buildPagePrompt(
   page: CatalogItemLike,
   states: CatalogItemLike[],
@@ -268,6 +335,7 @@ export function buildPagePrompt(
   upstreamPrd: string,
   upstreamUi: string,
   instruction: string,
+  navPages?: Array<{ code: string; title: string }>,
 ): string {
   const code = page.code;
   const title = (page.payload.title as string) ?? code;
@@ -292,6 +360,7 @@ export function buildPagePrompt(
     `6. 脚本一律 IIFE，DOM 查询限定在 document.getElementById('pg-${code}') 子树内；不得改写 document 全局状态；无脚本则输出空 IIFE (function(){})();。`,
     '7. 不使用任何外部资源（无 CDN、无外链图片/字体/脚本）；图标用 emoji 或内联 SVG。',
     `8. 状态 section 的显示/隐藏一律不得用 CSS 或脚本控制（禁止对 section[data-page] 写 display:none 或 visibility:hidden，禁止自写 class 切换显隐）——可见性由系统共享脚本接管。页内状态切换按钮统一写 <button type="button" data-show-state="状态编号">，系统脚本会自动接管点击切换与激活态；默认展示第一个状态，不要给任何 section 预设隐藏。`,
+    `9. 跨页穿流：跳转类按钮/链接（点击后应进入其它页面的）必须挂 data-nav 属性——格式 data-nav="#P-002"，可带状态 data-nav="#P-002/状态编号"；点击跳转由系统共享脚本接管，脚本不得自行实现跨页跳转。纯展示或仅页内交互的按钮一律不挂 data-nav。${navPages && navPages.length > 0 ? `本原型可跳转目标仅限目录页面：${navPages.map((p) => `${p.code}（${p.title}）`).join('、')}；不得指向目录外页码。` : ''}`,
     '',
     '## 质量要求',
     '- 中文界面、逼真占位数据（真实感的姓名/数字/日期，不要 lorem ipsum）。',
@@ -318,11 +387,49 @@ export interface PrototypeManifest {
   pages: Array<{ code: string; title: string; objectKey?: string; fingerprint?: string; source?: string; placeholder?: boolean }>;
   states: Array<{ code: string; title: string }>;
   generatedBy: string;
+  /** 覆盖检测 §3 冻结兼容：flow 快照 + data-nav 目标清单（jsonb 内扩展，零迁移；无 flow/无穿流则不出现该键） */
+  flows?: Array<{ code: string; title: string; steps: string[] }>;
+  dataNavTargets?: string[];
   warnings?: string[];
 }
 
+/** 流程视图（覆盖检测 §3）：每 flow 一条步骤条。新格式步骤（页面/状态引用 P-xxx[/ST-xxx]）渲染为
+ *  data-nav 可点跳转（点击跳对应 hash）；目标页/状态不在目录时降级纯文本（不穿流，check 侧报
+ *  FLOW_REF_MISSING）；旧格式 steps（REQ 章节标题字符串）渲染纯文本步骤——兼容口径。 */
+function renderFlowView(flows: CatalogItemLike[], pageItems: CatalogItemLike[], stateItems: CatalogItemLike[]): string {
+  const pageByCode = new Map(pageItems.map((p) => [p.code, p]));
+  const stateByCode = new Map(stateItems.map((s) => [s.code, s]));
+  const blocks = flows.map((f) => {
+    const steps = (f.payload.steps as string[] | undefined) ?? [];
+    const lis = steps.map((s) => {
+      const ref = parseFlowStepRef(s);
+      const target = ref ? pageByCode.get(ref.page) : undefined;
+      const stateOk = !ref?.state || stateByCode.has(ref.state);
+      if (!ref || !target || !stateOk) return `<li class="msf-flow-step">${esc(s)}</li>`;
+      const stTitle = ref.state ? ((stateByCode.get(ref.state)?.payload.title as string | undefined) ?? ref.state) : '';
+      const label = `${esc((target.payload.title as string) ?? ref.page)}${stTitle ? ` · ${esc(stTitle)}` : ''}`;
+      const hash = `#${ref.page}${ref.state ? `/${ref.state}` : ''}`;
+      return `<li class="msf-flow-step"><a href="${hash}" data-nav="${hash}">${label}</a></li>`;
+    }).join('');
+    return `<div class="msf-flow" data-flow="${esc(f.code)}"><h3>${esc((f.payload.title as string) ?? f.code)}<span class="msf-flow-code">${esc(f.code)}</span></h3><ol>${lis}</ol></div>`;
+  }).join('\n');
+  return `<section id="msf-flows"><h2>流程</h2>\n${blocks}\n</section>`;
+}
+
+/** 汇总文档头部样式（nav；页面样式由页级 scoped 样式各自携带） */
+const COMPOSED_HEAD_STYLE = 'body{font:14px/1.6 system-ui,sans-serif;margin:16px}nav{margin-bottom:12px}';
+/** 流程视图样式（仅目录含 flow 条目时进汇总头部——无 flow 旧目录产物零痕迹） */
+const COMPOSED_FLOW_STYLE = '#msf-flows{margin:0 0 16px;padding:10px 14px;border:1px solid #e5e7eb;border-radius:10px;background:#fafafa}'
+  + '#msf-flows h2{font-size:15px;margin:0 0 8px}'
+  + '.msf-flow{margin-bottom:8px}.msf-flow:last-child{margin-bottom:0}'
+  + '.msf-flow h3{font-size:13px;margin:0 0 4px}.msf-flow-code{color:#6b7280;font-size:11px;margin-left:6px}'
+  + '.msf-flow ol{display:flex;flex-wrap:wrap;gap:6px;list-style:none;margin:0;padding:0}'
+  + '.msf-flow-step{background:#fff;border:1px solid #e5e7eb;border-radius:999px;padding:2px 10px;font-size:12.5px}'
+  + '.msf-flow-step a{color:#1a6bbb;text-decoration:none}';
+
 /**
- * 汇总拼装：目录 page×state 全集 → 已生成页内嵌 envelope 段、未生成页回落占位块。
+ * 汇总拼装：目录 page×state 全集 → 已生成页内嵌 envelope 段、未生成页回落占位块；
+ * flow 条目渲染流程视图（步骤条，覆盖检测 §3）。
  * 产物保留全部 data-page-block/data-page/data-state 静态标记 → checkPrototype/定稿/基线零改动。
  */
 export function composePrototype(
@@ -332,6 +439,7 @@ export function composePrototype(
 ): { html: string; manifest: PrototypeManifest } {
   const pageItems = items.filter((i) => i.item_type === 'page');
   const stateItems = items.filter((i) => i.item_type === 'state');
+  const flowItems = items.filter((i) => i.item_type === 'flow');
   const byCode = new Map(pages.map((p) => [p.code, p]));
   const blocks = pageItems.map((pi) => {
     const got = byCode.get(pi.code);
@@ -343,14 +451,17 @@ export function composePrototype(
     .filter((s) => s.replace(/<\/?script>/g, '').trim().length > 4)
     .join('\n');
   const nav = pageItems.map((p) => `<a href="#${p.code}">${esc((p.payload.title as string) ?? p.code)}</a>`).join(' | ');
+  const flowView = flowItems.length > 0 ? renderFlowView(flowItems, pageItems, stateItems) : '';
   const html = `<!doctype html><html><head><meta charset="utf-8"><title>客户原型（汇总）</title>
-<style>body{font:14px/1.6 system-ui,sans-serif;margin:16px}nav{margin-bottom:12px}</style></head>
+<style>${COMPOSED_HEAD_STYLE}${flowView ? COMPOSED_FLOW_STYLE : ''}</style></head>
 <body data-prototype="msf">
 <nav>${nav}</nav>
+${flowView}
 ${blocks}
 ${scripts}
 ${NAV_SCRIPT}
 </body></html>`;
+  const navTargets = [...new Set(extractDataNavTargets(html))].sort();
   const manifest: PrototypeManifest = {
     pages: pageItems.map((pi) => {
       const got = byCode.get(pi.code);
@@ -361,6 +472,10 @@ ${NAV_SCRIPT}
     }),
     states: stateItems.map((s) => ({ code: s.code, title: (s.payload.title as string) ?? s.code })),
     generatedBy: 'assemble',
+    ...(flowItems.length > 0
+      ? { flows: flowItems.map((f) => ({ code: f.code, title: (f.payload.title as string) ?? f.code, steps: (f.payload.steps as string[] | undefined) ?? [] })) }
+      : {}),
+    ...(navTargets.length > 0 ? { dataNavTargets: navTargets } : {}),
     ...(warnings.length > 0 ? { warnings } : {}),
   };
   return { html, manifest };

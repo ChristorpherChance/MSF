@@ -13,7 +13,15 @@ import { designContents } from '../platform/doc-contents.js';
 import { splitSections } from '../platform/doc-sections.js';
 import { DesignDocsService } from './docs.service.js';
 import { CatalogService } from './catalog.service.js';
-import { composePrototype, extractPageParts, UI_PAGE_SECTION_RE, type AssemblePageInput } from './prototype-pages.js';
+import {
+  composePrototype,
+  extractDataNavTargets,
+  extractPageParts,
+  parseFlowStepRef,
+  parseNavRef,
+  UI_PAGE_SECTION_RE,
+  type AssemblePageInput,
+} from './prototype-pages.js';
 
 /**
  * 原型四步流水（F02-2 状态机；A05-6/7/8/9/10/11；REQ-305~310）。
@@ -707,6 +715,10 @@ export interface UiConsistencyInput {
  * 对应性检查：HTML 标记 vs 目录（缺失=issue；manual 条目=unverified 需人工，REQ-306/311）。
  * 汇总产物（composePrototype）与人工上传共用本函数；页级单元测试复用，故导出。
  * 注意：`data-page="X" data-state="Y"` 为定序 includes 匹配——生成契约钉死属性序。
+ * 覆盖检测 §3：data-nav 目标存在性（DATA_NAV_TARGET_MISSING）+ flow 引用页面/状态存在性
+ * （FLOW_REF_MISSING）——issue 码只进 dsg_prototype_checks.issues jsonb（PAGE_MISSING/STATE_MISSING
+ * 先例），不入 DomainError/GateIssue 闭集。兼容口径（I3）：旧版汇总无 data-nav 自然零命中；
+ * 旧格式 flow steps（REQ 章节标题字符串）不匹配引用模式按「未声明引用」不校验。
  */
 export function checkPrototype(
   html: string,
@@ -747,6 +759,31 @@ export function checkPrototype(
     for (const p of pageItems) {
       if (ui.refsByCode.has(p.code) || p.payload.exempt === true) continue;
       issues.push({ code: 'PAGE_UI_UNMAPPED', message: `目录页 ${p.code} 无 ui 册章节承接（骨架/通用页可人工豁免）`, target: p.code });
+    }
+  }
+  // 覆盖检测 §3：data-nav 目标存在性（旧版汇总无 data-nav 自然零命中——旧产物永久可预览不受新校验影响）
+  const pageCodes = new Set(items.filter((i) => i.item_type === 'page').map((i) => i.code));
+  const stateCodes = new Set(items.filter((i) => i.item_type === 'state').map((i) => i.code));
+  for (const raw of extractDataNavTargets(html)) {
+    const ref = parseNavRef(raw);
+    if (!ref) {
+      issues.push({ code: 'DATA_NAV_TARGET_MISSING', message: `原型内 data-nav 属性格式非法（须 "#页码" 或 "#页码/状态"）：${raw}`, target: raw });
+    } else if (!pageCodes.has(ref.page) || (ref.state !== null && !stateCodes.has(ref.state))) {
+      issues.push({ code: 'DATA_NAV_TARGET_MISSING', message: `原型内 data-nav 目标「${raw}」不在目录页面/状态集内`, target: raw });
+    }
+  }
+  // 覆盖检测 §3：flow 引用页面/状态存在性。旧格式 steps（REQ 章节标题字符串）不匹配引用模式 →
+  // 按「未声明引用」不校验（兼容口径 I3）；新格式步骤（P-xxx[/ST-xxx]）逐条校验。
+  for (const f of items.filter((i) => i.item_type === 'flow')) {
+    const steps = (f.payload.steps as string[] | undefined) ?? [];
+    for (const s of steps) {
+      const ref = parseFlowStepRef(s);
+      if (!ref) continue;
+      if (!pageCodes.has(ref.page)) {
+        issues.push({ code: 'FLOW_REF_MISSING', message: `流程 ${f.code} 步骤「${s}」引用的页面 ${ref.page} 不存在（编辑流程步骤或重新规划）`, target: f.code });
+      } else if (ref.state && !stateCodes.has(ref.state)) {
+        issues.push({ code: 'FLOW_REF_MISSING', message: `流程 ${f.code} 步骤「${s}」引用的状态 ${ref.state} 不存在（编辑流程步骤或重新规划）`, target: f.code });
+      }
     }
   }
   return { issues, unverified };
