@@ -10,9 +10,10 @@ import { PolicyService } from '../policy/policy.service.js';
 import { StorageService } from '../platform/storage.service.js';
 import { deriveLinks, computeHealth } from '../platform/rtm-health.js';
 import { designContents } from '../platform/doc-contents.js';
+import { splitSections } from '../platform/doc-sections.js';
 import { DesignDocsService } from './docs.service.js';
 import { CatalogService } from './catalog.service.js';
-import { composePrototype, extractPageParts, type AssemblePageInput } from './prototype-pages.js';
+import { composePrototype, extractPageParts, UI_PAGE_SECTION_RE, type AssemblePageInput } from './prototype-pages.js';
 
 /**
  * 原型四步流水（F02-2 状态机；A05-6/7/8/9/10/11；REQ-305~310）。
@@ -100,7 +101,23 @@ export class PrototypeService {
       const html = ver.rows[0].content_object_key
         ? (await this.storage.getObject(ver.rows[0].content_object_key)).toString('utf8')
         : '';
-      const { issues, unverified } = checkPrototype(html, items.rows);
+      // 双向一致性输入（覆盖检测 §2）：refs+ui 册现行版本页面章节；全版无 ui refs=旧目录口径不检（判别式）
+      const uiRefs = await client.query<{ code: string; section_id: string | null; anchor: string | null }>(
+        `SELECT i.code, r.section_id, r.anchor FROM dsg_catalog_refs r
+         JOIN dsg_catalog_items i ON i.id=r.item_id
+         WHERE i.project_id=$1 AND i.catalog_version=$2 AND r.ref_kind='ui' AND i.item_type='page'`,
+        [projectId, catVer]);
+      const uiDoc = await client.query<{ content: string }>(
+        `SELECT v.content FROM dsg_documents d JOIN dsg_versions v ON v.id=d.current_version_id
+         WHERE d.project_id=$1 AND d.doc_kind='ui'`, [projectId]);
+      const uiInput: UiConsistencyInput = {
+        hasUiRefs: uiRefs.rows.length > 0,
+        refsByCode: new Map(uiRefs.rows.map((x) => [x.code, { sectionId: x.section_id, anchor: x.anchor }])),
+        uiPageSecs: splitSections(uiDoc.rows[0]?.content ?? '')
+          .filter((s) => s.title && UI_PAGE_SECTION_RE.test(s.title))
+          .map((s) => ({ id: s.id, title: s.title })),
+      };
+      const { issues, unverified } = checkPrototype(html, items.rows, uiInput);
       // W2-052：run_no 发号 count+1 属 check-then-act——咨询锁串行化「计数→插入」临界区
       await lockCodeGen(client, `msf:code:proto-check:${projectId}`);
       const run = await client.query<{ n: string }>(
@@ -319,30 +336,50 @@ export class PrototypeService {
     const planStale = latestPlan && up.ok && latestPlan.governing_fingerprint !== up.fingerprint;
     if (planStale && status !== 'idle') status = 'stale';
     // 页级原型工作态（差异登记）：none=未生成 / pending=已生成待汇总 / assembled=已入当前汇总版本
-    let pages: Array<{ code: string; title: string; state: 'none' | 'pending' | 'assembled'; source?: string }> = [];
+    let pages: Array<{
+      code: string; title: string; state: 'none' | 'pending' | 'assembled'; source?: string;
+      reqIds: string[]; uiRef: { sectionId: string | null; anchor: string | null } | null; uiStale: boolean;
+    }> = [];
     if (latestPlan) {
       const pageItems = await query<{ code: string; payload: Record<string, unknown> }>(
         "SELECT code, payload FROM dsg_catalog_items WHERE project_id=$1 AND catalog_version=$2 AND item_type='page' ORDER BY code",
         [projectId, latestPlan.catalog_version]);
-      const rows = await query<{ page_code: string; html_fingerprint: string; source: string }>(
-        'SELECT page_code, html_fingerprint, source FROM dsg_prototype_pages WHERE project_id=$1 AND catalog_version=$2',
+      const rows = await query<{ page_code: string; html_fingerprint: string; source: string; updated_at: string }>(
+        'SELECT page_code, html_fingerprint, source, updated_at FROM dsg_prototype_pages WHERE project_id=$1 AND catalog_version=$2',
         [projectId, latestPlan.catalog_version]);
+      // 时间基滞后（覆盖检测 §2 C1 修法）：页 updated_at < 其依据 ui 册当前版本 submitted_at → 「依据已变更」；
+      // 页重生成 updated_at 刷新即自动解脏（upstream-stale.ts 先例，零新增快照列）
+      const uiRefs = await query<{ code: string; section_id: string | null; anchor: string | null }>(
+        `SELECT i.code, r.section_id, r.anchor FROM dsg_catalog_refs r
+         JOIN dsg_catalog_items i ON i.id=r.item_id
+         WHERE i.project_id=$1 AND i.catalog_version=$2 AND r.ref_kind='ui' AND i.item_type='page'`,
+        [projectId, latestPlan.catalog_version]);
+      const uiRefByCode = new Map(uiRefs.rows.map((x) => [x.code, { sectionId: x.section_id, anchor: x.anchor }]));
+      const uiCur = await query<{ at: string }>(
+        `SELECT v.submitted_at AS at FROM dsg_documents d JOIN dsg_versions v ON v.id=d.current_version_id
+         WHERE d.project_id=$1 AND d.doc_kind='ui'`, [projectId]);
+      const uiAt = uiCur.rows[0]?.at ?? null;
       const recorded = d?.current_version_id ? await this.manifestFingerprints(null, d.current_version_id) : new Map<string, string>();
       pages = pageItems.rows.map((pi) => {
         const row = rows.rows.find((r) => r.page_code === pi.code);
         const title = (pi.payload.title as string) ?? pi.code;
-        if (!row) return { code: pi.code, title, state: 'none' as const };
+        const reqIds = (pi.payload.reqIds as string[] | undefined) ?? [];
+        const uiRef = uiRefByCode.get(pi.code) ?? null;
+        const uiStale = !!(uiRef && row && uiAt && new Date(row.updated_at) < new Date(uiAt));
+        if (!row) return { code: pi.code, title, state: 'none' as const, reqIds, uiRef, uiStale: false };
         return {
-          code: pi.code, title, source: row.source,
+          code: pi.code, title, source: row.source, reqIds, uiRef, uiStale,
           state: (recorded.get(pi.code) === row.html_fingerprint ? 'assembled' : 'pending') as 'assembled' | 'pending',
         };
       });
     }
     const pagesStale = pages.some((p) => p.state === 'pending');
+    const uiStalePages = pages.filter((p) => p.uiStale).map((p) => p.code);
     return {
       status,
       pages,
       pagesStale,
+      uiStalePages,
       plan: latestPlan && {
         planId: latestPlan.id, complete: latestPlan.complete,
         fingerprint: `sha256:${latestPlan.plan_fingerprint}`,
@@ -531,6 +568,8 @@ export class PrototypeService {
   /**
    * 页滞后实时比对（F02-2 失效由查询时判定、不写回 的同口径；纯 DB，不读 MinIO）：
    * 页行指纹 ≠ 当前汇总版本 manifest 记录 → 页已更新未汇总；页行 catalog_version ≠ plan 锁定版本 → 依据已过期。
+   * 时间基滞后（覆盖检测 §2）：页 updated_at < 其依据 ui 册当前版本 submitted_at → 「依据的 ui 册已变更」，
+   * 页重生成 updated_at 刷新即解脏（与 pageDriftIssues 并列的 PROTOTYPE_DIRTY 同款门禁）。
    */
   private async pageDriftIssues(
     client: PoolClient | null,
@@ -540,8 +579,8 @@ export class PrototypeService {
   ): Promise<GateIssue[]> {
     const q = client ? client.query.bind(client) : query;
     const recorded = await this.manifestFingerprints(client, currentVersionId);
-    const rows = await q<{ page_code: string; html_fingerprint: string; catalog_version: string }>(
-      'SELECT page_code, html_fingerprint, catalog_version FROM dsg_prototype_pages WHERE project_id=$1',
+    const rows = await q<{ page_code: string; html_fingerprint: string; catalog_version: string; updated_at: string }>(
+      'SELECT page_code, html_fingerprint, catalog_version, updated_at FROM dsg_prototype_pages WHERE project_id=$1',
       [projectId]);
     const issues: GateIssue[] = [];
     for (const r of rows.rows) {
@@ -549,6 +588,29 @@ export class PrototypeService {
         issues.push({ code: 'PROTOTYPE_DIRTY', message: `页面 ${r.page_code} 原型依据的目录版本已过期，须重新生成并汇总`, target: r.page_code });
       } else if (recorded.get(r.page_code) !== r.html_fingerprint) {
         issues.push({ code: 'PROTOTYPE_DIRTY', message: `页面 ${r.page_code} 原型已更新未汇总，须重新汇总生成`, target: r.page_code });
+      }
+    }
+    // 时间基滞后：仅本 plan 目录版本且有 ui ref 的页参与（旧目录无 ui refs 不适用，判别式同双向检查）
+    const uiRefs = await q<{ code: string; anchor: string | null }>(
+      `SELECT i.code, r.anchor FROM dsg_catalog_refs r
+       JOIN dsg_catalog_items i ON i.id=r.item_id
+       WHERE i.project_id=$1 AND i.catalog_version=$2 AND r.ref_kind='ui' AND i.item_type='page'`,
+      [projectId, planCatalogVersion]);
+    if (uiRefs.rows.length > 0) {
+      const uiCur = await q<{ at: string }>(
+        `SELECT v.submitted_at AS at FROM dsg_documents d JOIN dsg_versions v ON v.id=d.current_version_id
+         WHERE d.project_id=$1 AND d.doc_kind='ui'`, [projectId]);
+      const uiAt = uiCur.rows[0]?.at ?? null;
+      if (uiAt) {
+        const anchorByCode = new Map(uiRefs.rows.map((x) => [x.code, x.anchor]));
+        for (const r of rows.rows) {
+          if (r.catalog_version !== planCatalogVersion) continue; // 目录版本过期已单独报
+          const anchor = anchorByCode.get(r.page_code);
+          if (anchor === undefined) continue;
+          if (new Date(r.updated_at) < new Date(uiAt)) {
+            issues.push({ code: 'PROTOTYPE_DIRTY', message: `页面 ${r.page_code} 依据的 ui 册「${anchor ?? ''}」已变更（ui 册有新提交），须重新生成该页`, target: r.page_code });
+          }
+        }
       }
     }
     return issues;
@@ -602,6 +664,19 @@ export class PrototypeService {
 /** mock 原型生成已退役：页级生成见 prototype-pages.ts（buildMockPage），汇总拼装见 composePrototype */
 
 /**
+ * 双向一致性输入（覆盖检测 §2；issue 码 UI_SECTION_UNMAPPED/PAGE_UI_UNMAPPED 只进
+ * dsg_prototype_checks.issues jsonb，同 PAGE_MISSING/STATE_MISSING 先例，不入 DomainError 闭集）。
+ * 新旧目录判别式：hasUiRefs=false（该目录版本无任何 ref_kind='ui' 行）→ 双向检查整体不检。
+ */
+export interface UiConsistencyInput {
+  hasUiRefs: boolean;
+  /** 页码 → ui 册章节引用快照（plan 时写入） */
+  refsByCode: Map<string, { sectionId: string | null; anchor: string | null }>;
+  /** ui 册现行版本的「页面/界面」章节 */
+  uiPageSecs: Array<{ id: string; title: string }>;
+}
+
+/**
  * 对应性检查：HTML 标记 vs 目录（缺失=issue；manual 条目=unverified 需人工，REQ-306/311）。
  * 汇总产物（composePrototype）与人工上传共用本函数；页级单元测试复用，故导出。
  * 注意：`data-page="X" data-state="Y"` 为定序 includes 匹配——生成契约钉死属性序。
@@ -609,6 +684,7 @@ export class PrototypeService {
 export function checkPrototype(
   html: string,
   items: Array<{ item_type: string; code: string; payload: Record<string, unknown> }>,
+  ui?: UiConsistencyInput,
 ): { issues: Array<{ code: string; message: string; target: string }>; unverified: Array<{ code: string; message: string; target: string }> } {
   const issues: Array<{ code: string; message: string; target: string }> = [];
   const unverified: Array<{ code: string; message: string; target: string }> = [];
@@ -625,6 +701,23 @@ export function checkPrototype(
     }
     if (it.payload.verify === 'manual') {
       unverified.push({ code: 'SOURCE_SEMANTIC_UNVERIFIED', message: `人工补充条目 ${it.code} 需人工核对`, target: it.code });
+    }
+  }
+  // 双向一致性（覆盖检测 §2）：仅当本目录版本存在 ref_kind='ui' 行时检（refs 未声明≠缺失）
+  if (ui?.hasUiRefs) {
+    const pageItems = items.filter((i) => i.item_type === 'page');
+    // 册有页无：ui 册页面章节无目录页承接。匹配键=锚点标题（splitSections 的节 id 是位置序，
+    // 册内增删节后新章节会继承旧节 id——按 id 匹配会把「新章节」误判成「已被旧 ref 承接」）
+    for (const sec of ui.uiPageSecs) {
+      const covered = pageItems.some((p) => ui.refsByCode.get(p.code)?.anchor === sec.title);
+      if (!covered) {
+        issues.push({ code: 'UI_SECTION_UNMAPPED', message: `ui 册页面章节「${sec.title}」无对应目录页（重新识别规划或人工补充条目）`, target: sec.title });
+      }
+    }
+    // 页有册无：目录页无 ui ref 且未人工豁免（payload.exempt，设置通道=design.catalog.update-item）
+    for (const p of pageItems) {
+      if (ui.refsByCode.has(p.code) || p.payload.exempt === true) continue;
+      issues.push({ code: 'PAGE_UI_UNMAPPED', message: `目录页 ${p.code} 无 ui 册章节承接（骨架/通用页可人工豁免）`, target: p.code });
     }
   }
   return { issues, unverified };

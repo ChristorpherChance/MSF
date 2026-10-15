@@ -3,8 +3,9 @@ import { DomainError, fingerprint } from '@msf/shared';
 import { query } from '../../db/pool.js';
 import { lockCodeGen } from '../../db/seq.js';
 import { executeCommand, registerCommand, type CommandContext } from '../evidence/command-bus.js';
-import { sha256Text, splitSections } from '../platform/doc-sections.js';
+import { sha256Text, splitSections, type DocSection } from '../platform/doc-sections.js';
 import { DesignDocsService } from './docs.service.js';
+import { UI_PAGE_SECTION_RE } from './prototype-pages.js';
 
 /**
  * 原型规划与设计目录（A05-4/5/12/13；REQ-304/312；F02-2 plan 阶段）。
@@ -62,16 +63,22 @@ export class CatalogService {
         `SELECT v.content FROM dsg_documents d JOIN dsg_versions v ON v.id=d.final_version_id
          WHERE d.project_id=$1 AND d.doc_kind='ui'`, [projectId]);
       const uiSecs = splitSections(uiDoc.rows[0]?.content ?? '')
-        .filter((s) => s.title && /(页面|界面|页\s*$)/.test(s.title));
-      const pageSeeds: Array<{ title: string; reqIds: string[] }> = uiSecs.length > 0
+        .filter((s) => s.title && UI_PAGE_SECTION_RE.test(s.title));
+      const pageSeeds: Array<{ title: string; reqIds: string[]; uiSec?: DocSection }> = uiSecs.length > 0
         ? uiSecs.map((s) => ({
             title: s.title,
             reqIds: [...new Set([...`${s.title}\n${s.md}`.matchAll(/\bREQ-\d{3}\b/g)].map((m) => m[0]))],
+            uiSec: s,
           }))
         : reqSecs.map((s) => ({
             title: s.title.replace(/^REQ-\d{3}\s*/, ''),
             reqIds: [(/\bREQ-\d{3}\b/.exec(s.title))![0]],
           }));
+      // ui 册页面章节 → 页码映射（写 ref_kind='ui' 引用用；仅 uiSecs 分支有值，迁移 0031 起）
+      const uiSecByCode = new Map<string, DocSection>();
+      pageSeeds.forEach((p, i) => {
+        if (p.uiSec) uiSecByCode.set(`P-${String(i + 1).padStart(3, '0')}`, p.uiSec);
+      });
 
       interface ItemSeed { type: string; code: string; payload: Record<string, unknown>; required: boolean; source?: string }
       const items: ItemSeed[] = [
@@ -81,7 +88,8 @@ export class CatalogService {
           payload: { title: p.title, route: `/p${i + 1}`, reqIds: p.reqIds },
           required: true,
         })),
-        { type: 'page', code: 'P-HOME', payload: { title: '首页', route: '/', reqIds: [] }, required: true },
+        // 骨架首页非 ui 册章节派生——ui 册驱动口径下预置 exempt，免「页有册无」恒报（人工可经 update-item 改）
+        { type: 'page', code: 'P-HOME', payload: { title: '首页', route: '/', reqIds: [], ...(uiSecs.length > 0 ? { exempt: true } : {}) }, required: true },
         { type: 'flow', code: 'F-001', payload: { title: '主流程', steps: reqSecs.map((s) => s.title) }, required: true },
         { type: 'state', code: 'ST-default', payload: { title: '默认态' }, required: true },
         { type: 'state', code: 'ST-empty', payload: { title: '空态' }, required: false },
@@ -93,16 +101,26 @@ export class CatalogService {
       // （旧口径 plan 全量重导派生项，人工加的页面/流程在 re-plan 后静默消失，
       //   检查报告因计划与生成同源而照样 pass，用户意图被静默吞掉）。
       // 按 type+code 去重：同码以派生（identified）口径为准。
+      // 随行扩（覆盖检测 §2）：派生条目（source≠'manual'）上的人工修改字段
+      // （payload.steps/exempt——流程步骤编辑/页豁免）也按 type+code 迁移保留，
+      // 原口径 re-plan 全量重导把它们静默重置回识别值。
       const prevCatVer = await this.currentCatalogVersion(client, projectId);
       if (prevCatVer) {
-        const manual = await client.query<{ item_type: string; code: string; payload: Record<string, unknown>; required: boolean }>(
-          `SELECT item_type, code, payload, required FROM dsg_catalog_items
-           WHERE project_id=$1 AND catalog_version=$2 AND source='manual'`,
+        const prevItems = await client.query<{ item_type: string; code: string; payload: Record<string, unknown>; required: boolean; source: string }>(
+          `SELECT item_type, code, payload, required, source FROM dsg_catalog_items
+           WHERE project_id=$1 AND catalog_version=$2`,
           [projectId, prevCatVer]);
-        for (const m of manual.rows) {
-          if (!items.some((i) => i.type === m.item_type && i.code === m.code)) {
-            items.push({ type: m.item_type, code: m.code, payload: m.payload, required: m.required, source: 'manual' });
+        for (const m of prevItems.rows) {
+          if (m.source === 'manual') {
+            if (!items.some((i) => i.type === m.item_type && i.code === m.code)) {
+              items.push({ type: m.item_type, code: m.code, payload: m.payload, required: m.required, source: 'manual' });
+            }
+            continue;
           }
+          const it = items.find((i) => i.type === m.item_type && i.code === m.code);
+          if (!it) continue; // 本版不再派生该条目（上游章节已删）
+          if (m.payload.steps !== undefined) it.payload.steps = m.payload.steps;
+          if (m.payload.exempt !== undefined) it.payload.exempt = m.payload.exempt;
         }
       }
 
@@ -126,6 +144,16 @@ export class CatalogService {
               [r.rows[0]!.id, sec.id, sec.title, sec.md.slice(0, 500), sha256Text(sec.md), RULESET_VERSION],
             );
           }
+        }
+        // ui 册页面章节来源的页面挂 ui 追溯引用（覆盖检测 §2，迁移 0031 起 ref_kind='ui'；
+        // section_id/anchor/rule_text 快照+ref_fingerprint 同 prd refs 口径）
+        const uiSec = uiSecByCode.get(it.code);
+        if (uiSec) {
+          await client.query(
+            `INSERT INTO dsg_catalog_refs (item_id, ref_kind, doc_kind, section_id, anchor, rule_text, ref_fingerprint, ruleset_version)
+             VALUES ($1,'ui','ui',$2,$3,$4,$5,$6)`,
+            [r.rows[0]!.id, uiSec.id, uiSec.title, uiSec.md.slice(0, 500), sha256Text(uiSec.md), RULESET_VERSION],
+          );
         }
       }
 

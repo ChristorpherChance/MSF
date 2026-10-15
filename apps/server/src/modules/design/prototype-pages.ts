@@ -14,11 +14,16 @@
  *   NAV_SCRIPT 事件委托接管点击切换与激活态，模型脚本无需也不应自管 section 显隐。
  */
 
+import { splitSections, type DocSection } from '../platform/doc-sections.js';
+
 export interface CatalogItemLike {
   item_type: string;
   code: string;
   payload: Record<string, unknown>;
 }
+
+/** ui 册「页面/界面」章节标题判别（plan 页面种子与双向一致性检查共用单点口径） */
+export const UI_PAGE_SECTION_RE = /(页面|界面|页\s*$)/;
 
 /** 单页抽取产物（styleBlock/scriptBlock 含标签本体，汇总时直接内嵌） */
 export interface PageParts {
@@ -228,12 +233,40 @@ ${stateSecs}
 /** 喂给模型的单文档上限（与 generate.service GEN_INPUT_CAP 同口径） */
 export const PAGE_INPUT_CAP = 24000;
 
-/** AI 单页生成提示词（输出契约即本文件头部契约；锚点/PRD 定稿注入使页面内容 grounded） */
+/**
+ * UI 册正文节选（页级 prompt 注入，覆盖检测 §2）：页面相关章节优先——
+ * 按页 payload.reqIds 命中章节标题/正文、或页标题与章节标题互含判定相关；
+ * 其余章节按原序补齐，节选上限同 PRD 的 PAGE_INPUT_CAP 口径。
+ */
+export function pickUiSections(content: string, page: CatalogItemLike): string {
+  const secs = splitSections(content).filter((s) => s.title);
+  if (secs.length === 0) return '';
+  const reqIds = (page.payload.reqIds as string[] | undefined) ?? [];
+  const title = ((page.payload.title as string) ?? '').trim();
+  const relevant = (s: DocSection): boolean =>
+    reqIds.some((r) => `${s.title}\n${s.md}`.includes(r))
+    || (title !== '' && (s.title.includes(title) || title.includes(s.title)));
+  const ordered = [...secs.filter(relevant), ...secs.filter((s) => !relevant(s))];
+  let out = '';
+  for (const s of ordered) {
+    const chunk = `## ${s.title}\n\n${s.md}`;
+    if (out && out.length + chunk.length + 2 > PAGE_INPUT_CAP) break;
+    out += `${out ? '\n\n' : ''}${chunk}`;
+    if (out.length > PAGE_INPUT_CAP) {
+      out = `${out.slice(0, PAGE_INPUT_CAP)}\n\n[原文过长，已截断]`;
+      break;
+    }
+  }
+  return out;
+}
+
+/** AI 单页生成提示词（输出契约即本文件头部契约；锚点/PRD/UI 册定稿注入使页面内容 grounded） */
 export function buildPagePrompt(
   page: CatalogItemLike,
   states: CatalogItemLike[],
   anchors: Array<{ docKind: string | null; sectionId: string | null; anchor: string | null }>,
   upstreamPrd: string,
+  upstreamUi: string,
   instruction: string,
 ): string {
   const code = page.code;
@@ -268,6 +301,7 @@ export function buildPagePrompt(
     instruction ? `\n## 用户补充指示\n${instruction}` : '',
     anchorLines ? `\n## 设计锚点（上游章节）\n${anchorLines}` : '',
     upstreamPrd ? `\n## 上游 PRD 定稿（节选）\n${upstreamPrd}` : '',
+    upstreamUi ? `\n## 上游 UI 册定稿（节选）\n${upstreamUi}` : '',
   ].filter(Boolean).join('\n');
 }
 

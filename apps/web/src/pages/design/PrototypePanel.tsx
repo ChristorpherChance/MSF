@@ -154,6 +154,7 @@ export function PrototypePanel() {
           {pages.map((p) => {
             const pg = (proto.pages ?? []).find((x) => x.code === p.code);
             const g = genMap[p.code];
+            const reqIds = (p.payload.reqIds as string[] | undefined) ?? [];
             return (
               <div
                 key={p.code}
@@ -185,6 +186,23 @@ export function PrototypePanel() {
                         ? ' · 已汇总'
                         : ' · 未生成'}
                 </span>
+                {/* 可追溯呈现（覆盖检测 §2）：依据 ui 册章节锚点（✓一致/⚠已变更=时间基滞后）+ PRD REQ-nnn */}
+                {(pg?.uiRef || reqIds.length > 0) && (
+                  <span className="mut" style={{ display: 'block', fontSize: 11 }}>
+                    依据：
+                    {pg?.uiRef && (
+                      <>
+                        ui 册「{pg.uiRef.anchor ?? pg.uiRef.sectionId}」
+                        {' '}
+                        {pg.uiStale
+                          ? <span className="tag tag-warn" title="ui 册有新提交，须重新生成该页">⚠已变更</span>
+                          : <span className="tag tag-ok">✓一致</span>}
+                      </>
+                    )}
+                    {pg?.uiRef && reqIds.length > 0 && ' + '}
+                    {reqIds.length > 0 && `PRD ${reqIds.join('、')}`}
+                  </span>
+                )}
                 {g?.error && <span className="fail-note" style={{ display: 'block' }}>⚠ {g.error}</span>}
               </div>
             );

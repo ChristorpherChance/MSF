@@ -53,10 +53,16 @@ export interface ProtoStatus {
   status: 'idle' | 'planning' | 'plan-ready' | 'generating' | 'generated' | 'checking' | 'ready' | 'finalized' | 'stale' | 'failed';
   plan: { planId: string; complete: boolean; fingerprint: string; catalogVersion: string; stale: boolean } | null;
   prototype: { docId: string; currentVersionId: string | null; finalized: boolean; modified: boolean } | null;
-  /** 页级原型工作态（差异登记）：none=未生成 / pending=已生成待汇总 / assembled=已入当前汇总版本 */
-  pages: Array<{ code: string; title: string; state: 'none' | 'pending' | 'assembled'; source?: string }>;
+  /** 页级原型工作态（差异登记）：none=未生成 / pending=已生成待汇总 / assembled=已入当前汇总版本；
+   *  uiRef/uiStale=结构化对应（覆盖检测 §2）：页依据的 ui 册章节锚点 + 时间基滞后（ui 册有新提交） */
+  pages: Array<{
+    code: string; title: string; state: 'none' | 'pending' | 'assembled'; source?: string;
+    reqIds?: string[]; uiRef?: { sectionId: string | null; anchor: string | null } | null; uiStale?: boolean;
+  }>;
   /** 存在「页已更新未汇总」 */
   pagesStale: boolean;
+  /** 依据的 ui 册已变更的页码清单（时间基滞后） */
+  uiStalePages?: string[];
   latestCheck: {
     reportId: string; runNo: number; passed: boolean; prototypeVersionId: string;
     issues: Array<{ code: string; message: string; target: string }>;

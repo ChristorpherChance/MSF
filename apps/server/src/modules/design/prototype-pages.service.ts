@@ -15,6 +15,7 @@ import {
   ensureNavScript,
   extractPageParts,
   findHiddenSectionRule,
+  pickUiSections,
   type CatalogItemLike,
 } from './prototype-pages.js';
 
@@ -40,6 +41,8 @@ interface PageGenOp {
   states: CatalogItemLike[];
   anchors: Array<{ docKind: string | null; sectionId: string | null; anchor: string | null }>;
   prd: string;
+  /** UI 册正文节选（页面相关章节优先，覆盖检测 §2；无 ui 册/无章节时为空串不注入） */
+  ui: string;
   instruction: string;
   /** 真接模式保留会话句柄（abort 用） */
   session?: AiSession | undefined;
@@ -128,13 +131,18 @@ export class PrototypePagesService {
        WHERE d.project_id=$1 AND d.doc_kind='prd'`, [projectId]);
     const prdRaw = prdRow.rows[0]?.content ?? '';
     const prd = prdRaw.length > PAGE_INPUT_CAP ? `${prdRaw.slice(0, PAGE_INPUT_CAP)}\n\n[原文过长，已截断]` : prdRaw;
+    // UI 册正文注入（覆盖检测 §2）：当前版本按页相关章节节选，上限同 PRD 口径
+    const uiRow = await query<{ content: string }>(
+      `SELECT v.content FROM dsg_documents d JOIN dsg_versions v ON v.id=d.current_version_id
+       WHERE d.project_id=$1 AND d.doc_kind='ui'`, [projectId]);
+    const ui = pickUiSections(uiRow.rows[0]?.content ?? '', page);
 
     const operationId = `op_pgen_${randomBytes(6).toString('hex')}`;
     ops.set(operationId, {
       id: operationId, projectId, pageCode, catalogVersion: p.catalog_version, status: 'running',
       page, states,
       anchors: anchors.rows.map((a) => ({ docKind: a.doc_kind, sectionId: a.section_id, anchor: a.anchor })),
-      prd, instruction,
+      prd, ui, instruction,
     });
     return { operationId, source: this.ai?.kind === 'pi' ? 'model' : 'mock' };
   }
@@ -200,7 +208,7 @@ export class PrototypePagesService {
     let lastProblem = '';
     let transportRetries = 0;
     for (let attempt = 0; attempt < 2; attempt += 1) {
-      const prompt = buildPagePrompt(op.page, op.states, op.anchors, op.prd, op.instruction)
+      const prompt = buildPagePrompt(op.page, op.states, op.anchors, op.prd, op.ui, op.instruction)
         + (attempt === 1 ? `\n\n上次输出不合规（${lastProblem}），本次务必逐条满足输出契约。` : '');
       try {
         const session = await this.ai!.createSession({ projectId: op.projectId, purpose: 'generation' });
