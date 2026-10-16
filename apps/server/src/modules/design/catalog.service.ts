@@ -27,13 +27,38 @@ export const RULESET_VERSION = 'src-rules-1';
 /**
  * re-plan 随行字段（覆盖检测 §2）：派生条目（source≠'manual'）上允许人工修改、
  * 且 re-plan 全量重导时按 type+code 迁移保留的 payload 键。
- * 对照维护：Task 5 的 design.catalog.update-item 可改字段清单（title/note/payload.steps/payload.exempt）
+ * 对照维护：design.catalog.update-item 可改字段清单（title/note/payload.steps/payload.exempt）
  * 中凡落 payload 的键都必须在本常量内，否则 re-plan 丢人工调整。
+ * 2026-10-17 补齐 title/note：此前只随行 steps/exempt——title/note 可编辑却不随行，
+ * re-plan 静默回滚人工改题（且与幂等复用相乘：改题过的目录永远等不出「逐条全同」，
+ * 每次 re-plan 都无谓递增版本作废页工件）。用户显式改题=覆盖意图，随行优先于派生值。
  */
-const CARRIED_PAYLOAD_KEYS = ['steps', 'exempt'] as const;
+const CARRIED_PAYLOAD_KEYS = ['title', 'note', 'steps', 'exempt'] as const;
 
 const FIXED_VIEWPORTS = ['1280', '1440', '1920'];
 const FIXED_ROLES = ['visitor', 'user', 'admin'];
+
+/**
+ * 条目 payload 指纹·canonical 化（2026-10-17 根修）：PG jsonb 回读重排键序（按键长+字典序），
+ * 裸 JSON.stringify 指纹随写入路径漂移——update-item 以 jsonb 回读为基的 merged（steps 前 title 后）
+ * vs plan 派生新对象字面量（title 前 steps 后），同内容指纹不同，幂等复用/reconcile 全失效。
+ * 统一递归排序键后序列化取指纹：写入路径无关。存量行 content_fingerprint 是旧口径，
+ * 比对一律从 payload 现算（不读列），新旧行兼容。
+ */
+function canonicalPayloadFp(payload: Record<string, unknown>): string {
+  const sortVal = (v: unknown): unknown => {
+    if (Array.isArray(v)) return v.map(sortVal);
+    if (v && typeof v === 'object') {
+      return Object.fromEntries(
+        Object.entries(v as Record<string, unknown>)
+          .sort(([a], [b]) => (a < b ? -1 : 1))
+          .map(([k, vv]) => [k, sortVal(vv)]),
+      );
+    }
+    return v;
+  };
+  return sha256Text(JSON.stringify(sortVal(payload)));
+}
 
 interface CatalogItemRow {
   id: string;
@@ -62,8 +87,7 @@ export class CatalogService {
       await lockCodeGen(client, `msf:code:catalog:${projectId}`);
       const planNo = await client.query<{ n: string }>(
         'SELECT count(*) AS n FROM dsg_plans WHERE project_id=$1', [projectId]);
-      // 目录版本与人工增删共用同一递增序列（V3-n），plan 取下一号
-      const catalogVersion = await this.nextCatalogVersion(client, projectId);
+      // 目录版本号在派生比对后按需取（幂等复用不消耗新号——见下「幂等复用」段）
 
       // mock 识别：PRD 定稿内容的 REQ-xxx 章节 → 页面条目 + 追溯引用
       const prd = await client.query<{ content: string }>(
@@ -120,11 +144,13 @@ export class CatalogService {
       // （payload.steps/exempt——流程步骤编辑/页豁免）也按 type+code 迁移保留，
       // 原口径 re-plan 全量重导把它们静默重置回识别值。
       const prevCatVer = await this.currentCatalogVersion(client, projectId);
+      let prevItemsAll: CatalogItemRow[] = [];
       if (prevCatVer) {
-        const prevItems = await client.query<{ item_type: string; code: string; payload: Record<string, unknown>; required: boolean; source: string }>(
-          `SELECT item_type, code, payload, required, source FROM dsg_catalog_items
+        const prevItems = await client.query<CatalogItemRow>(
+          `SELECT id, item_type, code, payload, required, source, content_fingerprint FROM dsg_catalog_items
            WHERE project_id=$1 AND catalog_version=$2`,
           [projectId, prevCatVer]);
+        prevItemsAll = prevItems.rows;
         for (const m of prevItems.rows) {
           if (m.source === 'manual') {
             if (!items.some((i) => i.type === m.item_type && i.code === m.code)) {
@@ -140,38 +166,56 @@ export class CatalogService {
         }
       }
 
+      // 幂等复用（2026-10-17 根修「re-plan 后全部页面变未生成、对应性检查 GATE_BLOCKED 拦死」）：
+      // 派生结果与当前目录版本逐条全同（type+code+payload 指纹+required+source）→ 不产新目录版本，
+      // plan 直接复用现版本。旧口径 re-plan 恒递增 V3-n——页工件按目录版本绑定，无谓递增把全部
+      // 页原型判「依据已过期」作废（实机：贪吃蛇项目 V3-4→V3-5 条目零变化、5 页全「未生成」）。
+      const prevByKey = new Map(prevItemsAll.map((r) => [`${r.item_type}:${r.code}`, r]));
+      const unchanged = prevCatVer !== null
+        && prevItemsAll.length === items.length
+        && items.every((it) => {
+          const old = prevByKey.get(`${it.type}:${it.code}`);
+          // 指纹两侧同从 payload 现算（canonical）——存量行 content_fingerprint 是旧口径不可比
+          return !!old
+            && canonicalPayloadFp(old.payload) === canonicalPayloadFp(it.payload)
+            && old.required === it.required
+            && old.source === (it.source ?? 'identified');
+        });
+      let catalogVersion: string;
       const itemIds: string[] = [];
-      for (const it of items) {
-        const fp = sha256Text(JSON.stringify(it.payload));
-        const r = await client.query<{ id: string }>(
-          `INSERT INTO dsg_catalog_items (project_id, catalog_version, item_type, code, payload, required, source, content_fingerprint, created_by)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
-          [projectId, catalogVersion, it.type, it.code, JSON.stringify(it.payload), it.required, it.source ?? 'identified', fp, ctx.actorId],
-        );
-        itemIds.push(r.rows[0]!.id);
-        // REQ 章节来源的页面挂追溯引用（锚点=PRD 章节）
-        const reqIds = (it.payload.reqIds as string[] | undefined) ?? [];
-        for (const reqCode of reqIds) {
-          const sec = reqSecs.find((s) => s.title.includes(reqCode));
-          if (sec) {
-            await client.query(
-              `INSERT INTO dsg_catalog_refs (item_id, ref_kind, doc_kind, section_id, anchor, rule_text, ref_fingerprint, ruleset_version)
-               VALUES ($1,'prd','prd',$2,$3,$4,$5,$6)`,
-              [r.rows[0]!.id, sec.id, sec.title, sec.md.slice(0, 500), sha256Text(sec.md), RULESET_VERSION],
-            );
-          }
+      if (unchanged) {
+        catalogVersion = prevCatVer!;
+        // refs 原地刷新：条目集不变≠来源内容不变（上游 PRD/ui 册有新提交时快照指纹须随本次规划重锚；
+        // item_id 不变审计链连续；来源审计按 ref_fingerprint 实时比对，不刷新会留陈旧信号）
+        await client.query(
+          `DELETE FROM dsg_catalog_refs WHERE item_id IN
+           (SELECT id FROM dsg_catalog_items WHERE project_id=$1 AND catalog_version=$2)`,
+          [projectId, catalogVersion]);
+        for (const it of items) {
+          const id = prevByKey.get(`${it.type}:${it.code}`)!.id;
+          itemIds.push(id);
+          await this.insertItemRefs(client, id, it, reqSecs, uiSecByCode);
         }
-        // ui 册页面章节来源的页面挂 ui 追溯引用（覆盖检测 §2，迁移 0031 起 ref_kind='ui'；
-        // section_id/anchor/rule_text 快照+ref_fingerprint 同 prd refs 口径）
-        const uiSec = uiSecByCode.get(it.code);
-        if (uiSec) {
-          await client.query(
-            `INSERT INTO dsg_catalog_refs (item_id, ref_kind, doc_kind, section_id, anchor, rule_text, ref_fingerprint, ruleset_version)
-             VALUES ($1,'ui','ui',$2,$3,$4,$5,$6)`,
-            [r.rows[0]!.id, uiSec.id, uiSec.title, uiSec.md.slice(0, 500), sha256Text(uiSec.md), RULESET_VERSION],
+      } else {
+        // 目录版本与人工增删共用同一递增序列（V3-n），plan 取下一号
+        catalogVersion = await this.nextCatalogVersion(client, projectId);
+        for (const it of items) {
+          const fp = canonicalPayloadFp(it.payload);
+          const r = await client.query<{ id: string }>(
+            `INSERT INTO dsg_catalog_items (project_id, catalog_version, item_type, code, payload, required, source, content_fingerprint, created_by)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
+            [projectId, catalogVersion, it.type, it.code, JSON.stringify(it.payload), it.required, it.source ?? 'identified', fp, ctx.actorId],
           );
+          itemIds.push(r.rows[0]!.id);
+          await this.insertItemRefs(client, r.rows[0]!.id, it, reqSecs, uiSecByCode);
         }
       }
+      // 页工件 reconcile（同根修）：payload 未变的页工件随行升级到新目录版本（updated_at 保留=uiStale
+      // 时间基不破；旧汇总版本 manifest 按 objectKey 不可变不受影响）；已从目录移除的页工件行清除
+      // （残留行被门禁判「目录版本已过期」且该页已不在目录=永不可再生，永久卡死检查）；
+      // payload 已变的页留在旧版本，门禁「须重新生成并汇总」引导页级重生成。
+      // 幂等复用路径同跑：自愈历史孤儿行（本修复前 re-plan 递增作废的存量页工件）。
+      await this.reconcilePageArtifacts(client, projectId, catalogVersion);
 
       const catFp = fingerprint({ catalogVersion, items: itemIds });
       const snapshot = { catalogVersion, itemCount: items.length, items: items.map((i) => ({ type: i.type, code: i.code })) };
@@ -221,7 +265,7 @@ export class CatalogService {
       const r = await client.query<{ id: string }>(
         `INSERT INTO dsg_catalog_items (project_id, catalog_version, item_type, code, payload, required, source, content_fingerprint, created_by)
          VALUES ($1,$2,$3,$4,$5,false,'manual',$6,$7) RETURNING id`,
-        [projectId, ver, itemType, code, JSON.stringify(itemPayload), sha256Text(JSON.stringify(itemPayload)), ctx.actorId],
+        [projectId, ver, itemType, code, JSON.stringify(itemPayload), canonicalPayloadFp(itemPayload), ctx.actorId],
       );
       return { itemId: r.rows[0]!.id, source: 'manual', catalogVersion: ver };
     });
@@ -345,10 +389,88 @@ export class CatalogService {
       const r = await client.query<{ id: string }>(
         `UPDATE dsg_catalog_items SET payload=$5, content_fingerprint=$6
          WHERE project_id=$1 AND catalog_version=$2 AND item_type=$3 AND code=$4 RETURNING id`,
-        [projectId, ver, row.item_type, row.code, JSON.stringify(merged), sha256Text(JSON.stringify(merged))],
+        [projectId, ver, row.item_type, row.code, JSON.stringify(merged), canonicalPayloadFp(merged)],
       );
       return { itemId: r.rows[0]!.id, catalogVersion: ver };
     });
+  }
+
+  /** 单条目追溯引用写入（plan 新插/幂等复用两路共用）：PRD reqIds 锚点 + ui 册页面章节锚点（迁移 0031） */
+  private async insertItemRefs(
+    client: import('pg').PoolClient,
+    itemId: string,
+    it: { type: string; code: string; payload: Record<string, unknown> },
+    reqSecs: DocSection[],
+    uiSecByCode: Map<string, DocSection>,
+  ): Promise<void> {
+    // REQ 章节来源的页面挂追溯引用（锚点=PRD 章节）
+    const reqIds = (it.payload.reqIds as string[] | undefined) ?? [];
+    for (const reqCode of reqIds) {
+      const sec = reqSecs.find((s) => s.title.includes(reqCode));
+      if (sec) {
+        await client.query(
+          `INSERT INTO dsg_catalog_refs (item_id, ref_kind, doc_kind, section_id, anchor, rule_text, ref_fingerprint, ruleset_version)
+           VALUES ($1,'prd','prd',$2,$3,$4,$5,$6)`,
+          [itemId, sec.id, sec.title, sec.md.slice(0, 500), sha256Text(sec.md), RULESET_VERSION],
+        );
+      }
+    }
+    // ui 册页面章节来源的页面挂 ui 追溯引用（覆盖检测 §2，迁移 0031 起 ref_kind='ui'；
+    // section_id/anchor/rule_text 快照+ref_fingerprint 同 prd refs 口径）
+    const uiSec = uiSecByCode.get(it.code);
+    if (uiSec) {
+      await client.query(
+        `INSERT INTO dsg_catalog_refs (item_id, ref_kind, doc_kind, section_id, anchor, rule_text, ref_fingerprint, ruleset_version)
+         VALUES ($1,'ui','ui',$2,$3,$4,$5,$6)`,
+        [itemId, uiSec.id, uiSec.title, uiSec.md.slice(0, 500), sha256Text(uiSec.md), RULESET_VERSION],
+      );
+    }
+  }
+
+  /**
+   * 页工件 reconcile（2026-10-17 根修「re-plan/目录编辑后全部页面变未生成」）：
+   * 页工件按目录版本绑定，但「目录版本变了」≠「该页内容依据变了」——payload 指纹未变的页，
+   * 工件行随行升级到新目录版本（updated_at 保留=uiStale 时间基不破；旧汇总版本 manifest
+   * 按 objectKey 不可变不受影响）；已从目录移除的页，工件行清除（残留行被门禁判「目录版本
+   * 已过期」且该页已不在目录=永不可再生，永久卡死检查）；payload 已变的页留在旧版本，
+   * 门禁「须重新生成并汇总」引导页级重生成。plan/add/remove/update-item 四路共用。
+   */
+  private async reconcilePageArtifacts(
+    client: import('pg').PoolClient,
+    projectId: string,
+    catalogVersion: string,
+  ): Promise<void> {
+    const orphans = await client.query<{ page_code: string; catalog_version: string }>(
+      'SELECT page_code, catalog_version FROM dsg_prototype_pages WHERE project_id=$1 AND catalog_version<>$2',
+      [projectId, catalogVersion]);
+    if (orphans.rows.length === 0) return;
+    const newPages = await client.query<{ code: string; payload: Record<string, unknown> }>(
+      `SELECT code, payload FROM dsg_catalog_items
+       WHERE project_id=$1 AND catalog_version=$2 AND item_type='page'`,
+      [projectId, catalogVersion]);
+    const newFp = new Map(newPages.rows.map((r) => [r.code, canonicalPayloadFp(r.payload)]));
+    const oldVers = [...new Set(orphans.rows.map((r) => r.catalog_version))];
+    const oldItems = await client.query<{ catalog_version: string; code: string; payload: Record<string, unknown> }>(
+      `SELECT catalog_version, code, payload FROM dsg_catalog_items
+       WHERE project_id=$1 AND catalog_version = ANY($2) AND item_type='page'`,
+      [projectId, oldVers]);
+    const oldFp = new Map(oldItems.rows.map((r) => [`${r.catalog_version}:${r.code}`, canonicalPayloadFp(r.payload)]));
+    const inherit: string[] = [];
+    const drop: string[] = [];
+    for (const o of orphans.rows) {
+      if (!newFp.has(o.page_code)) { drop.push(o.page_code); continue; }
+      if (oldFp.get(`${o.catalog_version}:${o.page_code}`) === newFp.get(o.page_code)) inherit.push(o.page_code);
+    }
+    if (inherit.length > 0) {
+      await client.query(
+        'UPDATE dsg_prototype_pages SET catalog_version=$2 WHERE project_id=$1 AND page_code = ANY($3)',
+        [projectId, catalogVersion, inherit]);
+    }
+    if (drop.length > 0) {
+      await client.query(
+        'DELETE FROM dsg_prototype_pages WHERE project_id=$1 AND page_code = ANY($2)',
+        [projectId, drop]);
+    }
   }
 
   /** A05-5 plan 命令入口 */

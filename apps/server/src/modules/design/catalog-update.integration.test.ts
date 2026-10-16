@@ -4,7 +4,8 @@
  *    追溯引用按 type+code 随行迁移、未授权字段（reqIds/route）原值保留、审计留痕；
  * ② exempt 切换：true 落键 / false 删键（豁免口径只看 payload.exempt===true）；
  * ③ 白名单闸：未知字段/空 steps 元素/零可改字段 → VALIDATION_FAILED；不存在条目 → NOT_FOUND；
- * ④ PLAN_STALE 联动同 add/remove 口径：改后旧目录版本生成的页 → PROTOTYPE_DIRTY「目录版本已过期」。
+ * ④ re-plan 幂等复用+页工件 reconcile（2026-10-17 根修）：内容零变化 re-plan 不产新目录版本、
+ *    孤儿页工件随行自愈；④b 移除页工件行清除/页 payload 已变不继承（门禁引导重生成）。
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { pool, query } from '../../db/pool.js';
@@ -168,24 +169,66 @@ describe('catalog.update-item（集成，需 DB+MinIO）', async () => {
       .rejects.toMatchObject({ code: 'VALIDATION_FAILED', target: 'steps' });
     await expect(catalog.updateItem(PID, '00000000-0000-0000-0000-000000000099', { title: 'x' }, CTX))
       .rejects.toMatchObject({ code: 'NOT_FOUND' });
-    // 拒绝零写：目录版本不前进
+    // 拒绝零写：目录版本不前进（当前 V3-4——幂等复用后版本序列见 ④）
     const cat2 = (await catalog.getCatalog(PID)) as CatalogView;
     expect(cat2.catalogVersion).toBe('V3-4');
   });
 
-  it('④ PLAN_STALE 联动同 add/remove 口径：改目录后 re-plan → 旧目录版本生成的页 → PROTOTYPE_DIRTY「目录版本已过期」', async () => {
-    // 汇总生成钉在 planV 锁定的目录版本（V3-1）；页行同样按 plan 锁定版本登记
+  it('④ re-plan 幂等复用+页工件 reconcile 自愈（2026-10-17 根修「re-plan 后全部页面变未生成」）', async () => {
+    // 汇总钉在 planV 锁定的目录版本（V3-1）；页行登记 V3-1
     await proto.generate(PID, planV.planId, planV.fingerprint, CTX);
     await query(
       `INSERT INTO dsg_prototype_pages (project_id, page_code, catalog_version, object_key, html_fingerprint, source, created_by)
        VALUES ($1, 'P-001', 'V3-1', 'test/p001.html', 'fp-old', 'mock', 'local')`, [PID]);
-    // 改目录（①~③ 已 V3-4）后 re-plan：新规划锁定新目录版本，旧版本页行即「依据已过期」
+    // ①~③ 编辑后当前目录 V3-4；re-plan 派生与 V3-4 逐条全同（人工 steps 随行）→ 幂等复用，不产 V3-5
     await catalog.plan(PID, CTX);
+    const cat = (await catalog.getCatalog(PID)) as CatalogView;
+    expect(cat.catalogVersion).toBe('V3-4');
+    const plans = await query<{ n: string }>('SELECT count(*) AS n FROM dsg_plans WHERE project_id=$1', [PID]);
+    expect(plans.rows[0]!.n).toBe('2'); // plan 登记照走（governing 重锚），只是不消耗目录版本号
+    // 孤儿页工件自愈：P-001 payload 未变 → 随行升级到 V3-4
+    const row = await query<{ catalog_version: string }>(
+      'SELECT catalog_version FROM dsg_prototype_pages WHERE project_id=$1 AND page_code=$2', [PID, 'P-001']);
+    expect(row.rows[0]!.catalog_version).toBe('V3-4');
+    // 检查门禁：不再报「目录版本已过期」（「已更新未汇总」属正常引导——汇总早于页行登记）
+    const g = (await proto.gates(PID, 'check')) as { issues: Array<{ code: string; message: string; target?: string }> };
+    expect(g.issues.some((i) => i.message.includes('目录版本已过期'))).toBe(false);
+    // re-plan 随行口径不回归：F-001 的人工 steps 按 type+code 迁移进新目录版本
+    expect(cat.groups.flow!.find((i) => i.code === 'F-001')!.payload.steps).toEqual(['打开门户首页', '提交检索']);
+  });
+
+  it('④b reconcile 两翼：移除页工件行清除（防永久卡死）；页 payload 已变不继承（门禁引导重生成）', async () => {
+    // reconcile 只在 plan 事务跑（页工件追踪「最新 plan 锁定的目录版本」而非最新目录版本，
+    // 否则 update-item 把页行推前于 plan 版本 → 门禁自报「目录版本已过期」——原型套件 ④⑥⑦/⑧ 回归线）
+    // 加人工页 P-CUSTOM（V3-5）并造工件行；P-001 行仍在 ④ 随行后的 V3-4
+    const added = (await catalog.addItem(PID, { itemType: 'page', code: 'P-CUSTOM', title: '人工页' }, CTX)) as { itemId: string };
+    await query(
+      `INSERT INTO dsg_prototype_pages (project_id, page_code, catalog_version, object_key, html_fingerprint, source, created_by)
+       VALUES ($1, 'P-CUSTOM', 'V3-5', 'test/pcustom.html', 'fp-custom', 'mock', 'local')`, [PID]);
+    // re-plan：人工条目随行 → 幂等复用 V3-5；reconcile 把 P-001 V3-4→V3-5
+    await catalog.plan(PID, CTX);
+    let p1 = await query<{ catalog_version: string }>(
+      'SELECT catalog_version FROM dsg_prototype_pages WHERE project_id=$1 AND page_code=$2', [PID, 'P-001']);
+    expect(p1.rows[0]!.catalog_version).toBe('V3-5'); // plan reconcile 随行
+    // 删除 P-CUSTOM（V3-6）+ re-plan 复用 → 其工件行清除（残留行会被门禁判「目录版本已过期」且永不可再生=永久卡死）
+    await catalog.removeItem(PID, added.itemId, CTX);
+    await catalog.plan(PID, CTX);
+    const gone = await query<{ n: string }>(
+      'SELECT count(*) AS n FROM dsg_prototype_pages WHERE project_id=$1 AND page_code=$2', [PID, 'P-CUSTOM']);
+    expect(gone.rows[0]!.n).toBe('0');
+    p1 = await query<{ catalog_version: string }>(
+      'SELECT catalog_version FROM dsg_prototype_pages WHERE project_id=$1 AND page_code=$2', [PID, 'P-001']);
+    expect(p1.rows[0]!.catalog_version).toBe('V3-6'); // 未变页继续随行
+    // P-001 标题修订（V3-7）+ re-plan 复用（title 随行）→ 工件行 payload 指纹变不继承，门禁引导「重新生成并汇总」
+    const cat6 = (await catalog.getCatalog(PID)) as CatalogView;
+    const p1Id = cat6.groups.page!.find((i) => i.code === 'P-001')!.itemId;
+    await catalog.updateItem(PID, p1Id, { title: '门户首页·改' }, CTX);
+    await catalog.plan(PID, CTX);
+    p1 = await query<{ catalog_version: string }>(
+      'SELECT catalog_version FROM dsg_prototype_pages WHERE project_id=$1 AND page_code=$2', [PID, 'P-001']);
+    expect(p1.rows[0]!.catalog_version).toBe('V3-6');
     const g = (await proto.gates(PID, 'check')) as { issues: Array<{ code: string; message: string; target?: string }> };
     expect(g.issues.some((i) => i.code === 'PROTOTYPE_DIRTY' && i.target === 'P-001' && i.message.includes('目录版本已过期'))).toBe(true);
-    // re-plan 随行口径不回归：F-001 的人工 steps 按 type+code 迁移进新目录版本
-    const cat = (await catalog.getCatalog(PID)) as CatalogView;
-    expect(cat.groups.flow!.find((i) => i.code === 'F-001')!.payload.steps).toEqual(['打开门户首页', '提交检索']);
   });
 
   it('⑤ I-1 回归：body 携带异项目 projectId/itemId 键不得覆盖路径归属（写+审计都落 path 项目）', async () => {
@@ -198,9 +241,9 @@ describe('catalog.update-item（集成，需 DB+MinIO）', async () => {
     // 路径参数兜底在后：body 的 projectId/itemId 被丢弃，handler 读写仍按路径归属
     const r = (await catalog.updateItem(PID, flow.itemId,
       { title: '主流程（终审）', projectId: ROGUE, itemId: ROGUE } as never, CTX)) as { catalogVersion: string };
-    expect(r.catalogVersion).toBe('V3-6');
+    expect(r.catalogVersion).toBe('V3-8');
     const cat = (await catalog.getCatalog(PID)) as CatalogView;
-    expect(cat.catalogVersion).toBe('V3-6');
+    expect(cat.catalogVersion).toBe('V3-8');
     expect(cat.groups.flow!.find((i) => i.code === 'F-001')!.payload.title).toBe('主流程（终审）');
     // 审计归属 path 项目（本次调用恰新增一条；异项目侧零留痕零落行）
     expect(await auditCnt()).toBe(before + 1);

@@ -22,10 +22,20 @@ export function PrototypePanel() {
   // 页级生成进度（会话态 DSG-D00 不落库；组件内 Map，不占全局 busyLabel 以免锁死命令条）
   const [genMap, setGenMap] = useState<Record<string, { running: boolean; chars: number; error: string | null }>>({});
   const [genAll, setGenAll] = useState(false);
+  // 批量生成总进度+耗时（2026-10-17 打磨：「生成中…」无进度感知——第 N/M 页 + 读秒）
+  const [genAllInfo, setGenAllInfo] = useState<{ idx: number; total: number; code: string; startedAt: number } | null>(null);
+  const [nowTs, setNowTs] = useState(0);
   const [genTick, setGenTick] = useState(0); // 页生成完成后 +1 → 强制重取预览 URL
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const baselines = useBaselines(projectId, proto?.status ?? null);
   const protoVers = useProtoVersions(projectId, proto?.prototype?.currentVersionId ?? null);
+
+  // 批量生成进行中读秒（1s 节拍）
+  useEffect(() => {
+    if (!genAll) return;
+    const t = setInterval(() => setNowTs(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [genAll]);
 
   const pages = (catalog?.groups.page ?? []) as CatalogGroup[];
   const states = (catalog?.groups.state ?? []) as CatalogGroup[];
@@ -77,13 +87,18 @@ export function PrototypePanel() {
     return ok;
   };
 
-  /** ✨ 全部生成：顺序循环单页 SSE（逐行落定；失败不中断后续页） */
+  /** ✨ 全部生成：顺序循环单页 SSE（逐行落定；失败不中断后续页）；总进度+耗时进常驻横幅 */
   const genAllPages = async () => {
     setGenAll(true);
+    const startedAt = Date.now();
     try {
-      for (const p of pages) await genOne(p.code);
+      for (let i = 0; i < pages.length; i += 1) {
+        setGenAllInfo({ idx: i + 1, total: pages.length, code: pages[i]!.code, startedAt });
+        await genOne(pages[i]!.code);
+      }
     } finally {
       setGenAll(false);
+      setGenAllInfo(null);
       void refreshProto();
     }
   };
@@ -97,8 +112,12 @@ export function PrototypePanel() {
     try {
       await fn();
     } catch (e) {
-      const issues = (e as ApiError & { issues?: unknown[] }).issues;
-      setMsg(e instanceof ApiError ? `${e.code}: ${e.message}${issues ? `（${JSON.stringify(issues)}）` : ''}` : '操作失败');
+      const issues = (e as ApiError & { issues?: Array<{ message: string; target?: string }> }).issues;
+      // 门禁 issue 逐条人话列出（原 JSON.stringify 整坨输出不可读——GATE_BLOCKED 排查全靠猜）
+      const detail = issues?.length
+        ? `\n${issues.map((i) => `· ${i.message}${i.target ? `（${i.target}）` : ''}`).join('\n')}`
+        : '';
+      setMsg(e instanceof ApiError ? `${e.code}: ${e.message}${detail}` : '操作失败');
     } finally {
       setBusyLabel(null);
       void refreshProto();
@@ -121,7 +140,15 @@ export function PrototypePanel() {
       {busyLabel && (
         <div className="req-banner warn" role="status" style={{ margin: '8px 0 0' }}>{busyLabel}</div>
       )}
-      {msg && <div className="req-banner err" style={{ margin: '8px 0 0' }}>{msg}</div>}
+      {/* 批量页级生成总进度+读秒（长调用常驻——单页数分钟，无进度感知=用户分不清跑着还是死了） */}
+      {genAll && genAllInfo && (
+        <div className="req-banner warn" role="status" style={{ margin: '8px 0 0' }}>
+          ✨ 批量生成中：第 {genAllInfo.idx}/{genAllInfo.total} 页（{genAllInfo.code}）
+          {' '}· 已用 {fmtElapsed((nowTs || Date.now()) - genAllInfo.startedAt)}
+          {(genMap[genAllInfo.code]?.chars ?? 0) > 0 && ` · 当前页已产出 ${((genMap[genAllInfo.code]?.chars ?? 0) / 1024).toFixed(1)}K`}
+        </div>
+      )}
+      {msg && <div className="req-banner err" style={{ margin: '8px 0 0', whiteSpace: 'pre-line' }}>{msg}</div>}
       {proto.plan?.stale && (
         <div className="req-banner warn" style={{ margin: '8px 0 0' }}>
           ⚠ PLAN_STALE · 规划依据（上游定稿）已变化，须重新规划。
@@ -266,16 +293,40 @@ export function PrototypePanel() {
       <div className="v19-issues">
         {proto.latestCheck && (
           <div className="rtm-card">
-            <div className="rtm-card-head"><strong>检查报告 #{proto.latestCheck.runNo}</strong>
-              <span className={`tag ${proto.latestCheck.passed ? 'tag-ok' : 'tag-warn'}`}>{proto.latestCheck.passed ? 'pass' : 'fail'}</span>
+            <div className="rtm-card-head"><strong>对应性检查报告 · 第 {proto.latestCheck.runNo} 次</strong>
+              <span className={`tag ${proto.latestCheck.passed ? 'tag-ok' : 'tag-warn'}`}>{proto.latestCheck.passed ? '✓ 通过' : '⚠ 未通过'}</span>
+              {proto.latestCheck.prototypeVersionId !== proto.prototype?.currentVersionId && (
+                <span className="tag tag-warn" title="报告依据的原型版本已不是当前版本（原型之后有更新）——结论失效，请重新执行 ③ 对应性检查">基于旧版本，须重新检查</span>
+              )}
             </div>
-            {proto.latestCheck.issues.length === 0 && <p className="pop-tip">无问题。</p>}
-            {proto.latestCheck.issues.map((i, idx) => (
-              <div key={idx} className="issue-row"><code>{i.code}</code> {i.message} <span className="mut">[{i.target}]</span></div>
-            ))}
-            {proto.latestCheck.unverified.map((u, idx) => (
-              <div key={`u${idx}`} className="issue-row warn"><code>{u.code}</code> {u.message} <span className="mut">[需人工]</span></div>
-            ))}
+            <p className="pop-tip" style={{ margin: '4px 0 8px' }}>
+              检查口径：目录页面/状态是否都在原型中渲染、流程步骤引用的页面状态是否存在、页面跳转目标是否合法、ui 册页面章节与目录页双向对应。
+            </p>
+            {proto.latestCheck.issues.length === 0 && proto.latestCheck.unverified.length === 0 && (
+              <p className="pop-tip">✓ 页面、状态、流程与来源全部对应，无问题。</p>
+            )}
+            {proto.latestCheck.issues.length > 0 && (
+              <div>
+                <div className="cat-group-head"><span className="tag tag-warn">需处理 ×{proto.latestCheck.issues.length}</span></div>
+                {proto.latestCheck.issues.map((i, idx) => (
+                  <div key={idx} className="issue-row"><code>{i.code}</code> {i.message} {i.target && <span className="mut">[{i.target}]</span>}</div>
+                ))}
+              </div>
+            )}
+            {proto.latestCheck.unverified.length > 0 && (
+              <div>
+                <div className="cat-group-head"><span className="tag">需人工核对 ×{proto.latestCheck.unverified.length}</span></div>
+                {proto.latestCheck.unverified.map((u, idx) => (
+                  <div key={`u${idx}`} className="issue-row warn"><code>{u.code}</code> {u.message}</div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+        {!proto.latestCheck && proto.prototype?.currentVersionId && (
+          <div className="rtm-card">
+            <div className="rtm-card-head"><strong>对应性检查报告</strong><span className="tag">未执行</span></div>
+            <p className="pop-tip">原型已生成但尚未检查——点击命令条 ③ 对应性检查，核对页面/状态/流程/来源与设计目录一致后再定稿。</p>
           </div>
         )}
         {/* S5 共同基线横幅（呈现层不暴露技术 ID：显示版本号而非 uuid） */}
@@ -456,6 +507,12 @@ function KpiRow({ proto, pageCount, flowCount }: { proto: ProtoStatus; pageCount
   );
 }
 
+/** 读秒格式化（批量生成横幅：>60s 显示分+秒） */
+function fmtElapsed(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  return s >= 60 ? `${Math.floor(s / 60)} 分 ${s % 60} 秒` : `${s} 秒`;
+}
+
 function statusLabel(p: ProtoStatus): string {
   // 原型口径（L8995 status() 五档 + 进行中三态）
   const map: Record<string, string> = {
@@ -495,14 +552,28 @@ function CommandBar({ proto, busy, run, currentBaseline, genAll, onOpenVersions,
   const { projectId } = useDesignView();
   if (!projectId) return null;
   const verId = proto.prototype?.currentVersionId ?? null;
+  // 汇总防呆（2026-10-17）：一页未生成就点汇总 → 全占位空原型（实机踩坑：占位汇总+页后生成
+  // → 页工件与汇总版本指纹漂移 → 检查门禁拦死）。零页生成时禁用并指引先走左侧生成。
+  const pageTotal = proto.pages?.length ?? 0;
+  const pageGenerated = (proto.pages ?? []).filter((p) => p.state !== 'none').length;
+  const noPagesGenerated = pageTotal > 0 && pageGenerated === 0;
   return (
     <div className="v19-command">
       <span className={`tag ${proto.status === 'finalized' ? 'tag-ok' : 'tag-warn'}`}>{statusLabel(proto)}</span>
-      <button className="act primary" disabled={busy} onClick={() => void run('正在识别页面与业务流程…', () => designApi.plan(projectId))}>① AI 识别规划</button>
+      <button
+        className="act primary"
+        disabled={busy}
+        title="从已定稿 PRD/UI 册识别页面、流程与状态生成设计目录；内容未变化时复用现目录版本，已生成的页面原型不受影响"
+        onClick={() => void run('正在识别页面与业务流程…', () => designApi.plan(projectId))}
+      >① AI 识别规划</button>
       <button
         className="act"
-        disabled={busy || genAll || !proto.plan || proto.plan.stale}
-        title="将各页 UI 原型汇总为完整可交互原型（未生成页以占位块回落）"
+        disabled={busy || genAll || !proto.plan || proto.plan.stale || noPagesGenerated}
+        title={noPagesGenerated
+          ? '先在左侧逐页 🎨 或 ✨ 全部生成页面原型，再汇总（否则只能产出全占位空原型）'
+          : pageGenerated < pageTotal
+            ? `将各页 UI 原型汇总为完整可交互原型（已生成 ${pageGenerated}/${pageTotal} 页，未生成页以占位块回落）`
+            : '将各页 UI 原型汇总为完整可交互原型'}
         onClick={() => void run('正在汇总生成完整原型…', async () => {
           await designApi.protoGenerate(projectId, proto.plan!.planId, proto.plan!.fingerprint);
         })}
@@ -695,12 +766,15 @@ function BaselineCard({ items, reload }: { items: BaselineItem[] | null; reload:
   return (
     <div className="rtm-card">
       <div className="rtm-card-head">
-        <strong>设计基线（append-only，valid 实时比对）</strong>
+        <strong>设计基线</strong>
+        <span className="pop-tip">④ 人工定稿后形成 · append-only · 上游（PRD/HLD/原型）任一变化即实时失效</span>
         <button className="act" onClick={reload}>↻</button>
       </div>
-      {items === null ? <p className="pop-tip">加载中…</p> : items.length === 0 ? <p className="pop-tip">尚无基线——原型定稿后产生。</p> : (
+      {items === null ? <p className="pop-tip">加载中…</p> : items.length === 0 ? (
+        <p className="pop-tip">尚无基线——原型通过对应性检查后，点 ④ 人工定稿形成首条基线；开发阶段的输入以有效基线为准。</p>
+      ) : (
         <table className="rtm-table">
-          <thead><tr><th>基线</th><th>当前</th><th>有效</th><th>定稿时间</th></tr></thead>
+          <thead><tr><th>基线</th><th>当前</th><th>状态</th><th>定稿时间</th></tr></thead>
           <tbody>
             {items.map((b) => (
               <tr key={b.code}>
@@ -717,6 +791,12 @@ function BaselineCard({ items, reload }: { items: BaselineItem[] | null; reload:
   );
 }
 
+/** 目录分组中文名（展示层翻译，原始 type 保留在 code 列） */
+const ITEM_TYPE_LABELS: Record<string, string> = {
+  page: '页面', state: '状态', flow: '流程', component: '组件', dialog: '弹窗',
+  viewport: '视口', theme: '主题', copy: '文案', asset: '资源', role: '角色',
+};
+
 /** 设计目录卡：分组摘要 + 人工增删/条目修订（增删改=新目录版本；识别条目不可直删，REQ-304/306） */
 function CatalogCard({ onChanged }: { onChanged: () => void }) {
   const { projectId, catalog } = useDesignView();
@@ -726,6 +806,7 @@ function CatalogCard({ onChanged }: { onChanged: () => void }) {
   const [msg, setMsg] = useState<string | null>(null);
   if (!projectId || !catalog) return null;
   const groups = Object.entries(catalog.groups);
+  const totalItems = groups.reduce((n, [, items]) => n + items.length, 0);
   const remove = (itemId: string) => {
     setMsg(null);
     void designApi.removeCatalogItem(projectId, itemId)
@@ -736,12 +817,13 @@ function CatalogCard({ onChanged }: { onChanged: () => void }) {
     <div className="rtm-card">
       <div className="rtm-card-head">
         <strong>设计目录 {catalog.catalogVersion ?? '（未规划）'}</strong>
+        <span className="pop-tip">对应性检查的期望基准 · 共 {totalItems} 条目 · 增删改即产新目录版本</span>
         <button className="act" onClick={() => setAddOpen(true)}>＋ 人工补充条目</button>
       </div>
       {msg && <p className="pop-tip err">{msg}</p>}
       {groups.length === 0 ? <p className="pop-tip">规划后生成目录条目。</p> : groups.map(([g, items]) => (
         <div key={g} className="cat-group">
-          <div className="cat-group-head"><code>{g}</code> <span className="mut">×{items.length}</span></div>
+          <div className="cat-group-head">{ITEM_TYPE_LABELS[g] ?? g} <code>{g}</code> <span className="mut">×{items.length}</span></div>
           {items.map((it) => (
             <div key={it.itemId} className="issue-row">
               <code>{it.code}</code> {(it.payload.title as string) ?? ''}
