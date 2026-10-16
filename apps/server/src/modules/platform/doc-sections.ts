@@ -208,6 +208,28 @@ export function buildNumberGuide(content: string): string {
   ].join('\n');
 }
 
+/**
+ * 整篇重写产物·锚点节确定性重排（2026-10-16 用户打回「重写的编号还是不对」根修）：
+ * prompt 约定「从 1 连续重排」是概率性的——实机模型重写 db 册后锚点仍 d-15 起步且乱序。
+ * 改为代码层机械重排：按文档出现序把 `## <prefix>-N` 条目节从 1 连续重派编号，
+ * 正文交叉引用（「详见 d-15」）随旧→新映射同步改写；引用了非节锚点（不存在的码）原样保留；
+ * 大章/无锚点节/其它前缀码一律不动。已是 d-1..d-N 连续形态时映射为恒等（零改动）。
+ * 适用面=设计册对话重写通道（非 preserveAnchors）；模板重排与需求域不走本函数
+ * （REQ/CR 锚点是跨文档身份证，机械重排会打断 CRD→PRD→设计的回引链）。
+ */
+export function renumberAnchoredSections(content: string, prefix: string): string {
+  const esc = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const titleRe = new RegExp(`^##\\s+(${esc}-\\d+)\\b`, 'gm');
+  const order: string[] = [];
+  for (const m of content.matchAll(titleRe)) {
+    if (!order.includes(m[1]!)) order.push(m[1]!);
+  }
+  if (order.length === 0) return content;
+  const map = new Map(order.map((code, i) => [code, `${prefix}-${i + 1}`]));
+  const globalRe = new RegExp(`\\b${esc}-\\d+\\b`, 'g');
+  return content.replace(globalRe, (c) => map.get(c) ?? c);
+}
+
 /** 「第 N 章/节」锚点词形：N 支持中文数字或阿拉伯数字（「第五章」「第5章」「五」） */
 const ANCHOR_CHAPTER_RE = /^第?([一二三四五六七八九十]+|\d+)章$/;
 

@@ -463,4 +463,52 @@ describe('Design 设计域（集成，需 DB+MinIO）', async () => {
       await query('DELETE FROM projects WHERE id=$1', [PIDA]);
     }
   });
+
+  it('rewrite 产物锚点节确定性重排（2026-10-16 根修）：d-15 起步乱序 → replace 提案 d-1..d-N 连续', async () => {
+    const PIDR = '00000000-0000-0000-0000-0000000000d3';
+    const CTXR = { projectId: PIDR, actorKind: 'human' as const, actorId: 'local' };
+    await query("INSERT INTO projects (id, name) VALUES ($1, 'dsg-rewrite-renumber') ON CONFLICT (id) DO NOTHING", [PIDR]);
+    try {
+      await docs.listDocs(PIDR, CTXR); // 模板 v1 自举
+      // db 册灌入 d-15 起步乱序内容（模拟实机病册）→ 提交
+      let d = (await docs.getDoc(PIDR, 'db')) as unknown as {
+        cur: number; contentFingerprint: string; secs: Array<{ id: string; title: string }>;
+      };
+      const sick = [
+        '# 数据库设计', '',
+        '## 一、表清单', '', '总览。', '',
+        '## d-15 用户表', '', '详见 d-16。', '',
+        '## d-16 会话表', '', '略。', '',
+        '## d-35 排行榜', '', '略。',
+      ].join('\n');
+      await docs.saveDraft(PIDR, 'db', {
+        secId: d.secs[0]!.id, md: sick,
+        baseVersion: d.cur, baseFingerprint: d.contentFingerprint,
+      }, CTXR);
+      d = (await docs.getDoc(PIDR, 'db')) as unknown as {
+        cur: number; contentFingerprint: string; secs: Array<{ id: string; title: string }>;
+      };
+      await docs.commit(PIDR, 'db', '病册提交', d.cur, CTXR);
+      // 对话重写（mock 通道保留全文骨架）→ replace 提案须已机械重排
+      const { getExternalTool } = await import('../platform/external-tools.js');
+      const tool = getExternalTool('design.doc.propose_edits')!;
+      const r = await tool(PIDR, { sessionId: 's', messageId: 'm', args: { kind: 'db', instruction: '整篇重写', mode: 'rewrite' } }, CTXR) as { ok: boolean };
+      expect(r.ok).toBe(true);
+      const patches = (await docs.listPatches(PIDR, 'db')) as { items: Array<{ patchId: string; status: string }> };
+      const pend = patches.items.find((p) => p.status === 'pending')!;
+      const row = await query<{ patch: { new: string } }>('SELECT patch FROM dsg_pendings WHERE id=$1', [pend.patchId]);
+      const out = row.rows[0]!.patch.new;
+      const anchors = [...out.matchAll(/^## (d-\d+)\b/gm)].map((m) => m[1]);
+      expect(anchors).toEqual(['d-1', 'd-2', 'd-3']);
+      expect(out).toContain('详见 d-2。'); // 正文交叉引用随映射改写
+      // preserveAnchors（模板重排）通道的「不重排」语义由 doc-prompts 单测钉 prompt 口径，此处只钉主路径
+    } finally {
+      await query('DELETE FROM dsg_pendings WHERE document_id IN (SELECT id FROM dsg_documents WHERE project_id=$1)', [PIDR]);
+      await query('DELETE FROM dsg_drafts WHERE document_id IN (SELECT id FROM dsg_documents WHERE project_id=$1)', [PIDR]);
+      await query('UPDATE dsg_documents SET current_version_id=NULL, final_version_id=NULL WHERE project_id=$1', [PIDR]);
+      await query('DELETE FROM dsg_versions WHERE document_id IN (SELECT id FROM dsg_documents WHERE project_id=$1)', [PIDR]);
+      await query('DELETE FROM dsg_documents WHERE project_id=$1', [PIDR]);
+      await query('DELETE FROM projects WHERE id=$1', [PIDR]);
+    }
+  });
 });

@@ -3,7 +3,7 @@ import { Inject, Injectable, Optional } from '@nestjs/common';
 import { DomainError } from '@msf/shared';
 import { query } from '../../db/pool.js';
 import { executeCommand, registerCommand, type CommandContext } from '../evidence/command-bus.js';
-import { mdToPatches, normalizePatches, sha256Text, splitSections, buildNumberGuide, type EditPatch } from '../platform/doc-sections.js';
+import { mdToPatches, normalizePatches, renumberAnchoredSections, sha256Text, splitSections, buildNumberGuide, type EditPatch } from '../platform/doc-sections.js';
 import { deriveLinks, computeHealth } from '../platform/rtm-health.js';
 import { designContents } from '../platform/doc-contents.js';
 import { registerExternalTool } from '../platform/external-tools.js';
@@ -155,7 +155,13 @@ export class DesignGenerateService {
     let usage: AiUsage | undefined;
     if (this.ai?.kind === 'pi') {
       try {
-        const existingCodes = [...new Set(effective.match(/\b[A-Z]{2,5}-\d{3}\b/g) ?? [])].sort();
+        // 已占用锚点码：只扫章节标题行（正文交叉引用不算占位）；设计册锚点是小写前缀（d-15/o-3…），
+        // 大写三码正则（\b[A-Z]{2,5}-\d{3}\b）恒匹配不到——「已占用」清单恒空的既有 bug 同修
+        const existingCodes = [...new Set(
+          splitSections(effective)
+            .map((s) => /^([a-z]-\d+)\b/.exec(s.title)?.[1])
+            .filter((c): c is string => !!c),
+        )].sort();
         // A2 断流重试（2026-10-11）：嵌套提案是全链最长单次裸奔调用（单册 rewrite 3~8 分钟），
         // 命中 isRetryableStreamCut 自动整轮重发 1 次（重试 console.warn 留痕，有界不静默）
         const res = await withStreamCutRetry(`design propose_edits kind=${kind}`, async () => {
@@ -179,6 +185,12 @@ export class DesignGenerateService {
       text = mockText ?? (mode === 'rewrite'
         ? buildMockDesignChatRewrite(book.name, effective, cut)
         : buildMockDesignChatEdit(effective, cut));
+    }
+    // 确定性重排（2026-10-16 根修「重写的编号还是不对」）：prompt 约定是概率性的，模型实机不听号令
+    // （重写后仍 d-15 起步且乱序）——rewrite 产物落补丁前代码层机械重排锚点节从 1 连续编号，
+    // 正文交叉引用随旧→新映射同步改写；preserveAnchors（模板重排）通道除外——重排只动结构不动编号。
+    if (mode === 'rewrite' && !rewriteOpts?.preserveAnchors) {
+      text = renumberAnchoredSections(text, book.prefix);
     }
     const patches: EditPatch[] = mode === 'rewrite'
       ? [{ type: 'replace', secId: 's0', title: '整篇重写', new: text.trim() }]

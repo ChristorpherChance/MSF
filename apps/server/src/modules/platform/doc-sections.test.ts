@@ -1,6 +1,6 @@
 /** normalizePatches 单测：mdToPatches 恒产 add 的归一化（锚点码命中/标题命中转 modify，未命中保持 add） */
 import { describe, expect, it } from 'vitest';
-import { applyPatch, joinSections, mdToPatches, normalizePatches, splitSections, type DocSection } from './doc-sections.js';
+import { applyPatch, joinSections, mdToPatches, normalizePatches, renumberAnchoredSections, splitSections, type DocSection } from './doc-sections.js';
 
 const DOC = [
   '## 一、背景与目标',
@@ -342,5 +342,40 @@ describe('applyPatch replace（对话改文档 mode:rewrite 整篇重写补丁�
     expect(applyPatch(base(), { type: 'replace', secId: 's0', new: '  ' })).toBeNull();
     const p = { type: 'replace' as const, secId: 's0', title: '整篇重写', new: '# X' };
     expect(normalizePatches([p], base())).toEqual([p]);
+  });
+});
+
+describe('renumberAnchoredSections（rewrite 产物锚点节确定性重排，2026-10-16 根修）', () => {
+  it('前导空洞闭合+乱序归一：d-15 起步乱序 → 按出现序 d-1..d-N，正文交叉引用随映射改写', () => {
+    const src = [
+      '# 数据库设计', '',
+      '## 一、表清单', '', '总览。', '',
+      '## d-15 用户表', '', '字段略。详见 d-16。', '',
+      '## d-16 会话表', '', '回引 d-15。', '',
+      '## d-24 棋盘表', '', '略。', '',
+      '## d-35 排行榜', '', '引用不存在的 d-99 原样保留。', '',
+      '## d-25 设置表', '', '略。',
+    ].join('\n');
+    const out = renumberAnchoredSections(src, 'd');
+    const anchors = [...out.matchAll(/^## (d-\d+)\b/gm)].map((m) => m[1]);
+    expect(anchors).toEqual(['d-1', 'd-2', 'd-3', 'd-4', 'd-5']);
+    expect(out).toContain('详见 d-2。'); // d-16→d-2 正文引用随映射
+    expect(out).toContain('回引 d-1。'); // d-15→d-1
+    expect(out).toContain('d-99'); // 非节锚点（引用不存在的码）原样保留
+    expect(out).toContain('## 一、表清单'); // 大章不动
+  });
+
+  it('已连续 d-1..d-N 时恒等（零改动）；无锚点节全文原样', () => {
+    const ok = ['# X', '', '## d-1 甲', '', 'a', '', '## d-2 乙', '', 'b'].join('\n');
+    expect(renumberAnchoredSections(ok, 'd')).toBe(ok);
+    const none = ['# X', '', '## 一、背景', '', 'a'].join('\n');
+    expect(renumberAnchoredSections(none, 'd')).toBe(none);
+  });
+
+  it('只动指定前缀：其它册锚点码（h-3/REQ-001）不受影响', () => {
+    const src = ['# X', '', '## d-15 表', '', '关联 h-3 与 REQ-001。', '', '## d-16 表2', '', '略'].join('\n');
+    const out = renumberAnchoredSections(src, 'd');
+    expect(out).toContain('## d-1 表');
+    expect(out).toContain('关联 h-3 与 REQ-001。');
   });
 });
