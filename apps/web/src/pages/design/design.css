@@ -17,7 +17,7 @@
 
 /* —— 原型工作台 V20（2026-10-17 版面改造，模拟页 v3 蓝本：步进器流程条 + 三列 stage
    （可折叠页面栏 / 预览（单页⇄整本分态）/ 检查器栏） + 对话提案双排对比；dock 对话复用全局右下角圆圈）—— */
-.proto-wrap { height: 100%; display: flex; flex-direction: column; overflow: hidden; }
+.proto-wrap { height: calc(100vh - 70px); display: flex; flex-direction: column; overflow: hidden; }
 .proto-wrap > .req-banner { margin: 6px 14px 0; }
 
 /* 流程条步进器（①规划→②生成页→③汇总→④检查→定稿；低频操作右置） */

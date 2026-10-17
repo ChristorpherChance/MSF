@@ -42,6 +42,9 @@ export function PrototypePanel() {
   const [editItem, setEditItem] = useState<{ itemType: string; item: CatalogGroup } | null>(null);
   const [actBusy, setActBusy] = useState(false);
   const [decideBusy, setDecideBusy] = useState(false);
+  // ①规划/②生成页「查看还是重写」确认弹层（防误点直接重写——用户拍板 2026-10-17）
+  const [confirmPlan, setConfirmPlan] = useState(false);
+  const [confirmGenAll, setConfirmGenAll] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const baselines = useBaselines(projectId, proto?.status ?? null);
   const protoVers = useProtoVersions(projectId, proto?.prototype?.currentVersionId ?? null);
@@ -154,14 +157,18 @@ export function PrototypePanel() {
     return ok;
   };
 
-  /** ✨ 全部生成：顺序循环单页 SSE（逐行落定；失败不中断后续页）；总进度+耗时进常驻横幅 */
-  const genAllPages = async () => {
+  /** ✨ 全部生成：顺序循环单页 SSE（逐行落定；失败不中断后续页）；总进度+耗时进常驻横幅。
+   *  onlyMissing=true 只补未生成页（确认弹窗「补齐未生成」选项，不覆盖已有页工件） */
+  const genAllPages = async (onlyMissing = false) => {
+    const generated = new Set((proto?.pages ?? []).filter((x) => x.state !== 'none').map((x) => x.code));
+    const targets = onlyMissing ? pages.filter((p) => !generated.has(p.code)) : pages;
+    if (targets.length === 0) { toast('全部页面都已生成，无需补齐', 'default'); return; }
     setGenAll(true);
     const startedAt = Date.now();
     try {
-      for (let i = 0; i < pages.length; i += 1) {
-        setGenAllInfo({ idx: i + 1, total: pages.length, code: pages[i]!.code, startedAt });
-        await genOne(pages[i]!.code);
+      for (let i = 0; i < targets.length; i += 1) {
+        setGenAllInfo({ idx: i + 1, total: targets.length, code: targets[i]!.code, startedAt });
+        await genOne(targets[i]!.code);
       }
     } finally {
       setGenAll(false);
@@ -262,6 +269,19 @@ export function PrototypePanel() {
     }
   };
   const currentBaseline = baselines.items?.find((b) => b.current) ?? null;
+  const pageTotal = proto.pages?.length ?? 0;
+  const pageGenerated = (proto.pages ?? []).filter((p) => p.state !== 'none').length;
+  /** ① 规划入口：已有规划时先弹「查看还是重新规划」确认（防误点触发重写观感）；无规划/已 stale 直接跑 */
+  const doPlan = () => void run('正在识别页面与业务流程…', () => designApi.plan(projectId!));
+  const clickPlan = () => {
+    if (proto.plan && !proto.plan.stale && pageTotal > 0) setConfirmPlan(true);
+    else doPlan();
+  };
+  /** ② 生成页入口：已有页工件时先弹「查看/补齐/全部重写」三选；一页未生成直接跑 */
+  const clickGenAll = () => {
+    if (pageGenerated > 0) setConfirmGenAll(true);
+    else void genAllPages();
+  };
   const selPg = (proto.pages ?? []).find((x) => x.code === selPage) ?? null;
   const selCatalogPage = pages.find((p) => p.code === selPage) ?? null;
   const selReqIds = (selCatalogPage?.payload.reqIds as string[] | undefined) ?? [];
@@ -273,7 +293,7 @@ export function PrototypePanel() {
       <FlowBar
         proto={proto} busy={busyLabel !== null} run={run}
         currentBaseline={currentBaseline} curVerNo={curVerNo}
-        genAll={genAll} onGenAll={() => void genAllPages()}
+        genAll={genAll} onPlan={clickPlan} onGenAll={clickGenAll}
         onOpenUpload={() => setUploadOpen(true)}
         onOpenVersions={() => setVerOpen(true)}
         onFinalize={() => setFinOpen(true)}
@@ -366,8 +386,8 @@ export function PrototypePanel() {
               <button
                 className="all"
                 disabled={genAll || busyLabel !== null}
-                title="顺序生成全部页面的 UI 原型（已生成的页会重新生成）"
-                onClick={() => void genAllPages()}
+                title="批量生成页面 UI 原型（已有页工件时会先询问：只补缺失还是全部重写）"
+                onClick={clickGenAll}
               >{genAll ? '生成中…' : '✨ 全部生成'}</button>
             )}
           </div>
@@ -617,6 +637,44 @@ export function PrototypePanel() {
         <FinalizeProtoModal verId={verId} reFinalize={(baselines.items?.length ?? 0) > 0} onClose={() => setFinOpen(false)} />
       )}
       {unlockOpen && <UnlockProtoModal onClose={() => setUnlockOpen(false)} />}
+      {/* ① 规划确认（已有规划时）：查看目录 or 重新识别——防误点触发重写观感 */}
+      {confirmPlan && proto.plan && (
+        <div className="modal-mask" onClick={() => setConfirmPlan(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3>① 规划：查看还是重新识别？</h3>
+            <p className="pop-tip">
+              当前目录版本 {proto.plan.catalogVersion}（已识别 {pageTotal} 页）。
+              重新规划会按最新 PRD/UI 册重新识别：上游内容未变化时复用现目录版本、已生成页面不受影响；
+              有变化时产生新目录版本，依据旧目录的待处置提案将失效。
+            </p>
+            <div className="modal-ops">
+              <button className="act" onClick={() => { setConfirmPlan(false); setInspTab('catalog'); }}>查看目录</button>
+              <button className="act primary" disabled={busyLabel !== null} onClick={() => { setConfirmPlan(false); doPlan(); }}>重新规划</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* ② 生成页确认（已有页工件时）：查看 / 只补缺失 / 全部重写 三选 */}
+      {confirmGenAll && (
+        <div className="modal-mask" onClick={() => setConfirmGenAll(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3>② 生成页：已生成 {pageGenerated}/{pageTotal}</h3>
+            <p className="pop-tip">
+              逐页 AI 生成约需数分钟/页。已生成的页可以只看不动、只补缺失页，或全部重写（逐页覆盖现有页工件，生成后需 ③ 重新汇总入整本）。
+            </p>
+            <div className="modal-ops">
+              <button className="act" onClick={() => { setConfirmGenAll(false); setRailOpen(true); }}>查看页面</button>
+              <button
+                className="act"
+                disabled={pageGenerated >= pageTotal}
+                title={pageGenerated >= pageTotal ? '没有缺失页' : `只生成未生成的 ${pageTotal - pageGenerated} 页，不动已生成页`}
+                onClick={() => { setConfirmGenAll(false); void genAllPages(true); }}
+              >补齐未生成（{pageTotal - pageGenerated} 页）</button>
+              <button className="act primary" onClick={() => { setConfirmGenAll(false); void genAllPages(false); }}>全部重写</button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* 检查报告行内处置触发的弹层（与目录面板内弹层同组件；预填=报告行 target） */}
       {addPrefill && (
         <AddItemModal
@@ -638,14 +696,16 @@ export function PrototypePanel() {
   );
 }
 
-/** 流程条步进器（V20：命令条+KPI 三格合并——胶囊=按钮+状态点+结论；低频操作右置） */
-function FlowBar({ proto, busy, run, currentBaseline, curVerNo, genAll, onGenAll, onOpenUpload, onOpenVersions, onFinalize, onUnlock }: {
+/** 流程条步进器（V20：命令条+KPI 三格合并——胶囊=按钮+状态点+结论；低频操作右置。
+ *  ①规划/②生成页的「查看还是重写」判断在父组件（onPlan/onGenAll 可能先弹确认层）） */
+function FlowBar({ proto, busy, run, currentBaseline, curVerNo, genAll, onPlan, onGenAll, onOpenUpload, onOpenVersions, onFinalize, onUnlock }: {
   proto: ProtoStatus;
   busy: boolean;
   run: (label: string, fn: () => Promise<unknown>) => Promise<void>;
   currentBaseline: BaselineItem | null;
   curVerNo: number | null;
   genAll: boolean;
+  onPlan: () => void;
   onGenAll: () => void;
   onOpenUpload: () => void;
   onOpenVersions: () => void;
@@ -665,14 +725,18 @@ function FlowBar({ proto, busy, run, currentBaseline, curVerNo, genAll, onGenAll
   const steps: Array<{ label: string; done: boolean; cap: string; title: string; disabled: boolean; onClick: () => void }> = [
     {
       label: '① 规划', done: planOk, cap: proto.plan?.catalogVersion ?? '',
-      title: '从已定稿 PRD/UI 册识别页面、流程与状态生成设计目录；内容未变化时复用现目录版本，已生成的页面原型不受影响',
+      title: planOk
+        ? '已有规划——点击查看目录或按最新 PRD/UI 册重新识别（内容未变则复用现目录，已生成页面不受影响）'
+        : '从已定稿 PRD/UI 册识别页面、流程与状态生成设计目录',
       disabled: busy,
-      onClick: () => void run('正在识别页面与业务流程…', () => designApi.plan(projectId)),
+      onClick: onPlan,
     },
     {
       label: '② 生成页', done: pageTotal > 0 && pageGenerated === pageTotal,
       cap: pageTotal > 0 ? `${pageGenerated}/${pageTotal}` : '',
-      title: '顺序生成全部页面 UI 原型（=页面栏 ✨ 全部生成；已生成的页会重新生成）',
+      title: pageGenerated > 0
+        ? `已生成 ${pageGenerated}/${pageTotal} 页——点击查看、只补缺失页或全部重写`
+        : '顺序生成全部页面 UI 原型（=页面栏 ✨ 全部生成）',
       disabled: busy || genAll || !planOk || pageTotal === 0,
       onClick: onGenAll,
     },
