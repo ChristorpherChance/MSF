@@ -146,8 +146,8 @@ export const designApi = {
   addCatalogItem: (pid: string, input: { itemType: string; code: string; title: string; note?: string }) =>
     api.post(`${base(pid)}/catalog/items`, input),
   removeCatalogItem: (pid: string, itemId: string) => api.del(`${base(pid)}/catalog/items/${itemId}`),
-  /** 目录条目字段修订（title/note/steps/exempt 白名单；改即新目录版本） */
-  updateCatalogItem: (pid: string, itemId: string, input: { title?: string; note?: string; steps?: string[]; exempt?: boolean }) =>
+  /** 目录条目字段修订（title/note/steps/exempt/verified 白名单；改即新目录版本；verified=人工条目「已核对」销项） */
+  updateCatalogItem: (pid: string, itemId: string, input: { title?: string; note?: string; steps?: string[]; exempt?: boolean; verified?: boolean }) =>
     api.put(`${base(pid)}/catalog/items/${itemId}`, input),
 
   plan: (pid: string) =>

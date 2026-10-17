@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ApiError } from '../../api';
 import { toast } from '../../ui/toast';
 import { designApi, generateProtoPage, type BaselineItem, type CatalogGroup, type ProtoStatus } from './api';
+import { issueActions, summarizeCoverage, type IssueAction } from './proto-report';
 import { useDesignView } from './store';
 
 /**
@@ -26,6 +27,10 @@ export function PrototypePanel() {
   const [genAllInfo, setGenAllInfo] = useState<{ idx: number; total: number; code: string; startedAt: number } | null>(null);
   const [nowTs, setNowTs] = useState(0);
   const [genTick, setGenTick] = useState(0); // 页生成完成后 +1 → 强制重取预览 URL
+  // 检查报告行内处置（2026-10-17 易用性：报告行 → 直接动作）：补录预填/编辑目标/动作中闸
+  const [addPrefill, setAddPrefill] = useState<{ itemType: string; title: string } | null>(null);
+  const [editItem, setEditItem] = useState<{ itemType: string; item: CatalogGroup } | null>(null);
+  const [actBusy, setActBusy] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const baselines = useBaselines(projectId, proto?.status ?? null);
   const protoVers = useProtoVersions(projectId, proto?.prototype?.currentVersionId ?? null);
@@ -105,6 +110,58 @@ export function PrototypePanel() {
 
   if (error) return <div className="req-banner err">{error}</div>;
   if (!proto) return <div className="doc-empty">{loading ? '加载中…' : '原型工作台初始化中…'}</div>;
+
+  /** 按 code 找目录条目（报告行 target=条目码；type 已知时收窄分组） */
+  const findItem = (code: string, itemType?: string): { itemType: string; item: CatalogGroup } | null => {
+    for (const [g, items] of Object.entries(catalog?.groups ?? {})) {
+      if (itemType && g !== itemType) continue;
+      const it = (items as CatalogGroup[]).find((x) => x.code === code);
+      if (it) return { itemType: g, item: it };
+    }
+    return null;
+  };
+
+  /** 报告行内处置：按 issue code 路由到现成动作（豁免/核对=update-item；补录/编辑=开对应弹层；缺渲染=页级生成） */
+  const runIssueAction = (action: IssueAction, target: string) => {
+    if (!projectId || actBusy) return;
+    if (action === 'replan') {
+      void run('正在识别页面与业务流程…', () => designApi.plan(projectId));
+      return;
+    }
+    if (action === 'add-page') {
+      setAddPrefill({ itemType: 'page', title: target });
+      return;
+    }
+    if (action === 'gen-page') {
+      void genOne(target.split('/')[0]!); // STATE_MISSING 的 target 是「页码/状态」，取页码部分
+      return;
+    }
+    if (action === 'edit-flow') {
+      const found = findItem(target, 'flow');
+      if (found) setEditItem(found);
+      return;
+    }
+    // exempt / （已核对在 unverified 行单独入口 markChecked）
+    const found = findItem(target, 'page');
+    if (!found) { toast(`目录中找不到 ${target}（可能已重规划）`, 'warn'); return; }
+    setActBusy(true);
+    void designApi.updateCatalogItem(projectId, found.item.itemId, { exempt: true })
+      .then(() => toast(`${target} 已豁免「页有册无」报警（保存即新目录版本，重跑 ③ 检查生效）`, 'success'))
+      .catch((e) => toast(e instanceof ApiError ? `${e.code}: ${e.message}` : '豁免失败', 'warn'))
+      .finally(() => { setActBusy(false); void refreshProto(); });
+  };
+
+  /** 需人工核对 → 已核对（verified 销项：update-item 白名单字段，仅人工条目可用） */
+  const markChecked = (code: string) => {
+    if (!projectId || actBusy) return;
+    const found = findItem(code);
+    if (!found) { toast(`目录中找不到 ${code}（可能已重规划）`, 'warn'); return; }
+    setActBusy(true);
+    void designApi.updateCatalogItem(projectId, found.item.itemId, { verified: true })
+      .then(() => toast(`${code} 已标记核对`, 'success'))
+      .catch((e) => toast(e instanceof ApiError ? `${e.code}: ${e.message}` : '操作失败', 'warn'))
+      .finally(() => { setActBusy(false); void refreshProto(); });
+  };
 
   const run = async (label: string, fn: () => Promise<unknown>) => {
     setBusyLabel(label);
@@ -302,6 +359,17 @@ export function PrototypePanel() {
             <p className="pop-tip" style={{ margin: '4px 0 8px' }}>
               检查口径：目录页面/状态是否都在原型中渲染、流程步骤引用的页面状态是否存在、页面跳转目标是否合法、ui 册页面章节与目录页双向对应。
             </p>
+            {/* 覆盖结论行（近似口径：页面清单为当前 plan 目录，报告基于被检版本——错配时上方有 tag 提示） */}
+            {(() => {
+              const cov = summarizeCoverage({ pages: proto.pages ?? [], issues: proto.latestCheck!.issues });
+              return (
+                <p className="pop-tip" style={{ margin: '0 0 8px' }}>
+                  覆盖：
+                  {cov.uiTotal !== null && `ui 册页面章节 ${cov.uiCovered}/${cov.uiTotal} 已被原型页承接 · `}
+                  目录页 {cov.assembled}/{cov.pageTotal} 已入当前汇总
+                </p>
+              );
+            })()}
             {proto.latestCheck.issues.length === 0 && proto.latestCheck.unverified.length === 0 && (
               <p className="pop-tip">✓ 页面、状态、流程与来源全部对应，无问题。</p>
             )}
@@ -309,7 +377,18 @@ export function PrototypePanel() {
               <div>
                 <div className="cat-group-head"><span className="tag tag-warn">需处理 ×{proto.latestCheck.issues.length}</span></div>
                 {proto.latestCheck.issues.map((i, idx) => (
-                  <div key={idx} className="issue-row"><code>{i.code}</code> {i.message} {i.target && <span className="mut">[{i.target}]</span>}</div>
+                  <div key={idx} className="issue-row">
+                    <code>{i.code}</code> {i.message} {i.target && <span className="mut">[{i.target}]</span>}
+                    {i.target && issueActions(i.code).map((a) => (
+                      <button
+                        key={a}
+                        className="mini"
+                        disabled={actBusy || genAll}
+                        title={ISSUE_ACTION_HINTS[a]}
+                        onClick={() => runIssueAction(a, i.target!)}
+                      >{ISSUE_ACTION_LABELS[a]}</button>
+                    ))}
+                  </div>
                 ))}
               </div>
             )}
@@ -317,7 +396,17 @@ export function PrototypePanel() {
               <div>
                 <div className="cat-group-head"><span className="tag">需人工核对 ×{proto.latestCheck.unverified.length}</span></div>
                 {proto.latestCheck.unverified.map((u, idx) => (
-                  <div key={`u${idx}`} className="issue-row warn"><code>{u.code}</code> {u.message}</div>
+                  <div key={`u${idx}`} className="issue-row warn">
+                    <code>{u.code}</code> {u.message}
+                    {u.target && (
+                      <button
+                        className="mini"
+                        disabled={actBusy}
+                        title="确认该人工条目已核对无误（重跑 ③ 检查后从本组销项）"
+                        onClick={() => markChecked(u.target!)}
+                      >✓ 已核对</button>
+                    )}
+                  </div>
                 ))}
               </div>
             )}
@@ -353,6 +442,23 @@ export function PrototypePanel() {
         <FinalizeProtoModal verId={verId} reFinalize={(baselines.items?.length ?? 0) > 0} onClose={() => setFinOpen(false)} />
       )}
       {unlockOpen && <UnlockProtoModal onClose={() => setUnlockOpen(false)} />}
+      {/* 检查报告行内处置触发的弹层（与目录卡内弹层同组件；预填=报告行 target） */}
+      {addPrefill && (
+        <AddItemModal
+          prefill={addPrefill}
+          hint="补录后：左侧页面清单 🎨 生成该页 → ② 汇总 → ③ 重跑检查"
+          onClose={() => setAddPrefill(null)}
+          onChanged={() => void refreshProto()}
+        />
+      )}
+      {editItem && (
+        <EditItemModal
+          itemType={editItem.itemType}
+          item={editItem.item}
+          onClose={() => setEditItem(null)}
+          onChanged={() => void refreshProto()}
+        />
+      )}
     </div>
   );
 }
@@ -797,6 +903,22 @@ const ITEM_TYPE_LABELS: Record<string, string> = {
   viewport: '视口', theme: '主题', copy: '文案', asset: '资源', role: '角色',
 };
 
+/** 检查报告行内处置动作（键=proto-report.issueActions 返回的码；文案/提示在此单点维护） */
+const ISSUE_ACTION_LABELS: Record<IssueAction, string> = {
+  'add-page': '＋ 补录为页面',
+  replan: '↻ 重新规划',
+  exempt: '豁免',
+  'edit-flow': '编辑流程',
+  'gen-page': '🎨 生成此页',
+};
+const ISSUE_ACTION_HINTS: Record<IssueAction, string> = {
+  'add-page': '把该 ui 册章节补录为目录页（标题已预填；补录后到左侧生成该页并重新 ② 汇总）',
+  replan: '重新执行 ① 识别规划（按当前 ui 册/PRD 重导目录；内容不变则复用现目录版本，已生成页面不受影响）',
+  exempt: '骨架/通用页无 ui 册章节属正常——豁免后不再报警（重跑 ③ 检查生效）',
+  'edit-flow': '打开该流程条目的步骤编辑（修正引用的页面/状态码）',
+  'gen-page': '重新生成该页 UI 原型（随后需 ② 汇总 + ③ 重跑检查）',
+};
+
 /** 设计目录卡：分组摘要 + 人工增删/条目修订（增删改=新目录版本；识别条目不可直删，REQ-304/306） */
 function CatalogCard({ onChanged }: { onChanged: () => void }) {
   const { projectId, catalog } = useDesignView();
@@ -916,11 +1038,17 @@ function EditItemModal({ itemType, item, onClose, onChanged }: {
 
 const ITEM_TYPES = ['page', 'state', 'component', 'dialog', 'flow', 'viewport', 'theme', 'copy', 'asset'] as const;
 
-function AddItemModal({ onClose, onChanged }: { onClose: () => void; onChanged: () => void }) {
+function AddItemModal({ prefill, hint, onClose, onChanged }: {
+  /** 报告行内「补录为页面」入口的预填（类型/标题）；hint=补录后的操作指引 */
+  prefill?: { itemType: string; title: string };
+  hint?: string;
+  onClose: () => void;
+  onChanged: () => void;
+}) {
   const { projectId } = useDesignView();
-  const [itemType, setItemType] = useState<string>('page');
+  const [itemType, setItemType] = useState<string>(prefill?.itemType ?? 'page');
   const [code, setCode] = useState('');
-  const [title, setTitle] = useState('');
+  const [title, setTitle] = useState(prefill?.title ?? '');
   const [note, setNote] = useState('');
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -938,6 +1066,7 @@ function AddItemModal({ onClose, onChanged }: { onClose: () => void; onChanged: 
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <h3>＋ 人工补充目录条目</h3>
         <p className="pop-tip">人工条目标记 source=manual，对应性检查时列入「需人工核对」（不静默通过，REQ-306）。</p>
+        {hint && <p className="pop-tip">{hint}</p>}
         <label className="form-row">类型
           <select value={itemType} onChange={(e) => setItemType(e.target.value)}>
             {ITEM_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}

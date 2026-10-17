@@ -4,8 +4,10 @@
  *    追溯引用按 type+code 随行迁移、未授权字段（reqIds/route）原值保留、审计留痕；
  * ② exempt 切换：true 落键 / false 删键（豁免口径只看 payload.exempt===true）；
  * ③ 白名单闸：未知字段/空 steps 元素/零可改字段 → VALIDATION_FAILED；不存在条目 → NOT_FOUND；
+ *    verified 销项闸（识别条目无「需人工核对」态一律拒绝）；
  * ④ re-plan 幂等复用+页工件 reconcile（2026-10-17 根修）：内容零变化 re-plan 不产新目录版本、
- *    孤儿页工件随行自愈；④b 移除页工件行清除/页 payload 已变不继承（门禁引导重生成）。
+ *    孤儿页工件随行自愈；④b 移除页工件行清除/页 payload 已变不继承（门禁引导重生成）；
+ * ⑥ verified 销项：人工条目已核对/撤销核对改即新版本，re-plan 整 payload 随行核对态不丢。
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { pool, query } from '../../db/pool.js';
@@ -167,6 +169,11 @@ describe('catalog.update-item（集成，需 DB+MinIO）', async () => {
     const page = cat.groups.page!.find((i) => i.code === 'P-001')!;
     await expect(catalog.updateItem(PID, page.itemId, { steps: ['x'] }, CTX))
       .rejects.toMatchObject({ code: 'VALIDATION_FAILED', target: 'steps' });
+    // verified 销项闸：识别条目无「需人工核对」态——带 verified 一律拒绝（防生出无来源 verify 键）
+    await expect(catalog.updateItem(PID, page.itemId, { verified: true }, CTX))
+      .rejects.toMatchObject({ code: 'VALIDATION_FAILED', target: 'verified' });
+    await expect(catalog.updateItem(PID, page.itemId, { verified: 'yes' } as never, CTX))
+      .rejects.toMatchObject({ code: 'VALIDATION_FAILED', target: 'verified' });
     await expect(catalog.updateItem(PID, '00000000-0000-0000-0000-000000000099', { title: 'x' }, CTX))
       .rejects.toMatchObject({ code: 'NOT_FOUND' });
     // 拒绝零写：目录版本不前进（当前 V3-4——幂等复用后版本序列见 ④）
@@ -253,5 +260,28 @@ describe('catalog.update-item（集成，需 DB+MinIO）', async () => {
     const rogueItems = await query<{ n: string }>(
       'SELECT count(*) AS n FROM dsg_catalog_items WHERE project_id=$1', [ROGUE]);
     expect(rogueItems.rows[0]!.n).toBe('0');
+  });
+
+  it('⑥ verified 销项：人工条目「已核对/撤销核对」改即新版本，re-plan 随行保留', async () => {
+    // 人工补录条目（add-item 落 payload.verify='manual' → 检查报告「需人工核对」）
+    const added = (await catalog.addItem(PID, { itemType: 'page', code: 'P-MAN', title: '人工核对页' }, CTX)) as { itemId: string };
+    let cat = (await catalog.getCatalog(PID)) as CatalogView;
+    expect(cat.catalogVersion).toBe('V3-9');
+    expect(cat.groups.page!.find((i) => i.code === 'P-MAN')!.payload.verify).toBe('manual');
+    // 已核对 → 'checked'（检查口径只认 verify==='manual'，'checked' 自然销项）
+    const r1 = (await catalog.updateItem(PID, added.itemId, { verified: true }, CTX)) as { catalogVersion: string };
+    expect(r1.catalogVersion).toBe('V3-10');
+    cat = (await catalog.getCatalog(PID)) as CatalogView;
+    expect(cat.groups.page!.find((i) => i.code === 'P-MAN')!.payload.verify).toBe('checked');
+    // 撤销核对 → 回 'manual'
+    const r2 = (await catalog.updateItem(PID, added.itemId, { verified: false }, CTX)) as { catalogVersion: string };
+    expect(r2.catalogVersion).toBe('V3-11');
+    cat = (await catalog.getCatalog(PID)) as CatalogView;
+    expect(cat.groups.page!.find((i) => i.code === 'P-MAN')!.payload.verify).toBe('manual');
+    // re-plan 幂等复用且人工条目整 payload 随行——核对态不丢
+    await catalog.plan(PID, CTX);
+    cat = (await catalog.getCatalog(PID)) as CatalogView;
+    expect(cat.catalogVersion).toBe('V3-11');
+    expect(cat.groups.page!.find((i) => i.code === 'P-MAN')!.payload.verify).toBe('manual');
   });
 });

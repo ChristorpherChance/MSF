@@ -27,8 +27,9 @@ export const RULESET_VERSION = 'src-rules-1';
 /**
  * re-plan 随行字段（覆盖检测 §2）：派生条目（source≠'manual'）上允许人工修改、
  * 且 re-plan 全量重导时按 type+code 迁移保留的 payload 键。
- * 对照维护：design.catalog.update-item 可改字段清单（title/note/payload.steps/payload.exempt）
+ * 对照维护：design.catalog.update-item 可改字段清单（title/note/payload.steps/payload.exempt/verified）
  * 中凡落 payload 的键都必须在本常量内，否则 re-plan 丢人工调整。
+ * （例外：verified 落 payload.verify，仅人工条目持有——人工条目随行=整 payload 迁移，天然保留，故不入本常量。）
  * 2026-10-17 补齐 title/note：此前只随行 steps/exempt——title/note 可编辑却不随行，
  * re-plan 静默回滚人工改题（且与幂等复用相乘：改题过的目录永远等不出「逐条全同」，
  * 每次 re-plan 都无谓递增版本作废页工件）。用户显式改题=覆盖意图，随行优先于派生值。
@@ -302,20 +303,21 @@ export class CatalogService {
       return { removed: itemId, catalogVersion: ver };
     });
     // A05-13 扩：目录条目字段修订（覆盖检测 §2 豁免落点 + §3 流程步骤编辑）。
-    // 可改字段白名单=title/note/payload.steps/payload.exempt（steps/exempt 对照 CARRIED_PAYLOAD_KEYS——
-    // 落 payload 的可改键必须在随行清单内，否则 re-plan 丢人工调整）；
-    // reqIds/route/verify 等识别字段一律拒绝。编辑即产生新目录版本，需 re-plan 后反映到汇总原型
+    // 可改字段白名单=title/note/payload.steps/payload.exempt/payload.verify（steps/exempt 对照 CARRIED_PAYLOAD_KEYS——
+    // 落 payload 的可改键必须在随行清单内，否则 re-plan 丢人工调整；verify 仅人工条目有（随行=整 payload 迁移，
+    // 天然保留），故不必进 CARRIED——识别条目带 verify 会被随行过滤丢失，因此白名单闸限制「仅已有 verify 键的条目可改」）；
+    // reqIds/route 等识别字段一律拒绝。编辑即产生新目录版本，需 re-plan 后反映到汇总原型
     // （finalize 门禁以目录指纹比对 CHECK_STALE 强制改后重跑 check）。
     registerCommand('design.catalog.update-item', async (client, payload, ctx) => {
       const raw = payload as Record<string, unknown>;
       const { projectId, itemId } = raw as { projectId: string; itemId: string };
       for (const k of Object.keys(raw)) {
         if (k === 'projectId' || k === 'itemId') continue;
-        if (k !== 'title' && k !== 'note' && k !== 'steps' && k !== 'exempt') {
-          throw new DomainError('VALIDATION_FAILED', `不可修改的字段: ${k}（仅 title/note/steps/exempt 可改）`, k);
+        if (k !== 'title' && k !== 'note' && k !== 'steps' && k !== 'exempt' && k !== 'verified') {
+          throw new DomainError('VALIDATION_FAILED', `不可修改的字段: ${k}（仅 title/note/steps/exempt/verified 可改）`, k);
         }
       }
-      const patch: { title?: string; note?: string; steps?: string[]; exempt?: boolean } = {};
+      const patch: { title?: string; note?: string; steps?: string[]; exempt?: boolean; verified?: boolean } = {};
       if (raw.title !== undefined) {
         if (typeof raw.title !== 'string' || !raw.title.trim()) {
           throw new DomainError('VALIDATION_FAILED', '条目标题必填', 'title');
@@ -336,8 +338,12 @@ export class CatalogService {
         if (typeof raw.exempt !== 'boolean') throw new DomainError('VALIDATION_FAILED', '豁免标记须为布尔值', 'exempt');
         patch.exempt = raw.exempt;
       }
+      if (raw.verified !== undefined) {
+        if (typeof raw.verified !== 'boolean') throw new DomainError('VALIDATION_FAILED', '核对标记须为布尔值', 'verified');
+        patch.verified = raw.verified;
+      }
       if (Object.keys(patch).length === 0) {
-        throw new DomainError('VALIDATION_FAILED', '无可更新字段（title/note/steps/exempt 至少一项）', 'title');
+        throw new DomainError('VALIDATION_FAILED', '无可更新字段（title/note/steps/exempt/verified 至少一项）', 'title');
       }
       const item = await client.query<CatalogItemRow & { catalog_version: string }>(
         'SELECT * FROM dsg_catalog_items WHERE id=$1 AND project_id=$2', [itemId, projectId]);
@@ -357,6 +363,11 @@ export class CatalogService {
         [projectId, curVer, row.item_type, row.code]);
       const curRow = cur.rows[0];
       if (!curRow) throw new DomainError('NOT_FOUND', '该条目已不在当前目录版本（可能已被重规划移除）', itemId);
+      // verified 销项闸：仅 payload 带 verify 键的条目（=人工补录，add-item 落 verify:'manual'）可改核对态——
+      // 识别条目本无「需人工核对」语义，放行会在 payload 里生出无来源的 verify 键
+      if (raw.verified !== undefined && curRow.payload.verify === undefined) {
+        throw new DomainError('VALIDATION_FAILED', '仅人工补录的条目可标记核对（识别条目无「需人工核对」态）', 'verified');
+      }
       const ver = await this.nextCatalogVersion(client, projectId);
       // 复制当前版本全部条目到新版本（目录版本化：改=新版本）
       await client.query(
@@ -386,6 +397,8 @@ export class CatalogService {
         if (patch.exempt) merged.exempt = true;
         else delete merged.exempt;
       }
+      // verified 销项（检查报告「需人工核对」→ 已核对）：true 落 'checked' / false 回 'manual'（撤销核对）
+      if (patch.verified !== undefined) merged.verify = patch.verified ? 'checked' : 'manual';
       const r = await client.query<{ id: string }>(
         `UPDATE dsg_catalog_items SET payload=$5, content_fingerprint=$6
          WHERE project_id=$1 AND catalog_version=$2 AND item_type=$3 AND code=$4 RETURNING id`,
@@ -490,7 +503,7 @@ export class CatalogService {
   async updateItem(
     projectId: string,
     itemId: string,
-    input: { title?: string; note?: string; steps?: string[]; exempt?: boolean },
+    input: { title?: string; note?: string; steps?: string[]; exempt?: boolean; verified?: boolean },
     ctx: CommandContext,
   ) {
     // I-1：路径参数兜底在后——body 携带 projectId/itemId 键不得覆盖路径归属（防跨项目写+审计错位）
