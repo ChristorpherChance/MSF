@@ -1,5 +1,6 @@
 /** 页级原型纯函数单测（envelope 往返/scoped 校验/mock 合规/汇总拼装 + checkPrototype 复用断言
- *  + pickUiSections/buildPagePrompt UI 册注入钉 + data-nav 穿流/流程视图/flow 校验（覆盖检测 §3）；
+ *  + pickUiSections/buildPagePrompt UI 册注入钉 + data-nav 穿流/流程视图/flow 校验（覆盖检测 §3）
+ *  + 风格基线 PROTO_THEME_CSS 注入/幂等与真·应用壳断言（2026-10-17 视觉一致性根修）；
  * 无需基础设施） */
 import { describe, expect, it } from 'vitest';
 import {
@@ -10,6 +11,7 @@ import {
   buildPagePrompt,
   composePrototype,
   ensureNavScript,
+  ensureThemeStyle,
   extractDataNavTargets,
   extractPageParts,
   findDataNavProblem,
@@ -89,6 +91,58 @@ describe('composePrototype 汇总', () => {
     expect(manifest.pages.find((p) => p.code === 'P-HOME')).toMatchObject({ objectKey: 'sha256/abc', fingerprint: 'fp1', source: 'model' });
     expect(manifest.pages.find((p) => p.code === 'P-LIST')).toMatchObject({ placeholder: true });
     expect(checkPrototype(html, items).issues).toEqual([]);
+  });
+
+  it('真·应用壳（2026-10-17）：顶栏品牌+面包屑 / 左侧页面导航 / 风格基线头 / 壳同步锚点齐备', () => {
+    const parts = extractPageParts(doc)!;
+    const { html } = composePrototype(items, [
+      { code: 'P-HOME', parts, objectKey: 'sha256/abc', fingerprint: 'fp1', source: 'model' },
+    ], [], { productName: '灵感市集' });
+    expect(html).toContain('<span class="msf-brand">灵感市集</span>');
+    expect(html).toContain('data-shell-crumb');
+    expect(html).toContain('data-shell-nav="P-HOME"');
+    expect(html).toContain('data-shell-nav="P-LIST"');
+    expect(html).toContain('class="msf-sidenav"');
+    expect(html).toContain('class="msf-content"');
+    // 风格基线进头（壳层单点供给），页样式段不重复携带
+    expect(html).toContain('--p-primary');
+    expect(html).not.toContain('#fafafa'); // 旧堆叠壳的写死色已清
+    // 壳同步脚本段（导航高亮+面包屑）
+    expect(html).toContain("data-shell-nav");
+    expect(checkPrototype(html, items).issues).toEqual([]);
+  });
+});
+
+describe('风格基线 PROTO_THEME_CSS（视觉一致性单源）', () => {
+  it('wrapPageEnvelope 注入主题块且在标记段之外（汇总抽取不重复携带）', () => {
+    const html = wrapPageEnvelope('P-HOME', '首页', '#pg-P-HOME { padding: 0; }', '<div id="pg-P-HOME" data-page-block="P-HOME">x</div>', '(function(){})();');
+    expect(html).toContain('--p-primary');
+    const parts = extractPageParts(html)!;
+    expect(parts.styleBlock).not.toContain('--p-primary');
+    expect(parts.styleBlock).toContain('#pg-P-HOME');
+  });
+  it('ensureThemeStyle：缺则 </head> 前注入；已有（--p-primary 在）→ 幂等原样', () => {
+    const raw = '<!doctype html><html><head><meta charset="utf-8"></head><body>x</body></html>';
+    const once = ensureThemeStyle(raw);
+    expect(once).toContain('--p-primary');
+    expect(once.indexOf('--p-primary')).toBeLessThan(once.indexOf('</head>'));
+    expect(ensureThemeStyle(once)).toBe(once);
+  });
+  it('buildMockPage 全走令牌与共享类（无写死 hex 色——与页校验同纪律）', () => {
+    const html = buildMockPage(page, [st], [{ code: 'P-LIST', title: '列表页' }]);
+    const css = extractPageParts(html)!.styleBlock;
+    expect(css).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
+    expect(css).toContain('var(--p-line)');
+    expect(html).toContain('class="tbl"');
+    expect(html).toContain('btn primary');
+  });
+  it('buildPagePrompt 注入风格基线契约（令牌+共享类+不写死颜色+不画全局壳）', () => {
+    const prompt = buildPagePrompt(page, [st], [], '', '', '');
+    expect(prompt).toContain('风格基线');
+    expect(prompt).toContain('var(--p-primary)');
+    expect(prompt).toContain('.btn');
+    expect(prompt).toContain('禁止写死任何颜色值');
+    expect(prompt).toContain('不要画产品级全局顶栏');
   });
 });
 

@@ -283,7 +283,10 @@ export class PrototypeService {
         warnings.push(`页面 ${r.page_code} 工件对象缺失，已回落占位`);
       }
     }
-    const { html, manifest } = composePrototype(items.rows, assembled, warnings);
+    const proj = await query<{ name: string }>('SELECT name FROM projects WHERE id=$1', [projectId]);
+    const { html, manifest } = composePrototype(items.rows, assembled, warnings, {
+      productName: proj.rows[0]?.name ?? '',
+    });
     const r = (await executeCommand('design.prototype.generate',
       { projectId, planId, planFingerprint, html, manifest }, { ...ctx, projectId })) as {
       prototypeVersionId: string; v: number; objectKey: string; htmlBytes: number;

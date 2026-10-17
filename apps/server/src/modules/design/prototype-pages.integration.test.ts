@@ -245,6 +245,19 @@ describe('PrototypePages 页级原型（集成，需 DB+MinIO）', async () => {
     const fin2 = await bad.drive(st2.operationId, CTX, () => {});
     expect(fin2.status).toBe('failed');
     expect(fin2.error).toBe('VALIDATION_FAILED');
+
+    // 风格基线纪律（2026-10-17）：结构合规但页样式写死 hex 色 → VALIDATION_FAILED（配色必须 var(--p-*)）
+    const hexSections = stateCodes.map((s) => `<section data-page="${code}" data-state="${s}">x</section>`).join('');
+    const hexed = wrapPageEnvelope(
+      code, '列表页',
+      `#pg-${code} { color: #1f2937; }`,
+      `<div id="pg-${code}" data-page-block="${code}">${hexSections}</div>`, '(function(){})();',
+    );
+    const hexSvc = new PrototypePagesService(docs, storage, stubAi(hexed));
+    const st3 = await hexSvc.start(PID, code, '', CTX);
+    const fin3 = await hexSvc.drive(st3.operationId, CTX, () => {});
+    expect(fin3.status).toBe('failed');
+    expect(fin3.error).toBe('VALIDATION_FAILED');
   });
 
   it('⑥ 页行存在但对象缺失：汇总回落占位不阻断（manifest warnings）', async () => {

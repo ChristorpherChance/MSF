@@ -294,6 +294,8 @@ export function PrototypePanel() {
         proto={proto} busy={busyLabel !== null} run={run}
         currentBaseline={currentBaseline} curVerNo={curVerNo}
         genAll={genAll} onPlan={clickPlan} onGenAll={clickGenAll}
+        onViewWhole={() => setMode('whole')}
+        onViewReport={() => setInspTab('report')}
         onOpenUpload={() => setUploadOpen(true)}
         onOpenVersions={() => setVerOpen(true)}
         onFinalize={() => setFinOpen(true)}
@@ -698,7 +700,7 @@ export function PrototypePanel() {
 
 /** 流程条步进器（V20：命令条+KPI 三格合并——胶囊=按钮+状态点+结论；低频操作右置。
  *  ①规划/②生成页的「查看还是重写」判断在父组件（onPlan/onGenAll 可能先弹确认层）） */
-function FlowBar({ proto, busy, run, currentBaseline, curVerNo, genAll, onPlan, onGenAll, onOpenUpload, onOpenVersions, onFinalize, onUnlock }: {
+function FlowBar({ proto, busy, run, currentBaseline, curVerNo, genAll, onPlan, onGenAll, onViewWhole, onViewReport, onOpenUpload, onOpenVersions, onFinalize, onUnlock }: {
   proto: ProtoStatus;
   busy: boolean;
   run: (label: string, fn: () => Promise<unknown>) => Promise<void>;
@@ -707,6 +709,10 @@ function FlowBar({ proto, busy, run, currentBaseline, curVerNo, genAll, onPlan, 
   genAll: boolean;
   onPlan: () => void;
   onGenAll: () => void;
+  /** ③ done 态：无待汇总改动时点击=查看整本（不重跑） */
+  onViewWhole: () => void;
+  /** ④ 对版态：报告就是当前版本的时点击=查看报告（不重跑） */
+  onViewReport: () => void;
   onOpenUpload: () => void;
   onOpenVersions: () => void;
   onFinalize: () => void;
@@ -743,27 +749,37 @@ function FlowBar({ proto, busy, run, currentBaseline, curVerNo, genAll, onPlan, 
     {
       label: '③ 汇总', done: !!verId && !proto.pagesStale && pageGenerated > 0,
       cap: verId ? `v${curVerNo ?? '?'}${proto.pagesStale ? '·待重汇总' : ''}` : '',
-      title: noPagesGenerated
-        ? '先在左侧逐页 🎨 或 ✨ 全部生成页面原型，再汇总（否则只能产出全占位空原型）'
-        : pageGenerated < pageTotal
-          ? `将各页 UI 原型汇总为完整可交互原型（已生成 ${pageGenerated}/${pageTotal} 页，未生成页以占位块回落）`
-          : '将各页 UI 原型汇总为完整可交互原型',
+      title: (!!verId && !proto.pagesStale && pageGenerated > 0)
+        ? '汇总版就是最新（无待汇总改动）——点击查看整本原型'
+        : noPagesGenerated
+          ? '先在左侧逐页 🎨 或 ✨ 全部生成页面原型，再汇总（否则只能产出全占位空原型）'
+          : pageGenerated < pageTotal
+            ? `将各页 UI 原型汇总为完整可交互原型（已生成 ${pageGenerated}/${pageTotal} 页，未生成页以占位块回落）`
+            : '将各页 UI 原型汇总为完整可交互原型（统一应用壳+风格基线）',
       disabled: busy || genAll || !proto.plan || proto.plan.stale || noPagesGenerated,
-      onClick: () => void run('正在汇总生成完整原型…', async () => {
-        await designApi.protoGenerate(projectId, proto.plan!.planId, proto.plan!.fingerprint);
-      }),
+      onClick: (!!verId && !proto.pagesStale && pageGenerated > 0)
+        ? onViewWhole
+        : () => void run('正在汇总生成完整原型…', async () => {
+          await designApi.protoGenerate(projectId, proto.plan!.planId, proto.plan!.fingerprint);
+        }),
     },
     {
       label: '④ 检查', done: checkCurrent && check.passed,
       cap: check ? (checkCurrent ? (check.passed ? '✓ 通过' : `${check.issues.length + check.unverified.length} 项待处理`) : '基于旧版本') : '',
-      title: checkCurrent || !check ? '检查目录页面/状态/流程/来源与原型双向对应' : '报告依据的原型版本已不是当前版本——须重新检查',
+      title: checkCurrent
+        ? '报告就是当前版本的——点击查看检查报告（原型有改动重新汇总后才需重跑）'
+        : check ? '报告依据的原型版本已不是当前版本——须重新检查' : '检查目录页面/状态/流程/来源与原型双向对应',
       disabled: busy || !verId,
-      onClick: () => void run('正在检查页面、流程与来源对应性…', () => designApi.protoCheck(projectId, verId!)),
+      onClick: checkCurrent
+        ? onViewReport
+        : () => void run('正在检查页面、流程与来源对应性…', () => designApi.protoCheck(projectId, verId!)),
     },
     {
       label: '定稿', done: proto.status === 'finalized', cap: '',
-      title: '人工定稿形成设计基线（策略确认点，modal 二次确认）',
-      disabled: busy || !check?.passed || !checkCurrent,
+      title: proto.status === 'finalized'
+        ? '已定稿（如需再迭代，用右侧 🔓 解锁定稿）'
+        : '人工定稿形成设计基线（策略确认点，modal 二次确认）',
+      disabled: busy || proto.status === 'finalized' || !check?.passed || !checkCurrent,
       onClick: onFinalize,
     },
   ];

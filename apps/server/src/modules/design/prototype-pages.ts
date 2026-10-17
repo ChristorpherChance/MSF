@@ -69,6 +69,12 @@ export const NAV_SCRIPT = `<script>
         t.classList.toggle('active',on);t.setAttribute('aria-pressed',String(on));
       }
     });
+    // 汇总壳同步（单页预览无壳元素，自动 no-op）：左侧导航高亮 + 顶栏面包屑
+    document.querySelectorAll('[data-shell-nav]').forEach(function(a){
+      a.classList.toggle('on',a.getAttribute('data-shell-nav')===pageId);
+    });
+    var cr=document.querySelector('[data-shell-crumb]');
+    if(cr){var na=document.querySelector('[data-shell-nav="'+pageId+'"]');cr.textContent=(na&&na.getAttribute('data-title'))||pageId||'';}
   }
   window.prototypeNavigate=show;
   window.addEventListener('message',function(e){var d=e.data||{};if(d.type==='v19-prototype-select')show(d.pageId,d.stateId);});
@@ -113,9 +119,48 @@ export function ensureNavScript(html: string): string {
   return i >= 0 ? `${html.slice(0, i)}${NAV_SCRIPT}\n${html.slice(i)}` : `${html}\n${NAV_SCRIPT}`;
 }
 
-/** 完整单页文档封装（envelope 标记 + 页根契约 + 共享选态脚本） */
+/** 风格基线补齐（幂等）：模型产物缺主题令牌时注入 PROTO_THEME_CSS——单页预览（无汇总壳）也有统一视觉。
+ *  在 </head> 前插入，不与 msf:style 标记段混淆（extractPageParts 只取标记段，汇总不重复携带）。 */
+export function ensureThemeStyle(html: string): string {
+  if (html.includes('--p-primary')) return html;
+  const tag = `<style>${PROTO_THEME_CSS}</style>`;
+  const i = html.indexOf('</head>');
+  return i >= 0 ? `${html.slice(0, i)}${tag}\n${html.slice(i)}` : `${tag}\n${html}`;
+}
+
+/**
+ * 原型风格基线（2026-10-17 用户复验「每页各画各的、颜色文字风格不一致」根修）：
+ * 全项目单源的设计令牌+共享组件类——单页封装与汇总壳都注入本块，页 prompt 契约钉死
+ * 「只准用 var(--p-*) 令牌与共享类，禁写死颜色/字号」，validatePageHtml 扫 hex 色拒收。
+ * 页面自身 CSS 只做布局与独有样式（仍须 #pg-<code> 前缀隔离），视觉语言全来自本基线。
+ */
+export const PROTO_THEME_CSS = `:root{--p-primary:#2563eb;--p-primary-soft:#eff4ff;--p-accent:#7c3aed;--p-bg:#f5f6f8;--p-surface:#ffffff;--p-ink:#1f2329;--p-ink2:#6b7280;--p-line:#e5e7eb;--p-ok:#16a34a;--p-ok-soft:#eaf7ee;--p-warn:#d97706;--p-warn-soft:#fdf3e3;--p-danger:#dc2626;--p-danger-soft:#fdecec;--p-radius:10px;--p-font:14px/1.6 "PingFang SC","Microsoft YaHei",system-ui,sans-serif;}
+body{font:var(--p-font);color:var(--p-ink);background:var(--p-bg);margin:0;}
+.btn{border:1px solid var(--p-line);background:var(--p-surface);border-radius:8px;padding:6px 14px;font-size:13px;cursor:pointer;color:var(--p-ink);}
+.btn:hover{border-color:var(--p-primary);color:var(--p-primary);}
+.btn.primary{background:var(--p-primary);border-color:var(--p-primary);color:#fff;}
+.btn.primary:hover{filter:brightness(1.08);color:#fff;}
+.input{border:1px solid var(--p-line);border-radius:8px;padding:6px 10px;font-size:13px;background:var(--p-surface);color:var(--p-ink);}
+.input:focus{outline:none;border-color:var(--p-primary);}
+table.tbl{width:100%;border-collapse:collapse;font-size:13px;background:var(--p-surface);}
+table.tbl th{text-align:left;color:var(--p-ink2);font-weight:500;padding:8px 10px;border-bottom:1px solid var(--p-line);}
+table.tbl td{padding:9px 10px;border-bottom:1px solid var(--p-line);}
+.tagline{display:inline-block;border-radius:999px;padding:1px 9px;font-size:11.5px;}
+.tagline.ok{background:var(--p-ok-soft);color:var(--p-ok);}
+.tagline.warn{background:var(--p-warn-soft);color:var(--p-warn);}
+.tagline.danger{background:var(--p-danger-soft);color:var(--p-danger);}
+.stat{display:inline-flex;flex-direction:column;background:var(--p-surface);border:1px solid var(--p-line);border-radius:var(--p-radius);padding:12px 18px;margin:0 10px 10px 0;}
+.stat b{font-size:20px;color:var(--p-primary);}
+.stat span{font-size:12px;color:var(--p-ink2);}
+.page-card{background:var(--p-surface);border:1px solid var(--p-line);border-radius:var(--p-radius);padding:18px 20px;}
+.page-card h1{font-size:18px;margin:0 0 4px;}
+.page-card .sub{color:var(--p-ink2);font-size:12.5px;margin-bottom:14px;}`;
+
+/** 完整单页文档封装（envelope 标记 + 页根契约 + 风格基线 + 共享选态脚本）。
+ *  主题块在标记段之外——extractPageParts 只取标记段，汇总时主题由壳层统一供给不重复。 */
 export function wrapPageEnvelope(code: string, title: string, styleCss: string, bodyHtml: string, scriptJs: string): string {
   return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title>
+<style>${PROTO_THEME_CSS}</style>
 ${MARK.styleBegin}<style>${styleCss}</style>${MARK.styleEnd}
 </head><body>
 ${MARK.bodyBegin}${bodyHtml}${MARK.bodyEnd}
@@ -240,15 +285,18 @@ export function findDataNavProblem(html: string, pageCodes: ReadonlySet<string>,
   return null;
 }
 
-/** 占位块（未生成页汇总回落；保留 data-page-block/data-page/data-state 标记，对应性检查不受影响） */
+/** 占位块（未生成页汇总回落；保留 data-page-block/data-page/data-state 标记，对应性检查不受影响；
+ *  视觉走风格基线共享类 page-card/tagline） */
 export function placeholderBlock(page: CatalogItemLike, states: CatalogItemLike[]): string {
   const title = (page.payload.title as string) ?? page.code;
-  const hint = '（本页 UI 原型尚未生成——在左侧页面清单点 🎨 生成，或「✨ 全部生成」后重新汇总）';
+  const hint = '本页 UI 原型尚未生成——在左侧页面清单点 🎨 生成，或「✨ 全部生成」后重新汇总。';
+  const inner = (suffix: string) =>
+    `<div class="page-card"><h2>${esc(title)}${suffix}</h2><p><span class="tagline warn">待生成</span> ${hint}</p></div>`;
   const statesHtml = states.length > 0
     ? states.map((s) =>
-      `    <section data-page="${page.code}" data-state="${s.code}"><h2>${esc(title)} · ${esc((s.payload.title as string) ?? s.code)}</h2><p>${hint}</p></section>`,
+      `    <section data-page="${page.code}" data-state="${s.code}">${inner(` · ${esc((s.payload.title as string) ?? s.code)}`)}</section>`,
     ).join('\n')
-    : `    <section data-page="${page.code}"><h2>${esc(title)}</h2><p>${hint}</p></section>`;
+    : `    <section data-page="${page.code}">${inner('')}</section>`;
   return `  <div data-page-block="${page.code}">\n${statesHtml}\n  </div>`;
 }
 
@@ -264,30 +312,24 @@ export function buildMockPage(
   const reqIds = (page.payload.reqIds as string[] | undefined) ?? [];
   const navs = navTargets.filter((t) => t.code !== code).slice(0, 6);
   const navRow = navs.length > 0
-    ? `  <p class="mock-nav">穿流跳转：${navs.map((t) => `<button type="button" class="act-btn" data-nav="#${t.code}">${esc(t.title)}</button>`).join(' ')}</p>`
+    ? `  <p class="mock-nav">穿流跳转：${navs.map((t) => `<button type="button" class="btn" data-nav="#${t.code}">${esc(t.title)}</button>`).join(' ')}</p>`
     : '';
   const style = `
-#pg-${code} { font: 14px/1.6 system-ui, -apple-system, sans-serif; color: #1f2937; padding: 20px; background: #f7f8fa; }
-#pg-${code} .pg-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; border-bottom: 2px solid #e5e7eb; padding-bottom: 10px; margin-bottom: 16px; }
-#pg-${code} .pg-head h1 { font-size: 20px; margin: 0; }
-#pg-${code} .pg-code { color: #6b7280; font-size: 12px; }
-#pg-${code} .req-chip { background: #eef2ff; color: #1a6bbb; border-radius: 999px; padding: 1px 8px; font-size: 12px; }
-#pg-${code} .mock-note { background: #fffbeb; border: 1px solid #fcd34d; border-radius: 8px; padding: 8px 12px; font-size: 12.5px; color: #92400e; margin-bottom: 14px; }
-#pg-${code} .mock-nav { margin: 0 0 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 12.5px; color: #6b7280; }
+#pg-${code} { padding: 0; }
+#pg-${code} .pg-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; border-bottom: 2px solid var(--p-line); padding-bottom: 10px; margin-bottom: 16px; }
+#pg-${code} .pg-head h1 { font-size: 18px; margin: 0; }
+#pg-${code} .pg-code { color: var(--p-ink2); font-size: 12px; }
+#pg-${code} .req-chip { background: var(--p-primary-soft); color: var(--p-primary); border-radius: 999px; padding: 1px 8px; font-size: 12px; }
+#pg-${code} .mock-note { background: var(--p-warn-soft); border: 1px solid var(--p-warn); border-radius: 8px; padding: 8px 12px; font-size: 12.5px; color: var(--p-warn); margin-bottom: 14px; }
+#pg-${code} .mock-nav { margin: 0 0 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 12.5px; color: var(--p-ink2); }
 #pg-${code} .card-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 14px; }
-#pg-${code} .stat { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 10px 12px; }
-#pg-${code} .stat b { display: block; font-size: 18px; }
-#pg-${code} .stat span { color: #6b7280; font-size: 12px; }
-#pg-${code} table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; overflow: hidden; }
-#pg-${code} th, #pg-${code} td { text-align: left; padding: 8px 12px; border-bottom: 1px solid #e5e7eb; font-size: 13px; }
-#pg-${code} th { background: #f3f4f6; color: #6b7280; font-weight: 500; }
-#pg-${code} .act-btn { background: #2783de; color: #fff; border: none; border-radius: 8px; padding: 6px 14px; cursor: pointer; }
-#pg-${code} section[data-page] { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 16px; }
+#pg-${code} .card-row .stat { margin: 0; }
 `.trim();
   const stateSecs = (states.length > 0 ? states : [{ item_type: 'state', code: '', payload: { title: '' } } as CatalogItemLike]).map((s) => {
     const stAttr = s.code ? ` data-state="${s.code}"` : '';
     const stTitle = s.code ? ` · ${esc((s.payload.title as string) ?? s.code)}` : '';
     return `  <section data-page="${code}"${stAttr}>
+    <div class="page-card">
     <div class="pg-head"><h1>${esc(title)}${stTitle}</h1><span class="pg-code">${esc(code)}</span>${reqIds.map((r) => `<span class="req-chip">${esc(r)}</span>`).join('')}</div>
     <div class="mock-note">本页为 mock 降级原型（未配置生成模型）：结构占位已合规，配置模型后点 🎨 重新生成可得高保真 UI。</div>
     <div class="card-row">
@@ -295,14 +337,15 @@ export function buildMockPage(
       <div class="stat"><b>96.2%</b><span>示例指标二</span></div>
       <div class="stat"><b>7</b><span>待处理事项</span></div>
     </div>
-    <table>
+    <table class="tbl">
       <thead><tr><th>名称</th><th>状态</th><th>负责人</th><th>更新时间</th></tr></thead>
       <tbody>
-        <tr><td>示例记录 A</td><td>启用</td><td>张三</td><td>2026-10-01</td></tr>
-        <tr><td>示例记录 B</td><td>停用</td><td>李四</td><td>2026-09-28</td></tr>
+        <tr><td>示例记录 A</td><td><span class="tagline ok">启用</span></td><td>张三</td><td>2026-10-01</td></tr>
+        <tr><td>示例记录 B</td><td><span class="tagline warn">停用</span></td><td>李四</td><td>2026-09-28</td></tr>
       </tbody>
     </table>
-    <p style="margin-top:12px"><button class="act-btn">主要操作</button></p>
+    <p style="margin-top:12px"><button class="btn primary">主要操作</button></p>
+    </div>
   </section>`;
   }).join('\n');
   const body = `<div id="pg-${code}" data-page-block="${code}">
@@ -376,10 +419,16 @@ export function buildPagePrompt(
     '7. 不使用任何外部资源（无 CDN、无外链图片/字体/脚本）；图标用 emoji 或内联 SVG。',
     `8. 状态 section 的显示/隐藏一律不得用 CSS 或脚本控制（禁止对 section[data-page] 写 display:none 或 visibility:hidden，禁止自写 class 切换显隐）——可见性由系统共享脚本接管。页内状态切换按钮统一写 <button type="button" data-show-state="状态编号">，系统脚本会自动接管点击切换与激活态；默认展示第一个状态，不要给任何 section 预设隐藏。`,
     `9. 跨页穿流：跳转类按钮/链接（点击后应进入其它页面的）必须挂 data-nav 属性——格式 data-nav="#P-002"，可带状态 data-nav="#P-002/状态编号"；点击跳转由系统共享脚本接管，脚本不得自行实现跨页跳转。纯展示或仅页内交互的按钮一律不挂 data-nav。${navPages && navPages.length > 0 ? `本原型可跳转目标仅限目录页面：${navPages.map((p) => `${p.code}（${p.title}）`).join('、')}；不得指向目录外页码。` : ''}`,
+    '10. 本页是完整应用的一个内容区：不要画产品级全局顶栏/全局左侧导航/产品 logo 区（汇总时由统一应用壳提供），从页面标题栏与内容区开始画。',
+    '',
+    '## 风格基线（全原型统一，必须遵守）',
+    '- 配色/字体一律使用系统主题令牌，禁止写死任何颜色值（如 #fff/#1f2937）与字体族：主色 var(--p-primary)、主色浅底 var(--p-primary-soft)、强调色 var(--p-accent)、背景 var(--p-bg)、卡片面 var(--p-surface)、正文 var(--p-ink)、次要文字 var(--p-ink2)、边框 var(--p-line)、成功 var(--p-ok)/var(--p-ok-soft)、警告 var(--p-warn)/var(--p-warn-soft)、危险 var(--p-danger)/var(--p-danger-soft)、圆角 var(--p-radius)、字体 var(--p-font)。',
+    '- 优先使用系统共享类（已在文档层提供样式，直接用类名即可，不要在页 CSS 里重复定义）：按钮 .btn / .btn.primary、输入框 .input、表格 table.tbl、状态标签 .tagline.ok/.tagline.warn/.tagline.danger、指标卡 .stat、页卡片容器 .page-card（h1+.sub 副标题）。',
+    '- 页 CSS 只写本页独有的布局与装饰（网格/间距/可视化），颜色仍须引用上述令牌。',
     '',
     '## 质量要求',
     '- 中文界面、逼真占位数据（真实感的姓名/数字/日期，不要 lorem ipsum）。',
-    '- 高保真：完整布局（导航/侧栏/工具栏/表格/表单/卡片/弹层之一以上），hover 与选中态，现代清爽配色。',
+    '- 高保真：完整内容区布局（页头/工具栏/表格/表单/卡片/弹层之一以上），hover 与选中态；视觉风格完全取自风格基线，不要自行发明配色与字体。',
     `- 页面顶部渲染页面标题栏：页面名「${title}」+ 编号 ${code}${reqIds.length > 0 ? ` + 需求点标记（${reqIds.join('、')}）以 chip 样式展示` : ''}。`,
     '- 交互尽量用纯 HTML/CSS（:hover、:checked、details/summary），需要状态切换的交互用限定作用域的脚本实现。',
     instruction ? `\n## 用户补充指示\n${instruction}` : '',
@@ -431,26 +480,42 @@ function renderFlowView(flows: CatalogItemLike[], pageItems: CatalogItemLike[], 
   return `<section id="msf-flows"><h2>流程</h2>\n${blocks}\n</section>`;
 }
 
-/** 汇总文档头部样式（nav；页面样式由页级 scoped 样式各自携带） */
-const COMPOSED_HEAD_STYLE = 'body{font:14px/1.6 system-ui,sans-serif;margin:16px}nav{margin-bottom:12px}';
-/** 流程视图样式（仅目录含 flow 条目时进汇总头部——无 flow 旧目录产物零痕迹） */
-const COMPOSED_FLOW_STYLE = '#msf-flows{margin:0 0 16px;padding:10px 14px;border:1px solid #e5e7eb;border-radius:10px;background:#fafafa}'
-  + '#msf-flows h2{font-size:15px;margin:0 0 8px}'
+/**
+ * 汇总壳样式（2026-10-17 真·可交互原型壳：顶栏 品牌+面包屑 / 左侧导航 页面+流程分组 / 内容区；
+ * 配色字体全走风格基线令牌，与单页产物同基线——「汇总=页块堆叠」根修）。
+ * 壳交互由 NAV_SCRIPT 壳同步段接管（[data-shell-nav] 高亮 + [data-shell-crumb] 面包屑）。
+ */
+const SHELL_CSS = '.msf-shell{display:flex;flex-direction:column;height:100vh}'
+  + '.msf-top{height:48px;flex:none;display:flex;align-items:center;gap:12px;background:var(--p-surface);border-bottom:1px solid var(--p-line);padding:0 16px}'
+  + '.msf-brand{font-weight:700;font-size:15px;color:var(--p-ink)}'
+  + '.msf-crumb{color:var(--p-ink2);font-size:12.5px}'
+  + '.msf-body{flex:1;display:flex;min-height:0}'
+  + '.msf-sidenav{width:208px;flex:none;background:var(--p-surface);border-right:1px solid var(--p-line);padding:10px 8px;overflow-y:auto}'
+  + '.msf-grp{font-size:11px;color:var(--p-ink2);padding:8px 8px 4px;letter-spacing:.05em}'
+  + '.msf-sidenav a{display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;color:var(--p-ink);text-decoration:none;font-size:13px;border-left:2px solid transparent}'
+  + '.msf-sidenav a:hover{background:var(--p-bg)}'
+  + '.msf-sidenav a.on{background:var(--p-primary-soft);border-left-color:var(--p-primary);color:var(--p-primary);font-weight:600}'
+  + '.msf-sidenav a .c{font-family:ui-monospace,monospace;font-size:10.5px;color:var(--p-ink2);flex:none}'
+  + '.msf-content{flex:1;overflow-y:auto;padding:18px 22px;min-width:0}';
+/** 流程视图样式（仅目录含 flow 条目时进汇总头部——无 flow 旧目录产物零痕迹；令牌化） */
+const COMPOSED_FLOW_STYLE = '#msf-flows{margin:0 0 16px;padding:10px 14px;border:1px solid var(--p-line);border-radius:var(--p-radius);background:var(--p-surface)}'
+  + '#msf-flows h2{font-size:14px;margin:0 0 8px;color:var(--p-ink)}'
   + '.msf-flow{margin-bottom:8px}.msf-flow:last-child{margin-bottom:0}'
-  + '.msf-flow h3{font-size:13px;margin:0 0 4px}.msf-flow-code{color:#6b7280;font-size:11px;margin-left:6px}'
+  + '.msf-flow h3{font-size:13px;margin:0 0 4px;color:var(--p-ink)}.msf-flow-code{color:var(--p-ink2);font-size:11px;margin-left:6px}'
   + '.msf-flow ol{display:flex;flex-wrap:wrap;gap:6px;list-style:none;margin:0;padding:0}'
-  + '.msf-flow-step{background:#fff;border:1px solid #e5e7eb;border-radius:999px;padding:2px 10px;font-size:12.5px}'
-  + '.msf-flow-step a{color:#1a6bbb;text-decoration:none}';
+  + '.msf-flow-step{background:var(--p-bg);border:1px solid var(--p-line);border-radius:999px;padding:2px 10px;font-size:12.5px;color:var(--p-ink2)}'
+  + '.msf-flow-step a{color:var(--p-primary);text-decoration:none}';
 
 /**
  * 汇总拼装：目录 page×state 全集 → 已生成页内嵌 envelope 段、未生成页回落占位块；
- * flow 条目渲染流程视图（步骤条，覆盖检测 §3）。
+ * 统一应用壳（顶栏+左侧页面/流程导航+内容区）+ 风格基线头 + flow 条目渲染流程视图（覆盖检测 §3）。
  * 产物保留全部 data-page-block/data-page/data-state 静态标记 → checkPrototype/定稿/基线零改动。
  */
 export function composePrototype(
   items: CatalogItemLike[],
   pages: AssemblePageInput[],
   warnings: string[] = [],
+  opts: { productName?: string } = {},
 ): { html: string; manifest: PrototypeManifest } {
   const pageItems = items.filter((i) => i.item_type === 'page');
   const stateItems = items.filter((i) => i.item_type === 'state');
@@ -465,14 +530,36 @@ export function composePrototype(
     .map((p) => p.parts.scriptBlock)
     .filter((s) => s.replace(/<\/?script>/g, '').trim().length > 4)
     .join('\n');
-  const nav = pageItems.map((p) => `<a href="#${p.code}">${esc((p.payload.title as string) ?? p.code)}</a>`).join(' | ');
+  const titleOf = (p: CatalogItemLike) => (p.payload.title as string) ?? p.code;
+  const navLinks = pageItems.map((p) =>
+    `<a href="#${esc(p.code)}" data-shell-nav="${esc(p.code)}" data-title="${esc(titleOf(p))}"><span class="c">${esc(p.code)}</span>${esc(titleOf(p))}</a>`,
+  ).join('\n      ');
+  // 流程进侧栏分组：链到该流程首个可解析步骤的页面（纯文本步骤 flow 回落首页）
+  const flowLinks = flowItems.map((f) => {
+    const steps = (f.payload.steps as string[] | undefined) ?? [];
+    const firstRef = steps.map(parseFlowStepRef).find((r) => r !== null);
+    const target = firstRef?.page ?? pageItems[0]?.code ?? '';
+    return `<a href="#${esc(target)}"><span class="c">${esc(f.code)}</span>${esc((f.payload.title as string) ?? f.code)}</a>`;
+  }).join('\n      ');
   const flowView = flowItems.length > 0 ? renderFlowView(flowItems, pageItems, stateItems) : '';
-  const html = `<!doctype html><html><head><meta charset="utf-8"><title>客户原型（汇总）</title>
-<style>${COMPOSED_HEAD_STYLE}${flowView ? COMPOSED_FLOW_STYLE : ''}</style></head>
+  const product = opts.productName?.trim() || '项目';
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(product)} · 可交互原型</title>
+<style>${PROTO_THEME_CSS}\n${SHELL_CSS}${flowView ? `\n${COMPOSED_FLOW_STYLE}` : ''}</style></head>
 <body data-prototype="msf">
-<nav>${nav}</nav>
+<div class="msf-shell">
+  <header class="msf-top"><span class="msf-brand">${esc(product)}</span><span class="msf-crumb" data-shell-crumb>${esc(pageItems[0] ? titleOf(pageItems[0]) : '')}</span></header>
+  <div class="msf-body">
+    <nav class="msf-sidenav">
+      <div class="msf-grp">页面</div>
+      ${navLinks}
+      ${flowItems.length > 0 ? `<div class="msf-grp">流程</div>\n      ${flowLinks}` : ''}
+    </nav>
+    <main class="msf-content">
 ${flowView}
 ${blocks}
+    </main>
+  </div>
+</div>
 ${scripts}
 ${NAV_SCRIPT}
 </body></html>`;

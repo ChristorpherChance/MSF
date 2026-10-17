@@ -14,6 +14,7 @@ import {
   buildMockPage,
   buildPagePrompt,
   ensureNavScript,
+  ensureThemeStyle,
   extractPageParts,
   findDataNavProblem,
   findHiddenSectionRule,
@@ -357,7 +358,7 @@ export class PrototypePagesService {
           }, { projectId: op.projectId, actorKind: 'assistant', actorId: 'pi' });
         }
         const problem = validatePageHtml(res.text, op);
-        if (!problem) return ensureNavScript(res.text); // NAV_SCRIPT 属系统协议层，入库前确定性补齐（幂等）
+        if (!problem) return ensureNavScript(ensureThemeStyle(res.text)); // NAV_SCRIPT+风格基线属系统协议层，入库前确定性补齐（幂等）
         lastProblem = problem;
       } catch (e) {
         const raw = e instanceof Error ? e.message : String(e);
@@ -502,6 +503,9 @@ function validatePageHtml(html: string, op: PageGenOp): string | null {
   if (bad.length > 0) return `存在未隔离选择器（须以 #pg-${op.pageCode} 开头）：${bad.slice(0, 3).join('、')}`;
   const hidden = findHiddenSectionRule(css);
   if (hidden) return `状态 section 不得用 CSS 控制显隐（可见性由系统脚本接管），违例选择器：${hidden}`;
+  // 风格基线纪律（2026-10-17）：页样式写死 hex 色拒收——配色一律 var(--p-*) 令牌，全原型视觉一致性靠它钉死
+  const hex = css.match(/#[0-9a-fA-F]{3,8}\b/);
+  if (hex) return `页面样式写死颜色 ${hex[0]}（配色/字体一律用风格基线令牌 var(--p-*) 与共享类，不得写死色值）`;
   // 覆盖检测 §3：data-nav 穿流目标校验（目标页/状态须在目录集内；本页自身也是合法目标）
   const navProblem = findDataNavProblem(
     parts.body,
