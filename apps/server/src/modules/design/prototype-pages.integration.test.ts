@@ -147,6 +147,11 @@ describe('PrototypePages 页级原型（集成，需 DB+MinIO）', async () => {
     const s1 = await pages.start(PID, code, '', CTX);
     await expect(pages.start(PID, code, '', CTX)).rejects.toMatchObject({ code: 'INVALID_STATE' });
     pages.abort(s1.operationId);
+    // 「✏️ 按意见调整」instruction 闸（2026-10-17 前端开放入参）：>1000 字 VALIDATION_FAILED；=1000 字放行
+    await expect(pages.start(PID, code, 'x'.repeat(1001), CTX))
+      .rejects.toMatchObject({ code: 'VALIDATION_FAILED', target: 'instruction' });
+    const s2 = await pages.start(PID, code, 'x'.repeat(1000), CTX);
+    pages.abort(s2.operationId);
   });
 
   it('③ 汇总：manifest 记录页对象/指纹、未生成页占位；status.pages 派生；preview 分流', async () => {

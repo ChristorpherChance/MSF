@@ -92,6 +92,10 @@ export class PrototypePagesService {
   /** 启动单页生成（门禁：plan 完整未 stale + 页归属 plan 目录 + 未定稿 + 并发去重） */
   async start(projectId: string, pageCode: string, instruction: string, ctx: CommandContext): Promise<{ operationId: string; source: 'model' | 'mock' }> {
     void ctx;
+    // 「✏️ 按意见调整」入口（2026-10-17 前端开放 instruction 入参）：截断上限防爆 prompt
+    if (instruction.length > 1000) {
+      throw new DomainError('VALIDATION_FAILED', '修改意见过长（上限 1000 字）', 'instruction');
+    }
     const plan = await query<{ catalog_version: string; complete: boolean; governing_fingerprint: string }>(
       'SELECT * FROM dsg_plans WHERE project_id=$1 ORDER BY plan_no DESC LIMIT 1', [projectId]);
     const p = plan.rows[0];

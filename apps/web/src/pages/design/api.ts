@@ -218,8 +218,12 @@ export async function generateDesignDoc(
 export async function generateProtoPage(
   pid: string, pageCode: string,
   onFrame: (f: GenFrame & { pageCode?: string; fingerprint?: string; status?: string }) => void,
+  /** 「✏️ 按意见调整」透传（服务端注入生成 prompt「用户补充指示」段；上限 1000 字） */
+  instruction?: string,
 ): Promise<void> {
-  await postSse(`${base(pid)}/prototype/pages/${encodeURIComponent(pageCode)}:generate`, {}, (line) => {
+  const inst = instruction?.trim();
+  await postSse(`${base(pid)}/prototype/pages/${encodeURIComponent(pageCode)}:generate`,
+    inst ? { instruction: inst } : {}, (line) => {
     try { onFrame(JSON.parse(line) as GenFrame & { pageCode?: string; fingerprint?: string; status?: string }); } catch { /* 忽略非 JSON 心跳行 */ }
   });
 }

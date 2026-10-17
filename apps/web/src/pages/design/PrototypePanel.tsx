@@ -31,6 +31,8 @@ export function PrototypePanel() {
   const [addPrefill, setAddPrefill] = useState<{ itemType: string; title: string } | null>(null);
   const [editItem, setEditItem] = useState<{ itemType: string; item: CatalogGroup } | null>(null);
   const [actBusy, setActBusy] = useState(false);
+  // 「✏️ 按意见调整」目标页（弹层输入修改意见 → 带 instruction 重新生成该页）
+  const [instructTarget, setInstructTarget] = useState<string | null>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const baselines = useBaselines(projectId, proto?.status ?? null);
   const protoVers = useProtoVersions(projectId, proto?.prototype?.currentVersionId ?? null);
@@ -68,8 +70,8 @@ export function PrototypePanel() {
     iframeRef.current?.contentWindow?.postMessage({ type: 'v19-prototype-select', pageId, stateId }, '*');
   };
 
-  /** 页级生成（🎨 行内/✨ 全部共用）：SSE 四帧消费，行内进度+错误 */
-  const genOne = async (code: string): Promise<boolean> => {
+  /** 页级生成（🎨 行内/✏️ 按意见调整/✨ 全部共用）：SSE 四帧消费，行内进度+错误；instruction=用户修改意见（注入生成 prompt） */
+  const genOne = async (code: string, instruction?: string): Promise<boolean> => {
     if (!projectId) return false;
     const patch = (p: Partial<{ running: boolean; chars: number; error: string | null }>) =>
       setGenMap((m) => ({ ...m, [code]: { running: false, chars: 0, error: null, ...m[code], ...p } }));
@@ -82,7 +84,7 @@ export function PrototypePanel() {
         else if (f.type === 'stream.done') { ok = f.status !== 'stopped'; }
         else if (f.type === 'stream.notice') { toast(String(f.message ?? '上游连接中断，已自动重试'), 'warn'); }
         else if (f.type === 'stream.error') { patch({ error: `${f.code ?? '生成失败'}${f.message ? `：${f.message}` : ''}` }); }
-      });
+      }, instruction);
     } catch (e) {
       patch({ error: e instanceof ApiError ? `${e.code}: ${e.message}` : '生成请求失败' });
     }
@@ -251,12 +253,20 @@ export function PrototypePanel() {
                 <div className="pg-row-main">
                   <span className="pg-title">▦ {(p.payload.title as string) ?? p.code}</span>
                   {proto.status !== 'finalized' && (
-                    <button
-                      className="mini"
-                      disabled={g?.running || genAll}
-                      title={pg && pg.state !== 'none' ? '重新生成页 UI 原型（AI）' : '生成页 UI 原型（AI）'}
-                      onClick={(e) => { e.stopPropagation(); void genOne(p.code); }}
-                    >{g?.running ? '…' : '🎨'}</button>
+                    <>
+                      <button
+                        className="mini"
+                        disabled={g?.running || genAll}
+                        title={pg && pg.state !== 'none' ? '重新生成页 UI 原型（AI，不带修改意见）' : '生成页 UI 原型（AI）'}
+                        onClick={(e) => { e.stopPropagation(); void genOne(p.code); }}
+                      >{g?.running ? '…' : '🎨'}</button>
+                      <button
+                        className="mini"
+                        disabled={g?.running || genAll}
+                        title="按意见调整：输入修改意见（如「主按钮改绿色、表格加分页」），AI 按意见重新生成这一页"
+                        onClick={(e) => { e.stopPropagation(); setInstructTarget(p.code); }}
+                      >✏️</button>
+                    </>
                   )}
                 </div>
                 <span className="mut" style={{ display: 'block', fontSize: 11 }}>
@@ -457,6 +467,14 @@ export function PrototypePanel() {
           item={editItem.item}
           onClose={() => setEditItem(null)}
           onChanged={() => void refreshProto()}
+        />
+      )}
+      {instructTarget && (
+        <InstructModal
+          code={instructTarget}
+          title={(pages.find((p) => p.code === instructTarget)?.payload.title as string) ?? instructTarget}
+          onClose={() => setInstructTarget(null)}
+          onSubmit={(instruction) => { setInstructTarget(null); void genOne(instructTarget, instruction); }}
         />
       )}
     </div>
@@ -1037,6 +1055,43 @@ function EditItemModal({ itemType, item, onClose, onChanged }: {
 }
 
 const ITEM_TYPES = ['page', 'state', 'component', 'dialog', 'flow', 'viewport', 'theme', 'copy', 'asset'] as const;
+
+/**
+ * 「✏️ 按意见调整」弹层（2026-10-17）：单页修改意见 → 带 instruction 重新生成该页
+ * （服务端 instruction 注入生成 prompt「用户补充指示」段，上限 1000 字）。
+ */
+function InstructModal({ code, title, onClose, onSubmit }: {
+  code: string;
+  title: string;
+  onClose: () => void;
+  onSubmit: (instruction: string) => void;
+}) {
+  const [text, setText] = useState('');
+  return (
+    <div className="modal-mask" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <h3>✏️ 按意见调整 {code} {title}</h3>
+        <p className="pop-tip">
+          用一句话说明要改什么（布局/配色/交互/内容均可），AI 按意见重新生成这一页；目录与 ui 册依据不变。生成后需 ② 汇总 + ③ 重跑检查。
+        </p>
+        <label className="form-row">修改意见
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            rows={4}
+            maxLength={1000}
+            placeholder="如：主操作按钮改成绿色；表格加分页；点击行展开详情"
+            autoFocus
+          />
+        </label>
+        <div className="modal-ops">
+          <button className="act" onClick={onClose}>取消</button>
+          <button className="act primary" disabled={!text.trim()} onClick={() => onSubmit(text.trim())}>按意见重新生成</button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function AddItemModal({ prefill, hint, onClose, onChanged }: {
   /** 报告行内「补录为页面」入口的预填（类型/标题）；hint=补录后的操作指引 */
