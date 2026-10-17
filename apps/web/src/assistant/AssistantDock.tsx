@@ -8,13 +8,13 @@ import { ConfirmModal } from '../ui/ConfirmModal';
 import type { AiMessageRow, ToolCallRow } from './api';
 import {
   CTX_LABEL,
-  DOC_KIND_LABEL,
   ROUTE_TO_CTX,
   STAGE_ROUTES,
   SUGGESTS,
   chatModels,
   currentModel,
   dockUsage,
+  docKindLabel,
   modelIcon,
   scopeKey,
   useDockStore,
@@ -130,7 +130,7 @@ function DockInner({ global }: { global: boolean }) {
   const chip = stagePage
     ? {
         label: s.docKind
-          ? `📄 ${CTX_LABEL[s.ctx]} · ${DOC_KIND_LABEL[s.docKind] ?? s.docKind}`
+          ? `📄 ${CTX_LABEL[s.ctx]} · ${docKindLabel(s.docKind)}`
           : `📍 ${CTX_LABEL[s.ctx]} · 阶段上下文`,
         title: s.docKind ? '本会话绑定当前选中文档：AI 的读取与修改建议默认针对它' : 'AI 可见该阶段产物清单',
       }
@@ -242,7 +242,7 @@ function DockInner({ global }: { global: boolean }) {
       <div className="chat-input">
         {!s.currentId && (
           <div className="conn-lost" style={{ color: 'var(--ink2)' }}>
-            💡 {s.docKind ? `《${DOC_KIND_LABEL[s.docKind] ?? s.docKind}》还没有会话——直接输入发送即自动创建（绑定本文档）` : '尚无会话：直接输入发送即自动创建；助手会携带当前项目与阶段上下文回答。'}
+            💡 {s.docKind ? `《${docKindLabel(s.docKind)}》还没有会话——直接输入发送即自动创建（绑定当前工件）` : '尚无会话：直接输入发送即自动创建；助手会携带当前项目与阶段上下文回答。'}
           </div>
         )}
         {s.quote && (
@@ -611,7 +611,7 @@ function ToolCards({ calls }: { calls: ToolCallRow[] }) {
           ? (t.resultSummary as { route?: string } | null)?.route
           : undefined;
         // 与 navRoute 同模式：route 从结果读（服务端返回 /req 或 /design，不硬编码）；kind 用于落到目标文档页签+补丁定位
-        const rs = t.resultSummary as { ok?: boolean; route?: string; kind?: string } | null;
+        const rs = t.resultSummary as { ok?: boolean; route?: string; kind?: string; pageCode?: string } | null;
         const isPropose = t.toolName === 'req.doc.propose_edits' || t.toolName === 'design.doc.propose_edits';
         const reviewRoute = isPropose && t.status === 'ok' && rs?.ok === true
           ? rs?.route
@@ -621,6 +621,10 @@ function ToolCards({ calls }: { calls: ToolCallRow[] }) {
         const reviewTab = reviewRoute === '/design'
           ? (rs?.kind === 'hld' ? 'hld' : 'detail')
           : reviewKind;
+        // 0032 原型页提案：工具卡带「查看对比 →」直达原型签该页（route 服务端返回已带 page 参数）
+        const protoRoute = t.toolName === 'design.proto.propose_page' && t.status === 'ok' && rs?.ok === true
+          ? rs?.route
+          : undefined;
         return (
           <div key={i} className="toolcard">
             <div className="tc-head">
@@ -643,6 +647,16 @@ function ToolCards({ calls }: { calls: ToolCallRow[] }) {
                 </button>
               </div>
             )}
+            {protoRoute && (
+              <div className="tc-body">
+                <button
+                  className="act mini primary"
+                  onClick={() => navigate(`${protoRoute}${protoRoute.includes('?') ? '&' : '?'}_=${Date.now()}`)}
+                >
+                  查看对比 →
+                </button>
+              </div>
+            )}
           </div>
         );
       })}
@@ -659,6 +673,10 @@ function summarizeTool(t: ToolCallRow): string {
     // req.doc.propose_edits 成功卡：「已提交 N 条修改建议」（按 toolName 门控；失败走既有 reason 分支）
     if (t.toolName === 'req.doc.propose_edits' && o.ok === true && typeof o.patchCount === 'number') {
       return `已提交 ${o.patchCount} 条修改建议（高亮补丁，待你确认后生效）`;
+    }
+    // design.proto.propose_page 成功卡（0032）：提案待双排对比处置
+    if (t.toolName === 'design.proto.propose_page' && o.ok === true) {
+      return `已生成「${typeof o.pageCode === 'string' ? o.pageCode : ''}」修改提案——到原型页双排对比后「✓ 采用 / ✗ 放弃」`;
     }
     if (typeof o.head === 'string') return o.head;
     return JSON.stringify(o).slice(0, 200);

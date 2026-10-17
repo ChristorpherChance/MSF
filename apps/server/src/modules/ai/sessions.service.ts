@@ -46,6 +46,17 @@ export const SESSION_DOC_KINDS: Record<string, Record<string, string>> = {
   },
 };
 
+/** 原型页动态工件（0032，2026-10-17）：design ctx 允许 page:<页面编号> 绑定——
+ *  「选中哪个页面 dock 就聊哪个页面」（0029 枚举外的动态扩展；页面编号来自目录，非静态可枚举） */
+export const PROTO_PAGE_KIND = /^page:([A-Za-z0-9][A-Za-z0-9-]{0,23})$/;
+
+/** 会话工件显示名：枚举册名 + 原型页动态码（非法组合返回 null=校验拒绝口径） */
+export function sessionDocKindLabel(ctx: string, kind: string): string | null {
+  const m = PROTO_PAGE_KIND.exec(kind);
+  if (m && ctx === 'design') return `原型页 ${m[1]}`;
+  return SESSION_DOC_KINDS[ctx]?.[kind] ?? null;
+}
+
 export interface SessionRow {
   id: string; project_id: string; code: string; ctx: string; name: string;
   doc_kind: string | null;
@@ -96,10 +107,11 @@ export class AiSessionsService implements OnModuleInit {
       if (!(CTX_TABS as readonly string[]).includes(p.ctx)) {
         throw new DomainError('VALIDATION_FAILED', `ctx 枚举 ${CTX_TABS.join('|')}`, 'ctx');
       }
-      // 工件绑定校验：仅 req/design 允许 docKind，且必须是该阶段的合法文档类别（其余阶段恒 NULL）
+      // 工件绑定校验：仅 req/design 允许 docKind，且必须是该阶段的合法文档类别（其余阶段恒 NULL）；
+      // design 另放行 page:<页面编号> 动态工件（0032 原型页对话提案，PROTO_PAGE_KIND 收口）
       const docKind = p.docKind ?? null;
-      if (docKind !== null && !SESSION_DOC_KINDS[p.ctx]?.[docKind]) {
-        throw new DomainError('VALIDATION_FAILED', `该阶段无此文档类别（${p.ctx} 可选：${Object.keys(SESSION_DOC_KINDS[p.ctx] ?? {}).join('|') || '无'}）`, 'docKind');
+      if (docKind !== null && !sessionDocKindLabel(p.ctx, docKind)) {
+        throw new DomainError('VALIDATION_FAILED', `该阶段无此文档类别（${p.ctx} 可选：${Object.keys(SESSION_DOC_KINDS[p.ctx] ?? {}).join('|') || '无'}${p.ctx === 'design' ? '，或 page:<页面编号>' : ''}）`, 'docKind');
       }
       if (p.modelId) await this.assertModelUsable(client, p.modelId);
       // W2-052：ss_ 发号属 check-then-act——咨询锁串行化「取号→插入」临界区；
@@ -109,7 +121,7 @@ export class AiSessionsService implements OnModuleInit {
         `SELECT COALESCE(MAX(CAST(substring(code FROM 'ss_(\\d+)') AS int)), 0) + 1 AS n
          FROM ai_sessions WHERE project_id=$1`, [ctx.projectId]);
       const code = `ss_${Number(n.rows[0]!.n)}`;
-      const docLabel = docKind ? SESSION_DOC_KINDS[p.ctx]![docKind]! : '';
+      const docLabel = docKind ? sessionDocKindLabel(p.ctx, docKind)! : '';
       const r = await client.query<{ id: string; code: string }>(
         `INSERT INTO ai_sessions (project_id, code, ctx, name, doc_kind, think_level, model_id, created_by)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id, code`,
@@ -476,10 +488,10 @@ export class AiSessionsService implements OnModuleInit {
     }
     const results: Array<{ name: string; result: unknown }> = [];
     const execOne = async (call: { name: string; args: Record<string, unknown> }): Promise<{ name: string; result: unknown }> => {
-      // A4：工具执行用户可见——propose_edits 是长调用（嵌套 LLM 单册 3~8 分钟），单独口径防「卡住」误判
+      // A4：工具执行用户可见——propose 类是长调用（嵌套 LLM 单册/单页 3~8 分钟），单独口径防「卡住」误判
       this.pipeline.emitNotice(
         messageId,
-        call.name.endsWith('.propose_edits')
+        call.name.endsWith('.propose_edits') || call.name.endsWith('.propose_page')
           ? `正在生成修改提案（${call.name}，长调用约需数分钟）…`
           : `正在执行 ${call.name}…`,
       );
@@ -621,9 +633,15 @@ export class AiSessionsService implements OnModuleInit {
     const boundKind = sess?.doc_kind;
     if (boundKind) {
       const boundCtx = sess!.ctx;
-      const label = SESSION_DOC_KINDS[boundCtx]?.[boundKind] ?? boundKind;
-      const toolName = boundCtx === 'design' ? 'design.doc.propose_edits' : 'req.doc.propose_edits';
-      parts.push(`【当前工件】\n本会话绑定文档：《${label}》（kind=${boundKind}）。用户的修改请求默认针对该文档——doc.read 与 ${toolName} 的 kind 默认用 ${boundKind}；仅当用户明确要求处理其他文档时才换 kind，并在正文说明你改的是哪篇。`);
+      const pageM = PROTO_PAGE_KIND.exec(boundKind);
+      if (boundCtx === 'design' && pageM) {
+        // 原型页绑定（0032）：模型与用户共享「当前在改哪页」坐标——propose_page 的 pageCode 不再靠猜
+        parts.push(`【当前工件】\n本会话绑定原型页：${pageM[1]}（设计阶段·原型工作台）。用户的页面修改请求默认针对该页——design.proto.propose_page 的 pageCode 默认用 ${pageM[1]}；仅当用户明确要求处理其它页面或文档时才换目标，并在正文说明你改的是哪个。`);
+      } else {
+        const label = SESSION_DOC_KINDS[boundCtx]?.[boundKind] ?? boundKind;
+        const toolName = boundCtx === 'design' ? 'design.doc.propose_edits' : 'req.doc.propose_edits';
+        parts.push(`【当前工件】\n本会话绑定文档：《${label}》（kind=${boundKind}）。用户的修改请求默认针对该文档——doc.read 与 ${toolName} 的 kind 默认用 ${boundKind}；仅当用户明确要求处理其他文档时才换 kind，并在正文说明你改的是哪篇。`);
+      }
     }
     // 上游变更联动提醒（与 upstream-stale.ts 同源派生）：agent 看到下游滞后应主动提示用户跟随修订
     try {
@@ -645,7 +663,7 @@ export class AiSessionsService implements OnModuleInit {
     // 缺此声明时模型会谎称"已修改/已定稿"
     parts.push(`【能力边界（必须遵守）】
 你不能直接修改、定稿、放行任何文档、UI 原型、代码、计划或批次；也不能替用户点击任何"人工确认"。
-唯一写通道：对 CRD/PRD 的修改请求用 req.doc.propose_edits、对设计八册的修改请求用 design.doc.propose_edits 提交修改建议——产出高亮补丁，经用户逐条或批量确认后才生效；其它写诉求给出建议文本并指引落地路径（需求页/设计页 AI 生成与修订、开发页、测试页流程；定稿与放行永远是人工操作）。
+唯一写通道：对 CRD/PRD 的修改请求用 req.doc.propose_edits、对设计八册的修改请求用 design.doc.propose_edits、对原型页面的修改请求用 design.proto.propose_page 提交修改建议——产出待确认产物（高亮补丁/页面提案），经用户逐条确认或「✓ 采用」后才生效；其它写诉求给出建议文本并指引落地路径（需求页/设计页 AI 生成与修订、开发页、测试页流程；定稿与放行永远是人工操作）。
 严禁声称"已修改/已定稿/已放行/已完成写入"——凡未经用户确认，系统内数据均未变化。`);
     // W2-053 + 跨阶段互通/对话改文档：工具自主调用声明（REQ-605）——```msf-tool 围栏块流末解析执行；
     // 窄档用精简版（Task 3：签名与纪律句保留，砍示例段落）
@@ -805,7 +823,8 @@ export const TOOL_BLOCK_FULL = `【可用工具（可自主调用）】
 - propose_next_step：按项目当前状态计算下一步建议清单。args: {}。当用户问"下一步该做什么"时调用。
 - req.doc.propose_edits：提交 CRD/PRD 修改建议（高亮补丁，用户确认后才生效）。args: {"kind":"crd|prd","instruction":"要改什么","mode":"patch"}（instruction 截 2000 字；mode 默认 patch=只改涉及章节。用户要求"整篇重写/完全重新写/彻底删除某章"时 mode 用 "rewrite"：以当前全文为基线重写整篇，产一条「整篇重写」补丁，同样经用户确认后生效；rewrite 前先用 doc.read 拿齐全文）。当用户要求修改需求文档内容时调用；调用后在正文说明"已发起修改建议提交（结果见下方工具卡），提交成功时请到需求页确认"。
 - design.doc.propose_edits：提交设计八册修改建议（高亮补丁，用户确认后才生效）。args: {"kind":"hld|mod|alg|cls|db|api|ui|nfr","instruction":"要改什么","mode":"patch"}（mode 语义同 req.doc.propose_edits）。当用户要求修改设计册内容、或你核对后发现某册有缺口需要补齐时调用（kind 用册名小写）；正文说明"已发起修改建议提交，提交成功时请到设计页确认"。
-工具由系统在回复完成后执行，结果以工具卡随消息呈现、并**自动回给你继续回答**（无需用户再发话；拿到结果就直接给结论或下一步工具调用，不要说"拿到结果后我会……"）；围栏块本身不会展示给用户。除 req.doc.propose_edits / design.doc.propose_edits 的提案通道外，写操作仍须走人工路径。`;
+- design.proto.propose_page：提交原型页修改提案（按意见重新生成该页 UI 原型为待处置提案，不直接改页面——用户在原型页双排对比后「✓ 采用 / ✗ 放弃」才生效）。args: {"pageCode":"P-001","instruction":"要改什么"}（pageCode 用目录页面编号；instruction 截 1000 字）。当用户要求修改某个原型页面的布局/配色/交互/内容时调用；正文说明"已发起页面修改提案（长调用约需数分钟），生成完成后请到原型页对比确认"。
+工具由系统在回复完成后执行，结果以工具卡随消息呈现、并**自动回给你继续回答**（无需用户再发话；拿到结果就直接给结论或下一步工具调用，不要说"拿到结果后我会……"）；围栏块本身不会展示给用户。除 req.doc.propose_edits / design.doc.propose_edits / design.proto.propose_page 的提案通道外，写操作仍须走人工路径。`;
 
 export const TOOL_BLOCK_CONDENSED = `【可用工具（可自主调用）】
 需要时，在回复正文之外输出独立的工具围栏块（可多个；不需要则不输出）：
@@ -819,7 +838,8 @@ export const TOOL_BLOCK_CONDENSED = `【可用工具（可自主调用）】
 - propose_next_step：按项目状态给出下一步建议清单。args: {}
 - req.doc.propose_edits：提交 CRD/PRD 修改建议（高亮补丁，用户确认后才生效）。args: {"kind":"crd|prd","instruction":"要改什么","mode":"patch|rewrite"}（instruction 截 2000 字；rewrite=整篇重写，先 doc.read 拿齐全文）
 - design.doc.propose_edits：提交设计八册修改建议（高亮补丁，用户确认后才生效）。args: {"kind":"hld|mod|alg|cls|db|api|ui|nfr","instruction":"要改什么","mode":"patch|rewrite"}
-工具由系统在回复完成后执行，结果以工具卡随消息呈现、并**自动回给你继续回答**（拿到结果就直接给结论或下一步工具调用，不要说"拿到结果后我会……"）；围栏块本身不会展示给用户。除两件 propose_edits 提案通道外，写操作仍须走人工路径。`;
+- design.proto.propose_page：提交原型页修改提案（重新生成该页为待处置提案，用户「✓ 采用 / ✗ 放弃」才生效）。args: {"pageCode":"P-001","instruction":"要改什么"}（instruction 截 1000 字）
+工具由系统在回复完成后执行，结果以工具卡随消息呈现、并**自动回给你继续回答**（拿到结果就直接给结论或下一步工具调用，不要说"拿到结果后我会……"）；围栏块本身不会展示给用户。除三件 propose 提案通道外，写操作仍须走人工路径。`;
 
 /** 只读工具集（A7 并行调度口径，2026-10-11）：无写副作用，连续段可 Promise.all 并行；
  *  写类（propose_edits 等旁路外部工具）不在此列，保持声明顺序串行 */

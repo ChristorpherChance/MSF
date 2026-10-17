@@ -65,6 +65,7 @@ describe('StorageService.presignedGet 代理分支（代理分支纯本地拼装
   it.skipIf(!ok)('未设 MSF_FILES_PROXY 时仍签 MinIO 直链（行为不变）', async () => {
     const url = await svc.presignedGet('sha256/abc123');
     expect(url.startsWith('/api/v1/files')).toBe(false);
-    expect(url).toContain('sha256%2Fabc123');
+    // key 编码形态随 minio SDK 版本而定（8.x 直出字面斜杠）——解码后断言与编码无关
+    expect(decodeURIComponent(url)).toContain('sha256/abc123');
   });
 });

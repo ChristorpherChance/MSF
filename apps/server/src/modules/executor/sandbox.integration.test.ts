@@ -2,7 +2,8 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { SandboxService } from './sandbox.service.js';
 
-const PIN = { tag: 'alpine:3.20', digest: 'sha256:bf8527eb54c3680e728d5b4b383a8ba730d72dae7236fbc8dff97ed6b224a731' };
+// alpine:3.20 是滚动 tag——digest 随上游重建漂移；锚定值=当前上游 digest（漂移时更新本常量并重新 pull）
+const PIN = { tag: 'alpine:3.20', digest: 'sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc' };
 
 describe('SandboxRunner 沙箱执行器（集成，需 Docker）', async () => {
   const sandbox = new SandboxService();

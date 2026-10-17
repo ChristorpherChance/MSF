@@ -68,6 +68,8 @@ export interface ProtoStatus {
     issues: Array<{ code: string; message: string; target: string }>;
     unverified: Array<{ code: string; message: string; target: string }>;
   } | null;
+  /** 待处置对话提案（0032 dock design.proto.propose_page 产物；双排对比「✓ 采用 / ✗ 放弃」后才落页工件） */
+  proposals?: Array<{ id: string; pageCode: string; instruction: string; fingerprint: string; createdAt: string }>;
 }
 
 export interface GateResult { ok: boolean; issues: Array<{ code: string; message: string; target?: string }> }
@@ -169,6 +171,11 @@ export const designApi = {
   preview: (pid: string, pageId: string, v?: number) =>
     api.get<{ previewUrl: string; htmlFingerprint: string }>(
       `${base(pid)}/prototype/pages/${encodeURIComponent(pageId)}/preview${v !== undefined ? `?v=${v}` : ''}`),
+  /** 0032 对话提案：预览（对比视图右栏）与处置（✓ 采用落页工件 / ✗ 放弃） */
+  protoProposalPreview: (pid: string, id: string) =>
+    api.get<{ previewUrl: string; htmlFingerprint: string }>(`${base(pid)}/prototype/proposals/${id}/preview`),
+  protoProposalDecide: (pid: string, id: string, decision: 'accept' | 'discard') =>
+    api.post<{ pageCode: string; decision: string }>(`${base(pid)}/prototype/proposals/${id}:${decision}`, {}),
   /** S6 上传 HTML 初稿入库（V1.3 上传通道，同一套对应性检查） */
   uploadPrototype: (pid: string, html: string, note?: string) =>
     api.post<{ prototypeVersionId: string; v: number }>(

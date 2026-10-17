@@ -51,10 +51,10 @@ describe('AI 工具桥/提示词/用量（集成，需 DB）', async () => {
     await pool.end();
   });
 
-  it('工具注册表：七件套可调用，结果落 ai_tool_calls(ok)', async () => {
+  it('工具注册表：八件套可调用，结果落 ai_tool_calls(ok)', async () => {
     const list = tools.list();
     expect(list.tools.map((t) => t.name)).toEqual([
-      'nav.goto', 'read_context', 'doc.read', 'chat.history.read', 'propose_next_step', 'req.doc.propose_edits', 'design.doc.propose_edits',
+      'nav.goto', 'read_context', 'doc.read', 'chat.history.read', 'propose_next_step', 'req.doc.propose_edits', 'design.doc.propose_edits', 'design.proto.propose_page',
     ]);
     const nav = await tools.invoke(PID, { sessionId, toolName: 'nav.goto', args: { tab: 'dev' } }, CTX);
     expect(nav.result['route']).toBe('/dev');

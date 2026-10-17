@@ -92,21 +92,21 @@ describe('上下文预算分档（Task 3，设计 §2 分档表）', () => {
 });
 
 describe('TOOL_BLOCK 双版本平价（Task 9，防将来加工具漏同步窄档精简版）', () => {
-  const SEVEN_TOOLS = ['nav.goto', 'read_context', 'doc.read', 'chat.history.read',
-    'propose_next_step', 'req.doc.propose_edits', 'design.doc.propose_edits'];
+  const EIGHT_TOOLS = ['nav.goto', 'read_context', 'doc.read', 'chat.history.read',
+    'propose_next_step', 'req.doc.propose_edits', 'design.doc.propose_edits', 'design.proto.propose_page'];
   /** 从声明块提取工具名清单（行首 `- 工具名：` 形态，两版共用此行式） */
   const toolNamesOf = (block: string): string[] =>
     [...block.matchAll(/^- ([\w.]+?)：/gm)].map((m) => m[1]!).sort();
-  it('两块均含全部七个工具名+代码围栏格式+自动回喂纪律句', () => {
+  it('两块均含全部八个工具名+代码围栏格式+自动回喂纪律句', () => {
     for (const block of [TOOL_BLOCK_FULL, TOOL_BLOCK_CONDENSED]) {
-      for (const t of SEVEN_TOOLS) expect(block, `缺工具 ${t}`).toContain(`- ${t}：`);
+      for (const t of EIGHT_TOOLS) expect(block, `缺工具 ${t}`).toContain(`- ${t}：`);
       expect(block).toContain('```msf-tool');
       expect(block).toContain('{"name":"工具名","args":{...}}');
       expect(block).toContain('自动回给你继续回答'); // 接力回喂纪律句两版均不可裁
     }
   });
   it('两版工具清单集合完全一致（FULL 加工具而 CONDENSED 漏同步即红）', () => {
-    expect(toolNamesOf(TOOL_BLOCK_FULL)).toEqual([...SEVEN_TOOLS].sort());
+    expect(toolNamesOf(TOOL_BLOCK_FULL)).toEqual([...EIGHT_TOOLS].sort());
     expect(toolNamesOf(TOOL_BLOCK_CONDENSED)).toEqual(toolNamesOf(TOOL_BLOCK_FULL));
   });
 });

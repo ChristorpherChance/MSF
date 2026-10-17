@@ -5,6 +5,7 @@ import { query } from '../../db/pool.js';
 import { executeCommand, registerCommand, type CommandContext } from '../evidence/command-bus.js';
 import { AI_PROVIDER, type AiProvider, type AiSession } from '../ai/ai-provider.interface.js';
 import { classifyAiError, isRetryableStreamCut, sanitizeAiError } from '../ai/stream-pipeline.js';
+import { registerExternalTool } from '../platform/external-tools.js';
 import { StorageService } from '../platform/storage.service.js';
 import { DesignDocsService } from './docs.service.js';
 import {
@@ -31,6 +32,7 @@ import {
 const sha256 = (s: string | Buffer) => createHash('sha256').update(s).digest('hex');
 /** 单页 HTML 上限（与 upload 5MB 口径呼应，页粒度收紧） */
 const PAGE_HTML_CAP = 1024 * 1024;
+const PROTO_HTML_CT = 'text/html; charset=utf-8';
 
 interface PageGenOp {
   id: string;
@@ -49,6 +51,19 @@ interface PageGenOp {
   instruction: string;
   /** 真接模式保留会话句柄（abort 用） */
   session?: AiSession | undefined;
+  /** A6 usage 归因：dock 对话提案触发的生成挂回触发会话/消息（与 proposeEditsFromChat 同口径） */
+  attribution?: { sessionId?: string; messageId?: string } | undefined;
+}
+
+/** preparePage 产物：门禁通过后的页生成上下文（start 与对话提案 proposeFromChat 同源共用） */
+interface PageContext {
+  catalogVersion: string;
+  page: CatalogItemLike;
+  states: CatalogItemLike[];
+  anchors: Array<{ docKind: string | null; sectionId: string | null; anchor: string | null }>;
+  prd: string;
+  ui: string;
+  catalogPages: Array<{ code: string; title: string }>;
 }
 
 const ops = new Map<string, PageGenOp>();
@@ -87,12 +102,97 @@ export class PrototypePagesService {
       );
       return { pageCode, fingerprint };
     });
+    // 对话提案登记（0032）：提案 HTML 已在命令外生成+入对象库，命令内只插 pending 行；
+    // 部分唯一索引兜底并发重复提案（23505 → 人话 DomainError）
+    registerCommand('design.prototype.page_propose', async (client, payload, ctx) => {
+      const p = payload as {
+        projectId: string; pageCode: string; catalogVersion: string;
+        objectKey: string; fingerprint: string; instruction: string; source: string;
+        sessionId?: string; messageId?: string;
+      };
+      try {
+        const r = await client.query<{ id: string }>(
+          `INSERT INTO dsg_proto_page_proposals
+             (project_id, page_code, catalog_version, object_key, html_fingerprint, instruction, source, session_id, message_id, created_by)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
+          [p.projectId, p.pageCode, p.catalogVersion, p.objectKey, p.fingerprint, p.instruction, p.source,
+           p.sessionId ?? null, p.messageId ?? null, ctx.actorId],
+        );
+        return { proposalId: r.rows[0]!.id };
+      } catch (e) {
+        if ((e as { code?: string }).code === '23505') {
+          throw new DomainError('INVALID_STATE', '该页已有一条待处置的修改提案，请先采用或放弃', p.pageCode);
+        }
+        throw e;
+      }
+    });
+    // 提案处置（0032）：accept=提案对象提升为页工件行（upsert 语义同 page_generate）+ 提案标 accepted；
+    // discard=标 discarded。两路都 FOR UPDATE 锁提案行防并发双处置；accept 再断言未定稿+目录版本未漂移
+    registerCommand('design.prototype.page_proposal_decide', async (client, payload, ctx) => {
+      const { projectId, proposalId, decision } = payload as {
+        projectId: string; proposalId: string; decision: 'accept' | 'discard';
+      };
+      const r = await client.query<{
+        id: string; page_code: string; catalog_version: string; object_key: string;
+        html_fingerprint: string; source: string; status: string;
+      }>(
+        'SELECT * FROM dsg_proto_page_proposals WHERE id=$1 AND project_id=$2 FOR UPDATE',
+        [proposalId, projectId]);
+      const row = r.rows[0];
+      if (!row) throw new DomainError('NOT_FOUND', '提案不存在', proposalId);
+      if (row.status !== 'pending') throw new DomainError('INVALID_STATE', '提案已处置过，请刷新页面', proposalId);
+      if (decision === 'discard') {
+        await client.query(
+          "UPDATE dsg_proto_page_proposals SET status='discarded', decided_at=now() WHERE id=$1",
+          [proposalId]);
+        return { pageCode: row.page_code, decision };
+      }
+      // accept 门禁：定稿后不得改页工件；目录版本漂移（提案生成后 re-plan/目录增删改）则提案失效
+      const doc = await client.query<{ final_version_id: string | null; current_version_id: string | null }>(
+        "SELECT final_version_id, current_version_id FROM dsg_documents WHERE project_id=$1 AND doc_kind='prototype' FOR UPDATE",
+        [projectId]);
+      const d = doc.rows[0];
+      if (d?.final_version_id && d.final_version_id === d.current_version_id) {
+        throw new DomainError('GATE_BLOCKED', '原型已定稿，采用提案须先解除定稿', 'prototype', {
+          issues: [{ code: 'PROTOTYPE_FINALIZED', message: '原型已定稿，先解锁', target: row.page_code }],
+        });
+      }
+      const plan = await client.query<{ catalog_version: string }>(
+        'SELECT catalog_version FROM dsg_plans WHERE project_id=$1 ORDER BY plan_no DESC LIMIT 1', [projectId]);
+      if (!plan.rows[0] || plan.rows[0].catalog_version !== row.catalog_version) {
+        throw new DomainError('GATE_BLOCKED', '提案依据的目录版本已变化（目录有增删改/重规划），请放弃后重新提案', 'prototype', {
+          issues: [{ code: 'PLAN_STALE', message: '目录版本已变化，提案失效', target: row.page_code }],
+        });
+      }
+      await client.query(
+        `INSERT INTO dsg_prototype_pages (project_id, page_code, catalog_version, object_key, html_fingerprint, source, created_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)
+         ON CONFLICT (project_id, page_code) DO UPDATE
+         SET catalog_version=$3, object_key=$4, html_fingerprint=$5, source=$6, updated_at=now()`,
+        [projectId, row.page_code, row.catalog_version, row.object_key, row.html_fingerprint, row.source, ctx.actorId],
+      );
+      await client.query(
+        "UPDATE dsg_proto_page_proposals SET status='accepted', decided_at=now() WHERE id=$1",
+        [proposalId]);
+      return { pageCode: row.page_code, decision, fingerprint: row.html_fingerprint };
+    });
+    // 对话改原型页旁路（与 design.doc.propose_edits 同构）：嵌套 LLM 绝不在命令事务内跑——外部注册表旁路。
+    // 产物=待处置提案（不落页工件行），人工「✓ 采用 / ✗ 放弃」后才生效——AI 只提不判纪律不破
+    registerExternalTool('design.proto.propose_page', async (projectId, call, ctx) => {
+      const pageCode = String(call.args['pageCode'] ?? '').trim();
+      if (!pageCode) return { ok: false, reason: 'pageCode 必填（目录页面编号，如 P-001）' };
+      const instruction = String(call.args['instruction'] ?? '').trim();
+      if (!instruction) return { ok: false, reason: 'instruction 必填（描述这页要改什么）' };
+      return this.proposeFromChat(projectId, pageCode, instruction, ctx, {
+        ...(call.sessionId !== undefined && call.sessionId !== null ? { sessionId: call.sessionId } : {}),
+        ...(call.messageId !== undefined && call.messageId !== null ? { messageId: call.messageId } : {}),
+      });
+    });
   }
 
-  /** 启动单页生成（门禁：plan 完整未 stale + 页归属 plan 目录 + 未定稿 + 并发去重） */
-  async start(projectId: string, pageCode: string, instruction: string, ctx: CommandContext): Promise<{ operationId: string; source: 'model' | 'mock' }> {
-    void ctx;
-    // 「✏️ 按意见调整」入口（2026-10-17 前端开放 instruction 入参）：截断上限防爆 prompt
+  /** 门禁+数据装载（start/proposeFromChat 同源）：plan 完整未 stale + 页归属 plan 目录 + 未定稿 + instruction 上限 */
+  private async preparePage(projectId: string, pageCode: string, instruction: string): Promise<PageContext> {
+    // 「✏️ 按意见调整」/对话提案共用入口：截断上限防爆 prompt
     if (instruction.length > 1000) {
       throw new DomainError('VALIDATION_FAILED', '修改意见过长（上限 1000 字）', 'instruction');
     }
@@ -123,9 +223,6 @@ export class PrototypePagesService {
         issues: [{ code: 'PROTOTYPE_FINALIZED', message: '原型已定稿，先解锁', target: pageCode }],
       });
     }
-    const running = [...ops.values()].find((o) => o.projectId === projectId && o.pageCode === pageCode && o.status === 'running');
-    if (running) throw new DomainError('INVALID_STATE', '已有进行中的生成', running.id);
-
     // 锚点 + PRD 定稿（页面内容 grounded，与文档生成 #11 同口径）
     const anchors = await query<{ doc_kind: string | null; section_id: string | null; anchor: string | null }>(
       `SELECT r.doc_kind, r.section_id, r.anchor FROM dsg_catalog_refs r
@@ -145,17 +242,29 @@ export class PrototypePagesService {
       `SELECT v.content FROM dsg_documents d JOIN dsg_versions v ON v.id=d.current_version_id
        WHERE d.project_id=$1 AND d.doc_kind='ui'`, [projectId]);
     const ui = pickUiSections(uiRow.rows[0]?.content ?? '', page);
+    return {
+      catalogVersion: p.catalog_version, page, states,
+      anchors: anchors.rows.map((a) => ({ docKind: a.doc_kind, sectionId: a.section_id, anchor: a.anchor })),
+      prd, ui,
+      // 目录页面全集（§3 穿流）：data-nav 校验目标集 + prompt 合法跳转清单 + mock 穿流按钮
+      catalogPages: items.rows
+        .filter((i) => i.item_type === 'page')
+        .map((i) => ({ code: i.code, title: (i.payload.title as string) ?? i.code })),
+    };
+  }
+
+  /** 启动单页生成（门禁：plan 完整未 stale + 页归属 plan 目录 + 未定稿 + 并发去重） */
+  async start(projectId: string, pageCode: string, instruction: string, ctx: CommandContext): Promise<{ operationId: string; source: 'model' | 'mock' }> {
+    void ctx;
+    const pc = await this.preparePage(projectId, pageCode, instruction);
+    const running = [...ops.values()].find((o) => o.projectId === projectId && o.pageCode === pageCode && o.status === 'running');
+    if (running) throw new DomainError('INVALID_STATE', '已有进行中的生成', running.id);
 
     const operationId = `op_pgen_${randomBytes(6).toString('hex')}`;
-    // 目录页面全集（§3 穿流）：start() 已查全量 items，页码集传入 op 供 data-nav 校验/prompt 清单/mock 穿流
-    const catalogPages = items.rows
-      .filter((i) => i.item_type === 'page')
-      .map((i) => ({ code: i.code, title: (i.payload.title as string) ?? i.code }));
     ops.set(operationId, {
-      id: operationId, projectId, pageCode, catalogVersion: p.catalog_version, status: 'running',
-      page, states,
-      anchors: anchors.rows.map((a) => ({ docKind: a.doc_kind, sectionId: a.section_id, anchor: a.anchor })),
-      prd, ui, catalogPages, instruction,
+      id: operationId, projectId, pageCode, catalogVersion: pc.catalogVersion, status: 'running',
+      page: pc.page, states: pc.states, anchors: pc.anchors, prd: pc.prd, ui: pc.ui,
+      catalogPages: pc.catalogPages, instruction,
     });
     return { operationId, source: this.ai?.kind === 'pi' ? 'model' : 'mock' };
   }
@@ -243,6 +352,8 @@ export class PrototypePagesService {
             projectId: op.projectId, modelId: res.modelId, purpose: 'generation',
             tokensIn: res.usage.inputTokens, tokensOut: res.usage.outputTokens,
             durationMs: Date.now() - t0, cost: res.usage.cost ?? 0,
+            ...(op.attribution?.sessionId !== undefined ? { sessionId: op.attribution.sessionId } : {}),
+            ...(op.attribution?.messageId !== undefined ? { messageId: op.attribution.messageId } : {}),
           }, { projectId: op.projectId, actorKind: 'assistant', actorId: 'pi' });
         }
         const problem = validatePageHtml(res.text, op);
@@ -272,6 +383,106 @@ export class PrototypePagesService {
       objectKey: up.objectKey, fingerprint: fp, source,
     }, { ...ctx, projectId: op.projectId });
     return fp;
+  }
+
+  // ---------- 对话提案通道（0032：AI 只提不判——提案暂存 dsg_proto_page_proposals，人工采用才落页工件） ----------
+
+  /**
+   * dock design.proto.propose_page 旁路 handler：门禁同源 preparePage → 非 SSE 内部调用生成提案页
+   * → 契约校验（driveReal 内）→ 对象库 → page_propose 命令落 pending 行。守卫失败/已有 pending
+   * 提案/AI 零产出一律 { ok:false, reason 人话 }（不落码）。
+   */
+  async proposeFromChat(
+    projectId: string,
+    pageCode: string,
+    instruction: string,
+    ctx: CommandContext,
+    attribution?: { sessionId?: string; messageId?: string },
+  ): Promise<{ ok: boolean; proposalId?: string; pageCode?: string; fingerprint?: string; route?: string; reason?: string }> {
+    let pc: PageContext;
+    try {
+      pc = await this.preparePage(projectId, pageCode, instruction);
+    } catch (e) {
+      return { ok: false, reason: e instanceof DomainError ? e.message : '提案前置检查失败' };
+    }
+    const pend = await query<{ n: string }>(
+      "SELECT count(*) AS n FROM dsg_proto_page_proposals WHERE project_id=$1 AND page_code=$2 AND status='pending'",
+      [projectId, pageCode]);
+    if (Number(pend.rows[0]?.n ?? 0) > 0) {
+      return { ok: false, reason: `页面 ${pageCode} 已有一条待处置的修改提案，请先在原型页「✓ 采用 / ✗ 放弃」后再提` };
+    }
+    const source: 'model' | 'mock' = this.ai?.kind === 'pi' ? 'model' : 'mock';
+    let html: string;
+    if (source === 'model') {
+      // 伪 op 复用 driveReal（契约校验+断流重试一体）：不进 ops 表（无 SSE/abort 通道），status 恒 running
+      const op: PageGenOp = {
+        id: `op_pprop_${randomBytes(6).toString('hex')}`, projectId, pageCode,
+        catalogVersion: pc.catalogVersion, status: 'running',
+        page: pc.page, states: pc.states, anchors: pc.anchors, prd: pc.prd, ui: pc.ui,
+        catalogPages: pc.catalogPages, instruction, attribution,
+      };
+      try {
+        const out = await this.driveReal(op, () => undefined);
+        if (out === null) return { ok: false, reason: '生成被中断，请重试' };
+        html = out;
+      } catch (e) {
+        const raw = e instanceof Error ? e.message : String(e);
+        console.error(`[design] propose_page AI 调用失败: ${raw}`);
+        return { ok: false, reason: `AI 调用失败：${sanitizeAiError(raw)}` };
+      }
+    } else {
+      html = ensureNavScript(buildMockPage(pc.page, pc.states, pc.catalogPages));
+    }
+    const fp = sha256(html);
+    const up = await this.storage.putContentAddressed(Buffer.from(html, 'utf8'));
+    try {
+      const r = await executeCommand('design.prototype.page_propose', {
+        projectId, pageCode, catalogVersion: pc.catalogVersion,
+        objectKey: up.objectKey, fingerprint: fp, instruction, source,
+        ...(attribution?.sessionId !== undefined ? { sessionId: attribution.sessionId } : {}),
+        ...(attribution?.messageId !== undefined ? { messageId: attribution.messageId } : {}),
+      }, { ...ctx, projectId }) as { proposalId: string };
+      return {
+        ok: true, proposalId: r.proposalId, pageCode, fingerprint: `sha256:${fp}`,
+        route: `/design?tab=prototype&page=${encodeURIComponent(pageCode)}`,
+      };
+    } catch (e) {
+      if (e instanceof DomainError) return { ok: false, reason: e.message };
+      throw e;
+    }
+  }
+
+  /** 提案处置（✓ 采用 / ✗ 放弃）：命令内 FOR UPDATE+门禁+页工件 upsert（accept），全链审计 */
+  async decideProposal(projectId: string, proposalId: string, decision: 'accept' | 'discard', ctx: CommandContext) {
+    return executeCommand('design.prototype.page_proposal_decide',
+      { projectId, proposalId, decision }, { ...ctx, projectId });
+  }
+
+  /** 待处置提案清单（原型工作台状态聚合用：对比视图/页栏徽标） */
+  async listPendingProposals(projectId: string) {
+    const r = await query<{
+      id: string; page_code: string; instruction: string; html_fingerprint: string; created_at: string;
+    }>(
+      `SELECT id, page_code, instruction, html_fingerprint, created_at
+       FROM dsg_proto_page_proposals WHERE project_id=$1 AND status='pending' ORDER BY created_at`,
+      [projectId]);
+    return r.rows.map((x) => ({
+      id: x.id, pageCode: x.page_code, instruction: x.instruction,
+      fingerprint: `sha256:${x.html_fingerprint}`, createdAt: x.created_at,
+    }));
+  }
+
+  /** 提案预览（对比视图右栏）：内容寻址直签，与页工件预览同口径（sandbox iframe 消费） */
+  async proposalPreview(projectId: string, proposalId: string): Promise<unknown> {
+    const r = await query<{ object_key: string; html_fingerprint: string }>(
+      'SELECT object_key, html_fingerprint FROM dsg_proto_page_proposals WHERE id=$1 AND project_id=$2',
+      [proposalId, projectId]);
+    if (!r.rows[0]) throw new DomainError('NOT_FOUND', '提案不存在', proposalId);
+    return {
+      previewUrl: await this.storage.presignedGet(r.rows[0].object_key, 300, undefined, PROTO_HTML_CT),
+      htmlFingerprint: `sha256:${r.rows[0].html_fingerprint}`,
+      sandbox: { iframe: true, csp: "default-src 'none'" },
+    };
   }
 }
 

@@ -323,10 +323,31 @@ export class DesignController {
     return this.proto.check(projectId, body.prototypeVersionId, this.actor(req, projectId));
   }
 
-  /** 原型工作台状态（F02-2 派生） */
+  /** 原型工作台状态（F02-2 派生；2026-10-17 起并入待处置对话提案清单——对比视图/页栏徽标单请求口径） */
   @Get('prototype')
-  prototypeStatus(@Param('projectId') projectId: string) {
-    return this.proto.status(projectId);
+  async prototypeStatus(@Param('projectId') projectId: string) {
+    const s = await this.proto.status(projectId) as Record<string, unknown>;
+    s['proposals'] = await this.pages.listPendingProposals(projectId);
+    return s;
+  }
+
+  /** 提案页预览（双排对比右栏；内容寻址直签，与页工件预览同口径） */
+  @Get('prototype/proposals/:id/preview')
+  proposalPreview(@Param('projectId') projectId: string, @Param('id') id: string) {
+    return this.pages.proposalPreview(projectId, id);
+  }
+
+  /** 提案处置（0032，AI 只提不判）：✓ 采用=提案对象提升为页工件行；✗ 放弃=标 discarded。均审计留痕 */
+  @Post('prototype/proposals/:id\\:accept')
+  @HttpCode(200)
+  acceptProposal(@Param('projectId') projectId: string, @Param('id') id: string, @Req() req: Request) {
+    return this.pages.decideProposal(projectId, id, 'accept', this.actor(req, projectId));
+  }
+
+  @Post('prototype/proposals/:id\\:discard')
+  @HttpCode(200)
+  discardProposal(@Param('projectId') projectId: string, @Param('id') id: string, @Req() req: Request) {
+    return this.pages.decideProposal(projectId, id, 'discard', this.actor(req, projectId));
   }
 
   /** 页级 UI 原型生成（POST-SSE 四帧协议同 A05-2；v1 一次性流，客户端断连即 abort；差异登记） */

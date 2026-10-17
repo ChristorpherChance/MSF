@@ -15,7 +15,7 @@ import { BAND_BUDGETS, type ContextBand } from './agent-prompts.js';
  * ToolBridge 工具注册表（DSG-D08-3；A08-5/6；REQ-605/606/613）：
  * - 封闭注册表：未注册 TOOL_UNREGISTERED；参数校验失败 TOOL_ARGS_INVALID
  * - 越界工具（定稿/放行/写类）编排层直接拒绝：ai_tool_calls 记 denied + TOOL_DENIED（不执行、不转发）
- * - 允许集为只读/导航/提案七件套：nav.goto / read_context / doc.read / chat.history.read / propose_next_step / req.doc.propose_edits / design.doc.propose_edits（前五个 SQL 直读他域表，不写；两件提案经旁路产出高亮补丁，人工确认后生效）
+ * - 允许集为只读/导航/提案八件套：nav.goto / read_context / doc.read / chat.history.read / propose_next_step / req.doc.propose_edits / design.doc.propose_edits / design.proto.propose_page（前五个 SQL 直读他域表，不写；三件提案经旁路产出待确认产物——高亮补丁/原型页提案，人工确认后生效）
  * - 一切调用经 ai.tool.invoke 命令：append-only 留痕（REQ-613）
  */
 
@@ -240,6 +240,16 @@ const TOOLS: ToolDef[] = [
     description: '提交设计八册（hld/mod/alg/cls/db/api/ui/nfr）修改建议：产出待确认高亮补丁，经用户在设计页逐条/批量确认后才生效（你不直接改文档）。当用户要求修改设计册内容、或核对发现册内容缺口需要补齐时调用。args.instruction 描述要改什么（截 2000 字）',
     argsSchema: { kind: 'string', instruction: 'string' },
     required: ['kind', 'instruction'],
+    async run() {
+      return { ok: false, reason: 'propose 类工具须经会话流旁路执行（旁路未接线），本次未产生任何修改' };
+    },
+  },
+  {
+    name: 'design.proto.propose_page',
+    kind: 'propose', // 提案型写（0032）：产物=原型页待处置修改提案（双排对比），人工「✓ 采用」才落页工件
+    description: '提交原型页修改提案：按意见重新生成该页 UI 原型为待处置提案（不直接改页面），用户在原型页双排对比后「✓ 采用 / ✗ 放弃」。当用户要求修改某个原型页面（布局/配色/交互/内容）时调用。args.pageCode=目录页面编号（如 P-001）；args.instruction 描述要改什么（截 1000 字）',
+    argsSchema: { pageCode: 'string', instruction: 'string' },
+    required: ['pageCode', 'instruction'],
     async run() {
       return { ok: false, reason: 'propose 类工具须经会话流旁路执行（旁路未接线），本次未产生任何修改' };
     },

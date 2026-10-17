@@ -208,6 +208,17 @@ describe('AI 会话/消息/流式管线（集成，需 DB）', async () => {
     const prdList = await sessions.list(PID, 'req', undefined, 20, 'prd');
     expect(prdList.items.some((x) => x.id === p.id)).toBe(true);
     expect(prdList.items.every((x) => x.doc_kind === 'prd')).toBe(true);
+    // 原型页动态工件（0032）：design 接受 page:<页码>，默认名带「原型页」标签；req 域不接受、非法页码格式拒
+    const pg = await sessions.create(PID, { ctx: 'design', docKind: 'page:P-001' }, CTX) as { id: string };
+    const pgList = await sessions.list(PID, 'design', undefined, 20, 'page:P-001');
+    expect(pgList.items.map((x) => x.id)).toEqual([pg.id]);
+    expect(pgList.items[0]!.name).toContain('原型页 P-001');
+    await expect(sessions.create(PID, { ctx: 'req', docKind: 'page:P-001' }, CTX))
+      .rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+    await expect(sessions.create(PID, { ctx: 'design', docKind: 'page:' }, CTX))
+      .rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+    await expect(sessions.create(PID, { ctx: 'design', docKind: 'page:P_001' }, CTX))
+      .rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
     // prompt 注入【当前工件】：绑定 hld 的会话提示词带文档名与 kind 默认值指引
     provider.capturedPrompts = [];
     provider.nextChunks = ['好的。'];

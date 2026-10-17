@@ -106,6 +106,7 @@ describe('PrototypePages 页级原型（集成，需 DB+MinIO）', async () => {
     await query('DELETE FROM ai_usage WHERE project_id=$1', [PID]);
     await query('DELETE FROM ai_models WHERE id=$1', [MODEL_ID]);
     await query('DELETE FROM dsg_prototype_pages WHERE project_id=$1', [PID]);
+    await query('DELETE FROM dsg_proto_page_proposals WHERE project_id=$1', [PID]);
     await query('DELETE FROM dsg_catalog_refs WHERE item_id IN (SELECT id FROM dsg_catalog_items WHERE project_id=$1)', [PID]);
     await query('DELETE FROM dsg_catalog_items WHERE project_id=$1', [PID]);
     await query('DELETE FROM dsg_prototype_checks WHERE project_id=$1', [PID]);
@@ -327,5 +328,66 @@ describe('PrototypePages 页级原型（集成，需 DB+MinIO）', async () => {
     expect(obj4).toContain('data-nav="#P-001"');
     const manifest4 = JSON.parse(ver4.rows[0]!.content) as { flows?: Array<{ code: string; steps: string[] }> };
     expect(manifest4.flows?.find((f) => f.code === 'F-001')?.steps).toEqual(['P-001']);
+  });
+
+  it('⑨ 对话提案链（0032）：propose→pending→同页重复拒→放弃可再提→目录版本漂移门禁→采用落页工件', async () => {
+    const code = pageCodes[2]!;
+    // 提案（mock 降级路径：无 AI_PROVIDER 的 pages 服务 → buildMockPage 产物入提案）
+    const r1 = await pages.proposeFromChat(PID, code, '把主色改成蓝色', CTX);
+    expect(r1.ok).toBe(true);
+    expect(r1.pageCode).toBe(code);
+    expect(r1.fingerprint).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(r1.route).toBe(`/design?tab=prototype&page=${code}`);
+    const pend = await pages.listPendingProposals(PID);
+    const mine = pend.filter((p) => p.pageCode === code);
+    expect(mine.map((p) => p.id)).toEqual([r1.proposalId]);
+    expect(mine[0]!.instruction).toBe('把主色改成蓝色');
+
+    // 提案预览：内容寻址直签 + 渲染 content-type（对比视图右栏）
+    const pv = (await pages.proposalPreview(PID, r1.proposalId!)) as { previewUrl: string; htmlFingerprint: string };
+    expect(pv.previewUrl).toContain('response-content-type');
+    expect(pv.htmlFingerprint).toBe(r1.fingerprint);
+
+    // 同页 pending 唯一：再提 → ok:false 人话（不落码）
+    const r2 = await pages.proposeFromChat(PID, code, '再改一版', CTX);
+    expect(r2.ok).toBe(false);
+    expect(r2.reason).toContain('待处置');
+    // 页不在目录/不存在的页：preparePage 守卫 → ok:false 人话（不抛异常打断对话流）
+    const rBad = await pages.proposeFromChat(PID, 'P-999', 'x', CTX);
+    expect(rBad.ok).toBe(false);
+    expect(rBad.reason).toBeTruthy();
+
+    // 放弃 → discarded，同页可再提
+    const d1 = (await pages.decideProposal(PID, r1.proposalId!, 'discard', CTX)) as { pageCode: string; decision: string };
+    expect(d1).toMatchObject({ pageCode: code, decision: 'discard' });
+    const s1 = await query<{ status: string }>('SELECT status FROM dsg_proto_page_proposals WHERE id=$1', [r1.proposalId]);
+    expect(s1.rows[0]!.status).toBe('discarded');
+    // 已处置提案不可二次处置
+    await expect(pages.decideProposal(PID, r1.proposalId!, 'accept', CTX))
+      .rejects.toMatchObject({ code: 'INVALID_STATE' });
+    expect((await pages.listPendingProposals(PID)).some((p) => p.pageCode === code)).toBe(false);
+
+    // 再提 → 目录版本漂移门禁：提案 catalog_version 落后于最新 plan → accept GATE_BLOCKED
+    const r3 = await pages.proposeFromChat(PID, code, '第二版提案', CTX);
+    expect(r3.ok).toBe(true);
+    await query("UPDATE dsg_proto_page_proposals SET catalog_version='CV-OLD' WHERE id=$1", [r3.proposalId]);
+    await expect(pages.decideProposal(PID, r3.proposalId!, 'accept', CTX))
+      .rejects.toMatchObject({ code: 'GATE_BLOCKED' });
+    // 恢复对齐后采用 → 页工件 upsert（指纹=提案指纹、source=mock）+ 提案标 accepted
+    await query(
+      `UPDATE dsg_proto_page_proposals SET catalog_version=(
+         SELECT catalog_version FROM dsg_plans WHERE project_id=$1 ORDER BY plan_no DESC LIMIT 1) WHERE id=$2`,
+      [PID, r3.proposalId]);
+    const d2 = (await pages.decideProposal(PID, r3.proposalId!, 'accept', CTX)) as { decision: string; fingerprint: string };
+    expect(d2.decision).toBe('accept');
+    const pg = await query<{ html_fingerprint: string; source: string }>(
+      'SELECT html_fingerprint, source FROM dsg_prototype_pages WHERE project_id=$1 AND page_code=$2', [PID, code]);
+    expect(pg.rows[0]!.html_fingerprint).toBe(d2.fingerprint);
+    expect(pg.rows[0]!.source).toBe('mock');
+    expect((await query('SELECT status FROM dsg_proto_page_proposals WHERE id=$1', [r3.proposalId])).rows[0])
+      .toMatchObject({ status: 'accepted' });
+    // 采用即页工件更新 → 原型滞后门禁亮（页待重汇总），与 🎨 重新生成同口径
+    const gc = (await proto.gates(PID, 'check')) as { issues: Array<{ code: string; target?: string }> };
+    expect(gc.issues.some((i) => i.code === 'PROTOTYPE_DIRTY' && i.target === code)).toBe(true);
   });
 });

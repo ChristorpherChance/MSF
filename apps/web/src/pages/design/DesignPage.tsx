@@ -19,9 +19,11 @@ export function DesignPage() {
   useEffect(() => {
     void init();
   }, [init]);
-  // 工件绑定（2026-10-08）：选中某册即让 dock 加载该册会话组（原型/评审页签=阶段级 NULL 组）——
+  // 工件绑定（2026-10-08）：选中某册即让 dock 加载该册会话组（评审页签=阶段级 NULL 组）——
   // 根修「选中详细设计却改了概要设计」：会话按册分组，prompt 注入【当前工件】
+  // 原型页签跳过：React 子组件效应先于父效应执行，PrototypePanel 的页级绑定（page:<页码>）会被本效应覆盖
   useEffect(() => {
+    if (subTab === 'prototype') return;
     const docKind = subTab === 'hld' ? 'hld' : subTab === 'detail' ? selKind : null;
     void useDockStore.getState().setCtx('design', docKind);
   }, [subTab, selKind]);

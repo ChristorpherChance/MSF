@@ -33,6 +33,16 @@ export const DOC_KIND_LABEL: Record<string, string> = {
   db: '数据库设计', api: 'API 接口', ui: 'UI 设计', nfr: '非功能规则',
 };
 
+/** 原型页动态工件（0032；与服务端 PROTO_PAGE_KIND 镜像）：page:<页面编号> → 原型页 P-001 */
+export const PROTO_PAGE_KIND = /^page:([A-Za-z0-9][A-Za-z0-9-]{0,23})$/;
+
+/** 工件显示名（枚举 + 原型页动态码；未知名原样回落） */
+export function docKindLabel(kind: string): string {
+  const m = PROTO_PAGE_KIND.exec(kind);
+  if (m) return `原型页 ${m[1]}`;
+  return DOC_KIND_LABEL[kind] ?? kind;
+}
+
 /** 草稿/会话分组键：阶段 + 工件（无工件=阶段级） */
 export const scopeKey = (ctx: DockTab, docKind: string | null): string => `${ctx}:${docKind ?? ''}`;
 
@@ -312,6 +322,15 @@ export const useDockStore = create<DockState>((set, get) => ({
       if (proposeDsg) {
         const kind = (proposeDsg.resultSummary as { kind?: string }).kind;
         window.dispatchEvent(new CustomEvent('msf:dsg-proposed', { detail: { kind } }));
+      }
+      // 原型页提案回环（0032）：propose_page 成功 → 原型页刷新提案清单并落到该页对比视图
+      const proposePage = last?.toolCalls?.find(
+        (t) => t.toolName === 'design.proto.propose_page'
+          && (t.resultSummary as { ok?: boolean } | null | undefined)?.ok === true,
+      );
+      if (proposePage) {
+        const pageCode = (proposePage.resultSummary as { pageCode?: string }).pageCode;
+        window.dispatchEvent(new CustomEvent('msf:proto-proposed', { detail: { pageCode } }));
       }
       await get().refreshUsage();
     } catch (e) {

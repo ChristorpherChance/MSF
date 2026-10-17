@@ -100,6 +100,8 @@ export const COMMANDS = [
   'design.prototype.upload', // 人工上传 HTML 初稿入库（V1.3 上传通道；同一套检查），差异登记
   'design.prototype.unlock', // W7-003：原型解除定稿（spec「⋯ 菜单解锁定稿」；解锁后基线实时失效，可重新生成）
   'design.prototype.page_generate', // 页级 UI 原型生成 upsert（单页 AI 生成→MinIO 内容寻址→索引行；AI 在命令外），差异登记
+  'design.prototype.page_propose', // 对话提案登记（0032：dock design.proto.propose_page 产物 pending 行；AI 在命令外），差异登记
+  'design.prototype.page_proposal_decide', // 提案处置（accept=提案提升为页工件行/discard；FOR UPDATE+门禁+审计），差异登记
   // M3 设计域：目录人工增删（A05-13）与评审结论（A05-3）
   'design.catalog.add-item',
   'design.catalog.remove-item',
