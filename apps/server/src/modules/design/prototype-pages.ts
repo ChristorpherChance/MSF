@@ -119,13 +119,31 @@ export function ensureNavScript(html: string): string {
   return i >= 0 ? `${html.slice(0, i)}${NAV_SCRIPT}\n${html.slice(i)}` : `${html}\n${NAV_SCRIPT}`;
 }
 
-/** 风格基线补齐（幂等）：模型产物缺主题令牌时注入 PROTO_THEME_CSS——单页预览（无汇总壳）也有统一视觉。
- *  在 </head> 前插入，不与 msf:style 标记段混淆（extractPageParts 只取标记段，汇总不重复携带）。 */
-export function ensureThemeStyle(html: string): string {
+/** 风格基线补齐（幂等）：模型产物缺主题令牌时注入主题 CSS——单页预览（无汇总壳）也有统一视觉。
+ *  在 </head> 前插入，不与 msf:style 标记段混淆（extractPageParts 只取标记段，汇总不重复携带）。
+ *  themeCss=项目定制主题（buildThemeCss(plan.theme)），缺省默认蓝系。 */
+export function ensureThemeStyle(html: string, themeCss: string = PROTO_THEME_CSS): string {
   if (html.includes('--p-primary')) return html;
-  const tag = `<style>${PROTO_THEME_CSS}</style>`;
+  const tag = `<style>${themeCss}</style>`;
   const i = html.indexOf('</head>');
   return i >= 0 ? `${html.slice(0, i)}${tag}\n${html.slice(i)}` : `${tag}\n${html}`;
+}
+
+/**
+ * 模型输出清洗（2026-10-18 实机抓修「思考过程被渲染出来」）：只保留文档本体——
+ * 剥 ```html 围栏、丢弃 <!doctype/<html> 之前的推理/解释前言与 </html> 之后的尾巴。
+ * 过程性内容不进工件（生成过程由 SSE 进度流承载可见，成品只呈现干净结果）。
+ */
+export function ensureDocumentOnly(html: string): string {
+  let s = html;
+  const dt = s.search(/<!doctype\s+html/i);
+  const ht = s.search(/<html[\s>]/i);
+  const from = dt >= 0 ? dt : ht;
+  if (from > 0) s = s.slice(from);
+  else if (from < 0) s = s.replace(/^\s*```(?:html)?\s*/i, ''); // 无文档头时至少剥首围栏
+  const end = s.lastIndexOf('</html>');
+  if (end >= 0) s = s.slice(0, end + '</html>'.length);
+  return s.replace(/\s*```\s*$/, '').trim();
 }
 
 /**
@@ -133,8 +151,38 @@ export function ensureThemeStyle(html: string): string {
  * 全项目单源的设计令牌+共享组件类——单页封装与汇总壳都注入本块，页 prompt 契约钉死
  * 「只准用 var(--p-*) 令牌与共享类，禁写死颜色/字号」，validatePageHtml 扫 hex 色拒收。
  * 页面自身 CSS 只做布局与独有样式（仍须 #pg-<code> 前缀隔离），视觉语言全来自本基线。
+ * 2026-10-18 扩展：令牌默认值可被 dsg_plans.theme（AI 按项目类型提炼，0033）逐项覆盖，
+ * buildThemeCss(overrides) 合成最终 CSS；共享类段恒定不变。
  */
-export const PROTO_THEME_CSS = `:root{--p-primary:#2563eb;--p-primary-soft:#eff4ff;--p-accent:#7c3aed;--p-bg:#f5f6f8;--p-surface:#ffffff;--p-ink:#1f2329;--p-ink2:#6b7280;--p-line:#e5e7eb;--p-ok:#16a34a;--p-ok-soft:#eaf7ee;--p-warn:#d97706;--p-warn-soft:#fdf3e3;--p-danger:#dc2626;--p-danger-soft:#fdecec;--p-radius:10px;--p-font:14px/1.6 "PingFang SC","Microsoft YaHei",system-ui,sans-serif;}
+export const PROTO_THEME_TOKENS: ReadonlyArray<readonly [string, string]> = [
+  ['primary', '#2563eb'], ['primary-soft', '#eff4ff'], ['accent', '#7c3aed'],
+  ['bg', '#f5f6f8'], ['surface', '#ffffff'], ['ink', '#1f2329'], ['ink2', '#6b7280'],
+  ['line', '#e5e7eb'], ['ok', '#16a34a'], ['ok-soft', '#eaf7ee'],
+  ['warn', '#d97706'], ['warn-soft', '#fdf3e3'], ['danger', '#dc2626'], ['danger-soft', '#fdecec'],
+  ['radius', '10px'],
+] as const;
+/** 主题令牌默认值表（键=令牌后缀，如 primary） */
+export const THEME_TOKEN_DEFAULTS: Readonly<Record<string, string>> =
+  Object.fromEntries(PROTO_THEME_TOKENS);
+
+/** 令牌中文名（页 prompt 风格基线实值注入用） */
+const TOKEN_LABELS: Readonly<Record<string, string>> = {
+  primary: '主色', 'primary-soft': '主色浅底', accent: '强调色',
+  bg: '背景', surface: '卡片面', ink: '正文文字', ink2: '次要文字',
+  line: '边框', ok: '成功色', 'ok-soft': '成功浅底',
+  warn: '警告色', 'warn-soft': '警告浅底', danger: '危险色', 'danger-soft': '危险浅底',
+  radius: '圆角',
+};
+
+/** 合成主题 CSS（overrides=项目定制令牌覆盖，键非法/值非法已在 parseThemeOverrides 滤掉） */
+export function buildThemeCss(overrides?: Record<string, string> | null): string {
+  const o = overrides ?? {};
+  const root = `:root{${PROTO_THEME_TOKENS.map(([k, v]) => `--p-${k}:${o[k] ?? v};`).join('')}}`;
+  return `${root}\n${SHARED_CLASS_CSS}`;
+}
+
+/** 共享组件类段（恒定——项目定制只改令牌值，不改组件结构；字体令牌固定不开放定制） */
+const SHARED_CLASS_CSS = `:root{--p-font:14px/1.6 "PingFang SC","Microsoft YaHei",system-ui,sans-serif;}
 body{font:var(--p-font);color:var(--p-ink);background:var(--p-bg);margin:0;}
 .btn{border:1px solid var(--p-line);background:var(--p-surface);border-radius:8px;padding:6px 14px;font-size:13px;cursor:pointer;color:var(--p-ink);}
 .btn:hover{border-color:var(--p-primary);color:var(--p-primary);}
@@ -156,11 +204,49 @@ table.tbl td{padding:9px 10px;border-bottom:1px solid var(--p-line);}
 .page-card h1{font-size:18px;margin:0 0 4px;}
 .page-card .sub{color:var(--p-ink2);font-size:12.5px;margin-bottom:14px;}`;
 
+/** 默认主题（无定制覆盖时的完整 CSS；兼容旧引用点） */
+export const PROTO_THEME_CSS = buildThemeCss();
+
+/** AI 主题定制输出解析：剥围栏→取首个 JSON 对象→键白名单+值形态校验（hex 色/px 圆角），非法键值静默丢弃 */
+export function parseThemeOverrides(text: string): Record<string, string> {
+  const m = text.replace(/```(?:json)?/gi, '').match(/\{[\s\S]*\}/);
+  if (!m) return {};
+  let raw: unknown;
+  try { raw = JSON.parse(m[0]); } catch { return {}; }
+  if (typeof raw !== 'object' || raw === null) return {};
+  const allowed = new Set(PROTO_THEME_TOKENS.map(([k]) => k));
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (!allowed.has(k) || typeof v !== 'string') continue;
+    const val = v.trim();
+    if (k === 'radius' ? /^\d{1,2}px$/.test(val) : /^#[0-9a-fA-F]{6}$/.test(val)) out[k] = val;
+  }
+  return out;
+}
+
+/** AI 主题定制 prompt（一次性小调用；输出严格 JSON 令牌覆盖） */
+export function buildThemePrompt(projectName: string, prdExcerpt: string): string {
+  return [
+    `你是 UI 视觉设计师。项目「${projectName}」需要一套原型界面主题配色。`,
+    '根据下面的需求文档节选判断产品类型与气质（如游戏活泼、政务稳重、工具清爽、内容温暖），给出一套配色令牌覆盖。',
+    '',
+    '## 硬性输出契约',
+    '- 只输出一个 JSON 对象，不要任何解释文字或 markdown 围栏。',
+    `- 键只能从这里面选（不需要全给，只给要覆盖的）：${PROTO_THEME_TOKENS.map(([k]) => k).join('、')}。`,
+    '- 颜色值必须是 6 位 hex（如 #16a34a）；radius 是像素值（如 12px）；soft 后缀键是同色系浅底（与对应主色协调）。',
+    '- 对比度可用性：ink 在 bg/surface 上、白字在 primary 上都须清晰可读；primary 不要太浅。',
+    '',
+    '## 需求文档节选',
+    prdExcerpt.slice(0, 4000),
+  ].join('\n');
+}
+
 /** 完整单页文档封装（envelope 标记 + 页根契约 + 风格基线 + 共享选态脚本）。
- *  主题块在标记段之外——extractPageParts 只取标记段，汇总时主题由壳层统一供给不重复。 */
-export function wrapPageEnvelope(code: string, title: string, styleCss: string, bodyHtml: string, scriptJs: string): string {
+ *  主题块在标记段之外——extractPageParts 只取标记段，汇总时主题由壳层统一供给不重复。
+ *  themeCss=项目定制主题（缺省默认）。 */
+export function wrapPageEnvelope(code: string, title: string, styleCss: string, bodyHtml: string, scriptJs: string, themeCss: string = PROTO_THEME_CSS): string {
   return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title>
-<style>${PROTO_THEME_CSS}</style>
+<style>${themeCss}</style>
 ${MARK.styleBegin}<style>${styleCss}</style>${MARK.styleEnd}
 </head><body>
 ${MARK.bodyBegin}${bodyHtml}${MARK.bodyEnd}
@@ -306,6 +392,7 @@ export function buildMockPage(
   page: CatalogItemLike,
   states: CatalogItemLike[],
   navTargets: Array<{ code: string; title: string }> = [],
+  themeCss: string = PROTO_THEME_CSS,
 ): string {
   const code = page.code;
   const title = (page.payload.title as string) ?? code;
@@ -351,7 +438,7 @@ export function buildMockPage(
   const body = `<div id="pg-${code}" data-page-block="${code}">
 ${navRow}${stateSecs}
 </div>`;
-  return wrapPageEnvelope(code, title, style, body, '(function(){})();');
+  return wrapPageEnvelope(code, title, style, body, '(function(){})();', themeCss);
 }
 
 /** 喂给模型的单文档上限（与 generate.service GEN_INPUT_CAP 同口径） */
@@ -394,6 +481,7 @@ export function buildPagePrompt(
   upstreamUi: string,
   instruction: string,
   navPages?: Array<{ code: string; title: string }>,
+  theme?: Record<string, string> | null,
 ): string {
   const code = page.code;
   const title = (page.payload.title as string) ?? code;
@@ -422,7 +510,12 @@ export function buildPagePrompt(
     '10. 本页是完整应用的一个内容区：不要画产品级全局顶栏/全局左侧导航/产品 logo 区（汇总时由统一应用壳提供），从页面标题栏与内容区开始画。',
     '',
     '## 风格基线（全原型统一，必须遵守）',
-    '- 配色/字体一律使用系统主题令牌，禁止写死任何颜色值（如 #fff/#1f2937）与字体族：主色 var(--p-primary)、主色浅底 var(--p-primary-soft)、强调色 var(--p-accent)、背景 var(--p-bg)、卡片面 var(--p-surface)、正文 var(--p-ink)、次要文字 var(--p-ink2)、边框 var(--p-line)、成功 var(--p-ok)/var(--p-ok-soft)、警告 var(--p-warn)/var(--p-warn-soft)、危险 var(--p-danger)/var(--p-danger-soft)、圆角 var(--p-radius)、字体 var(--p-font)。',
+    ...PROTO_THEME_TOKENS.map(([k, def]) => {
+      const v = theme?.[k] ?? def;
+      const label = TOKEN_LABELS[k] ?? k;
+      return `- ${label} var(--p-${k})（${v}）`;
+    }),
+    '- 配色一律使用以上系统主题令牌（var(--p-*)），禁止写死任何颜色值（如 #fff/#1f2937）与字体族（字体固定 var(--p-font)）。',
     '- 优先使用系统共享类（已在文档层提供样式，直接用类名即可，不要在页 CSS 里重复定义）：按钮 .btn / .btn.primary、输入框 .input、表格 table.tbl、状态标签 .tagline.ok/.tagline.warn/.tagline.danger、指标卡 .stat、页卡片容器 .page-card（h1+.sub 副标题）。',
     '- 页 CSS 只写本页独有的布局与装饰（网格/间距/可视化），颜色仍须引用上述令牌。',
     '',
@@ -515,7 +608,7 @@ export function composePrototype(
   items: CatalogItemLike[],
   pages: AssemblePageInput[],
   warnings: string[] = [],
-  opts: { productName?: string } = {},
+  opts: { productName?: string; theme?: Record<string, string> | null } = {},
 ): { html: string; manifest: PrototypeManifest } {
   const pageItems = items.filter((i) => i.item_type === 'page');
   const stateItems = items.filter((i) => i.item_type === 'state');
@@ -544,7 +637,7 @@ export function composePrototype(
   const flowView = flowItems.length > 0 ? renderFlowView(flowItems, pageItems, stateItems) : '';
   const product = opts.productName?.trim() || '项目';
   const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(product)} · 可交互原型</title>
-<style>${PROTO_THEME_CSS}\n${SHELL_CSS}${flowView ? `\n${COMPOSED_FLOW_STYLE}` : ''}</style></head>
+<style>${buildThemeCss(opts.theme)}\n${SHELL_CSS}${flowView ? `\n${COMPOSED_FLOW_STYLE}` : ''}</style></head>
 <body data-prototype="msf">
 <div class="msf-shell">
   <header class="msf-top"><span class="msf-brand">${esc(product)}</span><span class="msf-crumb" data-shell-crumb>${esc(pageItems[0] ? titleOf(pageItems[0]) : '')}</span></header>

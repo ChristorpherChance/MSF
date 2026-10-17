@@ -13,11 +13,15 @@ import {
   assertScopedStyles,
   buildMockPage,
   buildPagePrompt,
+  buildThemeCss,
+  buildThemePrompt,
+  ensureDocumentOnly,
   ensureNavScript,
   ensureThemeStyle,
   extractPageParts,
   findDataNavProblem,
   findHiddenSectionRule,
+  parseThemeOverrides,
   pickUiSections,
   type CatalogItemLike,
 } from './prototype-pages.js';
@@ -50,6 +54,8 @@ interface PageGenOp {
   /** 目录页面全集（覆盖检测 §3：data-nav 契约校验目标集 + prompt 合法跳转清单 + mock 穿流按钮） */
   catalogPages: Array<{ code: string; title: string }>;
   instruction: string;
+  /** 项目定制主题令牌覆盖（dsg_plans.theme，0033；null=默认蓝系） */
+  theme: Record<string, string> | null;
   /** 真接模式保留会话句柄（abort 用） */
   session?: AiSession | undefined;
   /** A6 usage 归因：dock 对话提案触发的生成挂回触发会话/消息（与 proposeEditsFromChat 同口径） */
@@ -65,6 +71,8 @@ interface PageContext {
   prd: string;
   ui: string;
   catalogPages: Array<{ code: string; title: string }>;
+  /** 项目定制主题令牌覆盖（0033；null=默认蓝系） */
+  theme: Record<string, string> | null;
 }
 
 const ops = new Map<string, PageGenOp>();
@@ -102,6 +110,15 @@ export class PrototypePagesService {
         [projectId, pageCode, catalogVersion, objectKey, fingerprint, source, ctx.actorId],
       );
       return { pageCode, fingerprint };
+    });
+    // 项目主题定制落库（0033）：AI 按项目类型提炼的令牌覆盖随 plan 冻结；WHERE theme IS NULL 首写胜出——
+    // 并发/重复派生静默丢弃，不留覆盖竞态
+    registerCommand('design.prototype.theme_set', async (client, payload) => {
+      const { projectId, planId, theme } = payload as { projectId: string; planId: string; theme: Record<string, string> };
+      const r = await client.query(
+        'UPDATE dsg_plans SET theme=$3 WHERE id=$1 AND project_id=$2 AND theme IS NULL',
+        [planId, projectId, JSON.stringify(theme)]);
+      return { planId, written: r.rowCount === 1 };
     });
     // 对话提案登记（0032）：提案 HTML 已在命令外生成+入对象库，命令内只插 pending 行；
     // 部分唯一索引兜底并发重复提案（23505 → 人话 DomainError）
@@ -197,7 +214,7 @@ export class PrototypePagesService {
     if (instruction.length > 1000) {
       throw new DomainError('VALIDATION_FAILED', '修改意见过长（上限 1000 字）', 'instruction');
     }
-    const plan = await query<{ catalog_version: string; complete: boolean; governing_fingerprint: string }>(
+    const plan = await query<{ id: string; catalog_version: string; complete: boolean; governing_fingerprint: string; theme: Record<string, string> | null }>(
       'SELECT * FROM dsg_plans WHERE project_id=$1 ORDER BY plan_no DESC LIMIT 1', [projectId]);
     const p = plan.rows[0];
     if (!p || !p.complete) throw new DomainError('GATE_BLOCKED', '尚无完整原型规划，先执行规划', 'prototype', {
@@ -243,15 +260,51 @@ export class PrototypePagesService {
       `SELECT v.content FROM dsg_documents d JOIN dsg_versions v ON v.id=d.current_version_id
        WHERE d.project_id=$1 AND d.doc_kind='ui'`, [projectId]);
     const ui = pickUiSections(uiRow.rows[0]?.content ?? '', page);
+    // 项目定制主题（0033）：plan.theme 已有直接用；NULL 且真接模式→一次性 AI 派生落库（首写胜出），
+    // 派生失败回落默认蓝系不阻塞页面生成
+    let theme = p.theme && Object.keys(p.theme).length > 0 ? p.theme : null;
+    if (!theme && this.ai?.kind === 'pi') {
+      theme = await this.deriveTheme(projectId, p.id, prd);
+    }
     return {
       catalogVersion: p.catalog_version, page, states,
       anchors: anchors.rows.map((a) => ({ docKind: a.doc_kind, sectionId: a.section_id, anchor: a.anchor })),
-      prd, ui,
+      prd, ui, theme,
       // 目录页面全集（§3 穿流）：data-nav 校验目标集 + prompt 合法跳转清单 + mock 穿流按钮
       catalogPages: items.rows
         .filter((i) => i.item_type === 'page')
         .map((i) => ({ code: i.code, title: (i.payload.title as string) ?? i.code })),
     };
+  }
+
+  /**
+   * AI 按项目类型提炼主题令牌覆盖（0033，一次性懒派生）：buildThemePrompt 小调用 →
+   * parseThemeOverrides 白名单校验 → theme_set 命令落 plan（首写胜出）。任何失败回落 null（默认主题），
+   * 绝不阻塞页面生成主链。
+   */
+  private async deriveTheme(projectId: string, planId: string, prd: string): Promise<Record<string, string> | null> {
+    try {
+      const proj = await query<{ name: string }>('SELECT name FROM projects WHERE id=$1', [projectId]);
+      const session = await this.ai!.createSession({ projectId, purpose: 'generation' });
+      const { deltas, result } = session.stream(buildThemePrompt(proj.rows[0]?.name ?? '', prd));
+      for await (const d of deltas) void d; // 排空流取最终结果（不走 SSE，无需逐段转发）
+      const res = await result;
+      if (res.modelId) {
+        await executeCommand('ai.usage.record', {
+          projectId, modelId: res.modelId, purpose: 'generation',
+          tokensIn: res.usage.inputTokens, tokensOut: res.usage.outputTokens,
+          durationMs: 0, cost: res.usage.cost ?? 0,
+        }, { projectId, actorKind: 'assistant', actorId: 'pi' });
+      }
+      const theme = parseThemeOverrides(res.text);
+      if (Object.keys(theme).length === 0) return null;
+      await executeCommand('design.prototype.theme_set', { projectId, planId, theme },
+        { projectId, actorKind: 'assistant', actorId: 'pi' });
+      return theme;
+    } catch (e) {
+      console.warn(`[design] theme derive failed (fallback to default): ${e instanceof Error ? e.message : String(e)}`);
+      return null;
+    }
   }
 
   /** 启动单页生成（门禁：plan 完整未 stale + 页归属 plan 目录 + 未定稿 + 并发去重） */
@@ -265,7 +318,7 @@ export class PrototypePagesService {
     ops.set(operationId, {
       id: operationId, projectId, pageCode, catalogVersion: pc.catalogVersion, status: 'running',
       page: pc.page, states: pc.states, anchors: pc.anchors, prd: pc.prd, ui: pc.ui,
-      catalogPages: pc.catalogPages, instruction,
+      catalogPages: pc.catalogPages, instruction, theme: pc.theme,
     });
     return { operationId, source: this.ai?.kind === 'pi' ? 'model' : 'mock' };
   }
@@ -312,7 +365,7 @@ export class PrototypePagesService {
 
   /** mock 降级：整页 mock HTML 分块吐出（结构与真接同契约，source='mock' 可辨识；穿流按钮=目录其它页面） */
   private async driveMock(op: PageGenOp, onDelta: (text: string) => void): Promise<string | null> {
-    const html = buildMockPage(op.page, op.states, op.catalogPages);
+    const html = buildMockPage(op.page, op.states, op.catalogPages, buildThemeCss(op.theme));
     for (let i = 0; i < html.length; i += 240) {
       if (op.status === 'stopped') return null;
       onDelta(html.slice(i, i + 240));
@@ -334,6 +387,7 @@ export class PrototypePagesService {
       const prompt = buildPagePrompt(
         op.page, op.states, op.anchors, op.prd, op.ui, op.instruction,
         op.catalogPages.filter((x) => x.code !== op.pageCode), // 穿流合法目标=目录其它页面
+        op.theme, // 项目定制主题实值注入（0033）：prompt 里的令牌带实色值，模型有参照不易跑偏
       ) + (attempt === 1 ? `\n\n上次输出不合规（${lastProblem}），本次务必逐条满足输出契约。` : '');
       try {
         const session = await this.ai!.createSession({ projectId: op.projectId, purpose: 'generation' });
@@ -357,8 +411,12 @@ export class PrototypePagesService {
             ...(op.attribution?.messageId !== undefined ? { messageId: op.attribution.messageId } : {}),
           }, { projectId: op.projectId, actorKind: 'assistant', actorId: 'pi' });
         }
-        const problem = validatePageHtml(res.text, op);
-        if (!problem) return ensureNavScript(ensureThemeStyle(res.text)); // NAV_SCRIPT+风格基线属系统协议层，入库前确定性补齐（幂等）
+        // 清洗优先（2026-10-18 用户复验「单页/整本把思考过程都展示出来了」）：剥文档头之前的前言
+        // （模型的规划自述/思考说明）与 </html> 之后的尾巴，校验与入库都吃清洗后的干净成品——
+        // 思考过程仍保留在生成进度流（onDelta 实时转发原文），预览只呈现文档本体
+        const cleaned = ensureDocumentOnly(res.text);
+        const problem = validatePageHtml(cleaned, op);
+        if (!problem) return ensureNavScript(ensureThemeStyle(cleaned, buildThemeCss(op.theme))); // NAV_SCRIPT+风格基线属系统协议层，入库前确定性补齐（幂等）
         lastProblem = problem;
       } catch (e) {
         const raw = e instanceof Error ? e.message : String(e);
@@ -420,7 +478,7 @@ export class PrototypePagesService {
         id: `op_pprop_${randomBytes(6).toString('hex')}`, projectId, pageCode,
         catalogVersion: pc.catalogVersion, status: 'running',
         page: pc.page, states: pc.states, anchors: pc.anchors, prd: pc.prd, ui: pc.ui,
-        catalogPages: pc.catalogPages, instruction, attribution,
+        catalogPages: pc.catalogPages, instruction, theme: pc.theme, attribution,
       };
       try {
         const out = await this.driveReal(op, () => undefined);
@@ -432,7 +490,7 @@ export class PrototypePagesService {
         return { ok: false, reason: `AI 调用失败：${sanitizeAiError(raw)}` };
       }
     } else {
-      html = ensureNavScript(buildMockPage(pc.page, pc.states, pc.catalogPages));
+      html = ensureNavScript(buildMockPage(pc.page, pc.states, pc.catalogPages, buildThemeCss(pc.theme)));
     }
     const fp = sha256(html);
     const up = await this.storage.putContentAddressed(Buffer.from(html, 'utf8'));

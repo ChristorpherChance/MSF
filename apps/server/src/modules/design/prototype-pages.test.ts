@@ -9,7 +9,9 @@ import {
   assertScopedStyles,
   buildMockPage,
   buildPagePrompt,
+  buildThemeCss,
   composePrototype,
+  ensureDocumentOnly,
   ensureNavScript,
   ensureThemeStyle,
   extractDataNavTargets,
@@ -18,6 +20,7 @@ import {
   findHiddenSectionRule,
   parseFlowStepRef,
   parseNavRef,
+  parseThemeOverrides,
   pickUiSections,
   placeholderBlock,
   wrapPageEnvelope,
@@ -143,6 +146,53 @@ describe('风格基线 PROTO_THEME_CSS（视觉一致性单源）', () => {
     expect(prompt).toContain('.btn');
     expect(prompt).toContain('禁止写死任何颜色值');
     expect(prompt).toContain('不要画产品级全局顶栏');
+  });
+});
+
+describe('项目定制主题链（0033：AI 按项目类型定制配色）', () => {
+  it('parseThemeOverrides：剥围栏取 JSON；键白名单+值形态校验（非法键值静默丢弃）', () => {
+    expect(parseThemeOverrides('```json\n{"primary":"#16a34a","hack":"x","radius":"12px","bad":"red"}\n```'))
+      .toEqual({ primary: '#16a34a', radius: '12px' });
+    expect(parseThemeOverrides('{"ink":"#1F2329"}')).toEqual({ ink: '#1F2329' }); // 大写 hex 合法
+    expect(parseThemeOverrides('随便一段没有 JSON 的话')).toEqual({});
+    expect(parseThemeOverrides('{"primary":"blue"}')).toEqual({}); // 非 hex 拒
+    expect(parseThemeOverrides('{"radius":"999px"}')).toEqual({}); // 超长圆角拒
+    expect(parseThemeOverrides('{broken json')).toEqual({});
+  });
+  it('buildThemeCss：覆盖合成最终 CSS（覆盖项用定制值，未覆盖项用默认值）', () => {
+    const cssOut = buildThemeCss({ primary: '#16a34a', 'primary-soft': '#eaf7ee' });
+    expect(cssOut).toContain('--p-primary:#16a34a;');
+    expect(cssOut).toContain('--p-accent:#7c3aed;'); // 未覆盖→默认
+    expect(cssOut).toContain('--p-font:'); // 字体固定段恒定存在
+  });
+  it('buildPagePrompt：theme 实值注入风格基线（模型有参照值），缺省走默认', () => {
+    const withTheme = buildPagePrompt(page, [st], [], '', '', '', undefined, { primary: '#16a34a' });
+    expect(withTheme).toContain('主色 var(--p-primary)（#16a34a）');
+    expect(withTheme).toContain('强调色 var(--p-accent)（#7c3aed）'); // 未覆盖项仍默认实值
+    const def = buildPagePrompt(page, [st], [], '', '', '');
+    expect(def).toContain('主色 var(--p-primary)（#2563eb）');
+  });
+  it('buildMockPage/composePrototype：主题透传（定制 primary 进产物头部）', () => {
+    const mock = buildMockPage(page, [st], [], buildThemeCss({ primary: '#16a34a' }));
+    expect(mock).toContain('--p-primary:#16a34a;');
+    const { html } = composePrototype(items, [], [], { productName: '贪吃蛇', theme: { primary: '#16a34a' } });
+    expect(html).toContain('--p-primary:#16a34a;');
+  });
+});
+
+describe('ensureDocumentOnly（思考过程清洗：入库只留文档本体）', () => {
+  it('剥首围栏+文档头之前的前言（模型规划自述不入库）', () => {
+    const dirty = '```html\n我先规划一下这个页面的结构：分三栏……\n<!doctype html><html><head></head><body>x</body></html>';
+    expect(ensureDocumentOnly(dirty)).toBe('<!doctype html><html><head></head><body>x</body></html>');
+  });
+  it('无 doctype 时以 <html 为界；</html> 之后的尾巴截掉', () => {
+    const dirty = '好的，下面给出页面：\n<html><body>x</body></html>\n以上就完成了设计，如需调整请告诉我。';
+    expect(ensureDocumentOnly(dirty)).toBe('<html><body>x</body></html>');
+  });
+  it('干净文档原样通过（幂等）；无文档头兜底=剥围栏后原文（交给下游契约校验拒收）', () => {
+    const clean = '<!doctype html><html><body>x</body></html>';
+    expect(ensureDocumentOnly(clean)).toBe(clean);
+    expect(ensureDocumentOnly('```\n纯文字无文档\n```')).toBe('纯文字无文档');
   });
 });
 

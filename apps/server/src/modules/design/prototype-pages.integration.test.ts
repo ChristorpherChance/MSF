@@ -1,7 +1,7 @@
 /** 页级原型集成测试（需 DB+MinIO；dsg_prototype_pages 补充表 + 汇总/滞后门禁/preview 分流/真接 stub，差异登记） */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { pool, query } from '../../db/pool.js';
-import { resetCommands } from '../evidence/command-bus.js';
+import { executeCommand, resetCommands } from '../evidence/command-bus.js';
 import { PolicyService } from '../policy/policy.service.js';
 import { StorageService } from '../platform/storage.service.js';
 import { AiUsageService } from '../ai/usage.service.js';
@@ -402,5 +402,20 @@ describe('PrototypePages 页级原型（集成，需 DB+MinIO）', async () => {
     // 采用即页工件更新 → 原型滞后门禁亮（页待重汇总），与 🎨 重新生成同口径
     const gc = (await proto.gates(PID, 'check')) as { issues: Array<{ code: string; target?: string }> };
     expect(gc.issues.some((i) => i.code === 'PROTOTYPE_DIRTY' && i.target === code)).toBe(true);
+  });
+
+  it('⑩ 项目主题定制落库（0033）：theme_set 首写胜出，并发/重复派生静默丢弃不覆盖', async () => {
+    const lp = await query<{ id: string }>(
+      'SELECT id FROM dsg_plans WHERE project_id=$1 ORDER BY plan_no DESC LIMIT 1', [PID]);
+    const latestPlanId = lp.rows[0]!.id;
+    const r1 = (await executeCommand('design.prototype.theme_set',
+      { projectId: PID, planId: latestPlanId, theme: { primary: '#16a34a' } }, CTX)) as { written: boolean };
+    expect(r1.written).toBe(true);
+    // 第二笔（重复派生/并发晚到）→ theme 已非 NULL → 不写入
+    const r2 = (await executeCommand('design.prototype.theme_set',
+      { projectId: PID, planId: latestPlanId, theme: { primary: '#dc2626' } }, CTX)) as { written: boolean };
+    expect(r2.written).toBe(false);
+    const row = await query<{ theme: Record<string, string> }>('SELECT theme FROM dsg_plans WHERE id=$1', [latestPlanId]);
+    expect(row.rows[0]!.theme).toEqual({ primary: '#16a34a' });
   });
 });

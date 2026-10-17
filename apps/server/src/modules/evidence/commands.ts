@@ -102,6 +102,7 @@ export const COMMANDS = [
   'design.prototype.page_generate', // 页级 UI 原型生成 upsert（单页 AI 生成→MinIO 内容寻址→索引行；AI 在命令外），差异登记
   'design.prototype.page_propose', // 对话提案登记（0032：dock design.proto.propose_page 产物 pending 行；AI 在命令外），差异登记
   'design.prototype.page_proposal_decide', // 提案处置（accept=提案提升为页工件行/discard；FOR UPDATE+门禁+审计），差异登记
+  'design.prototype.theme_set', // AI 按项目类型定制主题令牌落 plan（0033；WHERE theme IS NULL 首写胜出），差异登记
   // M3 设计域：目录人工增删（A05-13）与评审结论（A05-3）
   'design.catalog.add-item',
   'design.catalog.remove-item',

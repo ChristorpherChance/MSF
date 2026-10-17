@@ -258,7 +258,7 @@ export class PrototypeService {
    * 页滞后实时比对会亮 PROTOTYPE_DIRTY 提示重新汇总。
    */
   async generate(projectId: string, planId: string, planFingerprint: string, ctx: CommandContext) {
-    const plan = await query<{ catalog_version: string }>('SELECT catalog_version FROM dsg_plans WHERE id=$1', [planId]);
+    const plan = await query<{ catalog_version: string; theme: Record<string, string> | null }>('SELECT catalog_version, theme FROM dsg_plans WHERE id=$1', [planId]);
     if (!plan.rows[0]) throw new DomainError('NOT_FOUND', '规划不存在', planId);
     const catalogVersion = plan.rows[0].catalog_version;
     const items = await query<{ item_type: string; code: string; payload: Record<string, unknown> }>(
@@ -286,6 +286,7 @@ export class PrototypeService {
     const proj = await query<{ name: string }>('SELECT name FROM projects WHERE id=$1', [projectId]);
     const { html, manifest } = composePrototype(items.rows, assembled, warnings, {
       productName: proj.rows[0]?.name ?? '',
+      theme: plan.rows[0].theme, // 项目定制主题（0033）：整本与单页同基线
     });
     const r = (await executeCommand('design.prototype.generate',
       { projectId, planId, planFingerprint, html, manifest }, { ...ctx, projectId })) as {
