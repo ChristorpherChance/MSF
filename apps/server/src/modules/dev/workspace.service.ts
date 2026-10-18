@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
-import { join, resolve, sep } from 'node:path';
+import { join, resolve, sep, dirname } from 'node:path';
 import { promisify } from 'node:util';
 import { Injectable } from '@nestjs/common';
 import { DomainError } from '@msf/shared';
@@ -98,7 +98,12 @@ export class DevWorkspaceService {
   async npmInstall(projectId: string): Promise<{ installed: boolean; logsTail: string }> {
     const dir = this.dir(projectId);
     if (!existsSync(join(dir, 'package.json'))) return { installed: false, logsTail: 'no package.json' };
-    const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+    // npm 解析：进程 node 同目录优先（systemd/服务态 PATH 极简找不到 npm——116 实机抓到），退化 PATH
+    const localNpm = join(
+      dirname(process.execPath),
+      process.platform === 'win32' ? 'npm.cmd' : 'npm',
+    );
+    const npm = existsSync(localNpm) ? localNpm : process.platform === 'win32' ? 'npm.cmd' : 'npm';
     try {
       const { stdout, stderr } = await execFileP(
         npm, ['install', '--ignore-scripts', '--no-audit', '--no-fund'],
@@ -107,9 +112,10 @@ export class DevWorkspaceService {
       return { installed: true, logsTail: `${stdout}\n${stderr}`.slice(-2000) };
     } catch (e) {
       const err = e as { stdout?: string; stderr?: string; message?: string };
+      const tail = `${err.stdout ?? ''}\n${err.stderr ?? ''}`.trim();
       throw new DomainError(
         'SANDBOX_INFRA_FAILED',
-        `宿主依赖安装失败：${`${err.stdout ?? ''}\n${err.stderr ?? ''}`.slice(-800) || err.message}`,
+        `宿主依赖安装失败：${tail.slice(-800) || err.message || '未知'}`,
         projectId,
       );
     }
