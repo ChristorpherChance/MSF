@@ -31,7 +31,7 @@ export const APP_CONVENTIONS = `
 - 单进程自包含 Node.js 应用（CommonJS，不依赖任何需要编译的原生模块）；
 - package.json 必须含 scripts：
   "start": "node server/index.js"（服务监听 process.env.PORT || 3000，绑定 0.0.0.0）
-  "test":  "node --test tests/"（用 node 内置测试器，断言真实行为）
+  "test":  "node --test"（用 node 内置测试器自动发现 *.test.js，断言真实行为；禁写 "node --test tests/"——Node 22 把带斜杠目录参当模块解析直接炸）
   "build": "node scripts/build.js"（无构建步骤时写检查脚本：校验关键文件存在即退出 0）
 - 后端代码在 server/，前端静态资源在 public/ 并由 server 托管；
   前端调后端一律用相对路径（如 fetch('/app-api/xxx')），禁止引用任何外网 CDN/字体/图片（运行环境无出向网络）；
@@ -84,7 +84,7 @@ export function scaffoldFiles(task: { code: string; title: string; deliverables:
   const add = (path: string, content: string) => { if (!existing.has(path)) files.push({ path, content }); };
   add('package.json', JSON.stringify({
     name: 'msf-generated-app', private: true, version: '0.1.0',
-    scripts: { start: 'node server/index.js', test: 'node --test tests/', build: 'node scripts/build.js' },
+    scripts: { start: 'node server/index.js', test: 'node --test', build: 'node scripts/build.js' },
   }, null, 2) + '\n');
   add('scripts/build.js', `const { existsSync } = require('node:fs');\nfor (const f of ['server/index.js', 'public/index.html']) {\n  if (!existsSync(f)) { console.error('missing ' + f); process.exit(1); }\n}\nconsole.log('build ok');\n`);
   add('server/index.js', `const http = require('node:http');\nconst { readFile } = require('node:fs/promises');\nconst { join, extname, normalize } = require('node:path');\nconst PORT = Number(process.env.PORT || 3000);\nconst MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json' };\nhttp.createServer(async (req, res) => {\n  const url = new URL(req.url, 'http://x');\n  if (url.pathname === '/app-api/info') {\n    res.writeHead(200, { 'content-type': 'application/json' });\n    res.end(JSON.stringify({ name: 'msf-generated-app', tasks: [] }));\n    return;\n  }\n  const rel = url.pathname === '/' ? 'index.html' : normalize(url.pathname).replace(/^[\\\\/]+/, '');\n  if (rel.includes('..')) { res.writeHead(403); res.end(); return; }\n  try {\n    const buf = await readFile(join(__dirname, '..', 'public', rel));\n    res.writeHead(200, { 'content-type': MIME[extname(rel)] ?? 'application/octet-stream' });\n    res.end(buf);\n  } catch { res.writeHead(404); res.end('not found'); }\n}).listen(PORT, '0.0.0.0', () => console.log('listening :' + PORT));\n`);
