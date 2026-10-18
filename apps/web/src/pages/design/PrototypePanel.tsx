@@ -24,7 +24,8 @@ export function PrototypePanel() {
   const [proposalUrl, setProposalUrl] = useState<string | null>(null);
   const [mode, setMode] = useState<'single' | 'whole'>('single');
   const [railOpen, setRailOpen] = useState(true);
-  const [inspTab, setInspTab] = useState<'report' | 'catalog' | 'baseline' | 'trace' | null>('report');
+  // 检查器两页签（2026-10-18 拍板「收成两页签」）：handle=🛡处置台（检查报告+目录修正合一，默认）/ archive=📋档案（基线+来源审计+追溯合一）
+  const [inspTab, setInspTab] = useState<'handle' | 'archive' | null>('handle');
   const [inspFilter, setInspFilter] = useState('');
   const [uploadOpen, setUploadOpen] = useState(false);
   const [verOpen, setVerOpen] = useState(false);
@@ -297,7 +298,7 @@ export function PrototypePanel() {
         currentBaseline={currentBaseline} curVerNo={curVerNo}
         genAll={genAll} onPlan={clickPlan} onGenAll={clickGenAll}
         onViewWhole={() => setMode('whole')}
-        onViewReport={() => setInspTab('report')}
+        onViewReport={() => setInspTab('handle')}
         onOpenUpload={() => setUploadOpen(true)}
         onOpenVersions={() => setVerOpen(true)}
         onOpenTheme={() => setThemeOpen(true)}
@@ -578,8 +579,8 @@ export function PrototypePanel() {
               <>
                 <div className="insp-head">
                   <button className="insp-fold" title="收拢为图标条" onClick={() => setInspTab(null)}>⇥</button>
-                  <span>{({ report: '🛡 检查报告', catalog: '🗂 设计目录', baseline: '📌 设计基线', trace: '🔗 追溯' } as const)[inspTab]}</span>
-                  {(inspTab === 'report' || inspTab === 'catalog') && (
+                  <span>{({ handle: '🛡 处置台', archive: '📋 档案' } as const)[inspTab]}</span>
+                  {inspTab === 'handle' && (
                     <input
                       placeholder="筛选页码/关键词…"
                       value={inspFilter}
@@ -588,12 +589,15 @@ export function PrototypePanel() {
                   )}
                 </div>
                 <div className="insp-body">
-                  {inspTab === 'report' && (
-                    <ReportPanel proto={proto} q={q} actBusy={actBusy} genAll={genAll}
-                      runIssueAction={runIssueAction} markChecked={markChecked} />
+                  {inspTab === 'handle' && (
+                    <>
+                      <ReportPanel proto={proto} q={q} actBusy={actBusy} genAll={genAll}
+                        runIssueAction={runIssueAction} markChecked={markChecked} />
+                      <div className="insp-sec">🗂 设计目录（报告「页有册无」类问题在此直接补录/修订）</div>
+                      <CatalogCard filter={q} onChanged={() => void refreshProto()} />
+                    </>
                   )}
-                  {inspTab === 'catalog' && <CatalogCard filter={q} onChanged={() => void refreshProto()} />}
-                  {inspTab === 'baseline' && (
+                  {inspTab === 'archive' && (
                     <>
                       {currentBaseline && (
                         <div className="req-banner ok" data-testid="prototype-baseline-current" style={{ margin: '0 0 8px' }}>
@@ -603,15 +607,14 @@ export function PrototypePanel() {
                       )}
                       <BaselineCard items={baselines.items} reload={baselines.reload} />
                       <SourceAuditCard />
+                      <div className="insp-sec">🔗 追溯（当前页）</div>
+                      <TraceDetails
+                        page={selCatalogPage}
+                        flows={(catalog?.groups.flow ?? []) as CatalogGroup[]}
+                        proto={proto}
+                        baselineCode={currentBaseline?.code ?? null}
+                      />
                     </>
-                  )}
-                  {inspTab === 'trace' && (
-                    <TraceDetails
-                      page={selCatalogPage}
-                      flows={(catalog?.groups.flow ?? []) as CatalogGroup[]}
-                      proto={proto}
-                      baselineCode={currentBaseline?.code ?? null}
-                    />
                   )}
                 </div>
               </>
@@ -619,25 +622,15 @@ export function PrototypePanel() {
           </div>
           <div className="insp-tabs">
             <button
-              className={`insp-tab${inspTab === 'report' ? ' on' : ''}`}
-              title="检查报告"
-              onClick={() => setInspTab(inspTab === 'report' ? null : 'report')}
+              className={`insp-tab${inspTab === 'handle' ? ' on' : ''}`}
+              title="处置台：检查报告 + 目录修正"
+              onClick={() => setInspTab(inspTab === 'handle' ? null : 'handle')}
             >🛡{issueN > 0 && <span className="bdg">{issueN}</span>}</button>
             <button
-              className={`insp-tab${inspTab === 'catalog' ? ' on' : ''}`}
-              title="设计目录"
-              onClick={() => setInspTab(inspTab === 'catalog' ? null : 'catalog')}
-            >🗂</button>
-            <button
-              className={`insp-tab${inspTab === 'baseline' ? ' on' : ''}`}
-              title="设计基线"
-              onClick={() => setInspTab(inspTab === 'baseline' ? null : 'baseline')}
-            >📌</button>
-            <button
-              className={`insp-tab${inspTab === 'trace' ? ' on' : ''}`}
-              title="追溯（当前页）"
-              onClick={() => setInspTab(inspTab === 'trace' ? null : 'trace')}
-            >🔗</button>
+              className={`insp-tab${inspTab === 'archive' ? ' on' : ''}`}
+              title="档案：基线 / 来源审计 / 追溯"
+              onClick={() => setInspTab(inspTab === 'archive' ? null : 'archive')}
+            >📋</button>
           </div>
         </div>
       </div>
@@ -660,7 +653,7 @@ export function PrototypePanel() {
               有变化时产生新目录版本，依据旧目录的待处置提案将失效。
             </p>
             <div className="modal-ops">
-              <button className="act" onClick={() => { setConfirmPlan(false); setInspTab('catalog'); }}>查看目录</button>
+              <button className="act" onClick={() => { setConfirmPlan(false); setInspTab('handle'); }}>查看目录</button>
               <button className="act primary" disabled={busyLabel !== null} onClick={() => { setConfirmPlan(false); doPlan(); }}>重新规划</button>
             </div>
           </div>
