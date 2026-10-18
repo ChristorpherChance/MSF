@@ -61,7 +61,18 @@ export const NAV_SCRIPT = `<script>
 (function(){
   // T7 Minor：手工上传 HTML 的 data-nav 值可能含非法转义（如百分号后非十六进制）——decode 抛错会打断整个点击委托，包 try/catch 回落原串
   function dec(s){try{return decodeURIComponent(s);}catch(e){return s;}}
+  // 场景首页（0034 汇总壳重构）：有 [data-shell-index] 时 hash 为空=显示场景索引，隐藏全部页块
+  function showHome(){
+    var ix=document.querySelector('[data-shell-index]');
+    if(!ix)return; // 单页预览/无流程旧产物无索引——no-op 防白屏
+    document.querySelectorAll('[data-page-block]').forEach(function(b){b.style.display='none';});
+    document.querySelectorAll('section[data-page]').forEach(function(s){s.style.display='none';});
+    ix.style.display='';
+    document.querySelectorAll('[data-shell-nav]').forEach(function(a){a.classList.remove('on');});
+    var cr=document.querySelector('[data-shell-crumb]');if(cr)cr.textContent='场景首页';
+  }
   function show(pageId,stateId){
+    var ix=document.querySelector('[data-shell-index]');if(ix)ix.style.display='none';
     document.querySelectorAll('[data-page-block]').forEach(function(b){b.style.display=b.getAttribute('data-page-block')===pageId?'':'none';});
     document.querySelectorAll('section[data-page]').forEach(function(s){
       s.style.display=(s.getAttribute('data-page')===pageId&&(!stateId||s.getAttribute('data-state')===stateId))?'':'none';
@@ -83,6 +94,11 @@ export const NAV_SCRIPT = `<script>
   window.prototypeNavigate=show;
   window.addEventListener('message',function(e){var d=e.data||{};if(d.type==='v19-prototype-select')show(d.pageId,d.stateId);});
   document.addEventListener('click',function(e){
+    // 壳层控件先行（0034）：🏠 回场景首页 / ☰ 左导航收展——单页预览无此元素自动 no-op
+    var hm=e.target&&e.target.closest?e.target.closest('[data-shell-home]'):null;
+    if(hm){e.preventDefault();if(location.hash){location.hash='';}else{showHome();}return;}
+    var tg=e.target&&e.target.closest?e.target.closest('[data-shell-toggle]'):null;
+    if(tg){e.preventDefault();document.body.classList.toggle('nav-on');return;}
     var n=e.target&&e.target.closest?e.target.closest('[data-nav]'):null;
     if(n){
       e.preventDefault();
@@ -104,10 +120,12 @@ export const NAV_SCRIPT = `<script>
   });
   function fromHash(){
     var h=(location.hash||'').replace(/^#/,'').split('/');
-    if(h[0])show(decodeURIComponent(h[0]),h[1]?decodeURIComponent(h[1]):null);
+    if(h[0]){show(decodeURIComponent(h[0]),h[1]?decodeURIComponent(h[1]):null);}
+    else{showHome();}
   }
   window.addEventListener('hashchange',fromHash);
   if(location.hash){fromHash();}
+  else if(document.querySelector('[data-shell-index]')){showHome();}
   else{
     var b=document.querySelector('[data-page-block]');
     var s=document.querySelector('section[data-page]');
@@ -125,12 +143,44 @@ export function ensureNavScript(html: string): string {
 
 /** 风格基线补齐（幂等）：模型产物缺主题令牌时注入主题 CSS——单页预览（无汇总壳）也有统一视觉。
  *  在 </head> 前插入，不与 msf:style 标记段混淆（extractPageParts 只取标记段，汇总不重复携带）。
- *  themeCss=项目定制主题（buildThemeCss(plan.theme)），缺省默认蓝系。 */
+ *  themeCss=项目定制主题（buildThemeCss(plan.theme)），缺省默认蓝系。
+ *  0034：主题块带 data-msf-theme 标记（换肤精确定位锚）；幂等判据=标记或令牌定义串「--p-primary:」
+ *  （含冒号=定义；模型页 CSS 里的 var(--p-primary) 引用不算——2026-10-18 抓修：引用阻注入的边缘）。 */
 export function ensureThemeStyle(html: string, themeCss: string = PROTO_THEME_CSS): string {
-  if (html.includes('--p-primary')) return html;
-  const tag = `<style>${themeCss}</style>`;
+  if (html.includes('data-msf-theme') || html.includes('--p-primary:')) return html;
+  const tag = `<style data-msf-theme>${themeCss}</style>`;
   const i = html.indexOf('</head>');
   return i >= 0 ? `${html.slice(0, i)}${tag}\n${html.slice(i)}` : `${tag}\n${html}`;
+}
+
+/**
+ * 换肤（0034 主题方案库「换方案不重写内容」）：页 HTML 主题令牌换成新主题 CSS，页面自身
+ * 样式段（msf:style 标记内）与正文不动。三路定位：
+ *  ① data-msf-theme 标记块（0034 起系统注入）→ 整块精确替换；
+ *  ② 令牌定义在页样式标记段内（模型自定 :root）→ 不拆段，</head> 前追加覆盖块（CSS 层叠后者胜）；
+ *  ③ 0033 期无标记系统块（plain &lt;style&gt;，标记段外）→ 整块替换并补标记（收敛到 ①）。
+ * 找不到任何令牌定义 → 等价 ensureThemeStyle 注入。幂等：同主题重复换肤结果相同。
+ */
+export function replaceThemeStyle(html: string, themeCss: string): string {
+  const tag = `<style data-msf-theme>${themeCss}</style>`;
+  const mk = html.indexOf('<style data-msf-theme>');
+  if (mk >= 0) {
+    const close = html.indexOf('</style>', mk);
+    if (close < 0) return html; // 结构异常不改写（宁留旧肤不破坏文档）
+    return `${html.slice(0, mk)}${tag}${html.slice(close + '</style>'.length)}`;
+  }
+  const key = html.indexOf('--p-primary:');
+  if (key < 0) return ensureThemeStyle(html, themeCss);
+  const sb = html.indexOf(MARK.styleBegin);
+  const se = html.indexOf(MARK.styleEnd);
+  if (sb >= 0 && se > sb && key > sb && key < se) {
+    const h = html.indexOf('</head>');
+    return h >= 0 ? `${html.slice(0, h)}${tag}\n${html.slice(h)}` : `${html}\n${tag}`;
+  }
+  const open = html.lastIndexOf('<style>', key);
+  const close = html.indexOf('</style>', key);
+  if (open < 0 || close < 0) return html;
+  return `${html.slice(0, open)}${tag}${html.slice(close + '</style>'.length)}`;
 }
 
 /**
@@ -211,22 +261,50 @@ table.tbl td{padding:9px 10px;border-bottom:1px solid var(--p-line);}
 /** 默认主题（无定制覆盖时的完整 CSS；兼容旧引用点） */
 export const PROTO_THEME_CSS = buildThemeCss();
 
-/** AI 主题定制输出解析：剥围栏→取首个 JSON 对象→键白名单+值形态校验（hex 色/px 圆角），非法键值静默丢弃 */
-export function parseThemeOverrides(text: string): Record<string, string> {
-  const m = text.replace(/```(?:json)?/gi, '').match(/\{[\s\S]*\}/);
-  if (!m) return {};
-  let raw: unknown;
-  try { raw = JSON.parse(m[0]); } catch { return {}; }
-  if (typeof raw !== 'object' || raw === null) return {};
+/** 主题令牌覆盖白名单校验（单一校验源）：键限 PROTO_THEME_TOKENS，颜色 6 位 hex、radius px 值；非法键值静默丢弃 */
+export function sanitizeThemeTokens(input: unknown): Record<string, string> {
+  if (typeof input !== 'object' || input === null) return {};
   const allowed = new Set(PROTO_THEME_TOKENS.map(([k]) => k));
   const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+  for (const [k, v] of Object.entries(input as Record<string, unknown>)) {
     if (!allowed.has(k) || typeof v !== 'string') continue;
     const val = v.trim();
     if (k === 'radius' ? /^\d{1,2}px$/.test(val) : /^#[0-9a-fA-F]{6}$/.test(val)) out[k] = val;
   }
   return out;
 }
+
+/** AI 主题定制输出解析：剥围栏→取首个 JSON 对象→ sanitizeThemeTokens 白名单校验 */
+export function parseThemeOverrides(text: string): Record<string, string> {
+  const m = text.replace(/```(?:json)?/gi, '').match(/\{[\s\S]*\}/);
+  if (!m) return {};
+  let raw: unknown;
+  try { raw = JSON.parse(m[0]); } catch { return {}; }
+  return sanitizeThemeTokens(raw);
+}
+
+/**
+ * 内置主题方案库（0034，用户拍板「多套基础默认选项+可自定义」）：代码基线不入库（同 doc-templates 哲学），
+ * 自定义方案存 proto_themes 表。id 形态：builtin:*=内置（不可改删）；'ai'=AI 按项目定制（0033 懒派生）；
+ * uuid=自定义。plan.theme_id NULL 兼容旧数据=AI 懒派生。
+ */
+export const AI_THEME_ID = 'ai';
+export interface ProtoThemePreset { id: string; name: string; desc: string; tokens: Record<string, string> }
+export const PROTO_THEME_PRESETS: ReadonlyArray<ProtoThemePreset> = [
+  { id: 'builtin:default', name: '科技蓝（默认）', desc: '清爽通用的蓝色系，适合大多数工具/企业产品', tokens: {} },
+  { id: 'builtin:orange', name: '活力橙', desc: '暖色高能量，适合运营/电商/活动类产品', tokens: { primary: '#ea580c', 'primary-soft': '#fff1e7', accent: '#f59e0b', radius: '12px' } },
+  { id: 'builtin:violet', name: '游戏紫', desc: '活泼撞色+大圆角，适合游戏/娱乐/年轻向产品', tokens: { primary: '#6d28d9', 'primary-soft': '#f3efff', accent: '#f59e0b', radius: '16px' } },
+  {
+    id: 'builtin:dark', name: '深色模式', desc: '暗底高对比，适合开发者工具/夜间场景',
+    tokens: {
+      bg: '#14171c', surface: '#1e222a', ink: '#e8eaee', ink2: '#9aa3af', line: '#333a45',
+      primary: '#5b8def', 'primary-soft': '#26314a', accent: '#a78bfa',
+      ok: '#34d399', 'ok-soft': '#14342a', warn: '#fbbf24', 'warn-soft': '#3a2f14',
+      danger: '#f87171', 'danger-soft': '#3d1d1d',
+    },
+  },
+  { id: 'builtin:mono', name: '极简灰', desc: '克制中性+小圆角，适合文档/政务/严肃场景', tokens: { primary: '#374151', 'primary-soft': '#f3f4f6', accent: '#6b7280', radius: '4px' } },
+];
 
 /** AI 主题定制 prompt（一次性小调用；输出严格 JSON 令牌覆盖） */
 export function buildThemePrompt(projectName: string, prdExcerpt: string): string {
@@ -250,7 +328,7 @@ export function buildThemePrompt(projectName: string, prdExcerpt: string): strin
  *  themeCss=项目定制主题（缺省默认）。 */
 export function wrapPageEnvelope(code: string, title: string, styleCss: string, bodyHtml: string, scriptJs: string, themeCss: string = PROTO_THEME_CSS): string {
   return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title>
-<style>${themeCss}</style>
+<style data-msf-theme>${themeCss}</style>
 ${MARK.styleBegin}<style>${styleCss}</style>${MARK.styleEnd}
 </head><body>
 ${MARK.bodyBegin}${bodyHtml}${MARK.bodyEnd}
@@ -554,58 +632,91 @@ export interface PrototypeManifest {
   warnings?: string[];
 }
 
-/** 流程视图（覆盖检测 §3）：每 flow 一条步骤条。新格式步骤（页面/状态引用 P-xxx[/ST-xxx]）渲染为
+/** 单条流程卡片（场景索引/左导航共用渲染核）：新格式步骤（页面/状态引用 P-xxx[/ST-xxx]）渲染为
  *  data-nav 可点跳转（点击跳对应 hash）；目标页/状态不在目录时降级纯文本（不穿流，check 侧报
  *  FLOW_REF_MISSING）；旧格式 steps（REQ 章节标题字符串）渲染纯文本步骤——兼容口径。 */
-function renderFlowView(flows: CatalogItemLike[], pageItems: CatalogItemLike[], stateItems: CatalogItemLike[]): string {
+function renderFlowCard(f: CatalogItemLike, pageByCode: ReadonlyMap<string, CatalogItemLike>, stateByCode: ReadonlyMap<string, CatalogItemLike>): string {
+  const steps = (f.payload.steps as string[] | undefined) ?? [];
+  const lis = steps.map((s) => {
+    const ref = parseFlowStepRef(s);
+    const target = ref ? pageByCode.get(ref.page) : undefined;
+    const stateOk = !ref?.state || stateByCode.has(ref.state);
+    if (!ref || !target || !stateOk) return `<li class="msf-flow-step">${esc(s)}</li>`;
+    const stTitle = ref.state ? ((stateByCode.get(ref.state)?.payload.title as string | undefined) ?? ref.state) : '';
+    const label = `${esc((target.payload.title as string) ?? ref.page)}${stTitle ? ` · ${esc(stTitle)}` : ''}`;
+    const hash = `#${ref.page}${ref.state ? `/${ref.state}` : ''}`;
+    return `<li class="msf-flow-step"><a href="${hash}" data-nav="${hash}">${label}</a></li>`;
+  }).join('');
+  return `<div class="msf-flow" data-flow="${esc(f.code)}"><h3>${esc((f.payload.title as string) ?? f.code)}<span class="msf-flow-code">${esc(f.code)}</span></h3><ol>${lis}</ol></div>`;
+}
+
+/**
+ * 场景索引页（0034 汇总壳重构，用户拍板「汇总=①场景流程清单可跳单页 + ②像真实产品的可交互原型」）：
+ * 整本默认落页——列出全部使用场景（flow）卡片，步骤可点跳对应单页；尾部附全部页面直达网格。
+ * data-shell-index 由 NAV_SCRIPT 接管显隐（hash 空=显示索引；跳页=隐藏）。仅目录含 flow 条目时产出。
+ */
+function renderScenarioIndex(flows: CatalogItemLike[], pageItems: CatalogItemLike[], stateItems: CatalogItemLike[], product: string): string {
   const pageByCode = new Map(pageItems.map((p) => [p.code, p]));
   const stateByCode = new Map(stateItems.map((s) => [s.code, s]));
-  const blocks = flows.map((f) => {
-    const steps = (f.payload.steps as string[] | undefined) ?? [];
-    const lis = steps.map((s) => {
-      const ref = parseFlowStepRef(s);
-      const target = ref ? pageByCode.get(ref.page) : undefined;
-      const stateOk = !ref?.state || stateByCode.has(ref.state);
-      if (!ref || !target || !stateOk) return `<li class="msf-flow-step">${esc(s)}</li>`;
-      const stTitle = ref.state ? ((stateByCode.get(ref.state)?.payload.title as string | undefined) ?? ref.state) : '';
-      const label = `${esc((target.payload.title as string) ?? ref.page)}${stTitle ? ` · ${esc(stTitle)}` : ''}`;
-      const hash = `#${ref.page}${ref.state ? `/${ref.state}` : ''}`;
-      return `<li class="msf-flow-step"><a href="${hash}" data-nav="${hash}">${label}</a></li>`;
-    }).join('');
-    return `<div class="msf-flow" data-flow="${esc(f.code)}"><h3>${esc((f.payload.title as string) ?? f.code)}<span class="msf-flow-code">${esc(f.code)}</span></h3><ol>${lis}</ol></div>`;
-  }).join('\n');
-  return `<section id="msf-flows"><h2>流程</h2>\n${blocks}\n</section>`;
+  const cards = flows.map((f) => renderFlowCard(f, pageByCode, stateByCode)).join('\n');
+  const pageLinks = pageItems.map((p) =>
+    `<a class="msf-pglink" href="#${esc(p.code)}" data-nav="#${esc(p.code)}"><span class="c">${esc(p.code)}</span>${esc((p.payload.title as string) ?? p.code)}</a>`,
+  ).join('\n');
+  return `<div class="msf-index" data-shell-index style="display:none">
+  <h1>${esc(product)} · 使用场景</h1>
+  <p class="msf-index-tip">选择一个场景进入：步骤可点击跳到对应页面，页内按钮可像真实产品一样继续操作（数据全部为模拟）。</p>
+  <section id="msf-flows" class="msf-scenarios">
+${cards}
+  </section>
+  <h2 class="msf-index-h2">全部页面</h2>
+  <div class="msf-pagegrid">
+${pageLinks}
+  </div>
+</div>`;
 }
 
 /**
  * 汇总壳样式（2026-10-17 真·可交互原型壳：顶栏 品牌+面包屑 / 左侧导航 页面+流程分组 / 内容区；
- * 配色字体全走风格基线令牌，与单页产物同基线——「汇总=页块堆叠」根修）。
- * 壳交互由 NAV_SCRIPT 壳同步段接管（[data-shell-nav] 高亮 + [data-shell-crumb] 面包屑）。
+ * 配色字体全走风格基线令牌，与单页产物同基线——「汇总=页块堆叠」根修。
+ * 2026-10-18 重构（0034）：左导航默认收拢（body.nav-on 展开，顶栏 ☰ 切换——产品级形态：系统导航退位，
+ * 页内按钮即主导航）；场景索引页样式（msf-index 卡片+页面网格）。
+ * 壳交互由 NAV_SCRIPT 壳同步段接管（[data-shell-nav] 高亮 + [data-shell-crumb] 面包屑 + [data-shell-home/toggle]）。
  */
 const SHELL_CSS = '.msf-shell{display:flex;flex-direction:column;height:100vh}'
   + '.msf-top{height:48px;flex:none;display:flex;align-items:center;gap:12px;background:var(--p-surface);border-bottom:1px solid var(--p-line);padding:0 16px}'
+  + '.msf-navtoggle{border:1px solid var(--p-line);background:var(--p-surface);border-radius:8px;padding:4px 10px;font-size:14px;cursor:pointer;color:var(--p-ink)}'
+  + '.msf-navtoggle:hover{border-color:var(--p-primary);color:var(--p-primary)}'
   + '.msf-brand{font-weight:700;font-size:15px;color:var(--p-ink)}'
   + '.msf-crumb{color:var(--p-ink2);font-size:12.5px}'
   + '.msf-body{flex:1;display:flex;min-height:0}'
-  + '.msf-sidenav{width:208px;flex:none;background:var(--p-surface);border-right:1px solid var(--p-line);padding:10px 8px;overflow-y:auto}'
+  + '.msf-sidenav{display:none;width:208px;flex:none;background:var(--p-surface);border-right:1px solid var(--p-line);padding:10px 8px;overflow-y:auto}'
+  + 'body.nav-on .msf-sidenav{display:block}'
   + '.msf-grp{font-size:11px;color:var(--p-ink2);padding:8px 8px 4px;letter-spacing:.05em}'
   + '.msf-sidenav a{display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;color:var(--p-ink);text-decoration:none;font-size:13px;border-left:2px solid transparent}'
   + '.msf-sidenav a:hover{background:var(--p-bg)}'
   + '.msf-sidenav a.on{background:var(--p-primary-soft);border-left-color:var(--p-primary);color:var(--p-primary);font-weight:600}'
   + '.msf-sidenav a .c{font-family:ui-monospace,monospace;font-size:10.5px;color:var(--p-ink2);flex:none}'
   + '.msf-content{flex:1;overflow-y:auto;padding:18px 22px;min-width:0}';
-/** 流程视图样式（仅目录含 flow 条目时进汇总头部——无 flow 旧目录产物零痕迹；令牌化） */
-const COMPOSED_FLOW_STYLE = '#msf-flows{margin:0 0 16px;padding:10px 14px;border:1px solid var(--p-line);border-radius:var(--p-radius);background:var(--p-surface)}'
-  + '#msf-flows h2{font-size:14px;margin:0 0 8px;color:var(--p-ink)}'
-  + '.msf-flow{margin-bottom:8px}.msf-flow:last-child{margin-bottom:0}'
-  + '.msf-flow h3{font-size:13px;margin:0 0 4px;color:var(--p-ink)}.msf-flow-code{color:var(--p-ink2);font-size:11px;margin-left:6px}'
+/** 场景索引页样式（0034；仅目录含 flow 条目时进汇总——无 flow 旧目录产物零痕迹；令牌化） */
+const COMPOSED_FLOW_STYLE = '.msf-index h1{font-size:20px;margin:4px 0 6px;color:var(--p-ink)}'
+  + '.msf-index-tip{color:var(--p-ink2);font-size:13px;margin:0 0 16px}'
+  + '.msf-index-h2{font-size:14px;margin:20px 0 8px;color:var(--p-ink)}'
+  + '.msf-scenarios{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px}'
+  + '.msf-flow{border:1px solid var(--p-line);border-radius:var(--p-radius);background:var(--p-surface);padding:12px 16px}'
+  + '.msf-flow h3{font-size:14px;margin:0 0 8px;color:var(--p-ink)}.msf-flow-code{color:var(--p-ink2);font-size:11px;margin-left:6px}'
   + '.msf-flow ol{display:flex;flex-wrap:wrap;gap:6px;list-style:none;margin:0;padding:0}'
   + '.msf-flow-step{background:var(--p-bg);border:1px solid var(--p-line);border-radius:999px;padding:2px 10px;font-size:12.5px;color:var(--p-ink2)}'
-  + '.msf-flow-step a{color:var(--p-primary);text-decoration:none}';
+  + '.msf-flow-step a{color:var(--p-primary);text-decoration:none}'
+  + '.msf-pagegrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px}'
+  + '.msf-pglink{display:flex;align-items:center;gap:8px;border:1px solid var(--p-line);border-radius:var(--p-radius);background:var(--p-surface);padding:10px 12px;color:var(--p-ink);text-decoration:none;font-size:13px}'
+  + '.msf-pglink:hover{border-color:var(--p-primary);color:var(--p-primary)}'
+  + '.msf-pglink .c{font-family:ui-monospace,monospace;font-size:10.5px;color:var(--p-ink2);flex:none}';
 
 /**
  * 汇总拼装：目录 page×state 全集 → 已生成页内嵌 envelope 段、未生成页回落占位块；
- * 统一应用壳（顶栏+左侧页面/流程导航+内容区）+ 风格基线头 + flow 条目渲染流程视图（覆盖检测 §3）。
+ * 统一应用壳（顶栏 ☰导航收展+品牌+面包屑 / 左侧导航默认收拢 / 内容区）+ 风格基线头。
+ * 0034 重构（用户拍板汇总双定位）：目录含 flow 时产「场景索引页」为整本默认落页
+ * （场景清单点步骤跳单页 → 页内按钮像真实产品一样继续操作）；无 flow 时保持首页面直落。
  * 产物保留全部 data-page-block/data-page/data-state 静态标记 → checkPrototype/定稿/基线零改动。
  */
 export function composePrototype(
@@ -628,6 +739,7 @@ export function composePrototype(
     .filter((s) => s.replace(/<\/?script>/g, '').trim().length > 4)
     .join('\n');
   const titleOf = (p: CatalogItemLike) => (p.payload.title as string) ?? p.code;
+  const hasFlows = flowItems.length > 0;
   const navLinks = pageItems.map((p) =>
     `<a href="#${esc(p.code)}" data-shell-nav="${esc(p.code)}" data-title="${esc(titleOf(p))}"><span class="c">${esc(p.code)}</span>${esc(titleOf(p))}</a>`,
   ).join('\n      ');
@@ -638,21 +750,21 @@ export function composePrototype(
     const target = firstRef?.page ?? pageItems[0]?.code ?? '';
     return `<a href="#${esc(target)}"><span class="c">${esc(f.code)}</span>${esc((f.payload.title as string) ?? f.code)}</a>`;
   }).join('\n      ');
-  const flowView = flowItems.length > 0 ? renderFlowView(flowItems, pageItems, stateItems) : '';
   const product = opts.productName?.trim() || '项目';
+  const indexView = hasFlows ? renderScenarioIndex(flowItems, pageItems, stateItems, product) : '';
   const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(product)} · 可交互原型</title>
-<style>${buildThemeCss(opts.theme)}\n${SHELL_CSS}${flowView ? `\n${COMPOSED_FLOW_STYLE}` : ''}</style></head>
+<style>${buildThemeCss(opts.theme)}\n${SHELL_CSS}${indexView ? `\n${COMPOSED_FLOW_STYLE}` : ''}</style></head>
 <body data-prototype="msf">
 <div class="msf-shell">
-  <header class="msf-top"><span class="msf-brand">${esc(product)}</span><span class="msf-crumb" data-shell-crumb>${esc(pageItems[0] ? titleOf(pageItems[0]) : '')}</span></header>
+  <header class="msf-top"><button class="msf-navtoggle" type="button" data-shell-toggle title="展开/收拢页面导航">☰</button><span class="msf-brand">${esc(product)}</span><span class="msf-crumb" data-shell-crumb>${esc(hasFlows ? '场景首页' : (pageItems[0] ? titleOf(pageItems[0]) : ''))}</span></header>
   <div class="msf-body">
     <nav class="msf-sidenav">
-      <div class="msf-grp">页面</div>
+      ${hasFlows ? '<a href="#" data-shell-home><span class="c">🏠</span>场景首页</a>\n      ' : ''}<div class="msf-grp">页面</div>
       ${navLinks}
-      ${flowItems.length > 0 ? `<div class="msf-grp">流程</div>\n      ${flowLinks}` : ''}
+      ${hasFlows ? `<div class="msf-grp">流程</div>\n      ${flowLinks}` : ''}
     </nav>
     <main class="msf-content">
-${flowView}
+${indexView}
 ${blocks}
     </main>
   </div>

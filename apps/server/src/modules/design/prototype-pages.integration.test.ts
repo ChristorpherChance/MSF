@@ -11,7 +11,8 @@ import { DesignDocsService } from './docs.service.js';
 import { CatalogService } from './catalog.service.js';
 import { PrototypeService } from './prototype.service.js';
 import { PrototypePagesService } from './prototype-pages.service.js';
-import { wrapPageEnvelope } from './prototype-pages.js';
+import { ProtoThemesService } from './proto-themes.service.js';
+import { buildThemeCss, wrapPageEnvelope } from './prototype-pages.js';
 
 // fb：与 test.integration.test.ts 的 f4 撞车隔离（共享 PID 并发跑全量套件互踩，单跑均绿）
 const PID = '00000000-0000-0000-0000-0000000000fb';
@@ -62,6 +63,7 @@ describe('PrototypePages 页级原型（集成，需 DB+MinIO）', async () => {
   const storage = new StorageService();
   const proto = new PrototypeService(docs, catalog, storage, policy);
   const pages = new PrototypePagesService(docs, storage); // 无 AI_PROVIDER → mock 降级
+  const themes = new ProtoThemesService();
   const usage = new AiUsageService();
   resetCommands();
   reqDocs.onModuleInit();
@@ -69,6 +71,7 @@ describe('PrototypePages 页级原型（集成，需 DB+MinIO）', async () => {
   catalog.onModuleInit();
   proto.onModuleInit();
   pages.onModuleInit();
+  themes.onModuleInit();
   usage.onModuleInit();
 
   let planId = '';
@@ -105,6 +108,7 @@ describe('PrototypePages 页级原型（集成，需 DB+MinIO）', async () => {
   afterAll(async () => {
     await query('DELETE FROM ai_usage WHERE project_id=$1', [PID]);
     await query('DELETE FROM ai_models WHERE id=$1', [MODEL_ID]);
+    await query("DELETE FROM proto_themes WHERE name LIKE 'it-theme-%'", []);
     await query('DELETE FROM dsg_prototype_pages WHERE project_id=$1', [PID]);
     await query('DELETE FROM dsg_proto_page_proposals WHERE project_id=$1', [PID]);
     await query('DELETE FROM dsg_catalog_refs WHERE item_id IN (SELECT id FROM dsg_catalog_items WHERE project_id=$1)', [PID]);
@@ -415,7 +419,67 @@ describe('PrototypePages 页级原型（集成，需 DB+MinIO）', async () => {
     const r2 = (await executeCommand('design.prototype.theme_set',
       { projectId: PID, planId: latestPlanId, theme: { primary: '#dc2626' } }, CTX)) as { written: boolean };
     expect(r2.written).toBe(false);
-    const row = await query<{ theme: Record<string, string> }>('SELECT theme FROM dsg_plans WHERE id=$1', [latestPlanId]);
+    const row = await query<{ theme: Record<string, string>; theme_id: string }>('SELECT theme, theme_id FROM dsg_plans WHERE id=$1', [latestPlanId]);
     expect(row.rows[0]!.theme).toEqual({ primary: '#16a34a' });
+    expect(row.rows[0]!.theme_id).toBe('ai'); // 0034：懒派生标记来源
+  });
+
+  it('⑪ 主题方案库 CRUD（0034）：内置+AI 恒在；自定义增改删；内置不可改删/不可同名；重名拒', async () => {
+    const l0 = await themes.list();
+    expect(l0.items[0]!.id).toBe('ai');
+    expect(l0.items.filter((x) => x.id.startsWith('builtin:')).length).toBe(5);
+    // 新建自定义（非法令牌被滤）
+    const c = await themes.create({ name: 'it-theme-暖阳', tokens: { primary: '#ea580c', hack: 'x' } as Record<string, string> }, CTX);
+    const l1 = await themes.list();
+    const mine = l1.items.find((x) => x.id === c.themeId);
+    expect(mine).toMatchObject({ name: 'it-theme-暖阳', builtin: false, tokens: { primary: '#ea580c' } });
+    // 重名拒 / 与内置同名拒 / 空名拒
+    await expect(themes.create({ name: 'it-theme-暖阳', tokens: {} }, CTX)).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+    await expect(themes.create({ name: '科技蓝（默认）', tokens: {} }, CTX)).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+    await expect(themes.create({ name: ' ', tokens: {} }, CTX)).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+    // 内置不可改删
+    await expect(themes.update('builtin:violet', { name: 'x', tokens: {} }, CTX)).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+    await expect(themes.remove('builtin:violet', CTX)).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+    await expect(themes.remove('ai', CTX)).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+    // 自定义可改可删
+    await themes.update(c.themeId, { name: 'it-theme-暖阳2', tokens: { primary: '#ea580c', radius: '14px' } }, CTX);
+    const l2 = await themes.list();
+    expect(l2.items.find((x) => x.id === c.themeId)).toMatchObject({ name: 'it-theme-暖阳2', tokens: { primary: '#ea580c', radius: '14px' } });
+    await themes.remove(c.themeId, CTX);
+    expect((await themes.list()).items.some((x) => x.id === c.themeId)).toBe(false);
+    await expect(themes.remove(c.themeId, CTX)).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+
+  it('⑫ 换肤链（0034）：applyTheme 覆盖写 plan.theme_id/theme + 全页主题段重合成（内容不动）；之后 AI 懒派生不再覆盖人工选择', async () => {
+    const lp = await query<{ id: string; catalog_version: string }>(
+      'SELECT id, catalog_version FROM dsg_plans WHERE project_id=$1 ORDER BY plan_no DESC LIMIT 1', [PID]);
+    const latestPlan = lp.rows[0]!;
+    // 取一个已生成页记录换肤前指纹
+    const before = await query<{ page_code: string; html_fingerprint: string }>(
+      'SELECT page_code, html_fingerprint FROM dsg_prototype_pages WHERE project_id=$1 ORDER BY page_code', [PID]);
+    expect(before.rows.length).toBeGreaterThan(0);
+    const r = await pages.applyTheme(PID, 'builtin:violet', CTX);
+    expect(r).toMatchObject({ themeId: 'builtin:violet', name: '游戏紫', reskinned: before.rows.length });
+    // plan 覆盖写（⑩ 的 AI 派生主题被人工选择覆盖）
+    const planRow = await query<{ theme: Record<string, string>; theme_id: string }>(
+      'SELECT theme, theme_id FROM dsg_plans WHERE id=$1', [latestPlan.id]);
+    expect(planRow.rows[0]!.theme_id).toBe('builtin:violet');
+    expect(planRow.rows[0]!.theme).toMatchObject({ primary: '#6d28d9' });
+    // 页工件换肤：指纹变化 + 新对象含新主色 + 正文保留（data-page-block 在）
+    const after = await query<{ page_code: string; object_key: string; html_fingerprint: string }>(
+      'SELECT page_code, object_key, html_fingerprint FROM dsg_prototype_pages WHERE project_id=$1 ORDER BY page_code', [PID]);
+    expect(after.rows[0]!.html_fingerprint).not.toBe(before.rows[0]!.html_fingerprint);
+    const html = (await storage.getObject(after.rows[0]!.object_key)).toString('utf8');
+    expect(html).toContain(buildThemeCss({ primary: '#6d28d9' }).slice(0, 40));
+    expect(html).toContain('data-page-block');
+    // AI 懒派生不再覆盖人工选择（theme 非空 → theme_set no-op）
+    const w = (await executeCommand('design.prototype.theme_set',
+      { projectId: PID, planId: latestPlan.id, theme: { primary: '#000000' } }, CTX)) as { written: boolean };
+    expect(w.written).toBe(false);
+    // 换肤后页指纹偏离汇总清单 → 原型滞后门禁亮（待重汇总）
+    const gc = (await proto.gates(PID, 'check')) as { issues: Array<{ code: string }> };
+    expect(gc.issues.some((i) => i.code === 'PROTOTYPE_DIRTY')).toBe(true);
+    // 不存在方案 → NOT_FOUND
+    await expect(pages.applyTheme(PID, 'builtin:nope', CTX)).rejects.toMatchObject({ code: 'NOT_FOUND' });
   });
 });

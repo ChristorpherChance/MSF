@@ -83,12 +83,36 @@
 .modeseg .mode-cap b { color: var(--ink); }
 .modeseg .mode-cap .tag { margin-left: 4px; }
 
-/* 整本模式专属：流程视图条 */
+/* 整本模式专属：流程视图条（0034 默认收拢，fv-toggle 展开） */
 .flowview { background: var(--canvas); border-bottom: 1px solid var(--line); padding: 8px 12px; font-size: 12px; color: var(--ink2); flex: none; max-height: 92px; overflow-y: auto; }
 .flowview b { color: var(--ink); }
+.flowview .fv-toggle { border: none; background: none; padding: 0; font-size: 12px; color: var(--ink); cursor: pointer; }
+.flowview .fv-toggle:hover { color: var(--blue); }
+.flowview .fv-toggle .mut { color: var(--ink2); font-weight: 400; }
 .flowview .fstep { display: inline-block; border: 1px solid var(--line); border-radius: 6px; padding: 2px 8px; margin: 2px 4px 2px 0; background: var(--soft); }
 .flowview .fstep.nav { cursor: pointer; }
 .flowview .fstep.nav:hover { border-color: var(--blue); color: var(--blue); }
+
+/* 0034 主题方案选择器（卡片网格 + 色板 + 令牌编辑器） */
+.theme-modal { max-width: 720px; }
+.theme-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; margin: 10px 0; }
+.theme-card { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; cursor: pointer; background: var(--canvas); }
+.theme-card:hover { border-color: var(--blue); }
+.theme-card.sel { border-color: var(--blue); box-shadow: 0 0 0 1px var(--blue); }
+.theme-card b { font-size: 13px; }
+.theme-card .tag { margin-left: 6px; }
+.theme-card .pop-tip { margin: 4px 0 0; }
+.theme-card .ops { margin-top: 6px; display: flex; gap: 8px; }
+.theme-card .swatches { display: flex; gap: 5px; align-items: center; margin-bottom: 6px; }
+.theme-card .sw { width: 18px; height: 18px; border-radius: 5px; border: 1px solid var(--line); }
+.theme-card .sw-radius { width: 18px; height: 18px; border: 2px solid var(--ink2); background: transparent; }
+.theme-ops { margin: 4px 0 2px; }
+.token-rows { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 16px; margin: 8px 0; max-height: 320px; overflow-y: auto; }
+.token-row { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
+.token-row > span { flex: none; width: 64px; color: var(--ink2); }
+.token-row input[type="color"] { width: 34px; height: 24px; padding: 0; border: 1px solid var(--line); border-radius: 5px; background: none; cursor: pointer; }
+.token-row input:not([type="color"]) { flex: 1; }
+.token-row code { font-size: 11px; color: var(--ink2); }
 
 /* 单页模式：状态切换条 + 依据锚点 caption */
 .statebar { display: flex; align-items: center; gap: 6px; padding: 6px 12px; background: var(--soft); border-bottom: 1px solid var(--line); flex: none; flex-wrap: wrap; }

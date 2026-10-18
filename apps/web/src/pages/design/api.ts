@@ -51,7 +51,7 @@ export interface CatalogView {
 
 export interface ProtoStatus {
   status: 'idle' | 'planning' | 'plan-ready' | 'generating' | 'generated' | 'checking' | 'ready' | 'finalized' | 'stale' | 'failed';
-  plan: { planId: string; complete: boolean; fingerprint: string; catalogVersion: string; stale: boolean } | null;
+  plan: { planId: string; complete: boolean; fingerprint: string; catalogVersion: string; stale: boolean; themeId?: string | null } | null;
   prototype: { docId: string; currentVersionId: string | null; finalized: boolean; modified: boolean } | null;
   /** 页级原型工作态（差异登记）：none=未生成 / pending=已生成待汇总 / assembled=已入当前汇总版本；
    *  uiRef/uiStale=结构化对应（覆盖检测 §2）：页依据的 ui 册章节锚点 + 时间基滞后（ui 册有新提交） */
@@ -199,7 +199,26 @@ export const designApi = {
   sourceAudit: (pid: string) =>
     api.get<{ rulesVersion: string; ok: boolean; issues: Array<{ code: string; target: string; message: string }> }>(
       `${base(pid)}/source-audit`),
+  /** 0034 主题方案库（全局共享）：清单=AI 定制+内置预设+自定义；应用=plan 覆盖写+全页换肤 */
+  protoThemes: (pid: string) => api.get<{ items: ProtoThemeItem[] }>(`${base(pid)}/proto-themes`),
+  createProtoTheme: (pid: string, input: { name: string; tokens: Record<string, string> }) =>
+    api.post<{ themeId: string }>(`${base(pid)}/proto-themes`, input),
+  updateProtoTheme: (pid: string, themeId: string, input: { name: string; tokens: Record<string, string> }) =>
+    api.put<{ themeId: string }>(`${base(pid)}/proto-themes/${encodeURIComponent(themeId)}`, input),
+  removeProtoTheme: (pid: string, themeId: string) =>
+    api.del(`${base(pid)}/proto-themes/${encodeURIComponent(themeId)}`),
+  applyProtoTheme: (pid: string, themeId: string) =>
+    api.put<{ themeId: string; name: string; reskinned: number }>(`${base(pid)}/prototype:theme`, { themeId }),
 };
+
+/** 0034 主题方案（builtin:*=内置不可改删；'ai'=AI 按项目定制；uuid=自定义） */
+export interface ProtoThemeItem {
+  id: string;
+  name: string;
+  desc: string;
+  tokens: Record<string, string>;
+  builtin: boolean;
+}
 
 export interface GenFrame {
   type: 'stream.start' | 'stream.delta' | 'stream.done' | 'stream.error' | 'stream.notice';

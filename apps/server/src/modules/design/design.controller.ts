@@ -9,6 +9,7 @@ import { DesignGenerateService } from './generate.service.js';
 import { CatalogService } from './catalog.service.js';
 import { PrototypeService } from './prototype.service.js';
 import { PrototypePagesService } from './prototype-pages.service.js';
+import { ProtoThemesService } from './proto-themes.service.js';
 import { ReviewService } from './review.service.js';
 import { DesignExportService } from './export.service.js';
 import type { ExportFormat } from '../platform/doc-export.js';
@@ -25,6 +26,7 @@ export class DesignController {
     @Inject(CatalogService) private readonly catalog: CatalogService,
     @Inject(PrototypeService) private readonly proto: PrototypeService,
     @Inject(PrototypePagesService) private readonly pages: PrototypePagesService,
+    @Inject(ProtoThemesService) private readonly themes: ProtoThemesService,
     @Inject(ReviewService) private readonly reviews: ReviewService,
     @Inject(DesignExportService) private readonly exp: DesignExportService,
   ) {}
@@ -299,6 +301,49 @@ export class DesignController {
   @HttpCode(201)
   plan(@Param('projectId') projectId: string, @Req() req: Request) {
     return this.catalog.plan(projectId, this.actor(req, projectId));
+  }
+
+  /** 主题方案库（0034，全局共享）：清单=AI 定制+内置预设+自定义 */
+  @Get('proto-themes')
+  listThemes(@Param('projectId') projectId: string) {
+    void projectId;
+    return this.themes.list();
+  }
+
+  @Post('proto-themes')
+  @HttpCode(201)
+  createTheme(
+    @Param('projectId') projectId: string,
+    @Body() body: { name: string; tokens?: Record<string, string> },
+    @Req() req: Request,
+  ) {
+    return this.themes.create({ name: body?.name ?? '', tokens: body?.tokens ?? {} }, this.actor(req, projectId));
+  }
+
+  @Put('proto-themes/:themeId')
+  updateTheme(
+    @Param('projectId') projectId: string,
+    @Param('themeId') themeId: string,
+    @Body() body: { name: string; tokens?: Record<string, string> },
+    @Req() req: Request,
+  ) {
+    return this.themes.update(themeId, { name: body?.name ?? '', tokens: body?.tokens ?? {} }, this.actor(req, projectId));
+  }
+
+  @Delete('proto-themes/:themeId')
+  async removeTheme(@Param('projectId') projectId: string, @Param('themeId') themeId: string, @Req() req: Request) {
+    await this.themes.remove(themeId, this.actor(req, projectId));
+    return { removed: themeId };
+  }
+
+  /** 应用主题方案到当前规划（0034，换肤不重写内容）：'ai'=AI 定制立即派生；页工件主题段重合成 → 待汇总 */
+  @Put('prototype\\:theme')
+  applyTheme(
+    @Param('projectId') projectId: string,
+    @Body() body: { themeId: string },
+    @Req() req: Request,
+  ) {
+    return this.pages.applyTheme(projectId, body?.themeId ?? '', this.actor(req, projectId));
   }
 
   /** A05-6 原型生成（同步完成——mock 体量为小HTML；202 语义保留 operationId 形态从简） */

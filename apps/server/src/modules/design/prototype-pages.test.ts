@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 import {
   NAV_SCRIPT,
   PAGE_INPUT_CAP,
+  PROTO_THEME_PRESETS,
   UI_PAGE_SECTION_RE,
   assertScopedStyles,
   buildMockPage,
@@ -24,6 +25,8 @@ import {
   parseThemeOverrides,
   pickUiSections,
   placeholderBlock,
+  replaceThemeStyle,
+  sanitizeThemeTokens,
   wrapPageEnvelope,
   type CatalogItemLike,
 } from './prototype-pages.js';
@@ -205,6 +208,94 @@ describe('UI_PAGE_SECTION_RE（页面章节识别口径，2026-10-18 收紧）',
     for (const t of ['一、页面清单', 'u-2 页面入口与导航关系', 'u-3 页面层级与复用组件', 'u-7 页面四态与操作许可', '页面设计规范']) {
       expect(UI_PAGE_SECTION_RE.test(t), t).toBe(false);
     }
+  });
+});
+
+describe('主题方案库（0034：多套默认+自定义+换肤不重写内容）', () => {
+  it('内置预设：5 套，id 唯一且 builtin:* 形态，令牌全过白名单校验', () => {
+    expect(PROTO_THEME_PRESETS).toHaveLength(5);
+    const ids = PROTO_THEME_PRESETS.map((p) => p.id);
+    expect(new Set(ids).size).toBe(5);
+    for (const p of PROTO_THEME_PRESETS) {
+      expect(p.id).toMatch(/^builtin:/);
+      expect(sanitizeThemeTokens(p.tokens)).toEqual(p.tokens); // 预设自身必须全合法
+      expect(p.name.length).toBeGreaterThan(0);
+    }
+  });
+  it('sanitizeThemeTokens：非对象/非法键/非法值一律滤掉；hex 大写与 radius 合法保留', () => {
+    expect(sanitizeThemeTokens(null)).toEqual({});
+    expect(sanitizeThemeTokens('x')).toEqual({});
+    expect(sanitizeThemeTokens({ primary: '#16A34A', hack: 'x', radius: '16px', bad: 'red' }))
+      .toEqual({ primary: '#16A34A', radius: '16px' });
+  });
+  it('replaceThemeStyle：只换主题块（--p-primary: 定义所在 style），页自身样式段原样保留', () => {
+    const themed = wrapPageEnvelope('P-HOME', '首页', '#pg-P-HOME { color: var(--p-primary); }', body, '(function(){})();', buildThemeCss({ primary: '#16a34a' }));
+    const out = replaceThemeStyle(themed, buildThemeCss({ primary: '#ea580c' }));
+    expect(out).toContain('--p-primary:#ea580c;');
+    expect(out).not.toContain('--p-primary:#16a34a;');
+    expect(out).toContain('#pg-P-HOME { color: var(--p-primary); }'); // 页样式段不动
+    expect(out).toContain('data-page-block="P-HOME"'); // 正文不动
+    expect(replaceThemeStyle(out, buildThemeCss({ primary: '#ea580c' }))).toBe(out); // 幂等
+  });
+  it('replaceThemeStyle：页样式段在主题块之前且引用 var(--p-primary)（无定义冒号）不误判', () => {
+    // 模型产物形态：自身 <style> 在前（含 var(--p-primary) 引用），ensureThemeStyle 注入的主题块在后
+    const modelHtml = '<!doctype html><html><head><style>#pg-P-HOME a{color:var(--p-primary)}</style></head><body>x</body></html>';
+    const withTheme = ensureThemeStyle(modelHtml, buildThemeCss({ primary: '#16a34a' }));
+    expect(withTheme).toContain('--p-primary:#16a34a;'); // 引用不阻注入（冒号判据）
+    const out = replaceThemeStyle(withTheme, buildThemeCss({ primary: '#ea580c' }));
+    expect(out).toContain('--p-primary:#ea580c;');
+    expect(out).not.toContain('--p-primary:#16a34a;'); // 标记块整块替换
+    expect(out).toContain('#pg-P-HOME a{color:var(--p-primary)}'); // 模型样式段原样
+  });
+  it('replaceThemeStyle：模型在页样式标记段内自定 :root → 不拆段，追加覆盖块（层叠后者胜）', () => {
+    // 0033 实机形态：模型按 prompt 实值自写 :root 定义（在 msf:style 标记段内），系统未再注入
+    const selfDefined = wrapPageEnvelope('P-HOME', '首页', ':root{--p-primary:#6d28d9;}\n#pg-P-HOME a{color:var(--p-primary)}', body, 'void 0').replace('<style data-msf-theme>', '<style data-msf-theme-x>'); // 拆掉系统块标记模拟「模型自定为准」
+    const legacy = selfDefined.replace(/<style data-msf-theme-x>[\s\S]*?<\/style>/, ''); // 进一步移除系统主题块
+    const out = replaceThemeStyle(legacy, buildThemeCss({ primary: '#ea580c' }));
+    expect(out).toContain('--p-primary:#6d28d9;'); // 模型段原样保留（不拆段）
+    expect(out).toContain('--p-primary:#ea580c;'); // 覆盖块在后
+    expect(out.indexOf('--p-primary:#ea580c;')).toBeGreaterThan(out.indexOf('--p-primary:#6d28d9;'));
+    expect(out).toContain('#pg-P-HOME a{color:var(--p-primary)}');
+  });
+  it('replaceThemeStyle：无主题块的旧产物 → 等价注入（回落 ensureThemeStyle）', () => {
+    const legacy = '<!doctype html><html><head></head><body>x</body></html>';
+    const out = replaceThemeStyle(legacy, buildThemeCss({ primary: '#ea580c' }));
+    expect(out).toContain('--p-primary:#ea580c;');
+  });
+});
+
+describe('整本壳 0034 重构（场景索引默认落页 + 左导航收展）', () => {
+  const flow: CatalogItemLike = { item_type: 'flow', code: 'F-01', payload: { title: '主流程', steps: ['P-HOME', 'P-LIST'] } };
+  const itemsWithFlow = [...items, flow];
+  it('有 flow：产场景索引（data-shell-index/#msf-flows/场景首页链接/☰ 收展钮），检查不受影响', () => {
+    const parts = extractPageParts(doc)!;
+    const { html, manifest } = composePrototype(itemsWithFlow, [
+      { code: 'P-HOME', parts, objectKey: 'sha256/abc', fingerprint: 'fp1', source: 'model' },
+    ], [], { productName: '贪吃蛇' });
+    expect(html).toContain('data-shell-index');
+    expect(html).toContain('id="msf-flows"');
+    expect(html).toContain('贪吃蛇 · 使用场景');
+    expect(html).toContain('data-shell-home');
+    expect(html).toContain('data-shell-toggle');
+    expect(html).toContain('主流程'); // 场景卡片
+    expect(html).toContain('全部页面'); // 页面直达网格
+    expect(manifest.flows).toEqual([{ code: 'F-01', title: '主流程', steps: ['P-HOME', 'P-LIST'] }]);
+    expect(checkPrototype(html, itemsWithFlow).issues).toEqual([]);
+  });
+  it('无 flow：不产索引页/首页链接（旧目录产物零痕迹），首页面包屑=第一页', () => {
+    const { html } = composePrototype(items, []);
+    expect(html).not.toContain('<div class="msf-index"'); // 索引块本身不产（NAV_SCRIPT 协议字符串恒在属正常）
+    expect(html).not.toContain('<a href="#" data-shell-home>');
+    expect(html).toContain('data-shell-toggle'); // ☰ 收展钮与流程无关恒在
+    expect(html).toContain('>首页</span></header>');
+    expect(checkPrototype(html, items).issues).toEqual([]);
+  });
+  it('NAV_SCRIPT：壳层新协议齐备（场景首页显隐/☰ 收展/hash 空→索引）', () => {
+    expect(NAV_SCRIPT).toContain('data-shell-index');
+    expect(NAV_SCRIPT).toContain('data-shell-home');
+    expect(NAV_SCRIPT).toContain('data-shell-toggle');
+    expect(NAV_SCRIPT).toContain('nav-on');
+    expect(NAV_SCRIPT).toContain('showHome');
   });
 });
 

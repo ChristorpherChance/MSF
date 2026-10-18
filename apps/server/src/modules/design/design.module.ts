@@ -7,6 +7,7 @@ import { DesignGenerateService } from './generate.service.js';
 import { CatalogService } from './catalog.service.js';
 import { PrototypeService } from './prototype.service.js';
 import { PrototypePagesService } from './prototype-pages.service.js';
+import { ProtoThemesService } from './proto-themes.service.js';
 import { ReviewService } from './review.service.js';
 import { DesignController } from './design.controller.js';
 import { DesignExportService } from './export.service.js';
@@ -15,6 +16,6 @@ import { DesignExportService } from './export.service.js';
 @Module({
   imports: [PolicyModule, PlatformModule, AiModule],
   controllers: [DesignController],
-  providers: [DesignDocsService, DesignGenerateService, CatalogService, PrototypeService, PrototypePagesService, ReviewService, DesignExportService],
+  providers: [DesignDocsService, DesignGenerateService, CatalogService, PrototypeService, PrototypePagesService, ProtoThemesService, ReviewService, DesignExportService],
 })
 export class DesignModule {}

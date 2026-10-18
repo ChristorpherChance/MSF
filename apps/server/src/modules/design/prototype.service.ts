@@ -338,7 +338,7 @@ export class PrototypeService {
 
   /** 原型工作台状态（F02-2 状态派生：plan/plan-ready/generated/ready/finalized/stale） */
   async status(projectId: string): Promise<unknown> {
-    const plan = await query<{ id: string; plan_fingerprint: string; governing_fingerprint: string; complete: boolean; catalog_version: string; created_at: string }>(
+    const plan = await query<{ id: string; plan_fingerprint: string; governing_fingerprint: string; complete: boolean; catalog_version: string; created_at: string; theme_id: string | null }>(
       'SELECT * FROM dsg_plans WHERE project_id=$1 ORDER BY plan_no DESC LIMIT 1', [projectId]);
     const doc = await query<{ id: string; current_version_id: string | null; final_version_id: string | null; modified: boolean }>(
       "SELECT * FROM dsg_documents WHERE project_id=$1 AND doc_kind='prototype'", [projectId]);
@@ -409,6 +409,8 @@ export class PrototypeService {
         fingerprint: `sha256:${latestPlan.plan_fingerprint}`,
         catalogVersion: latestPlan.catalog_version,
         stale: !!planStale,
+        // 主题方案（0034）：theme_id NULL=AI 懒派生（0033 旧行为）；前端方案选择器当前值
+        themeId: latestPlan.theme_id ?? null,
       },
       prototype: d && {
         docId: d.id, currentVersionId: d.current_version_id, finalized: status === 'finalized', modified: d.modified,

@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { ApiError } from '../../api';
 import { toast } from '../../ui/toast';
 import { useDockStore } from '../../assistant/dock-store';
-import { designApi, generateProtoPage, type BaselineItem, type CatalogGroup, type ProtoStatus } from './api';
+import { designApi, generateProtoPage, type BaselineItem, type CatalogGroup, type ProtoStatus, type ProtoThemeItem } from './api';
 import { issueActions, summarizeCoverage, type IssueAction } from './proto-report';
 import { useDesignView } from './store';
 
@@ -45,6 +45,8 @@ export function PrototypePanel() {
   // ①规划/②生成页「查看还是重写」确认弹层（防误点直接重写——用户拍板 2026-10-17）
   const [confirmPlan, setConfirmPlan] = useState(false);
   const [confirmGenAll, setConfirmGenAll] = useState(false);
+  const [flowOpen, setFlowOpen] = useState(false); // 整本模式流程视图条：0034 默认收拢（用户拍板「主流程可收拢展开」）
+  const [themeOpen, setThemeOpen] = useState(false); // 0034 主题方案选择器
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const baselines = useBaselines(projectId, proto?.status ?? null);
   const protoVers = useProtoVersions(projectId, proto?.prototype?.currentVersionId ?? null);
@@ -298,6 +300,7 @@ export function PrototypePanel() {
         onViewReport={() => setInspTab('report')}
         onOpenUpload={() => setUploadOpen(true)}
         onOpenVersions={() => setVerOpen(true)}
+        onOpenTheme={() => setThemeOpen(true)}
         onFinalize={() => setFinOpen(true)}
         onUnlock={() => setUnlockOpen(true)}
       />
@@ -434,30 +437,36 @@ export function PrototypePanel() {
             </span>
           </div>
 
-          {/* 整本模式专属：流程视图条（步骤命中目录页码可点跳） */}
+          {/* 整本模式专属：流程视图条（0034 默认收拢为一行，点击展开；步骤命中目录页码可点跳） */}
           {mode === 'whole' && (
             <div className="flowview">
               {(catalog?.groups.flow ?? []).length === 0 ? (
                 <span>流程视图 · 目录尚无流程条目（① 规划识别或目录面板人工补充）</span>
               ) : (
-                ((catalog?.groups.flow ?? []) as CatalogGroup[]).map((f) => (
-                  <div key={f.code}>
-                    <b>{f.code} {(f.payload.title as string) ?? ''}</b>：
-                    {((f.payload.steps as string[] | undefined) ?? []).map((s, i) => {
-                      const hit = pages.find((pg) => s.includes(pg.code));
-                      return (
-                        <span key={i}>
-                          {i > 0 && '→'}
-                          <span
-                            className={`fstep${hit ? ' nav' : ''}`}
-                            title={hit ? `跳到 ${hit.code}` : undefined}
-                            onClick={hit ? () => select(hit.code, null) : undefined}
-                          >{s}</span>
-                        </span>
-                      );
-                    })}
-                  </div>
-                ))
+                <>
+                  <button className="fv-toggle" onClick={() => setFlowOpen(!flowOpen)}>
+                    {flowOpen ? '▾' : '▸'} 主流程 · {(catalog?.groups.flow ?? []).length} 条
+                    {!flowOpen && <span className="mut">（点击展开，步骤可点跳页）</span>}
+                  </button>
+                  {flowOpen && ((catalog?.groups.flow ?? []) as CatalogGroup[]).map((f) => (
+                    <div key={f.code}>
+                      <b>{f.code} {(f.payload.title as string) ?? ''}</b>：
+                      {((f.payload.steps as string[] | undefined) ?? []).map((s, i) => {
+                        const hit = pages.find((pg) => s.includes(pg.code));
+                        return (
+                          <span key={i}>
+                            {i > 0 && '→'}
+                            <span
+                              className={`fstep${hit ? ' nav' : ''}`}
+                              title={hit ? `跳到 ${hit.code}` : undefined}
+                              onClick={hit ? () => select(hit.code, null) : undefined}
+                            >{s}</span>
+                          </span>
+                        );
+                      })}
+                    </div>
+                  ))}
+                </>
               )}
             </div>
           )}
@@ -634,6 +643,7 @@ export function PrototypePanel() {
       </div>
 
       {uploadOpen && <UploadModal onClose={() => setUploadOpen(false)} />}
+      {themeOpen && <ThemeModal currentThemeId={proto.plan?.themeId ?? 'ai'} onClose={() => setThemeOpen(false)} />}
       {verOpen && <ProtoModal firstPage={pages[0]?.code ?? 'index'} onClose={() => setVerOpen(false)} />}
       {finOpen && verId && (
         <FinalizeProtoModal verId={verId} reFinalize={(baselines.items?.length ?? 0) > 0} onClose={() => setFinOpen(false)} />
@@ -700,7 +710,7 @@ export function PrototypePanel() {
 
 /** 流程条步进器（V20：命令条+KPI 三格合并——胶囊=按钮+状态点+结论；低频操作右置。
  *  ①规划/②生成页的「查看还是重写」判断在父组件（onPlan/onGenAll 可能先弹确认层）） */
-function FlowBar({ proto, busy, run, currentBaseline, curVerNo, genAll, onPlan, onGenAll, onViewWhole, onViewReport, onOpenUpload, onOpenVersions, onFinalize, onUnlock }: {
+function FlowBar({ proto, busy, run, currentBaseline, curVerNo, genAll, onPlan, onGenAll, onViewWhole, onViewReport, onOpenUpload, onOpenVersions, onOpenTheme, onFinalize, onUnlock }: {
   proto: ProtoStatus;
   busy: boolean;
   run: (label: string, fn: () => Promise<unknown>) => Promise<void>;
@@ -715,6 +725,8 @@ function FlowBar({ proto, busy, run, currentBaseline, curVerNo, genAll, onPlan, 
   onViewReport: () => void;
   onOpenUpload: () => void;
   onOpenVersions: () => void;
+  /** 0034 主题方案选择器（生成页前选配色/风格；换肤不重写内容） */
+  onOpenTheme: () => void;
   onFinalize: () => void;
   onUnlock: () => void;
 }) {
@@ -801,6 +813,16 @@ function FlowBar({ proto, busy, run, currentBaseline, curVerNo, genAll, onPlan, 
         </span>
       ))}
       <span className="spacer" />
+      <button
+        className="sub"
+        disabled={!proto.plan || proto.status === 'finalized'}
+        title={proto.plan
+          ? (proto.status === 'finalized'
+            ? '已定稿——换主题须先 🔓 解锁定稿'
+            : '主题风格：生成页前选配色方案（多套默认+AI 定制+可自定义）；换肤只换配色不重写页面内容，换后需 ③ 重新汇总')
+          : '先 ① 规划，再选主题风格'}
+        onClick={onOpenTheme}
+      >🎨 主题</button>
       <button className="sub" disabled={busy} onClick={onOpenUpload}>⬆ 上传 HTML</button>
       <button className="sub" onClick={onOpenVersions}>🕘 版本</button>
       {/* S5 导出基线（当前基线 JSON 本端下载；基线失效不可导出） */}
@@ -917,6 +939,200 @@ function ReportPanel({ proto, q, actBusy, genAll, runIssueAction, markChecked }:
         <p className="pop-tip">筛选「{q}」无命中行。</p>
       )}
     </>
+  );
+}
+
+/** 0034 主题令牌字段（与服务端 PROTO_THEME_TOKENS/TOKEN_LABELS 同序镜像；前端只展示+编辑覆盖项，校验在服务端） */
+const THEME_FIELDS: Array<{ key: string; label: string; def: string; size?: boolean }> = [
+  { key: 'primary', label: '主色', def: '#2563eb' },
+  { key: 'primary-soft', label: '主色浅底', def: '#eff4ff' },
+  { key: 'accent', label: '强调色', def: '#7c3aed' },
+  { key: 'bg', label: '背景', def: '#f5f6f8' },
+  { key: 'surface', label: '卡片面', def: '#ffffff' },
+  { key: 'ink', label: '正文文字', def: '#1f2329' },
+  { key: 'ink2', label: '次要文字', def: '#6b7280' },
+  { key: 'line', label: '边框', def: '#e5e7eb' },
+  { key: 'ok', label: '成功色', def: '#16a34a' },
+  { key: 'ok-soft', label: '成功浅底', def: '#eaf7ee' },
+  { key: 'warn', label: '警告色', def: '#d97706' },
+  { key: 'warn-soft', label: '警告浅底', def: '#fdf3e3' },
+  { key: 'danger', label: '危险色', def: '#dc2626' },
+  { key: 'danger-soft', label: '危险浅底', def: '#fdecec' },
+  { key: 'radius', label: '圆角', def: '10px', size: true },
+];
+const themeDef = (key: string) => THEME_FIELDS.find((f) => f.key === key)?.def ?? '';
+
+/**
+ * 0034 主题方案选择器（用户拍板「生成页前选配色/风格：多套默认+AI 定制+自定义」）：
+ * 卡片选方案 → 应用到当前规划（plan 冻结；已生成页只换肤不重写内容 → 需 ③ 重新汇总）。
+ * 自定义方案：新建（可从选中方案克隆起步）/改/删（内置与 AI 定制不可改删）。全局共享跨项目复用。
+ */
+function ThemeModal({ currentThemeId, onClose }: { currentThemeId: string; onClose: () => void }) {
+  const { projectId, refreshProto } = useDesignView();
+  const [items, setItems] = useState<ProtoThemeItem[] | null>(null);
+  const [sel, setSel] = useState(currentThemeId);
+  const [editor, setEditor] = useState<{ id: string | null; name: string; tokens: Record<string, string> } | null>(null);
+  const [delId, setDelId] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const load = () => {
+    if (projectId) void designApi.protoThemes(projectId).then((r) => setItems(r.items)).catch(() => setItems([]));
+  };
+  useEffect(load, [projectId]);
+  if (!projectId) return null;
+  const selItem = (items ?? []).find((x) => x.id === sel) ?? null;
+
+  const apply = () => {
+    setBusy(true);
+    setMsg(null);
+    void designApi.applyProtoTheme(projectId, sel)
+      .then((r) => {
+        toast(
+          r.reskinned > 0
+            ? `已应用「${r.name}」：${r.reskinned} 页已换肤（内容未动）——需 ③ 重新汇总入整本`
+            : `已应用「${r.name}」——后续生成的页面按此方案`,
+          'success',
+        );
+        onClose();
+      })
+      .catch((e) => setMsg(e instanceof ApiError ? `${e.code}: ${e.message}` : '应用失败'))
+      .finally(() => { setBusy(false); void refreshProto(); });
+  };
+  const saveEditor = () => {
+    if (!editor) return;
+    setBusy(true);
+    setMsg(null);
+    const call = editor.id
+      ? designApi.updateProtoTheme(projectId, editor.id, { name: editor.name, tokens: editor.tokens })
+      : designApi.createProtoTheme(projectId, { name: editor.name, tokens: editor.tokens });
+    void call
+      .then((r) => { setSel(r.themeId); setEditor(null); load(); toast('方案已保存（全项目可选）', 'success'); })
+      .catch((e) => setMsg(e instanceof ApiError ? `${e.code}: ${e.message}` : '保存失败'))
+      .finally(() => setBusy(false));
+  };
+  const doDelete = () => {
+    if (!delId) return;
+    setBusy(true);
+    void designApi.removeProtoTheme(projectId, delId)
+      .then(() => { if (sel === delId) setSel('ai'); setDelId(null); load(); })
+      .catch((e) => setMsg(e instanceof ApiError ? `${e.code}: ${e.message}` : '删除失败'))
+      .finally(() => setBusy(false));
+  };
+
+  return (
+    <div className="modal-mask" onClick={onClose}>
+      <div className="modal theme-modal" onClick={(e) => e.stopPropagation()}>
+        <h3>🎨 主题风格（生成页前选定，换肤不重写页面内容）</h3>
+        <p className="pop-tip">
+          方案随规划冻结，全部单页与整本同源；已生成的页换肤只换配色段，换后需 ③ 重新汇总入整本。自定义方案全项目共享。
+        </p>
+        {items === null ? <p className="pop-tip">加载中…</p> : (
+          <div className="theme-grid">
+            {items.map((t) => (
+              <div
+                key={t.id}
+                className={`theme-card${sel === t.id ? ' sel' : ''}`}
+                role="button"
+                tabIndex={0}
+                onClick={() => setSel(t.id)}
+                onKeyDown={(e) => { if (e.key === 'Enter') setSel(t.id); }}
+              >
+                <div className="swatches">
+                  {['primary', 'accent', 'bg', 'ink'].map((k) => (
+                    <span key={k} className="sw" style={{ background: t.tokens[k] ?? themeDef(k) }} />
+                  ))}
+                  <span className="sw-radius" style={{ borderRadius: t.tokens['radius'] ?? themeDef('radius') }} />
+                </div>
+                <b>{t.name}</b>
+                {t.id === currentThemeId && <span className="tag tag-ok">当前</span>}
+                <p className="pop-tip">{t.desc}</p>
+                {!t.builtin && (
+                  <span className="ops">
+                    <button className="act" onClick={(e) => { e.stopPropagation(); setEditor({ id: t.id, name: t.name, tokens: { ...t.tokens } }); }}>编辑</button>
+                    <button className="act" onClick={(e) => { e.stopPropagation(); setDelId(t.id); }}>删除</button>
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="theme-ops">
+          <button
+            className="act"
+            onClick={() => setEditor({ id: null, name: '', tokens: selItem && selItem.id !== 'ai' ? { ...selItem.tokens } : {} })}
+          >＋ 新建方案{selItem && selItem.id !== 'ai' ? `（基于「${selItem.name}」）` : ''}</button>
+        </div>
+        {msg && <p className="pop-tip err">{msg}</p>}
+        <div className="modal-ops">
+          <button className="act" onClick={onClose}>取消</button>
+          <button
+            className="act primary"
+            disabled={busy || !selItem}
+            title={sel === currentThemeId ? '与当前方案相同（重复应用=按方案重刷一次换肤）' : undefined}
+            onClick={apply}
+          >{busy ? '应用中…' : `应用「${selItem?.name ?? ''}」到本项目`}</button>
+        </div>
+
+        {/* 自定义方案编辑器（令牌覆盖：只写要覆盖的项，未动项跟随默认蓝系） */}
+        {editor && (
+          <div className="modal-mask" onClick={() => setEditor(null)}>
+            <div className="modal" onClick={(e) => e.stopPropagation()}>
+              <h3>{editor.id ? '编辑自定义方案' : '新建自定义方案'}</h3>
+              <label className="form-row">方案名称
+                <input value={editor.name} maxLength={40} placeholder="如：品牌绿" onChange={(e) => setEditor({ ...editor, name: e.target.value })} />
+              </label>
+              <div className="token-rows">
+                {THEME_FIELDS.map((f) => (
+                  <label key={f.key} className="token-row">
+                    <span>{f.label}</span>
+                    {f.size ? (
+                      <input
+                        value={editor.tokens[f.key] ?? ''}
+                        placeholder={f.def}
+                        onChange={(e) => {
+                          const v = e.target.value.trim();
+                          const tokens = { ...editor.tokens };
+                          if (v) tokens[f.key] = v; else delete tokens[f.key];
+                          setEditor({ ...editor, tokens });
+                        }}
+                      />
+                    ) : (
+                      <>
+                        <input
+                          type="color"
+                          value={editor.tokens[f.key] ?? f.def}
+                          onChange={(e) => setEditor({ ...editor, tokens: { ...editor.tokens, [f.key]: e.target.value } })}
+                        />
+                        <code>{editor.tokens[f.key] ?? `${f.def}（默认）`}</code>
+                      </>
+                    )}
+                  </label>
+                ))}
+              </div>
+              <p className="pop-tip">只调要改的项；未动的项跟随系统默认（科技蓝）。</p>
+              {msg && <p className="pop-tip err">{msg}</p>}
+              <div className="modal-ops">
+                <button className="act" onClick={() => setEditor(null)}>取消</button>
+                <button className="act primary" disabled={busy || !editor.name.trim()} onClick={saveEditor}>保存方案</button>
+              </div>
+            </div>
+          </div>
+        )}
+        {/* 删除确认（仅自定义方案） */}
+        {delId && (
+          <div className="modal-mask" onClick={() => setDelId(null)}>
+            <div className="modal" onClick={(e) => e.stopPropagation()}>
+              <h3>删除自定义方案</h3>
+              <p className="pop-tip">删除后全项目不可再选；已应用该方案的项目产物不受影响（令牌已随规划冻结）。操作记审计。</p>
+              <div className="modal-ops">
+                <button className="act" onClick={() => setDelId(null)}>取消</button>
+                <button className="act primary" disabled={busy} onClick={doDelete}>确认删除</button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 

@@ -9,6 +9,7 @@ import { registerExternalTool } from '../platform/external-tools.js';
 import { StorageService } from '../platform/storage.service.js';
 import { DesignDocsService } from './docs.service.js';
 import {
+  AI_THEME_ID,
   PAGE_INPUT_CAP,
   assertScopedStyles,
   buildMockPage,
@@ -23,8 +24,10 @@ import {
   findHiddenSectionRule,
   parseThemeOverrides,
   pickUiSections,
+  replaceThemeStyle,
   type CatalogItemLike,
 } from './prototype-pages.js';
+import { resolveProtoTheme } from './proto-themes.service.js';
 
 /**
  * 页级 UI 原型生成（单页 AI 生成→MinIO 内容寻址→dsg_prototype_pages 索引；差异登记，待 13 册回补）。
@@ -112,13 +115,41 @@ export class PrototypePagesService {
       return { pageCode, fingerprint };
     });
     // 项目主题定制落库（0033）：AI 按项目类型提炼的令牌覆盖随 plan 冻结；WHERE theme IS NULL 首写胜出——
-    // 并发/重复派生静默丢弃，不留覆盖竞态
+    // 并发/重复派生静默丢弃，不留覆盖竞态。0034 补 theme_id='ai' 标记来源（人工选内置/自定义后 theme 非空，
+    // 本命令自然 no-op，不会覆盖人工选择）
     registerCommand('design.prototype.theme_set', async (client, payload) => {
       const { projectId, planId, theme } = payload as { projectId: string; planId: string; theme: Record<string, string> };
       const r = await client.query(
-        'UPDATE dsg_plans SET theme=$3 WHERE id=$1 AND project_id=$2 AND theme IS NULL',
+        "UPDATE dsg_plans SET theme=$3, theme_id='ai' WHERE id=$1 AND project_id=$2 AND theme IS NULL",
         [planId, projectId, JSON.stringify(theme)]);
       return { planId, written: r.rowCount === 1 };
+    });
+    // 主题方案应用+全页换肤（0034，「换方案不重写内容」）：plan.theme_id/theme 覆盖写（人工应用优先于
+    // AI 懒派生首写胜出）+ 命令同事务批量改页工件索引行（新对象已在命令外由 applyTheme 重合成入库）。
+    // 定稿门禁与 page_generate 同口径（换肤改工件指纹，定稿后改=无信号漂移）。
+    registerCommand('design.prototype.theme_apply', async (client, payload) => {
+      const { projectId, planId, themeId, theme, reskin } = payload as {
+        projectId: string; planId: string; themeId: string; theme: Record<string, string> | null;
+        reskin: Array<{ pageCode: string; objectKey: string; fingerprint: string }>;
+      };
+      const doc = await client.query<{ final_version_id: string | null; current_version_id: string | null }>(
+        "SELECT final_version_id, current_version_id FROM dsg_documents WHERE project_id=$1 AND doc_kind='prototype' FOR UPDATE",
+        [projectId]);
+      const d = doc.rows[0];
+      if (d?.final_version_id && d.final_version_id === d.current_version_id) {
+        throw new DomainError('GATE_BLOCKED', '原型已定稿，换主题须先解除定稿', 'prototype', {
+          issues: [{ code: 'PROTOTYPE_FINALIZED', message: '原型已定稿，先解锁', target: 'theme' }],
+        });
+      }
+      await client.query(
+        'UPDATE dsg_plans SET theme_id=$3, theme=$4 WHERE id=$1 AND project_id=$2',
+        [planId, projectId, themeId, theme === null ? null : JSON.stringify(theme)]);
+      for (const r of reskin) {
+        await client.query(
+          'UPDATE dsg_prototype_pages SET object_key=$3, html_fingerprint=$4, updated_at=now() WHERE project_id=$1 AND page_code=$2',
+          [projectId, r.pageCode, r.objectKey, r.fingerprint]);
+      }
+      return { themeId, reskinned: reskin.length };
     });
     // 对话提案登记（0032）：提案 HTML 已在命令外生成+入对象库，命令内只插 pending 行；
     // 部分唯一索引兜底并发重复提案（23505 → 人话 DomainError）
@@ -214,7 +245,7 @@ export class PrototypePagesService {
     if (instruction.length > 1000) {
       throw new DomainError('VALIDATION_FAILED', '修改意见过长（上限 1000 字）', 'instruction');
     }
-    const plan = await query<{ id: string; catalog_version: string; complete: boolean; governing_fingerprint: string; theme: Record<string, string> | null }>(
+    const plan = await query<{ id: string; catalog_version: string; complete: boolean; governing_fingerprint: string; theme: Record<string, string> | null; theme_id: string | null }>(
       'SELECT * FROM dsg_plans WHERE project_id=$1 ORDER BY plan_no DESC LIMIT 1', [projectId]);
     const p = plan.rows[0];
     if (!p || !p.complete) throw new DomainError('GATE_BLOCKED', '尚无完整原型规划，先执行规划', 'prototype', {
@@ -260,10 +291,11 @@ export class PrototypePagesService {
       `SELECT v.content FROM dsg_documents d JOIN dsg_versions v ON v.id=d.current_version_id
        WHERE d.project_id=$1 AND d.doc_kind='ui'`, [projectId]);
     const ui = pickUiSections(uiRow.rows[0]?.content ?? '', page);
-    // 项目定制主题（0033）：plan.theme 已有直接用；NULL 且真接模式→一次性 AI 派生落库（首写胜出），
-    // 派生失败回落默认蓝系不阻塞页面生成
+    // 项目定制主题（0033/0034）：plan.theme 已有直接用；懒派生仅当 theme_id 为 NULL（旧数据/未选）
+    // 或 'ai'（用户显式选 AI 定制）且真接模式——人工选内置/自定义方案后 theme_id 非 ai，即使令牌
+    // 为空集（builtin:default={}）也不触发 AI 派生。派生失败回落默认蓝系不阻塞页面生成
     let theme = p.theme && Object.keys(p.theme).length > 0 ? p.theme : null;
-    if (!theme && this.ai?.kind === 'pi') {
+    if (!theme && this.ai?.kind === 'pi' && (p.theme_id === null || p.theme_id === AI_THEME_ID)) {
       theme = await this.deriveTheme(projectId, p.id, prd);
     }
     return {
@@ -305,6 +337,51 @@ export class PrototypePagesService {
       console.warn(`[design] theme derive failed (fallback to default): ${e instanceof Error ? e.message : String(e)}`);
       return null;
     }
+  }
+
+  /**
+   * 应用主题方案到当前 plan（0034，「换肤不重写内容」）：解析方案 → 'ai' 立即派生（失败留 NULL 待
+   * 下次生成懒派生）→ theme_apply 命令覆盖写 plan.theme_id/theme + 同事务批量换页工件索引行。
+   * 换肤=replaceThemeStyle 只重合成页头主题段（页面内容不动）→ 新对象内容寻址入库 → 页标「待汇总」，
+   * 用户 ③ 重新汇总后整本同肤。
+   */
+  async applyTheme(projectId: string, themeId: string, ctx: CommandContext): Promise<{ themeId: string; name: string; reskinned: number }> {
+    const plan = await query<{ id: string; catalog_version: string; complete: boolean }>(
+      'SELECT * FROM dsg_plans WHERE project_id=$1 ORDER BY plan_no DESC LIMIT 1', [projectId]);
+    const p = plan.rows[0];
+    if (!p || !p.complete) throw new DomainError('GATE_BLOCKED', '尚无完整原型规划，先执行规划', 'prototype', {
+      issues: [{ code: 'PLAN_REQUIRED', message: '尚无原型规划，先执行规划' }],
+    });
+    const item = await resolveProtoTheme(themeId);
+    if (!item) throw new DomainError('NOT_FOUND', '主题方案不存在（可能已删除），刷新列表重选', themeId);
+    let tokens: Record<string, string> | null = item.tokens;
+    if (themeId === AI_THEME_ID) {
+      // AI 定制：立即派生（用户点选即有期待，不等首次页生成）；失败留 NULL——下次生成时懒派生兜底
+      const prdRow = await query<{ content: string }>(
+        `SELECT v.content FROM req_documents d JOIN req_versions v ON v.id=d.final_version_id
+         WHERE d.project_id=$1 AND d.doc_kind='prd'`, [projectId]);
+      const prdRaw = prdRow.rows[0]?.content ?? '';
+      const prd = prdRaw.length > PAGE_INPUT_CAP ? `${prdRaw.slice(0, PAGE_INPUT_CAP)}\n\n[原文过长，已截断]` : prdRaw;
+      tokens = this.ai?.kind === 'pi' ? await this.deriveTheme(projectId, p.id, prd) : null;
+    }
+    // 换肤页工件（命令外读旧对象→重合成→写新对象；命令内只批量改索引行）
+    const rows = await query<{ page_code: string; object_key: string }>(
+      'SELECT page_code, object_key FROM dsg_prototype_pages WHERE project_id=$1 AND catalog_version=$2',
+      [projectId, p.catalog_version]);
+    const themeCss = buildThemeCss(tokens);
+    const reskin: Array<{ pageCode: string; objectKey: string; fingerprint: string }> = [];
+    for (const r of rows.rows) {
+      const oldHtml = (await this.storage.getObject(r.object_key)).toString('utf8');
+      const newHtml = replaceThemeStyle(oldHtml, themeCss);
+      if (newHtml === oldHtml) continue; // 无主题块且无法注入（结构异常）→ 不动该页
+      const fp = sha256(newHtml);
+      const up = await this.storage.putContentAddressed(Buffer.from(newHtml, 'utf8'));
+      reskin.push({ pageCode: r.page_code, objectKey: up.objectKey, fingerprint: fp });
+    }
+    const r = await executeCommand('design.prototype.theme_apply', {
+      projectId, planId: p.id, themeId, theme: tokens, reskin,
+    }, { ...ctx, projectId }) as { themeId: string; reskinned: number };
+    return { themeId: r.themeId, name: item.name, reskinned: r.reskinned };
   }
 
   /** 启动单页生成（门禁：plan 完整未 stale + 页归属 plan 目录 + 未定稿 + 并发去重） */

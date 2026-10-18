@@ -103,6 +103,10 @@ export const COMMANDS = [
   'design.prototype.page_propose', // 对话提案登记（0032：dock design.proto.propose_page 产物 pending 行；AI 在命令外），差异登记
   'design.prototype.page_proposal_decide', // 提案处置（accept=提案提升为页工件行/discard；FOR UPDATE+门禁+审计），差异登记
   'design.prototype.theme_set', // AI 按项目类型定制主题令牌落 plan（0033；WHERE theme IS NULL 首写胜出），差异登记
+  'design.prototype.theme_apply', // 主题方案应用+全页换肤（0034：plan.theme_id/theme 覆盖写+页工件主题段重合成），差异登记
+  'design.theme.create', // 主题方案库：新建自定义方案（全局共享，0034），差异登记
+  'design.theme.update', // 主题方案库：改自定义方案（内置不可改），差异登记
+  'design.theme.delete', // 主题方案库：删自定义方案（内置不可删），差异登记
   // M3 设计域：目录人工增删（A05-13）与评审结论（A05-3）
   'design.catalog.add-item',
   'design.catalog.remove-item',
