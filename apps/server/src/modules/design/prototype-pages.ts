@@ -25,8 +25,12 @@ export interface CatalogItemLike {
   payload: Record<string, unknown>;
 }
 
-/** ui 册「页面/界面」章节标题判别（plan 页面种子与双向一致性检查共用单点口径） */
-export const UI_PAGE_SECTION_RE = /(页面|界面|页\s*$)/;
+/** ui 册「页面/界面」章节标题判别（plan 页面种子与双向一致性检查共用单点口径）。
+ *  2026-10-18 收紧（贪吃蛇实机抓修）：原口径含「页面」即中，把「页面清单/页面入口与导航关系/
+ *  页面层级与复用组件/页面四态与操作许可」这类【关于页面的 meta 章节】误识别为页面 → 目录
+ *  充斥假页面。新口径=标题以「页/界面」收尾才算一个页面（允许尾部括号注记，如
+ *  「门户首页（页面）」✓；页面清单/页面规范等「关于页面」的章节 ✗）。 */
+export const UI_PAGE_SECTION_RE = /(界面|页面|页)(\s*[（(][^）)]{0,10}[）)])?\s*$/;
 
 /** 单页抽取产物（styleBlock/scriptBlock 含标签本体，汇总时直接内嵌） */
 export interface PageParts {

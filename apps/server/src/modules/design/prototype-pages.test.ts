@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 import {
   NAV_SCRIPT,
   PAGE_INPUT_CAP,
+  UI_PAGE_SECTION_RE,
   assertScopedStyles,
   buildMockPage,
   buildPagePrompt,
@@ -193,6 +194,17 @@ describe('ensureDocumentOnly（思考过程清洗：入库只留文档本体）'
     const clean = '<!doctype html><html><body>x</body></html>';
     expect(ensureDocumentOnly(clean)).toBe(clean);
     expect(ensureDocumentOnly('```\n纯文字无文档\n```')).toBe('纯文字无文档');
+  });
+});
+
+describe('UI_PAGE_SECTION_RE（页面章节识别口径，2026-10-18 收紧）', () => {
+  it('标题以 页/界面 结尾才算页面；「页面清单/页面入口/页面四态」等 meta 章节不中', () => {
+    for (const t of ['u-23 对战页', '结算页', '登录注册界面', '个人战绩页 ', 'u-1 门户首页（页面）', 'u-3 设置页面']) {
+      expect(UI_PAGE_SECTION_RE.test(t), t).toBe(true);
+    }
+    for (const t of ['一、页面清单', 'u-2 页面入口与导航关系', 'u-3 页面层级与复用组件', 'u-7 页面四态与操作许可', '页面设计规范']) {
+      expect(UI_PAGE_SECTION_RE.test(t), t).toBe(false);
+    }
   });
 });
 
