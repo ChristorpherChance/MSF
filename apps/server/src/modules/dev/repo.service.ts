@@ -1,13 +1,13 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import { DomainError } from '@msf/shared';
 import { query } from '../../db/pool.js';
+import { DevWorkspaceService } from './workspace.service.js';
 
 /**
  * A06-9 代码仓只读视图（REQ-406）：文件树 + 选中文件内容 + 最近提交。
- * 无真实 git 仓前（M6 接 integration 域），树与内容从任务池 writeScopes/deliverables 派生：
- * - 树节点 = 任务写范围目录 ∪ 交付物路径（去重排序），类型由扩展名/目录推断；
- * - 文件内容 = 交付物所属任务的规格摘要（只读预览，非真实工作区）；
- * - 最近提交 = dev_prs 合并记录（commit_id + 合并依据）。
+ * 两态（2026-10-18 开发域真化）：
+ * - 工作区已存在（AI 真写码产物）：树=git ls-files、内容=真实文件、提交=git log —— 所见即实物
+ * - 无工作区（mock/未开真化）：树与内容从任务池 writeScopes/deliverables 派生（只读预览）
  */
 
 export interface RepoTreeNode { path: string; kind: 'dir' | 'file'; taskCode?: string }
@@ -15,8 +15,40 @@ export interface RepoChange { commitId: string; taskCode: string; title: string;
 
 @Injectable()
 export class DevRepoService {
-  /** GET repo/tree?path= —— 派生文件树 + 选中路径的只读内容 + lint 汇总 */
+  constructor(@Optional() @Inject(DevWorkspaceService) private readonly ws?: DevWorkspaceService) {}
+
+  /** GET repo/tree?path= —— 工作区真实树优先；无工作区回退派生预览 */
   async tree(projectId: string, path?: string) {
+    if (this.ws) {
+      const files = await this.ws.listDir(projectId);
+      if (files.length > 0) return this.realTree(projectId, files, path);
+    }
+    return this.derivedTree(projectId, path);
+  }
+
+  /** 真实工作区树（git ls-files 口径） */
+  private async realTree(projectId: string, files: string[], path?: string) {
+    const nodes = new Map<string, RepoTreeNode>();
+    for (const f of files) {
+      const segs = f.split('/');
+      for (let i = 1; i < segs.length; i++) {
+        const dir = segs.slice(0, i).join('/');
+        if (!nodes.has(dir)) nodes.set(dir, { path: dir, kind: 'dir' });
+      }
+      nodes.set(f, { path: f, kind: 'file' });
+    }
+    const tree = [...nodes.values()].sort((a, b) => a.path.localeCompare(b.path));
+    const sel = path && nodes.get(path)?.kind === 'file' ? path : tree.find((n) => n.kind === 'file')?.path ?? null;
+    let file: { path: string; content: string; taskCode: string | null } | null = null;
+    if (sel) {
+      const content = await this.ws!.readFile(projectId, sel).catch((e) => `// 读取失败：${e instanceof Error ? e.message : e}`);
+      file = { path: sel, content, taskCode: null };
+    }
+    return { tree, file, lint: { ok: true, issues: [] as string[] }, real: true };
+  }
+
+  /** 派生预览（无真实工作区时的旧口径） */
+  private async derivedTree(projectId: string, path?: string) {
     const tasks = await query<{
       code: string; title: string; kind: string; write_scopes: string[]; deliverables: string[]; col: string;
     }>(
@@ -55,8 +87,21 @@ export class DevRepoService {
     return { tree, file, lint: { ok: bad.length === 0, issues: bad } };
   }
 
-  /** GET repo/changes?taskId= —— 最近提交（合并 PR 派生；可按任务过滤） */
+  /** GET repo/changes?taskId= —— 工作区存在时=真实 git log；否则合并 PR 派生（可按任务过滤） */
   async changes(projectId: string, taskId?: string) {
+    if (this.ws) {
+      const log = await this.ws.gitLog(projectId, 30);
+      if (log.length > 0) {
+        return {
+          real: true,
+          changes: log.map((c) => ({
+            commitId: c.sha.slice(0, 12),
+            taskCode: (c.message.match(/^feat\((T-\d+)\)/)?.[1]) ?? '—',
+            title: c.message, by: 'msf-codegen', at: c.at, basis: 'git',
+          })),
+        };
+      }
+    }
     if (taskId) {
       const t = await query('SELECT id FROM dev_tasks WHERE id=$1 AND project_id=$2', [taskId, projectId])
         .catch(() => ({ rows: [] as unknown[] })); // 非法 UUID 视同不存在

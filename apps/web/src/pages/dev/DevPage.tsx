@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { BoardPanel } from './BoardPanel';
 import { ChangePanel } from './ChangePanel';
 import { PlanPanel } from './PlanPanel';
+import { PreviewPanel } from './PreviewPanel';
 import { QualityPanel } from './QualityPanel';
 import { RepoPanel } from './RepoPanel';
 import { StdPanel } from './StdPanel';
@@ -108,6 +109,7 @@ export function DevPage() {
             {s.topTab === 'execute' && s.executePage === 'board' && <BoardPanel />}
             {s.topTab === 'execute' && s.executePage === 'repo' && <RepoPanel />}
             {s.topTab === 'execute' && s.executePage === 'std' && <StdPanel />}
+            {s.topTab === 'execute' && s.executePage === 'preview' && <PreviewPanel />}
             {s.topTab === 'quality' && <QualityPanel />}
             {s.topTab === 'change' && <ChangePanel />}
           </div>
@@ -153,6 +155,7 @@ function DevSide() {
     rows = [
       { key: 'board', name: '🗂 任务看板', count: '' },
       { key: 'repo', name: '📁 代码仓', count: '' },
+      { key: 'preview', name: '🖥 运行预览', count: '' },
       { key: 'std', name: '📏 编码规范', count: '' },
     ];
   } else if (s.topTab === 'quality') {

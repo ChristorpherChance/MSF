@@ -1,9 +1,10 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { BatchPlanPanel } from './BatchPlanPanel';
 import { RunPanel } from './RunPanel';
 import { DefectPanel } from './DefectPanel';
 import { ReportPanel } from './ReportPanel';
 import { useTstStore } from './store';
+import { devApi } from '../dev/api';
 import '../req/req.css';
 import '../design/design.css';
 import '../dev/dev.css';
@@ -23,6 +24,21 @@ export function TestPage() {
   useEffect(() => {
     void s.init();
   }, []);
+  // 运行预览入口（2026-10-18 二期）：轮询预览态——运行中才可点开新窗口；未运行提示去开发页启动
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!s.projectId) return;
+    let alive = true;
+    const poll = async () => {
+      try {
+        const st = await devApi.previewStatus(s.projectId!);
+        if (alive) setPreviewUrl(st.status === 'running' ? (st.url ?? null) : null);
+      } catch { /* 预览状态查询失败不挡主流程 */ }
+    };
+    void poll();
+    const t = setInterval(() => void poll(), 5000);
+    return () => { alive = false; clearInterval(t); };
+  }, [s.projectId]);
   if (!s.projectId) return <main style={{ padding: 24 }}>加载中…</main>;
 
   const env = s.batchDetail?.snapshot.environment as { os?: string; browser?: string } | undefined;
@@ -88,6 +104,13 @@ export function TestPage() {
         {s.batchDetail?.blockedReason && <span className="dev-bad">阻断：{s.batchDetail.blockedReason}</span>}
         {s.pendingHandoffs.length > 0 && (
           <button className="act" onClick={() => void s.setSubTab('plan')}>接收新交接</button>
+        )}
+        {previewUrl ? (
+          <a className="act mini" href={previewUrl} target="_blank" rel="noreferrer" title="沙箱里跑着的真实代码（模拟数据）">
+            🖥 运行预览 ↗
+          </a>
+        ) : (
+          <span className="dsg-prefix" title="开发页「执行工作区 → 🖥 运行预览」可启动">🖥 预览未运行</span>
         )}
         <span className="dsg-prefix">历史批次只读；新构建=新批次</span>
       </div>

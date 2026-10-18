@@ -1,17 +1,22 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import { DomainError } from '@msf/shared';
 import { randomUUID } from 'node:crypto';
 import type { PoolClient } from 'pg';
 import { query } from '../../db/pool.js';
 import { executeCommand, registerCommand, type CommandContext } from '../evidence/command-bus.js';
 import { appendEvidence } from '../evidence/audit.service.js';
+import { SandboxService } from '../executor/sandbox.service.js';
 import { liveBaselineFingerprint, sha256, type GateIssue } from './gate-common.js';
+import { DevCodegenService } from './codegen.service.js';
+import { devMode, DevWorkspaceService } from './workspace.service.js';
 
 /**
  * 看板流转与单任务开发循环（F02-5；A06-8；REQ-405/407/408/411）。
  * 看板列 queue/ing/review/done；阻塞是标记不是列。
- * mock 执行器口径：task.run=编码完成（prog=100）；quality.complete=单测+CI 证据
- * （evd_records unit + dev_ci_reports pass 行，commit=sha256(taskId:codeRev)）；M6 换沙箱 Pi 执行器。
+ * 执行器两态（2026-10-18 开发域真化，MSF_DEV_MODE=real 开真）：
+ * - mock：task.run=编码完成（prog=100）；quality.complete=单测+CI 证据（确定性 payload）
+ * - real：task.run=AI 真写码（DevCodegenService 异步，complete 命令收尾 prog=100）；
+ *   quality.complete=沙箱真跑 npm test（退出码即结论，日志/环境指纹/gitSha 入证据）
  * 合并依据四类之一深冻结（REQ-411）：manual-checklist/manual-skip/autopilot-authorization/legacy-manual。
  */
 
@@ -25,6 +30,13 @@ export const MERGE_BASIS_TYPES = ['manual-checklist', 'manual-skip', 'autopilot-
 
 @Injectable()
 export class DevBoardService {
+  /** 真化依赖全可选注入：测试直接 new DevBoardService() 走 mock 路径（零破坏）；real 模式缺依赖=明确报错 */
+  constructor(
+    @Optional() @Inject(DevCodegenService) private readonly codegen?: DevCodegenService,
+    @Optional() @Inject(SandboxService) private readonly sandbox?: SandboxService,
+    @Optional() @Inject(DevWorkspaceService) private readonly ws?: DevWorkspaceService,
+  ) {}
+
   onModuleInit(): void {
     // task.start（devStartGate 实时求值，F02-5 迁移行前置全量）
     registerCommand('dev.task.start', async (client, payload) => {
@@ -75,12 +87,17 @@ export class DevBoardService {
       return { id: taskId, runStatus: 'stopped' };
     });
 
-    // mock 编码执行（M6 换沙箱 Pi AgentSession；产物=prog=100，证据在 quality.complete 落）
+    // 编码执行（mock=prog=100；real=AI 写码起步标记 prog=10，真收尾在 dev.task.run.complete）
     registerCommand('dev.task.run', async (client, payload) => {
-      const { projectId, taskId } = payload as { projectId: string; taskId: string };
+      const { projectId, taskId, mode } = payload as { projectId: string; taskId: string; mode?: string };
       const t = await this.lockTask(client, projectId, taskId);
       if (t.col !== 'ing' || !['running', 'manual'].includes(t.run_status)) {
         throw new DomainError('INVALID_STATE', '任务须在进行中且运行态才可执行编码', taskId);
+      }
+      if (mode === 'real') {
+        // 真化：起步标记（阻塞标记随重试解除——上一轮失败留下的 blocked 在此清掉）
+        await client.query('UPDATE dev_tasks SET prog=10, blocked=false, blocked_reason=NULL, updated_at=now() WHERE id=$1', [taskId]);
+        return { id: taskId, prog: 10, codegen: 'started' };
       }
       await client.query('UPDATE dev_tasks SET prog=100, updated_at=now() WHERE id=$1', [taskId]);
       return { id: taskId, prog: 100 };
@@ -138,12 +155,37 @@ export class DevBoardService {
       return { prRef: pr.pr_ref, skipped: true, reason };
     });
 
-    // quality.complete（单测+CI 证据；mock 执行器，阈值行 80/分支 70 达标）
+    // quality.complete（mock=确定性单测+CI 证据；real=沙箱真跑 npm test 的真实结论，事务外执行结果随 payload 登记）
     registerCommand('dev.quality.complete', async (client, payload) => {
-      const { projectId, taskId } = payload as { projectId: string; taskId: string };
+      const { projectId, taskId, real } = payload as {
+        projectId: string; taskId: string;
+        real?: { exitCode: number; logsTail: string; envFingerprint: string; durationMs: number; gitSha: string | null };
+      };
       const t = await this.lockTask(client, projectId, taskId);
       if (t.col !== 'review') throw new DomainError('INVALID_STATE', '单测/CI 在评审列执行（先提交评审）', taskId);
       const commit = sha256(`${taskId}:${t.code_rev}`);
+      if (real) {
+        const pass = real.exitCode === 0;
+        await appendEvidence(client, {
+          projectId, kind: 'unit',
+          payload: {
+            taskId, taskRev: t.rev, codeRev: t.code_rev, mode: 'sandbox',
+            pass, exitCode: real.exitCode, durationMs: real.durationMs,
+            envFingerprint: real.envFingerprint, gitSha: real.gitSha,
+            line: null, branch: null, threshold: { line: 80, branch: 70 },
+            logsTail: real.logsTail.slice(-3000), commitId: commit,
+            note: '沙箱真实执行 npm test（退出码即结论；覆盖率采集后续补）',
+          },
+        });
+        await client.query(
+          `INSERT INTO dev_ci_reports (project_id, delivery_id, provider, commit_sha, pr_ref, task_codes, matched, conclusion, payload, payload_fingerprint)
+           VALUES ($1,$2,'sandbox-local',$3,$4,$5,true,$6,$7,$8)`,
+          [projectId, randomUUID(), commit, `PR-${t.code}-r${t.code_rev}`, JSON.stringify([t.code]),
+            pass ? 'pass' : 'fail',
+            JSON.stringify({ runner: 'sandbox', exitCode: real.exitCode, gitSha: real.gitSha, envFingerprint: real.envFingerprint, logsTail: real.logsTail.slice(-2000) }),
+            sha256(`ci:${commit}:${real.exitCode}:${real.gitSha ?? ''}`)]);
+        return { id: taskId, codeRev: t.code_rev, unit: pass ? 'pass' : 'fail', ci: pass ? 'pass' : 'fail', commitId: commit, mode: 'sandbox' };
+      }
       await appendEvidence(client, {
         projectId, kind: 'unit',
         payload: { taskId, taskRev: t.rev, codeRev: t.code_rev, line: 85, branch: 78, threshold: { line: 80, branch: 70 }, pass: true, commitId: commit },
@@ -250,6 +292,10 @@ export class DevBoardService {
   }
 
   async run(projectId: string, taskId: string, ctx: CommandContext) {
+    if (devMode() === 'real') {
+      if (!this.codegen) throw new DomainError('SANDBOX_INFRA_FAILED', '真化模式缺写码执行器（DI 未装配）', taskId);
+      return this.codegen.run(projectId, taskId, ctx);
+    }
     return executeCommand('dev.task.run', { projectId, taskId }, { ...ctx, projectId });
   }
 
@@ -266,6 +312,17 @@ export class DevBoardService {
   }
 
   async quality(projectId: string, taskId: string, ctx: CommandContext) {
+    if (devMode() === 'real') {
+      if (!this.sandbox || !this.ws) throw new DomainError('SANDBOX_INFRA_FAILED', '真化模式缺沙箱/工作区服务（DI 未装配）', taskId);
+      // 事务外真跑：宿主持依赖安装 + 沙箱 npm test；结果随命令 payload 登记（不静默降级）
+      await this.ws.ensure(projectId, ctx);
+      await this.ws.npmInstall(projectId);
+      const r = await this.ws.runInWorkspace(this.sandbox, projectId, ['npm', 'test'], { timeoutMs: 300_000 });
+      return executeCommand('dev.quality.complete', {
+        projectId, taskId,
+        real: { exitCode: r.exitCode, logsTail: r.logs.slice(-3000), envFingerprint: r.envFingerprint, durationMs: r.durationMs, gitSha: r.gitSha },
+      }, { ...ctx, projectId });
+    }
     return executeCommand('dev.quality.complete', { projectId, taskId }, { ...ctx, projectId });
   }
 

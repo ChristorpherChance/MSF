@@ -18,6 +18,17 @@ async function bootstrap(): Promise<void> {
   app.useBodyParser('json', { limit: '2mb' });
   // 部署态简易登录（env 门控，未设置=本地开发零鉴权）：须在业务路由前
   app.use(authMiddleware);
+  // 预览同源隔离带（2026-10-18 运行预览二期）：预览 iframe 与平台同源，AI 生成页内脚本
+  // 可能携带平台会话直调 /api——凡 Referer 含 /dev-preview/ 的 /api 请求一律 403。
+  // 生成应用约定只调相对路径（经 /dev-preview/:pid/* 反代进出沙箱容器，头中 Cookie 已剥离）。
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    const ref = String(req.headers.referer ?? '');
+    if (req.path.startsWith('/api/') && ref.includes('/dev-preview/')) {
+      res.status(403).json({ error: { code: 'FORBIDDEN', message: '预览沙箱内页面不可直调平台 API' } });
+      return;
+    }
+    next();
+  });
   app.use(identityMiddleware);
   app.use(idempotencyMiddleware);
   // W2-005：A01-3 收据缓存（同键同体重放返首个响应；同键异体 409）——须在 body-parser 之后（payload 哈希依赖解析后 body）
@@ -30,7 +41,7 @@ async function bootstrap(): Promise<void> {
     const root = resolve(webDist);
     app.useStaticAssets(root, { index: false });
     app.use((req: Request, res: Response, next: NextFunction) => {
-      if (req.method !== 'GET' || req.path.startsWith('/api') || req.path === '/health' || extname(req.path)) {
+      if (req.method !== 'GET' || req.path.startsWith('/api') || req.path.startsWith('/dev-preview') || req.path === '/health' || extname(req.path)) {
         next();
         return;
       }

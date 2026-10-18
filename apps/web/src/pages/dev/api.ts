@@ -165,6 +165,13 @@ export const devApi = {
   buildRun: (pid: string) => api.post<{ buildId: string; status: string }>(`${base(pid)}/build:run`, {}),
   buildCurrent: (pid: string) => api.get<{ build: BuildInfo | null }>(`${base(pid)}/build`),
 
+  /** 运行预览（2026-10-18 二期：长驻沙箱容器，反代 /dev-preview/:pid/；启动可能耗时数十秒——宿主装依赖+容器就绪等待） */
+  previewStatus: (pid: string) =>
+    api.get<{ status: 'running' | 'stopped'; url?: string; ip?: string | null; startedAt?: string; lastError?: string | null; lastStatus?: string | null }>(
+      `${base(pid)}/preview`),
+  previewStart: (pid: string) => api.post<{ url: string }>(`${base(pid)}/preview:start`, {}),
+  previewStop: (pid: string) => api.post<{ stopped: number }>(`${base(pid)}/preview:stop`, {}),
+
   selftestStart: (pid: string) => api.post<{ reportId: string; code: string; status: string }>(`${base(pid)}/selftest:start`, {}),
   selftestRetest: (pid: string, reason: string) => api.post(`${base(pid)}/selftest:retest`, { reason }),
   selftestGate: (pid: string) => api.get<GateResult & { report: ReportItem | null }>(`${base(pid)}/selftest/gate`),

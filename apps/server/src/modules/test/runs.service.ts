@@ -1,25 +1,39 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import { DomainError } from '@msf/shared';
 import { createHash } from 'node:crypto';
 import { query } from '../../db/pool.js';
 import { appendEvidence } from '../evidence/audit.service.js';
 import { executeCommand, registerCommand, type CommandContext } from '../evidence/command-bus.js';
 import { StorageService } from '../platform/storage.service.js';
+import { SandboxService } from '../executor/sandbox.service.js';
 import { aggregateConclusion, assertNotBlocked, lockBatch, nextCode } from './test-common.js';
+import { devMode, DevWorkspaceService } from '../dev/workspace.service.js';
 
 /**
  * 用例执行两级模型（A07-4/5；F02-9；REQ-504/505）。
- * 自动用例由 mock 执行器执行（产 pass+证据行；M6 换真实执行器，模型不变）；
+ * 自动用例两态（2026-10-18 开发域真化，MSF_DEV_MODE=real 开真）：
+ * - mock：mock 执行器直写 pass+证据行
+ * - real：事务外沙箱真跑工作区 npm test，退出码即本批全部自动用例结论（套件级同源口径——
+ *   自动用例=「项目测试套件真实执行」的一次采证；逐用例独立映射后续补），
+ *   日志尾/环境指纹/gitSha 随证据落库；沙箱不可用=明确报错，不静默降级
  * 人工走查保持 not-run 等人工录入；人工录入=追加新 run 版本（自动行原样拷贝）。
  */
 @Injectable()
 export class TstRunsService {
-  constructor(@Inject(StorageService) private readonly storage: StorageService) {}
+  constructor(
+    @Inject(StorageService) private readonly storage: StorageService,
+    @Optional() @Inject(SandboxService) private readonly sandbox?: SandboxService,
+    @Optional() @Inject(DevWorkspaceService) private readonly ws?: DevWorkspaceService,
+  ) {}
 
   onModuleInit(): void {
     // A07-4 创建运行（执行批准计划）
     registerCommand('tst.run.execute', async (client, payload, ctx) => {
-      const { projectId, batchId, planId } = payload as { projectId: string; batchId: string; planId: string };
+      const { projectId, batchId, planId, exec } = payload as {
+        projectId: string; batchId: string; planId: string;
+        /** real 模式：事务外沙箱真实执行结果（退出码即自动用例结论，套件级同源口径） */
+        exec?: { exitCode: number; logsTail: string; envFingerprint: string; durationMs: number; gitSha: string | null; cmd: string };
+      };
       const b = await lockBatch(client, projectId, batchId);
       assertNotBlocked(b);
       if (b.status !== 'approved' && b.status !== 'executing') {
@@ -45,16 +59,36 @@ export class TstRunsService {
         [projectId, b.id, p.rows[0].id, code, prev.rows[0]?.id ?? null, b.environment_fingerprint, ctx.actorId]);
       for (const c of cases.rows) {
         if (c.mode === 'auto') {
-          // mock 自动执行器：通过路径 + 证据行（M6 换真实执行器）
-          const ev = await appendEvidence(client, {
-            projectId, kind: 'test-exec',
-            payload: { batchId, runCode: code, caseCode: c.code, mode: 'auto', result: 'pass', evidence: 'mock 执行器：按步骤通过（M6 换真实执行器）' },
-          });
-          await client.query(
-            `INSERT INTO tst_case_runs (run_id, case_id, result, executor_kind, evidence_ids, executed_by, note)
-             VALUES ($1,$2,'pass','auto',$3,$4,'mock 执行器')`,
-            [run.rows[0]!.id, c.id, JSON.stringify([ev]), ctx.actorId]);
-          results.push('pass');
+          if (exec) {
+            // real：沙箱真实执行（退出码即结论；同一套件结论同源到全部自动用例）
+            const result = exec.exitCode === 0 ? 'pass' : 'fail';
+            const ev = await appendEvidence(client, {
+              projectId, kind: 'test-exec',
+              payload: {
+                batchId, runCode: code, caseCode: c.code, mode: 'auto', result, runner: 'sandbox',
+                exitCode: exec.exitCode, gitSha: exec.gitSha, envFingerprint: exec.envFingerprint,
+                durationMs: exec.durationMs, cmd: exec.cmd,
+                evidence: `沙箱真实执行 ${exec.cmd} exit=${exec.exitCode}`,
+                logsTail: exec.logsTail.slice(-2000),
+              },
+            });
+            await client.query(
+              `INSERT INTO tst_case_runs (run_id, case_id, result, executor_kind, evidence_ids, executed_by, note)
+               VALUES ($1,$2,$3,'auto',$4,$5,$6)`,
+              [run.rows[0]!.id, c.id, result, JSON.stringify([ev]), ctx.actorId, `沙箱真实执行 exit=${exec.exitCode}`]);
+            results.push(result);
+          } else {
+            // mock 自动执行器：通过路径 + 证据行
+            const ev = await appendEvidence(client, {
+              projectId, kind: 'test-exec',
+              payload: { batchId, runCode: code, caseCode: c.code, mode: 'auto', result: 'pass', evidence: 'mock 执行器：按步骤通过（M6 换真实执行器）' },
+            });
+            await client.query(
+              `INSERT INTO tst_case_runs (run_id, case_id, result, executor_kind, evidence_ids, executed_by, note)
+               VALUES ($1,$2,'pass','auto',$3,$4,'mock 执行器')`,
+              [run.rows[0]!.id, c.id, JSON.stringify([ev]), ctx.actorId]);
+            results.push('pass');
+          }
         } else {
           await client.query(
             `INSERT INTO tst_case_runs (run_id, case_id, result, executor_kind, executed_by, note)
@@ -160,6 +194,17 @@ export class TstRunsService {
   // ---------- 命令入口 ----------
 
   async execute(projectId: string, batchId: string, planId: string, ctx: CommandContext) {
+    if (devMode() === 'real') {
+      if (!this.sandbox || !this.ws) throw new DomainError('SANDBOX_INFRA_FAILED', '真化模式缺沙箱/工作区服务（DI 未装配）', batchId);
+      // 事务外真跑：宿主持依赖安装 + 沙箱 npm test；结果随命令 payload 登记（不静默降级）
+      await this.ws.ensure(projectId, ctx);
+      await this.ws.npmInstall(projectId);
+      const r = await this.ws.runInWorkspace(this.sandbox, projectId, ['npm', 'test'], { timeoutMs: 600_000 });
+      return executeCommand('tst.run.execute', {
+        projectId, batchId, planId,
+        exec: { exitCode: r.exitCode, logsTail: r.logs.slice(-3000), envFingerprint: r.envFingerprint, durationMs: r.durationMs, gitSha: r.gitSha, cmd: 'npm test' },
+      }, { ...ctx, projectId });
+    }
     return executeCommand('tst.run.execute', { projectId, batchId, planId }, { ...ctx, projectId });
   }
 

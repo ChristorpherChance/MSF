@@ -134,6 +134,11 @@ export const COMMANDS = [
   'dev.task.resume',
   'dev.task.stop',
   'dev.task.run',
+  'dev.task.run.complete', // AI 写码异步收尾（prog=100/失败置 stopped+阻塞；晚到零写；2026-10-18 开发域真化）
+  'dev.workspace.ensure',  // 项目工作区（git 仓）初始化留痕（fs 副作用在事务外；2026-10-18 开发域真化）
+  'dev.preview.start',     // 长驻运行预览登记（沙箱 runService 容器；2026-10-18 二期）
+  'dev.preview.stop',      // 预览停止/自愈对账落停
+  'dev.preview.fail',      // 预览启动失败登记（健康等待超时/进程退出）
   'dev.task.progress',
   'dev.task.rework', // 评审驳回/影响返工重入（devBeginRework+devConfirmRework）
   'dev.pr.submit',

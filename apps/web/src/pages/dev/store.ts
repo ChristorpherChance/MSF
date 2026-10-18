@@ -22,7 +22,7 @@ export type DevPlanFilter = 'all' | 'gap' | `req:${string}`;
 export type DevPlanView = 'business' | 'division' | 'order';
 /** V4 注意项页签 */
 export type DevAttentionView = 'human' | 'ai' | 'all';
-export type DevExecutePage = 'board' | 'repo' | 'std';
+export type DevExecutePage = 'board' | 'repo' | 'std' | 'preview';
 export type DevQualityPage = 'targets' | 'unit' | 'pr' | 'build' | 'selftest';
 export type DevChangePage = 'impacts' | 'baseline' | 'history';
 

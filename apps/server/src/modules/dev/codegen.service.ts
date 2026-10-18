@@ -1,0 +1,255 @@
+import { Inject, Injectable, Optional } from '@nestjs/common';
+import { DomainError } from '@msf/shared';
+import { query } from '../../db/pool.js';
+import { appendEvidence } from '../evidence/audit.service.js';
+import { executeCommand, registerCommand, type CommandContext } from '../evidence/command-bus.js';
+import { AI_PROVIDER, type AiProvider } from '../ai/ai-provider.interface.js';
+import { StorageService } from '../platform/storage.service.js';
+import { sanitizeAiError } from '../ai/stream-pipeline.js';
+import { DevWorkspaceService } from './workspace.service.js';
+
+/**
+ * AI 真写码执行器（2026-10-18 开发域真化一期，用户拍板）：
+ * dev.task.run 在 MSF_DEV_MODE=real 下的真身——任务规格 + 目录条目载荷 + 页级原型参考 HTML
+ * 组织成 prompt，模型按 ```file path="..." 围栏契约产出文件块；服务端解析落盘（路径收编 +
+ * .git/node_modules 禁区 + 60 文件/256KB 上限），逐任务 git commit，证据（文件清单/commit/
+ * 模型/轮次）随 dev.task.run.complete 命令同事务落库。
+ * - 异步任务：start 仅做状态校验+置 prog=10；执行在事务外；complete 对 run_status 已变
+ *   （人工 stop/返工）的晚到收尾零写（委派 transition 同口径）
+ * - 不静默降级：real 模式但 AI 非 pi 真接 → 走确定性脚手架产物并如实记 mode='deterministic'
+ *   （MSF_AI_PROVIDER=mock 的本地/CI 真化联调用）；沙箱/模型故障 → 任务置 stopped+阻塞原因
+ */
+
+export interface CodegenFile { path: string; content: string }
+
+const MAX_FILES = 60;
+const MAX_PROMPT_HTML = 40_000;
+
+/** 生成应用约定（注入 prompt；预览形态=单进程自包含，沙箱内网零出向可跑） */
+export const APP_CONVENTIONS = `
+【目标应用形态约定（必须遵守）】
+- 单进程自包含 Node.js 应用（CommonJS，不依赖任何需要编译的原生模块）；
+- package.json 必须含 scripts：
+  "start": "node server/index.js"（服务监听 process.env.PORT || 3000，绑定 0.0.0.0）
+  "test":  "node --test tests/"（用 node 内置测试器，断言真实行为）
+  "build": "node scripts/build.js"（无构建步骤时写检查脚本：校验关键文件存在即退出 0）
+- 后端代码在 server/，前端静态资源在 public/ 并由 server 托管；
+  前端调后端一律用相对路径（如 fetch('/app-api/xxx')），禁止引用任何外网 CDN/字体/图片（运行环境无出向网络）；
+- 数据可用内存态或写 data/ 目录 JSON 文件（data/ 已在 .gitignore）；
+- 样式直接写内联 <style> 或 public/ 下 css 文件。
+【输出契约（严格执行）】
+- 只输出文件块，不要寒暄。每个文件一个代码块，格式：
+  \`\`\`file path="相对路径/文件.ext"
+  （文件完整内容）
+  \`\`\`
+- 路径为工作区相对路径（如 package.json、server/index.js、public/index.html），不得含 .. 或以 / 开头；
+- 修改已有文件时输出该文件完整新内容；新增文件直接输出；文件总数 ≤ ${MAX_FILES}。
+`.trim();
+
+/** 文件块解析（行扫描；未闭合尾围栏容错——模型漏写收尾 ``` 时既有完整文件照样采用） */
+export function parseFileBlocks(text: string): CodegenFile[] {
+  const files: CodegenFile[] = [];
+  const lines = text.split(/\r?\n/);
+  let cur: { path: string; buf: string[] } | null = null;
+  for (const line of lines) {
+    const open = line.match(/^```file\s+path="([^"]+)"\s*$/);
+    if (open) {
+      if (cur) files.push({ path: cur.path, content: cur.buf.join('\n') }); // 上一个未闭合先收
+      cur = { path: open[1]!.trim(), buf: [] };
+      continue;
+    }
+    if (cur) {
+      if (/^```\s*$/.test(line)) {
+        files.push({ path: cur.path, content: cur.buf.join('\n') });
+        cur = null;
+      } else {
+        cur.buf.push(line);
+      }
+    }
+  }
+  if (cur) files.push({ path: cur.path, content: cur.buf.join('\n') }); // 尾围栏缺失容错
+  // 去重（后写胜出）+ 形态校验
+  const byPath = new Map<string, string>();
+  for (const f of files) {
+    const p = f.path.replace(/\\/g, '/').replace(/^\.\//, '');
+    if (!p || p.startsWith('/') || p.includes('..') || /[<>:"|?*]/.test(p)) continue;
+    byPath.set(p, f.content);
+  }
+  return [...byPath.entries()].slice(0, MAX_FILES).map(([path, content]) => ({ path, content }));
+}
+
+/** 确定性脚手架（mock provider/解析为空兜底；只补缺不覆盖已有文件） */
+export function scaffoldFiles(task: { code: string; title: string; deliverables: unknown[] }, existing: Set<string>): CodegenFile[] {
+  const files: CodegenFile[] = [];
+  const add = (path: string, content: string) => { if (!existing.has(path)) files.push({ path, content }); };
+  add('package.json', JSON.stringify({
+    name: 'msf-generated-app', private: true, version: '0.1.0',
+    scripts: { start: 'node server/index.js', test: 'node --test tests/', build: 'node scripts/build.js' },
+  }, null, 2) + '\n');
+  add('scripts/build.js', `const { existsSync } = require('node:fs');\nfor (const f of ['server/index.js', 'public/index.html']) {\n  if (!existsSync(f)) { console.error('missing ' + f); process.exit(1); }\n}\nconsole.log('build ok');\n`);
+  add('server/index.js', `const http = require('node:http');\nconst { readFile } = require('node:fs/promises');\nconst { join, extname, normalize } = require('node:path');\nconst PORT = Number(process.env.PORT || 3000);\nconst MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json' };\nhttp.createServer(async (req, res) => {\n  const url = new URL(req.url, 'http://x');\n  if (url.pathname === '/app-api/info') {\n    res.writeHead(200, { 'content-type': 'application/json' });\n    res.end(JSON.stringify({ name: 'msf-generated-app', tasks: [] }));\n    return;\n  }\n  const rel = url.pathname === '/' ? 'index.html' : normalize(url.pathname).replace(/^[\\\\/]+/, '');\n  if (rel.includes('..')) { res.writeHead(403); res.end(); return; }\n  try {\n    const buf = await readFile(join(__dirname, '..', 'public', rel));\n    res.writeHead(200, { 'content-type': MIME[extname(rel)] ?? 'application/octet-stream' });\n    res.end(buf);\n  } catch { res.writeHead(404); res.end('not found'); }\n}).listen(PORT, '0.0.0.0', () => console.log('listening :' + PORT));\n`);
+  add('public/index.html', `<!doctype html><html><head><meta charset="utf-8"><title>应用</title></head><body><h1>应用骨架已就绪</h1><div id="app"></div><script>fetch('/app-api/info').then(r=>r.json()).then(d=>{document.getElementById('app').textContent=JSON.stringify(d)});</script></body></html>\n`);
+  add('tests/smoke.test.js', `const { test } = require('node:test');\nconst assert = require('node:assert');\nconst { existsSync, readFileSync } = require('node:fs');\ntest('scaffold intact', () => {\n  assert.ok(existsSync('server/index.js'));\n  assert.ok(JSON.parse(readFileSync('package.json', 'utf8')).scripts.start);\n});\n`);
+  for (const d of task.deliverables ?? []) {
+    const p = String(d);
+    if (/\.(ts|js)$/.test(p)) add(p, `// ${task.code} ${task.title}\nexport {};\n`);
+    else if (/\.html$/.test(p)) add(p, `<!doctype html><html><head><meta charset="utf-8"><title>${task.title}</title></head><body><h1>${task.title}</h1></body></html>\n`);
+  }
+  return files;
+}
+
+interface TaskRowFull {
+  id: string; code: string; title: string; kind: string; goal: string | null; scope: string | null;
+  boundary: string | null; work: unknown[]; inputs: unknown[]; deliverables: unknown[];
+  acceptance: unknown[]; quality: Record<string, unknown>; write_scopes: string[];
+  source_ids: string[]; code_rev: number; rev: number; run_status: string; col: string;
+}
+
+@Injectable()
+export class DevCodegenService {
+  constructor(
+    @Inject(DevWorkspaceService) private readonly ws: DevWorkspaceService,
+    @Optional() @Inject(AI_PROVIDER) private readonly ai?: AiProvider,
+    @Optional() @Inject(StorageService) private readonly storage?: StorageService,
+  ) {}
+
+  onModuleInit(): void {
+    // 写码收尾（异步执行器回报；全部 DB 写集中在此命令事务内）
+    registerCommand('dev.task.run.complete', async (client, payload) => {
+      const p = payload as {
+        projectId: string; taskId: string; ok: boolean; files?: string[]; commit?: string | null;
+        mode?: 'ai' | 'deterministic'; rounds?: number; error?: string;
+        usage?: { inputTokens: number; outputTokens: number };
+      };
+      const t = await client.query<{ run_status: string; code: string; code_rev: number; rev: number }>(
+        'SELECT run_status, code, code_rev, rev FROM dev_tasks WHERE id=$1 AND project_id=$2 FOR UPDATE',
+        [p.taskId, p.projectId]);
+      if (!t.rows[0]) throw new DomainError('NOT_FOUND', '任务不存在', p.taskId);
+      const row = t.rows[0];
+      // 晚到收尾零写：人工 stop/返工已改运行态，执行结果落盘但事实不回写看板（委派同口径）
+      if (!['running', 'manual'].includes(row.run_status)) {
+        return { applied: false, stale: true, current: row.run_status };
+      }
+      await appendEvidence(client, {
+        projectId: p.projectId, kind: 'codegen',
+        payload: {
+          taskId: p.taskId, taskCode: row.code, codeRev: row.code_rev, taskRev: row.rev,
+          ok: p.ok, mode: p.mode ?? 'ai', rounds: p.rounds ?? 1,
+          files: p.files ?? [], commit: p.commit ?? null,
+          ...(p.error ? { error: p.error } : {}), ...(p.usage ? { usage: p.usage } : {}),
+          at: new Date().toISOString(),
+        },
+      });
+      if (p.ok) {
+        await client.query("UPDATE dev_tasks SET prog=100, updated_at=now() WHERE id=$1", [p.taskId]);
+      } else {
+        await client.query(
+          "UPDATE dev_tasks SET prog=0, run_status='stopped', blocked=true, blocked_reason=$3, updated_at=now() WHERE id=$1 AND project_id=$2",
+          [p.taskId, p.projectId, `AI 写码失败：${(p.error ?? '未知').slice(0, 180)}`]);
+      }
+      return { applied: true, ok: p.ok, prog: p.ok ? 100 : 0 };
+    });
+  }
+
+  /** real 模式入口（board.run 转入）：状态校验+起步标记走 dev.task.run 命令，执行异步 */
+  async run(projectId: string, taskId: string, ctx: CommandContext): Promise<unknown> {
+    const r = await executeCommand('dev.task.run', { projectId, taskId, mode: 'real' }, { ...ctx, projectId });
+    void this.execute(projectId, taskId, { ...ctx, projectId }).catch(() => undefined); // 失败在 execute 内已回报
+    return r;
+  }
+
+  /** 异步执行主体（事务外：AI 调用/fs/git 副作用；结果经 dev.task.run.complete 命令落库） */
+  private async execute(projectId: string, taskId: string, ctx: CommandContext): Promise<void> {
+    const done = (p: Record<string, unknown>) =>
+      executeCommand('dev.task.run.complete', { projectId, taskId, ...p }, { projectId, actorKind: 'system', actorId: 'codegen' });
+    try {
+      const { dir } = await this.ws.ensure(projectId, ctx);
+      const tr = await query<TaskRowFull>('SELECT * FROM dev_tasks WHERE id=$1 AND project_id=$2', [taskId, projectId]);
+      const task = tr.rows[0];
+      if (!task) throw new DomainError('NOT_FOUND', '任务不存在', taskId);
+      const existing = new Set(await this.ws.listFiles(projectId));
+
+      let files: CodegenFile[] = [];
+      let mode: 'ai' | 'deterministic' = 'deterministic';
+      let rounds = 0;
+      let usage: { inputTokens: number; outputTokens: number } | undefined;
+
+      if (this.ai?.kind === 'pi') {
+        const prompt = await this.buildPrompt(projectId, task, [...existing]);
+        let feedback = '';
+        for (let round = 1; round <= 2; round++) {
+          rounds = round;
+          const session = await this.ai.createSession({ projectId, purpose: 'codegen' });
+          const { deltas, result } = session.stream(round === 1 ? prompt : `${prompt}\n\n【上轮问题】${feedback}\n请严格按输出契约重新输出。`);
+          let text = '';
+          for await (const d of deltas) text += d;
+          const r = await result.catch(() => null);
+          if (r?.usage) {
+            usage = { inputTokens: (usage?.inputTokens ?? 0) + r.usage.inputTokens, outputTokens: (usage?.outputTokens ?? 0) + r.usage.outputTokens };
+          }
+          const parsed = parseFileBlocks(text);
+          if (parsed.length > 0) { files = parsed; mode = 'ai'; break; }
+          feedback = '未解析到任何 ```file path="..." 文件块（0 个文件）。';
+        }
+      }
+      if (files.length === 0) {
+        files = scaffoldFiles(task, existing);
+      }
+
+      // 落盘（AI 产物覆盖写——模型对公共文件负合并责任；脚手架只补缺）
+      const written: string[] = [];
+      for (const f of files) {
+        await this.ws.writeFile(projectId, f.path, f.content);
+        written.push(f.path);
+      }
+      const commit = await this.ws.commitAll(dir, `feat(${task.code}): ${task.title}`);
+      await done({ ok: true, files: written, commit, mode, rounds, ...(usage ? { usage } : {}) });
+    } catch (e) {
+      const msg = sanitizeAiError(e instanceof Error ? e.message : String(e));
+      await done({ ok: false, error: msg }).catch(() => undefined);
+    }
+  }
+
+  /** prompt 装配：任务规格 + 目录条目载荷 + 页级原型参考 HTML + 工作区现状 */
+  private async buildPrompt(projectId: string, task: TaskRowFull, existingFiles: string[]): Promise<string> {
+    const parts: string[] = [
+      `你在为产品工作台中的一个项目开发真实代码。工作区是一个持续演进的应用仓库（git），多个任务会先后向其中提交代码；你只负责本任务，与既有代码共存，不要删除无关文件。`,
+      APP_CONVENTIONS,
+      `\n【本任务】${task.code}（${task.kind}）${task.title}`,
+      `目标：${task.goal ?? '—'}`,
+      `范围：${task.scope ?? '—'}；边界：${task.boundary ?? '—'}`,
+      `工作项：${(task.work ?? []).map(String).join('；') || '—'}`,
+      `交付物：${(task.deliverables ?? []).map(String).join('；') || '—'}`,
+      `验收条件：${(task.acceptance ?? []).map((a) => String(typeof a === 'object' && a !== null ? (a as Record<string, unknown>).item ?? JSON.stringify(a) : a)).join('；') || '—'}`,
+    ];
+    // 目录条目载荷（页面/流程的定义细节）
+    if (task.source_ids.length > 0) {
+      const cat = await query<{ catalog_version: string }>(
+        'SELECT catalog_version FROM dsg_catalog_items WHERE project_id=$1 ORDER BY catalog_version DESC LIMIT 1', [projectId]);
+      const cv = cat.rows[0]?.catalog_version;
+      if (cv) {
+        const items = await query<{ code: string; item_type: string; payload: Record<string, unknown> }>(
+          'SELECT code, item_type, payload FROM dsg_catalog_items WHERE project_id=$1 AND catalog_version=$2 AND code = ANY($3)',
+          [projectId, cv, task.source_ids]);
+        for (const it of items.rows) {
+          parts.push(`\n【目录条目 ${it.code}（${it.item_type}）】\n${JSON.stringify(it.payload).slice(0, 6000)}`);
+        }
+        // 页级原型参考 HTML（frontend 任务：外观与交互以原型为准）
+        if (task.kind === 'frontend' && this.storage) {
+          const pages = await query<{ page_code: string; object_key: string }>(
+            'SELECT page_code, object_key FROM dsg_prototype_pages WHERE project_id=$1 AND catalog_version=$2 AND page_code = ANY($3)',
+            [projectId, cv, task.source_ids]);
+          for (const p of pages.rows) {
+            const html = await this.storage.getObject(p.object_key).catch(() => null);
+            if (html) {
+              parts.push(`\n【页面 ${p.page_code} 的已定稿原型 HTML（外观/结构/交互以此为实现基准；把原型内模拟数据改造为 /app-api 真实接口驱动）】\n${html.toString('utf8').slice(0, MAX_PROMPT_HTML)}`);
+            }
+          }
+        }
+      }
+    }
+    parts.push(`\n【工作区已有文件】\n${existingFiles.slice(0, 200).join('\n') || '（空仓库）'}`);
+    parts.push(`\n请现在按输出契约给出本任务要新增/修改的文件。package.json 已存在时不要重复输出，除非必须修改（修改则输出完整内容）。`);
+    return parts.join('\n');
+  }
+}

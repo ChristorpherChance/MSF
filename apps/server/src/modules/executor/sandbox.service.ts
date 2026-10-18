@@ -20,6 +20,10 @@ export interface SandboxSpec {
   cmd: string[];
   env?: Record<string, string>;
   limits?: { memoryMb?: number; cpu?: number; timeoutMs?: number };
+  /** 绑定挂载（开发域真化：工作区目录挂入 /work 等）；元素为 docker Binds 语法 "host:container[:ro|rw]" */
+  binds?: string[];
+  /** 工作目录（如 /work） */
+  workdir?: string;
 }
 
 export interface SandboxResult {
@@ -31,20 +35,46 @@ export interface SandboxResult {
   envFingerprint: string;
 }
 
+/** 长驻服务句柄（运行预览二期：沙箱起服务，进程保活，命令退出不销毁——由调用方负责 stop） */
+export interface SandboxServiceHandle {
+  containerId: string;
+  name: string;
+  /** 容器在沙箱网络内的 IP（宿主可达；internal 网仅断出向） */
+  ip: string;
+}
+
+export interface SandboxServiceSpec {
+  image: string;
+  cmd: string[];
+  name: string;
+  env?: Record<string, string>;
+  binds?: string[];
+  workdir?: string;
+  limits?: { memoryMb?: number; cpu?: number };
+}
+
 const NETWORK = process.env.MSF_SANDBOX_NETWORK ?? 'msf_sandbox';
 const MAX_CONCURRENT = Number(process.env.MSF_SANDBOX_CONCURRENCY ?? 2);
 const DEFAULT_TIMEOUT_MS = 120_000;
 
+interface ContainerHandle {
+  id: string;
+  start(): Promise<void>;
+  wait(): Promise<{ StatusCode: number }>;
+  logs(opts: Record<string, unknown>): Promise<Buffer>;
+  kill(): Promise<void>;
+  stop?(opts?: Record<string, unknown>): Promise<void>;
+  remove(opts?: Record<string, unknown>): Promise<void>;
+  inspect(): Promise<{
+    State?: { Running?: boolean; ExitCode?: number };
+    NetworkSettings?: { Networks?: Record<string, { IPAddress?: string }> };
+  }>;
+}
+
 interface DockerLike {
   listImages(options: { filters: string }): Promise<Array<{ Id: string; RepoDigests: string[] | null }>>;
-  createContainer(opts: Record<string, unknown>): Promise<{
-    id: string;
-    start(): Promise<void>;
-    wait(): Promise<{ StatusCode: number }>;
-    logs(opts: Record<string, unknown>): Promise<Buffer>;
-    kill(): Promise<void>;
-    remove(opts?: Record<string, unknown>): Promise<void>;
-  }>;
+  createContainer(opts: Record<string, unknown>): Promise<ContainerHandle>;
+  getContainer(id: string): ContainerHandle;
   ping(): Promise<unknown>;
 }
 
@@ -116,6 +146,7 @@ export class SandboxService {
       Image: spec.image,
       Cmd: spec.cmd,
       Env: Object.entries(spec.env ?? {}).map(([k, v]) => `${k}=${v}`),
+      ...(spec.workdir ? { WorkingDir: spec.workdir } : {}),
       HostConfig: {
         NetworkMode: NETWORK,
         Memory: memoryMb * 1024 * 1024,
@@ -124,6 +155,7 @@ export class SandboxService {
         SecurityOpt: ['no-new-privileges'],
         ReadonlyRootfs: true,
         Tmpfs: { '/tmp': 'rw,noexec,nosuid,size=64m' },
+        ...(spec.binds?.length ? { Binds: spec.binds } : {}),
       },
     });
     this.running += 1;
@@ -153,6 +185,69 @@ export class SandboxService {
       this.running -= 1;
       await container.remove({ force: true }).catch(() => undefined);
     }
+  }
+
+  /**
+   * 长驻服务（运行预览二期）：与 runOnce 同一安全基线（internal 网/只读根/CapDrop ALL/
+   * no-new-privileges/限额），差异=不等待退出、不自动销毁、不占 runOnce 并发配额；
+   * 同名容器先清后建（幂等重起）。调用方负责 stopService 回收。
+   */
+  async runService(spec: SandboxServiceSpec): Promise<SandboxServiceHandle> {
+    const docker = await this.client();
+    const { digest } = await this.resolveImage(docker, spec.image);
+    const memoryMb = spec.limits?.memoryMb ?? 512;
+    const cpu = spec.limits?.cpu ?? 1;
+    // 幂等：同名残留（进程重启后句柄丢失）先强制回收
+    const stale = docker.getContainer(spec.name);
+    const staleInfo = await stale.inspect().catch(() => null);
+    if (staleInfo) await stale.remove({ force: true }).catch(() => undefined);
+    const container = await docker.createContainer({
+      Image: spec.image,
+      name: spec.name,
+      Cmd: spec.cmd,
+      Env: Object.entries(spec.env ?? {}).map(([k, v]) => `${k}=${v}`),
+      ...(spec.workdir ? { WorkingDir: spec.workdir } : {}),
+      Labels: { 'msf.kind': 'preview', 'msf.image.digest': digest },
+      HostConfig: {
+        NetworkMode: NETWORK,
+        Memory: memoryMb * 1024 * 1024,
+        NanoCpus: Math.floor(cpu * 1e9),
+        CapDrop: ['ALL'],
+        SecurityOpt: ['no-new-privileges'],
+        ReadonlyRootfs: true,
+        Tmpfs: { '/tmp': 'rw,nosuid,size=128m' },
+        AutoRemove: false,
+        ...(spec.binds?.length ? { Binds: spec.binds } : {}),
+      },
+    });
+    await container.start();
+    const info = await container.inspect();
+    const ip = info.NetworkSettings?.Networks?.[NETWORK]?.IPAddress ?? '';
+    if (!ip) {
+      await container.remove({ force: true }).catch(() => undefined);
+      throw new DomainError('SANDBOX_INFRA_FAILED', '长驻容器未取到沙箱网络 IP', spec.name);
+    }
+    return { containerId: container.id, name: spec.name, ip };
+  }
+
+  /** 长驻容器实时状态（死容器自愈判定用）；不存在 → null */
+  async inspectService(containerIdOrName: string): Promise<{ running: boolean; exitCode: number | null; ip: string } | null> {
+    const docker = await this.client();
+    const c = docker.getContainer(containerIdOrName);
+    const info = await c.inspect().catch(() => null);
+    if (!info) return null;
+    return {
+      running: info.State?.Running === true,
+      exitCode: info.State?.ExitCode ?? null,
+      ip: info.NetworkSettings?.Networks?.[NETWORK]?.IPAddress ?? '',
+    };
+  }
+
+  /** 回收长驻容器（幂等：不存在即成功） */
+  async stopService(containerIdOrName: string): Promise<void> {
+    const docker = await this.client();
+    const c = docker.getContainer(containerIdOrName);
+    await c.remove({ force: true }).catch(() => undefined);
   }
 }
 

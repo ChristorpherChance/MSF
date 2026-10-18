@@ -13,6 +13,7 @@ import { DevTransferService } from './transfer.service.js';
 import { DevImpactService } from './impact.service.js';
 import { DevCiService } from './ci.service.js';
 import { DevRepoService } from './repo.service.js';
+import { DevPreviewService } from './preview.service.js';
 
 /** 开发域端点（LLD-5 DSG-A06-1~22；REQ-401~420） */
 @Controller('api/v1/projects/:projectId/dev')
@@ -28,6 +29,7 @@ export class DevController {
     @Inject(DevImpactService) private readonly impact: DevImpactService,
     @Inject(DevCiService) private readonly ci: DevCiService,
     @Inject(DevRepoService) private readonly repo: DevRepoService,
+    @Inject(DevPreviewService) private readonly preview: DevPreviewService,
   ) {}
 
   private actor(req: Request, projectId: string) {
@@ -187,6 +189,25 @@ export class DevController {
   @Get('repo/changes')
   repoChanges(@Param('projectId') pid: string, @Query('taskId') taskId?: string) {
     return this.repo.changes(pid, taskId);
+  }
+
+  // ---- 运行预览（2026-10-18 二期：长驻沙箱容器+平台鉴权反代；内容反代走 /dev-preview/:pid/*） ----
+
+  @Get('preview')
+  previewStatus(@Param('projectId') pid: string) {
+    return this.preview.status(pid);
+  }
+
+  @Post('preview\\:start')
+  @HttpCode(200)
+  previewStart(@Param('projectId') pid: string, @Req() req: Request) {
+    return this.preview.start(pid, this.actor(req, pid));
+  }
+
+  @Post('preview\\:stop')
+  @HttpCode(200)
+  previewStop(@Param('projectId') pid: string, @Req() req: Request) {
+    return this.preview.stop(pid, this.actor(req, pid));
   }
 
   // ---- autopilot（A06-10~12） ----
