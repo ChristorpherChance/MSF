@@ -169,13 +169,23 @@ export class DevCodegenService {
       if (!task) throw new DomainError('NOT_FOUND', '任务不存在', taskId);
       const existing = new Set(await this.ws.listFiles(projectId));
 
+      // 返工反馈回路（2026-10-19 116 实机四抓）：本任务最近一次沙箱测试红——把失败日志尾注入 prompt，
+      // 模型带着真实失败上下文修；否则二轮盲写（无反馈重犯同错，如 tests/ 目录参坑）
+      let lastFail = '';
+      const ue = await query<{ payload: { pass?: boolean; logsTail?: string } }>(
+        `SELECT payload FROM evd_records WHERE project_id=$1 AND kind='unit'
+         AND payload->>'taskId'=$2 ORDER BY created_at DESC LIMIT 1`, [projectId, taskId]);
+      if (ue.rows[0] && ue.rows[0].payload.pass === false) {
+        lastFail = `\n【上轮沙箱测试失败（npm test 真实执行红）——必须先修复再交稿】\n${(ue.rows[0].payload.logsTail ?? '').slice(-1500)}`;
+      }
+
       let files: CodegenFile[] = [];
       let mode: 'ai' | 'deterministic' = 'deterministic';
       let rounds = 0;
       let usage: { inputTokens: number; outputTokens: number } | undefined;
 
       if (this.ai?.kind === 'pi') {
-        const prompt = await this.buildPrompt(projectId, task, [...existing]);
+        const prompt = (await this.buildPrompt(projectId, task, [...existing])) + lastFail;
         let feedback = '';
         for (let round = 1; round <= 2; round++) {
           rounds = round;
