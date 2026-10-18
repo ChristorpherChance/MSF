@@ -38,6 +38,8 @@ export async function resolveProtoTheme(themeId: string): Promise<ProtoThemeItem
   if (themeId === AI_THEME_ID) return AI_THEME_ITEM;
   const preset = PROTO_THEME_PRESETS.find((p) => p.id === themeId);
   if (preset) return { ...preset, builtin: true };
+  // 非内置前缀=自定义 uuid；builtin:*/ai 未命中即不存在（不落库，防非 uuid 直撞 SQL 类型）
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(themeId)) return null;
   const r = await query<{ id: string; name: string; tokens: Record<string, string> }>(
     'SELECT id, name, tokens FROM proto_themes WHERE id=$1', [themeId]);
   const row = r.rows[0];
@@ -124,6 +126,9 @@ export class ProtoThemesService {
   private assertCustomId(themeId: string): void {
     if (!themeId || themeId === AI_THEME_ID || themeId.startsWith('builtin:')) {
       throw new DomainError('VALIDATION_FAILED', '内置方案不可修改/删除——可在其基础上另存为自定义方案', themeId || '(空)');
+    }
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(themeId)) {
+      throw new DomainError('NOT_FOUND', '方案不存在', themeId);
     }
   }
 
