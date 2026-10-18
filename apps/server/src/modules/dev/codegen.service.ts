@@ -179,7 +179,9 @@ export class DevCodegenService {
         let feedback = '';
         for (let round = 1; round <= 2; round++) {
           rounds = round;
-          const session = await this.ai.createSession({ projectId, purpose: 'codegen' });
+          // 用途走闭集内 'generation'（routes 枚举 planning|generation|review|translation|chat|parsing|reflection，
+          // 'codegen' 不在闭集内配不了路由——116 实机首跑抓到）；代码生成=文档生成的同池大模型
+          const session = await this.ai.createSession({ projectId, purpose: 'generation' });
           const { deltas, result } = session.stream(round === 1 ? prompt : `${prompt}\n\n【上轮问题】${feedback}\n请严格按输出契约重新输出。`);
           let text = '';
           for await (const d of deltas) text += d;
