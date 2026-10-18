@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
-import { join, resolve, sep, dirname } from 'node:path';
+import { join, resolve, sep, dirname, delimiter } from 'node:path';
 import { promisify } from 'node:util';
 import { Injectable } from '@nestjs/common';
 import { DomainError } from '@msf/shared';
@@ -98,16 +98,16 @@ export class DevWorkspaceService {
   async npmInstall(projectId: string): Promise<{ installed: boolean; logsTail: string }> {
     const dir = this.dir(projectId);
     if (!existsSync(join(dir, 'package.json'))) return { installed: false, logsTail: 'no package.json' };
-    // npm 解析：进程 node 同目录优先（systemd/服务态 PATH 极简找不到 npm——116 实机抓到），退化 PATH
-    const localNpm = join(
-      dirname(process.execPath),
-      process.platform === 'win32' ? 'npm.cmd' : 'npm',
-    );
+    // npm 解析：进程 node 同目录优先，且把该目录并进子进程 PATH——npm 是 `#!/usr/bin/env node`
+    // 的 JS 脚本，systemd 服务态 PATH 极简连 node 都找不到（116 实机两连抓）
+    const nodeDir = dirname(process.execPath);
+    const localNpm = join(nodeDir, process.platform === 'win32' ? 'npm.cmd' : 'npm');
     const npm = existsSync(localNpm) ? localNpm : process.platform === 'win32' ? 'npm.cmd' : 'npm';
+    const childEnv = { ...process.env, PATH: `${nodeDir}${delimiter}${process.env.PATH ?? ''}` };
     try {
       const { stdout, stderr } = await execFileP(
         npm, ['install', '--ignore-scripts', '--no-audit', '--no-fund'],
-        { cwd: dir, timeout: 300_000, maxBuffer: 4 * 1024 * 1024 },
+        { cwd: dir, timeout: 300_000, maxBuffer: 4 * 1024 * 1024, env: childEnv },
       );
       return { installed: true, logsTail: `${stdout}\n${stderr}`.slice(-2000) };
     } catch (e) {
