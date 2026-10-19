@@ -104,7 +104,46 @@ export class CatalogService {
          WHERE d.project_id=$1 AND d.doc_kind='ui'`, [projectId]);
       const uiSecs = splitSections(uiDoc.rows[0]?.content ?? '')
         .filter((s) => s.title && UI_PAGE_SECTION_RE.test(s.title));
-      const pageSeeds: Array<{ title: string; reqIds: string[]; uiSec?: DocSection }> = uiSecs.length > 0
+
+      // 上一版目录提前加载：ui 派生页码锚定（差异55a）与人工字段随行（W7-002）都要以它为基
+      const prevCatVer = await this.currentCatalogVersion(client, projectId);
+      let prevItemsAll: CatalogItemRow[] = [];
+      if (prevCatVer) {
+        const prevItems = await client.query<CatalogItemRow>(
+          `SELECT id, item_type, code, payload, required, source, content_fingerprint FROM dsg_catalog_items
+           WHERE project_id=$1 AND catalog_version=$2`,
+          [projectId, prevCatVer]);
+        prevItemsAll = prevItems.rows;
+      }
+
+      // 差异55a 根修：ui 派生页以「来源章节锚点」为身份派码（旧口径按文档位次 P-001..——ui 册
+      // 页面章节重排/中段插入后位次漂移，旧页 title/note 按 type+code 贴错新页，ui 追溯引用
+      // 同挂错章节）。锚点=ui 章节标题（refs anchor 列同口径；DocSection.id 是位置性 id，
+      // 重切分即重派，不堪身份）。码分配按种子顺序：
+      //   ① payload.uiAnchor 精确命中旧页 → 沿用旧码（人工修订的 title/note 随码贴回正确的页）；
+      //   ② 旧版无 uiAnchor 的存量识别页按「标题精确→同位次」认领（本修复上线后首跑迁移：
+      //     旧口径位次派码故码序=文档位次，位次认领零改动承接既有目录——码不漂、页工件不作废）；
+      //   ③ 新锚点取最小空闲 P-nnn；上一版在用的码一律保留不复用（随行合并只从上一版贴
+      //     人工字段，码若被无关新页领走会把旧页修订贴错；更老版本的码随行够不着，复用无害）。
+      const prevPages = prevItemsAll.filter((r) => r.item_type === 'page');
+      const anchorPool = new Map<string, CatalogItemRow[]>();
+      // 迁移认领池：仅旧口径位次码（P-nnn）的识别页——P-HOME 骨架页/人工页不在其列
+      // （P-HOME 由固定骨架恒驻，被内容页领走会同码撞车）
+      const legacyPool: CatalogItemRow[] = [];
+      for (const p of prevPages) {
+        const a = p.payload.uiAnchor;
+        if (typeof a === 'string' && a) (anchorPool.get(a) ?? anchorPool.set(a, []).get(a)!).push(p);
+        else if (p.source !== 'manual' && /^P-\d+$/.test(p.code)) legacyPool.push(p);
+      }
+      legacyPool.sort((a, b) => (a.code < b.code ? -1 : a.code > b.code ? 1 : 0));
+      const usedCodes = new Set(prevPages.map((p) => p.code));
+      const allocCode = (): string => {
+        for (let n = 1; ; n++) {
+          const c = `P-${String(n).padStart(3, '0')}`;
+          if (!usedCodes.has(c)) { usedCodes.add(c); return c; }
+        }
+      };
+      const pageSeeds: Array<{ title: string; reqIds: string[]; uiSec?: DocSection; code?: string }> = uiSecs.length > 0
         ? uiSecs.map((s) => ({
             title: s.title,
             reqIds: [...new Set([...`${s.title}\n${s.md}`.matchAll(/\bREQ-\d{3}\b/g)].map((m) => m[0]))],
@@ -114,18 +153,40 @@ export class CatalogService {
             title: s.title.replace(/^REQ-\d{3}\s*/, ''),
             reqIds: [(/\bREQ-\d{3}\b/.exec(s.title))![0]],
           }));
-      // ui 册页面章节 → 页码映射（写 ref_kind='ui' 引用用；仅 uiSecs 分支有值，迁移 0031 起）
+      if (uiSecs.length > 0) {
+        const legacyClaimed = new Set<string>();
+        pageSeeds.forEach((p, i) => {
+          const anchor = p.uiSec!.title;
+          const exact = anchorPool.get(anchor);
+          if (exact && exact.length > 0) {
+            p.code = exact.shift()!.code;
+          } else {
+            const li = legacyPool.findIndex((r) => !legacyClaimed.has(r.code) && r.payload.title === p.title);
+            const cand = li >= 0 ? legacyPool[li]! : legacyPool[i]; // 标题精确优先，同位次兜底
+            if (cand && !legacyClaimed.has(cand.code)) {
+              p.code = cand.code;
+              legacyClaimed.add(cand.code);
+            } else {
+              p.code = allocCode();
+            }
+          }
+          usedCodes.add(p.code);
+        });
+      }
+      // ui 册页面章节 → 页码映射（写 ref_kind='ui' 引用用；码=锚定后的最终码，迁移 0031 起）
       const uiSecByCode = new Map<string, DocSection>();
-      pageSeeds.forEach((p, i) => {
-        if (p.uiSec) uiSecByCode.set(`P-${String(i + 1).padStart(3, '0')}`, p.uiSec);
-      });
+      for (const p of pageSeeds) {
+        if (p.uiSec && p.code) uiSecByCode.set(p.code, p.uiSec);
+      }
 
       interface ItemSeed { type: string; code: string; payload: Record<string, unknown>; required: boolean; source?: string }
       const items: ItemSeed[] = [
         ...pageSeeds.map((p, i) => ({
           type: 'page',
-          code: `P-${String(i + 1).padStart(3, '0')}`,
-          payload: { title: p.title, route: `/p${i + 1}`, reqIds: p.reqIds },
+          code: p.code ?? `P-${String(i + 1).padStart(3, '0')}`,
+          // uiAnchor 落 payload 作身份键（随目录版本化自包含；不在 update-item 白名单=人工不可改）。
+          // 存量目录首跑 re-plan 因多了该键指纹不等会产一次新版本——预期自愈，此后锚点稳定
+          payload: { title: p.title, route: `/p${i + 1}`, reqIds: p.reqIds, ...(p.uiSec ? { uiAnchor: p.uiSec.title } : {}) },
           required: true,
         })),
         // 骨架首页非 ui 册章节派生——ui 册驱动口径下预置 exempt，免「页有册无」恒报（人工可经 update-item 改）
@@ -144,15 +205,10 @@ export class CatalogService {
       // 随行扩（覆盖检测 §2）：派生条目（source≠'manual'）上的人工修改字段
       // （payload.steps/exempt——流程步骤编辑/页豁免）也按 type+code 迁移保留，
       // 原口径 re-plan 全量重导把它们静默重置回识别值。
-      const prevCatVer = await this.currentCatalogVersion(client, projectId);
-      let prevItemsAll: CatalogItemRow[] = [];
+      // ui 派生页的码已被上方锚点稳定化（差异55a）——重排后 type+code 命中的就是同一来源章节
+      // 的页，title/note 不再贴错；锚点失配（章节改名/删除）的页按新锚点另立，旧页人工字段随之退役。
       if (prevCatVer) {
-        const prevItems = await client.query<CatalogItemRow>(
-          `SELECT id, item_type, code, payload, required, source, content_fingerprint FROM dsg_catalog_items
-           WHERE project_id=$1 AND catalog_version=$2`,
-          [projectId, prevCatVer]);
-        prevItemsAll = prevItems.rows;
-        for (const m of prevItems.rows) {
+        for (const m of prevItemsAll) {
           if (m.source === 'manual') {
             if (!items.some((i) => i.type === m.item_type && i.code === m.code)) {
               items.push({ type: m.item_type, code: m.code, payload: m.payload, required: m.required, source: 'manual' });
@@ -594,7 +650,7 @@ export class CatalogService {
   async currentCatalogVersion(client: import('pg').PoolClient | null, projectId: string): Promise<string | null> {
     const q = client ? client.query.bind(client) : query;
     const r = await q<{ v: string }>(
-      'SELECT catalog_version AS v FROM dsg_catalog_items WHERE project_id=$1 ORDER BY created_at DESC LIMIT 1',
+      'SELECT catalog_version AS v FROM dsg_catalog_items WHERE project_id=$1 ORDER BY substring(catalog_version from 4)::int DESC LIMIT 1',
       [projectId]);
     return r.rows[0]?.v ?? null;
   }

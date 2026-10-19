@@ -29,7 +29,7 @@ interface PlanSuggestion {
 /** 最新目录的 page/flow 条目（prepare/resolve 覆盖重算共用） */
 const LATEST_CATALOG_SQL = `SELECT item_type, code, payload FROM dsg_catalog_items
   WHERE project_id=$1 AND catalog_version=(
-    SELECT catalog_version FROM dsg_catalog_items WHERE project_id=$1 ORDER BY catalog_version DESC LIMIT 1)
+    SELECT catalog_version FROM dsg_catalog_items WHERE project_id=$1 ORDER BY substring(catalog_version from 4)::int DESC LIMIT 1)
   AND item_type IN ('page','flow') ORDER BY code`;
 
 /** fingerprint 入参为 shared 闭包 Json 类型；DB 行/规格对象经此显式收窄（纯类型层，无运行时成本） */
@@ -59,7 +59,7 @@ export class DevPlansService {
         'SELECT code, source_ids FROM dev_tasks WHERE project_id=$1 AND archived=false AND excluded=false', [projectId]);
       const cat = await client.query<{ code: string }>(
         `SELECT code FROM dsg_catalog_items WHERE project_id=$1 AND catalog_version=(
-           SELECT catalog_version FROM dsg_catalog_items WHERE project_id=$1 ORDER BY catalog_version DESC LIMIT 1)
+           SELECT catalog_version FROM dsg_catalog_items WHERE project_id=$1 ORDER BY substring(catalog_version from 4)::int DESC LIMIT 1)
          AND item_type IN ('page','flow')`, [projectId]);
       const covered = new Set(cov.rows.flatMap((t) => t.source_ids));
       const uncovered = cat.rows.map((c) => c.code).filter((c) => !covered.has(c));
@@ -101,7 +101,7 @@ export class DevPlansService {
       const tasks = await client.query<Record<string, unknown>>(
         'SELECT * FROM dev_tasks WHERE project_id=$1 AND archived=false AND excluded=false', [projectId]);
       const catVerRow = await client.query<{ v: string }>(
-        'SELECT catalog_version AS v FROM dsg_catalog_items WHERE project_id=$1 ORDER BY catalog_version DESC LIMIT 1',
+        'SELECT catalog_version AS v FROM dsg_catalog_items WHERE project_id=$1 ORDER BY substring(catalog_version from 4)::int DESC LIMIT 1',
         [projectId]);
       const catalogVersion = catVerRow.rows[0]?.v ?? null;
       const cat = await client.query<{ item_type: string; code: string; payload: Record<string, unknown> }>(
@@ -314,7 +314,7 @@ export class DevPlansService {
         const nowRows = await client.query<{ code: string; rev: number }>(
           'SELECT code, rev FROM dev_tasks WHERE project_id=$1 AND archived=false AND excluded=false', [projectId]);
         const catVer = await client.query<{ v: string }>(
-          'SELECT catalog_version AS v FROM dsg_catalog_items WHERE project_id=$1 ORDER BY catalog_version DESC LIMIT 1',
+          'SELECT catalog_version AS v FROM dsg_catalog_items WHERE project_id=$1 ORDER BY substring(catalog_version from 4)::int DESC LIMIT 1',
           [projectId]);
         const nowBase = {
           taskRevisions: Object.fromEntries(nowRows.rows.map((t) => [t.code, t.rev])),

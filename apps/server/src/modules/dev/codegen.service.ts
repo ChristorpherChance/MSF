@@ -237,7 +237,7 @@ export class DevCodegenService {
     // 目录条目载荷（页面/流程的定义细节）
     if (task.source_ids.length > 0) {
       const cat = await query<{ catalog_version: string }>(
-        'SELECT catalog_version FROM dsg_catalog_items WHERE project_id=$1 ORDER BY catalog_version DESC LIMIT 1', [projectId]);
+        'SELECT catalog_version FROM dsg_catalog_items WHERE project_id=$1 ORDER BY substring(catalog_version from 4)::int DESC LIMIT 1', [projectId]);
       const cv = cat.rows[0]?.catalog_version;
       if (cv) {
         const items = await query<{ code: string; item_type: string; payload: Record<string, unknown> }>(

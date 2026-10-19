@@ -234,7 +234,7 @@ export class DevTasksService {
         throw new DomainError('STALE_EVIDENCE', '基线身份与当前有效基线不符', baselineId);
       }
       const cat = await client.query<{ catalog_version: string }>(
-        'SELECT catalog_version FROM dsg_catalog_items WHERE project_id=$1 ORDER BY catalog_version DESC LIMIT 1',
+        'SELECT catalog_version FROM dsg_catalog_items WHERE project_id=$1 ORDER BY substring(catalog_version from 4)::int DESC LIMIT 1',
         [projectId]);
       const catVer = cat.rows[0]?.catalog_version;
       if (!catVer) throw new DomainError('GATE_BLOCKED', '无设计目录', 'dev', { issues: [{ code: 'PLAN_REQUIRED', message: '无设计目录' }] });
@@ -519,7 +519,7 @@ export class DevTasksService {
   /** A06-5 计划覆盖检查（设计项 ↔ 任务双向；缺口可见） */
   async coverage(projectId: string): Promise<{ ok: boolean; uncoveredDesignItems: string[]; unmatchedTasks: string[] }> {
     const cat = await query<{ catalog_version: string }>(
-      'SELECT catalog_version FROM dsg_catalog_items WHERE project_id=$1 ORDER BY catalog_version DESC LIMIT 1', [projectId]);
+      'SELECT catalog_version FROM dsg_catalog_items WHERE project_id=$1 ORDER BY substring(catalog_version from 4)::int DESC LIMIT 1', [projectId]);
     const catVer = cat.rows[0]?.catalog_version ?? null;
     const items = catVer
       ? await query<{ code: string }>(
