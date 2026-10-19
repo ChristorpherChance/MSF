@@ -11,7 +11,9 @@ import { DevSelftestService } from './selftest.service.js';
 /** mock runner 节奏（测试置 0；M6 换 BullMQ delayed job 链，D-11） */
 export const devAutopilotTiming = { tickDelayMs: 15 };
 
-const RECOVERABLE_BLOCKERS = new Set(['RUNNER_START_FAILED', 'HUMAN_TASK_REQUIRED', 'SELFTEST_START_FAILED']);
+// SELFTEST_FAILED（2026-10-19 起可恢复）：自测红须先人工处置（重跑自测出新报告），
+// resume 时核验最新报告非 fail 才放行——「人工处置链」=重跑自测而非绕过门禁
+const RECOVERABLE_BLOCKERS = new Set(['RUNNER_START_FAILED', 'HUMAN_TASK_REQUIRED', 'SELFTEST_START_FAILED', 'SELFTEST_FAILED']);
 
 /** L6 运行阶段枚举（原型 v18AutoStatusHtml phases 映射：dispatch/development/quality/ai-review/merge/build/awaiting-transfer；selftest 为真实管线扩展档——原型模拟未建模项目自测阶段） */
 const RUN_PHASES = new Set(['dispatch', 'development', 'quality', 'ai-review', 'merge', 'build', 'selftest', 'awaiting-transfer']);
@@ -132,6 +134,14 @@ export class DevAutopilotService {
       if (!r) throw new DomainError('INVALID_STATE', '无可恢复的运行', projectId);
       if (r.status === 'blocked' && !RECOVERABLE_BLOCKERS.has(r.blocker?.code ?? '')) {
         throw new DomainError('INVALID_STATE', `阻断码 ${r.blocker?.code ?? ''} 不可直接恢复，须经人工处置链`, r.run_id);
+      }
+      // SELFTEST_FAILED 恢复前置：最新自测报告不得仍 fail（处置动作=重跑自测，报告翻绿/在跑才放行）
+      if (r.blocker?.code === 'SELFTEST_FAILED') {
+        const rep = await client.query<{ status: string; code: string }>(
+          'SELECT status, code FROM dev_reports WHERE project_id=$1 ORDER BY created_at DESC LIMIT 1', [projectId]);
+        if (!rep.rows[0] || rep.rows[0].status === 'fail') {
+          throw new DomainError('INVALID_STATE', '自测报告仍未通过——请先在「开发自测」重跑自测（处置完成再恢复）', r.run_id);
+        }
       }
       const auth = await client.query<{ status: string }>(
         'SELECT status FROM dev_authorizations WHERE project_id=$1 AND authorization_id=$2', [projectId, r.authorization_id]);

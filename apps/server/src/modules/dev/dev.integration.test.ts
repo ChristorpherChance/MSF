@@ -746,4 +746,38 @@ describe('Dev 开发域（集成，需 DB+MinIO）', async () => {
     await query('DELETE FROM dev_tasks WHERE project_id=$1 AND code IN ($2,$3)', [PID, created.code, newPage.code]);
     await query("DELETE FROM dsg_catalog_items WHERE project_id=$1 AND code='P-999'", [PID]);
   });
+
+  it('T14 自测门口径（2026-10-19 run_261 冤案根修）：人工合并认账 review 门 + CI 门只看最新报告', async () => {
+    // 夹具：直插 running 自测行→complete 求值四门（绕 start 门禁——本例只考门口径，不受前序用例状态干扰）
+    const b = await query<{ id: string; build_fingerprint: string }>(
+      'SELECT id, build_fingerprint FROM dev_builds WHERE project_id=$1 ORDER BY created_at DESC LIMIT 1', [PID]);
+    const mkRunning = async () => (await query<{ id: string }>(
+      `INSERT INTO dev_selftests (project_id, build_id, build_fingerprint, gate_function, gate_smoke, gate_ui, gate_review, status, basis_fingerprint, started_by)
+       VALUES ($1,$2,$3,'{}','{}','{}','{}','running','x','local') RETURNING id`,
+      [PID, b.rows[0]!.id, b.rows[0]!.build_fingerprint])).rows[0]!.id;
+    const addCi = async (delivery: string, sha: string, conclusion: string, agoSec: number) =>
+      query(
+        `INSERT INTO dev_ci_reports (project_id, delivery_id, provider, commit_sha, matched, conclusion, payload, payload_fingerprint, received_at)
+         VALUES ($1,$2,'gitea-actions',$3,true,$4,'{}','x', now() - ($5::int * interval '1 second'))`,
+        [PID, delivery, sha, conclusion, agoSec]);
+
+    // ① 历史红 sha 不连坐：老 commit 的 fail 报告 + 最新 pass → integration 门过；
+    //    review 门：T4 里 T-001 走 manual-checklist 合并（无 ai-review 证据）——人工依据认账不再挂缺失
+    await addCi('t14-old-fail', 'a'.repeat(40), 'fail', 3600);
+    await addCi('t14-latest-pass', 'b'.repeat(40), 'pass', 60);
+    const d1 = (await selftest.complete(PID, await mkRunning(), CTX)) as {
+      status: string; gates: { integration: { ok: boolean }; review: { ok: boolean; missing: string[] } };
+    };
+    expect(d1.gates.integration.ok).toBe(true);
+    expect(d1.gates.review.ok).toBe(true);
+    expect(d1.gates.review.missing).toEqual([]);
+
+    // ② 最新报告 fail → integration 门照样红（不放松当前代码态）
+    await addCi('t14-latest-fail', 'b'.repeat(40), 'fail', 0);
+    const d2 = (await selftest.complete(PID, await mkRunning(), CTX)) as {
+      status: string; gates: { integration: { ok: boolean; failed: Array<{ conclusion: string }> } };
+    };
+    expect(d2.gates.integration.ok).toBe(false);
+    expect(d2.status).toBe('fail');
+  });
 });

@@ -8,7 +8,9 @@ import { AI_PROVIDER, type AiMessageResult, type AiProvider, type AiSession } fr
 
 /**
  * 设计评审项（A05-3；REQ-303）。
- * 首访种子三条 DR（mock 评审规则保留不退役；真实项由自检评审量产后自然稀释）；conclude 留痕结论。
+ * （2026-10-19 起不再首访自动种子三条 mock DR——通用占位文案与真实项目无关、混在真问题里
+ * 误导用户，且进定稿门禁徒增三条必点项；真实项来源=✦ AI 自检评审 + proto-lint 自动登记 +
+ * 人工补充。design.review.seed 命令保留注册不删：历史审计行可回溯，UI 面已下掉）
  *
  * AI 自检评审（设计覆盖检测与可交互原型 §1 过度设计侧）：
  * - 候选清单=scanOverdesign 八册全扫（草稿优先同 doc.read 口径）剔除 deferred 豁免（dsg 自指行码集）；
@@ -35,6 +37,12 @@ REQ 需求回引，疑似过度设计）与 PRD 需求节摘录。产出严格 J
 /** 单节复核 LLM 看门狗（reflection 同构）：上游静默挂起不致并发闸永真；分钟数单点常量，文案插值同源 */
 const REVIEW_WATCHDOG_MIN = 10;
 const REVIEW_WATCHDOG_MS = REVIEW_WATCHDOG_MIN * 60_000;
+
+/** 册 kind → 中文名（落项文案可读化：锚点码人看不懂，带册名+节标题） */
+const BOOK_NAME: Record<string, string> = {
+  hld: '概要设计', mod: '模块设计', alg: '算法设计', cls: '类设计',
+  db: '数据库设计', api: '接口设计', ui: '界面设计', nfr: '非功能设计',
+};
 
 /** 复核输入的 PRD 摘录上限（防爆 prompt；REQ 节正文逐节截 400 字） */
 const REQ_EXCERPT_BUDGET = 12000;
@@ -136,12 +144,9 @@ export class ReviewService {
     });
   }
 
-  /** A05-3 列表（首访种子）；by=created_by 透出（pi 项前端带来源标） */
+  /** A05-3 列表；by=created_by 透出（pi 项前端带来源标）。不再自动种子（mock 占位已退役） */
   async list(projectId: string, ctx: CommandContext): Promise<unknown> {
-    const seeded = await query('SELECT 1 FROM dsg_reviews WHERE project_id=$1 LIMIT 1', [projectId]);
-    if (!seeded.rows[0]) {
-      await executeCommand('design.review.seed', { projectId }, { ...ctx, projectId });
-    }
+    void ctx;
     const r = await query<{
       code: string; severity: string; doc_kind: string; text: string;
       status: string; resolution: string | null; updated_at: string | null; created_by: string;
@@ -156,11 +161,6 @@ export class ReviewService {
 
   async conclude(projectId: string, drId: string, conclusion: 'pass' | 'fail' | 'na', note: string | undefined, ctx: CommandContext) {
     return executeCommand('design.review.conclude', { projectId, drId, conclusion, note }, { ...ctx, projectId });
-  }
-
-  /** 重置种子项（幂等补齐三条内置种子条目；S8 🔁 按钮；与 ✦ AI 自检评审是两个动作） */
-  async reseed(projectId: string, ctx: CommandContext) {
-    return executeCommand('design.review.seed', { projectId, force: true }, { ...ctx, projectId });
   }
 
   async reopen(projectId: string, drId: string, ctx: CommandContext) {
@@ -241,7 +241,7 @@ export class ReviewService {
         const r = await this.awaitModel(session, deltas, result);
         await executeCommand('design.review.selfcheck', {
           projectId, code: c.code, severity: '中', docKind: c.book,
-          text: `自检复核（疑似过度设计候选 ${c.anchor}）：${parseReviewOutput(r.text)}`,
+          text: `自检复核（《${BOOK_NAME[c.book] ?? c.book}》「${c.title}」疑似无需求依据）：${parseReviewOutput(r.text)}`,
         }, ctx);
       } catch (e) {
         // 单节失败不中断整场（候选清单进度按落项计）；并发闸由 selfcheck 的 finally 复位

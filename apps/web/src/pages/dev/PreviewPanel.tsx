@@ -22,7 +22,12 @@ export function PreviewPanel() {
       setErr(e instanceof Error ? e.message : String(e));
     }
   }, [pid]);
-  useEffect(() => { void refresh(); }, [refresh]);
+  // 5s 轮询：别处启动/停止/容器死（对账自愈落 stopped）本面板都能自感知，不留陈旧「未运行」
+  useEffect(() => {
+    void refresh();
+    const t = setInterval(() => void refresh(), 5000);
+    return () => clearInterval(t);
+  }, [refresh]);
 
   const start = () => s.act(async () => {
     setBusy('启动中（装依赖+容器就绪，约 10~60 秒）…');
@@ -55,7 +60,9 @@ export function PreviewPanel() {
       <div className="insp-head" style={{ borderBottom: 'none', padding: '0 0 8px' }}>
         <span>🖥 运行预览</span>
         <span className="dsg-prefix" style={{ fontWeight: 400 }}>
-          {running ? `运行中 · ${st.ip ?? ''}` : st?.status === 'stopped' ? '未运行' : '查询中…'}
+          {running
+            ? `运行中 · 启动于 ${st.startedAt ? new Date(st.startedAt).toLocaleString() : '—'} · ${st.ip ?? ''}`
+            : st?.status === 'stopped' ? '未运行' : '查询中…'}
         </span>
         <span style={{ flex: 1 }} />
         {running ? (
@@ -74,8 +81,14 @@ export function PreviewPanel() {
       </p>
       {busy && <div className="req-banner ok" style={{ margin: '0 0 8px' }}>⏳ {busy}</div>}
       {err && <div className="req-banner dev-bad" style={{ margin: '0 0 8px' }}>⛔ {err}</div>}
-      {!running && st?.lastError && (
-        <div className="req-banner" style={{ margin: '0 0 8px' }}>上次状态：{st.lastStatus ?? '—'} · {st.lastError}</div>
+      {!running && st?.status === 'stopped' && (
+        <div className="doc-empty" style={{ padding: '28px 12px' }}>
+          <p style={{ margin: '0 0 6px' }}>预览当前未运行{st.lastError ? `（上次：${st.lastError}）` : ''}。</p>
+          <p className="pop-tip" style={{ margin: '0 0 12px' }}>
+            点「▶ 启动预览」把工作区最新代码装进沙箱容器跑起来（约 10~60 秒），启动后此处直接内嵌显示运行中的应用。
+          </p>
+          <button className="act primary" disabled={busy !== null} onClick={start}>▶ 启动预览</button>
+        </div>
       )}
       {running && st?.url && (
         <iframe

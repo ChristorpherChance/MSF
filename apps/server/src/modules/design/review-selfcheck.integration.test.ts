@@ -128,8 +128,8 @@ describe('AI 自检评审 → 真实 DR 项（集成，需 DB）', async () => {
     expect(h3.doc_kind).toBe('hld');
     expect(h3.created_by).toBe('pi');
     expect(h3.status).toBe('open');
-    // mock purpose='review' 固定复核意见落 text
-    expect(h3.text).toContain('疑似过度设计候选 h-3');
+    // 落项文案可读化（2026-10-19 打磨）：册名+节标题替代裸锚点码，mock 复核意见接尾
+    expect(h3.text).toContain('《概要设计》「h-3 缓存层设计」疑似无需求依据');
     expect(h3.text).toContain('看似无需求依据');
     const o2 = rows.rows.find((x) => x.code === 'DR-O-o-2')!;
     expect(o2.doc_kind).toBe('mod');

@@ -71,7 +71,7 @@ export class TstBatchesService {
       }
       // 验收条款快照：当前设计目录流程/页面
       const cat = await client.query<{ catalog_version: string }>(
-        'SELECT catalog_version FROM dsg_catalog_items WHERE project_id=$1 ORDER BY catalog_version DESC LIMIT 1', [projectId]);
+        'SELECT catalog_version FROM dsg_catalog_items WHERE project_id=$1 ORDER BY substring(catalog_version from 4)::int DESC LIMIT 1', [projectId]);
       const items = cat.rows[0]
         ? await client.query<{ item_type: string; code: string; payload: Record<string, unknown> }>(
             'SELECT item_type, code, payload FROM dsg_catalog_items WHERE project_id=$1 AND catalog_version=$2 ORDER BY code',

@@ -137,7 +137,6 @@ export const designApi = {
   conclude: (pid: string, drId: string, conclusion: 'pass' | 'fail' | 'na', note: string) =>
     api.post(`${base(pid)}/reviews/${drId}:conclude`, { conclusion, note }),
   /** S8 🔁 重置种子项（幂等补齐三条内置种子条目；与 selfcheckReviews 的 AI 复核是两个动作） */
-  reseedReviews: (pid: string) => api.post<{ seeded: boolean; count: number }>(`${base(pid)}/reviews:reseed`, {}),
   /** ✦ AI 自检评审（过度设计候选逐节复核落真实 DR 项；后台跑——返回候选码集，进度=轮询 DR 列表） */
   selfcheckReviews: (pid: string) =>
     api.post<{ started: boolean; candidates: string[] }>(`${base(pid)}/reviews:selfcheck`, {}),

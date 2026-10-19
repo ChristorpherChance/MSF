@@ -5,11 +5,13 @@ import { designApi, type ReviewItem } from './api';
 import { useDesignView } from './store';
 
 /**
- * 自检评审面板（LLD-6 §3.4 V20；S8）：
- * 工具栏（未决/已解决 tag + 规则说明 + ✦ 自检评审 + 🔁 重置种子项）+ 分组表 .grp-row（概要/详细/原型三组，
+ * 自检评审面板（LLD-6 §3.4 V20）：
+ * 工具栏（未决/已解决 tag + 规则说明 + ✦ 自检评审）+ 分组表 .grp-row（概要/详细/原型三组，
  * .sevdot 级别圆点 + 「标记已解决 / 重新打开」行内操作）。
  * ✦ AI 自检评审（设计覆盖检测 §1 过度设计侧）：后台跑+轮询 DR 列表进度（分母=启动返回的候选码集）；
  * pi 落项带「✦ AI 自检」来源标；AI 只提不判，结论仍走行内人工三值。
+ * （2026-10-19：三条 mock 种子项与「重置种子项」按钮退役——通用占位文案与真实项目无关、
+ *  混在真问题里误导，且进定稿门禁徒增必点项；真实项来源=AI 自检/proto-lint/人工补充）
  */
 
 const GROUPS: Array<{ key: string; label: string; desc: string }> = [
@@ -34,7 +36,6 @@ function groupOf(docKind: string): string {
 export function ReviewPanel() {
   const { projectId, reviews, loading, refreshReviews } = useDesignView();
   const [msg, setMsg] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
   /** ✦ 自检评审进度（后台跑+轮询 DR 列表：分子=候选码集中已落项数，分母=候选数） */
   const [sc, setSc] = useState<{ total: number; done: number } | null>(null);
   const scTimer = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -46,17 +47,6 @@ export function ReviewPanel() {
   if (loading && reviews.length === 0) return <div className="doc-empty">加载中…</div>;
   const open = reviews.filter((r) => r.status === 'open');
   const done = reviews.filter((r) => r.status === 'done');
-
-  /** S8 🔁 重置种子项（幂等补齐三条 mock 种子，不动已有结论；与「✦ 自检评审」AI 复核是两个动作） */
-  const reseed = () => {
-    if (!projectId) return;
-    setBusy(true);
-    setMsg(null);
-    void designApi.reseedReviews(projectId)
-      .then((r) => setMsg(r.count > 0 ? `重置完成：补回 ${r.count} 条种子项` : '重置完成：种子项齐全，无补齐'))
-      .catch((e) => setMsg(e instanceof ApiError ? `${e.code}: ${e.message}` : '重置失败'))
-      .finally(() => { setBusy(false); void refreshReviews(); });
-  };
 
   /** ✦ AI 自检评审（过度设计候选复核落真实 DR 项）：启动即返候选码集 → 轮询 DR 列表直到齐套 */
   const selfcheck = () => {
@@ -118,7 +108,6 @@ export function ReviewPanel() {
         >
           ✦ 自检评审{sc ? `（${sc.done}/${sc.total}）` : ''}
         </button>
-        <button className="act" disabled={busy} title="幂等补齐三条内置种子评审项（不动已有结论）" onClick={reseed}>🔁 重置种子项</button>
         {sc && <span className="pop-tip">AI 自检评审进行中 {sc.done}/{sc.total}…（逐节复核，落项即更新）</span>}
         {msg && <span className="rsn">{msg}</span>}
       </div>

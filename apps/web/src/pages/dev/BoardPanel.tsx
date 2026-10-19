@@ -43,6 +43,13 @@ export function BoardPanel() {
         {run?.blocker && (
           <div className="gate-box err">
             <div className="issue-row">阻断 {run.blocker.code}：{run.blocker.message}</div>
+            {/* 处置引导（2026-10-19 打磨：只说「需要处理」用户不知道干什么） */}
+            {run.blocker.code === 'SELFTEST_FAILED' && (
+              <div className="issue-row">处置路径：切到「开发自测」页签重跑自测 → 报告翻绿后回此页点「继续」。</div>
+            )}
+            {run.blocker.code === 'HUMAN_TASK_REQUIRED' && (
+              <div className="issue-row">处置路径：该任务需人工完成——在下方任务卡上人工推进（开始/提交/合并）后点「继续」。</div>
+            )}
           </div>
         )}
         <div className="gen-ops">

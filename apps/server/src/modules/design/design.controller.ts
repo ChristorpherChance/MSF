@@ -240,12 +240,6 @@ export class DesignController {
     return this.reviews.conclude(projectId, drId, body.conclusion, body.note, this.actor(req, projectId));
   }
 
-  /** S8 重新自检评审（幂等补齐种子条目） */
-  @Post('reviews\\:reseed')
-  @HttpCode(200)
-  reseedReviews(@Param('projectId') projectId: string, @Req() req: Request) {
-    return this.reviews.reseed(projectId, this.actor(req, projectId));
-  }
 
   /** ✦ AI 自检评审（设计覆盖检测 §1 过度设计侧）：过度设计候选逐节复核落真实 DR 项。
    *  后台跑+并发闸（在飞 INVALID_STATE）；启动即返候选码集，进度=前端轮询 DR 列表 */

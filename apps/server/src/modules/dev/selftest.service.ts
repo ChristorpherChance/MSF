@@ -342,11 +342,13 @@ export class DevSelftestService {
   }
 
   private async gateIntegration(client: PoolClient, projectId: string) {
-    const bad = await client.query<{ commit_sha: string; conclusion: string }>(
-      `SELECT DISTINCT ON (commit_sha) commit_sha, conclusion FROM dev_ci_reports
-       WHERE project_id=$1 ORDER BY commit_sha, received_at DESC`, [projectId]);
-    const failed = bad.rows.filter((r) => r.conclusion !== 'pass');
-    return { ok: failed.length === 0, failed };
+    // 口径（2026-10-19 根修 run_261 冤案）：CI 评的是「仓库当前代码态」——最近一次报告 pass 即过门；
+    // 旧口径要求全部历史 commit_sha 各自最新结论全 pass，返工早期红过的 sha 永久连坐（代码早已修绿）
+    const latest = await client.query<{ commit_sha: string; conclusion: string }>(
+      'SELECT commit_sha, conclusion FROM dev_ci_reports WHERE project_id=$1 ORDER BY received_at DESC LIMIT 1', [projectId]);
+    const cur = latest.rows[0];
+    const failed = cur && cur.conclusion !== 'pass' ? [cur] : [];
+    return { ok: failed.length === 0, failed, latestSha: cur?.commit_sha ?? null };
   }
 
   private async gateReview(client: PoolClient, projectId: string) {
@@ -357,7 +359,15 @@ export class DevSelftestService {
       const ev = await client.query<{ id: string }>(
         `SELECT seq FROM evd_records WHERE project_id=$1 AND kind='ai-review' AND payload->>'taskId'=$2 AND payload->>'conclusion'='pass' LIMIT 1`,
         [projectId, t.id]);
-      if (!ev.rows[0]) missing.push(t.code);
+      if (ev.rows[0]) continue;
+      // 人工依据合并（manual-checklist/manual-skip/legacy-manual）= 人工已承担评审（依据链深冻结在
+      // dev_prs.merge_basis 可查，2026-10-19 根修 run_261：manual-checklist 合并的任务此前永挂缺失）
+      const pr = await client.query<{ merge_basis: { type?: string } }>(
+        `SELECT merge_basis FROM dev_prs WHERE task_id=$1 AND status='merged' ORDER BY updated_at DESC LIMIT 1`,
+        [t.id]);
+      const bt = pr.rows[0]?.merge_basis?.type ?? '';
+      if (['manual-checklist', 'manual-skip', 'legacy-manual'].includes(bt)) continue;
+      missing.push(t.code);
     }
     return { ok: missing.length === 0, missing, reviewer: 'mock-reviewer' };
   }
@@ -365,7 +375,7 @@ export class DevSelftestService {
   /** UI 门：矩阵从当前设计目录派生（页面×视口），mock 观察全 pass → evaluateUiEvidence */
   private async gateUi(client: PoolClient, projectId: string) {
     const cat = await client.query<{ catalog_version: string }>(
-      'SELECT catalog_version FROM dsg_catalog_items WHERE project_id=$1 ORDER BY catalog_version DESC LIMIT 1', [projectId]);
+      'SELECT catalog_version FROM dsg_catalog_items WHERE project_id=$1 ORDER BY substring(catalog_version from 4)::int DESC LIMIT 1', [projectId]);
     const catVer = cat.rows[0]?.catalog_version;
     if (!catVer) return { ok: false, issues: [{ code: 'UI_EXPECTED_MATRIX_MISMATCH', message: '无设计目录' }], defects: [], cells: [], pages: [] };
     const items = await client.query<{ item_type: string; code: string }>(

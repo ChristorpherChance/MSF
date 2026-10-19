@@ -1,7 +1,7 @@
 /** 设计域集成测试（T3-02~10，需 DB+MinIO；F02-2、A05、REQ-301~312） */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { pool, query } from '../../db/pool.js';
-import { resetCommands } from '../evidence/command-bus.js';
+import { executeCommand, resetCommands } from '../evidence/command-bus.js';
 import { PolicyService } from '../policy/policy.service.js';
 import { StorageService } from '../platform/storage.service.js';
 import { ReqDocsService } from '../req/docs.service.js';
@@ -96,7 +96,11 @@ describe('Design 设计域（集成，需 DB+MinIO）', async () => {
     const c = (await docs.commit(PID, 'hld', '初稿', d.cur, CTX)) as { v: number };
     expect(c.v).toBe(2);
 
-    // 评审种子 + 定稿被未决 DR 阻断 → 二次确认放行
+    // 评审项（2026-10-19 起无首访自动种子——测试经 selfcheck upsert 命令显式落三条）+
+    // 定稿被未决 DR 阻断 → 二次确认放行
+    for (const [code, text] of [['DR-01', '接口册覆盖核对'], ['DR-02', '数据库册一致性核对'], ['DR-03', 'UI 册页面一致性核对']] as const) {
+      await executeCommand('design.review.selfcheck', { projectId: PID, code, severity: '中', docKind: 'hld', text }, CTX);
+    }
     const rv = (await reviews.list(PID, CTX)) as { items: Array<{ id: string; status: string }> };
     expect(rv.items.length).toBeGreaterThanOrEqual(3);
     await expect(docs.finalize(PID, 'hld', 2, 2, true, false, CTX)).rejects.toMatchObject({ code: 'GATE_BLOCKED' });
