@@ -9,6 +9,10 @@ import { StorageService } from '../platform/storage.service.js';
 import { evaluateUiEvidence, type UiMatrixCell, type UiObserved } from '../platform/ui-score.js';
 import { latestBaseline, qof, type GateIssue } from './gate-common.js';
 
+/** 四门评估口径版本（入实质返工指纹；求值逻辑变化才递增——v2=2026-10-19 CI 历史连坐/人工合并依据认账双根修）。
+ *  导出供测试夹具同源构造指纹，防生产/测试两套口径漂移。 */
+export const SELFTEST_GATE_RULES_VERSION = 2;
+
 /**
  * 开发自测四门 + 报告（A06-14~17；F02-7/F05；REQ-413/414/415/416/417）。
  * mock 口径：四门由执行证据派生（functional=单测证据齐、integration=CI 最新 pass、
@@ -283,7 +287,10 @@ export class DevSelftestService {
     return issues;
   }
 
-  /** 实质返工派生指纹：当前构建指纹 + 任务修订集合（系统派生，调用方不可填） */
+  /** 实质返工派生指纹：当前构建指纹 + 任务修订集合 + 评估口径版本（系统派生，调用方不可填）。
+   *  口径版本入指纹：门禁评估逻辑修复本身即实质变化——否则假阳性 fail 报告永远过不了
+   *  INV-RETEST-1（构建幂等撞指纹/任务无修订），被冤 run 无任何恢复路径（2026-10-19 run_261 教训）。
+   *  纪律：仅当四门求值逻辑（gateIntegration/gateReview/gateUi/gateFunctional）变化时才递增。 */
   private async remediationFingerprint(client: PoolClient | null, projectId: string): Promise<string> {
     const q = qof(client);
     const build = await q<{ build_fingerprint: string }>(
@@ -291,6 +298,7 @@ export class DevSelftestService {
     const tasks = await q<{ code: string; rev: number; code_rev: number }>(
       'SELECT code, rev, code_rev FROM dev_tasks WHERE project_id=$1 ORDER BY code', [projectId]);
     return fingerprint({
+      gateRules: SELFTEST_GATE_RULES_VERSION,
       build: build.rows[0]?.build_fingerprint ?? null,
       tasks: tasks.rows.map((t) => `${t.code}:${t.rev}:${t.code_rev}`),
     });

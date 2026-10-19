@@ -16,7 +16,7 @@ import { DevPlansService } from './plans.service.js';
 import { DevBoardService } from './board.service.js';
 import { DevAutopilotService, devAutopilotTiming } from './autopilot.service.js';
 import { DevBuildService } from './build.service.js';
-import { DevSelftestService } from './selftest.service.js';
+import { DevSelftestService, SELFTEST_GATE_RULES_VERSION } from './selftest.service.js';
 import { DevTransferService } from './transfer.service.js';
 import { DevImpactService } from './impact.service.js';
 import { DevCiService } from './ci.service.js';
@@ -452,6 +452,7 @@ describe('Dev 开发域（集成，需 DB+MinIO）', async () => {
     const tk = await query<{ code: string; rev: number; code_rev: number }>(
       'SELECT code, rev, code_rev FROM dev_tasks WHERE project_id=$1 ORDER BY code', [PID]);
     const remFp = fingerprint({
+      gateRules: SELFTEST_GATE_RULES_VERSION, // 与生产 remediationFingerprint 同口径（口径版本入指纹）
       build: b.rows[0]!.build_fingerprint,
       tasks: tk.rows.map((t) => `${t.code}:${t.rev}:${t.code_rev}`),
     });
