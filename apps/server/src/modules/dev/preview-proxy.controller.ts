@@ -23,6 +23,13 @@ export class DevPreviewProxyController {
     const idx = req.originalUrl.indexOf(prefix);
     let tail = idx >= 0 ? req.originalUrl.slice(idx + prefix.length) : '/';
     if (!tail.startsWith('/')) tail = `/${tail}`;
+    // 无前缀尾斜杠的裸访问 302 补斜杠——否则页内相对路径引用（约定纪律）解析到 :pid 上一级全错位
+    const pathOnly = req.originalUrl.split('?')[0]!;
+    if (tail === '/' && !pathOnly.endsWith('/')) {
+      const qs = req.originalUrl.includes('?') ? req.originalUrl.slice(req.originalUrl.indexOf('?')) : '';
+      res.redirect(302, `${prefix}/${qs}`);
+      return;
+    }
     const r = await this.preview.proxy(projectId, tail, req);
     res.status(r.status);
     for (const [k, v] of Object.entries(r.headers)) res.setHeader(k, v);

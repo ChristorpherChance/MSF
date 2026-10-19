@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { parseFileBlocks, scaffoldFiles, APP_CONVENTIONS } from './codegen.service.js';
 import { DevWorkspaceService, devMode } from './workspace.service.js';
+import { rewritePreviewHtml } from './preview.service.js';
 
 describe('parseFileBlocks 输出契约', () => {
   it('标准文件块解析', () => {
@@ -98,5 +99,30 @@ describe('devMode / 工作区路径收编', () => {
   it('dir() 非 uuid projectId 拒绝', () => {
     const ws = new DevWorkspaceService();
     expect(() => ws.dir('../../etc')).toThrow('形态非法');
+  });
+});
+
+describe('rewritePreviewHtml 根相对引用重写', () => {
+  const PID = '11111111-2222-4333-8444-555555555555';
+  it('src/href/action 根相对 → 反代前缀；协议相对/外链/已带前缀/相对引用不动（幂等）', () => {
+    const html = [
+      '<link rel="stylesheet" href="/style.css">',
+      '<script src="/app.js" defer></script>',
+      '<form action="/submit">',
+      '<a href="//cdn.example.com/x.js">',
+      '<a href="https://example.com/y">',
+      `<a href="/dev-preview/${PID}/already">`,
+      '<img src="img/logo.png">',
+    ].join('');
+    const out = rewritePreviewHtml(html, PID);
+    expect(out).toContain(`href="/dev-preview/${PID}/style.css"`);
+    expect(out).toContain(`src="/dev-preview/${PID}/app.js"`);
+    expect(out).toContain(`action="/dev-preview/${PID}/submit"`);
+    expect(out).toContain('href="//cdn.example.com/x.js"');
+    expect(out).toContain('href="https://example.com/y"');
+    expect(out).toContain(`href="/dev-preview/${PID}/already"`);
+    expect(out).toContain('src="img/logo.png"');
+    // 幂等：重写结果再过一遍不变
+    expect(rewritePreviewHtml(out, PID)).toBe(out);
   });
 });

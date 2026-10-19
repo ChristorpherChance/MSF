@@ -18,6 +18,15 @@ import { devRuntimeImage, DevWorkspaceService } from './workspace.service.js';
 
 const PREVIEW_PORT = 3000;
 
+/** 预览 HTML 根相对引用重写（纯函数可单测）：src/href/action="/x" → "/dev-preview/:pid/x"。
+ *  生成应用常写 href="/style.css" 根相对路径——不重写则浏览器解析到平台根 404
+ *  （2026-10-19 实机「预览看不了运行结果」根修；Location 头重写在本类 proxy() 内同口径）。
+ *  协议相对 //、完整外链、已带 /dev-preview/ 前缀、相对引用一律不动（幂等）。 */
+export function rewritePreviewHtml(html: string, projectId: string): string {
+  const prefix = `/dev-preview/${projectId}`;
+  return html.replace(/\b(src|href|action)="\/(?!\/|dev-preview\/)/g, `$1="${prefix}/`);
+}
+
 interface PreviewRow {
   id: string; project_id: string; container_id: string; container_name: string;
   image: string; port: number; ip: string | null; status: string;
@@ -166,6 +175,10 @@ export class DevPreviewService {
     const outHeaders: Record<string, string> = {};
     const ct = up.headers.get('content-type');
     if (ct) outHeaders['content-type'] = ct;
+    // text/html 根相对资源引用重写到反代前缀下（不重写则 /style.css 解析到平台根 404）
+    const outBody = ct?.includes('text/html')
+      ? Buffer.from(rewritePreviewHtml(buf.toString('utf8'), projectId), 'utf8')
+      : buf;
     const loc = up.headers.get('location');
     if (loc) {
       // 应用内相对/根相对跳转重写到反代前缀下（绝对外链原样）
@@ -175,7 +188,7 @@ export class DevPreviewService {
     }
     // 预览 CSP：禁外联（沙箱内网本无出向，双保险）+ 允许内联（生成应用约定内联样式/脚本）
     outHeaders['content-security-policy'] = "default-src 'self' 'unsafe-inline' data: blob:; connect-src 'self'";
-    return { status: up.status, headers: outHeaders, body: buf };
+    return { status: up.status, headers: outHeaders, body: outBody };
   }
 
   private async runningRow(projectId: string): Promise<PreviewRow | null> {

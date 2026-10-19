@@ -51,14 +51,16 @@ export const authCookieHeader = (token: string): string =>
 export const clearCookieHeader = (): string =>
   `${COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`;
 
-/** 全局中间件（main.ts 挂于 identity 之前）：启用时 /api/** 无有效 cookie → 401 UNAUTHENTICATED；
+/** 全局中间件（main.ts 挂于 identity 之前）：启用时 /api/** 与 /dev-preview/** 无有效 cookie
+ *  → 401 UNAUTHENTICATED（/dev-preview 是长驻预览反代，公网匿名可达=预览内容裸奔，
+ *  2026-10-19 实机抓修补入守卫面）；
  *  豁免 /api/auth/login、/api/auth/whoami（前端启动探测）、/health（运维探活）；
  *  静态构建产物不拦（bundle 无敏感信息，数据全走 API）——SPA 登录页由前端 AuthGate 守门。
  *  注意：中间件抛错不经 Nest 过滤器，401 响应体在此直接手写（形状与 DomainErrorFilter 一致）。 */
 export function authMiddleware(req: Request, res: Response, next: NextFunction): void {
   if (
     !authEnabled() ||
-    !req.path.startsWith('/api') ||
+    !(req.path.startsWith('/api') || req.path.startsWith('/dev-preview')) ||
     req.path === '/api/auth/login' ||
     req.path === '/api/auth/whoami'
   ) {

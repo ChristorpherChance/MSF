@@ -90,6 +90,15 @@ describe('简易登录（env 门控）', () => {
     expect(res.statusCode).toBe(401);
     expect((res.body as { error: { code: string } }).error.code).toBe('UNAUTHENTICATED');
 
+    // /dev-preview/** 同罩（长驻预览反代，公网匿名可达=内容裸奔，2026-10-19 补入守卫面）
+    const res2 = mockRes();
+    let called2 = false;
+    authMiddleware(mockReq('/dev-preview/some-project/'), res2 as unknown as Response, () => {
+      called2 = true;
+    });
+    expect(called2).toBe(false);
+    expect(res2.statusCode).toBe(401);
+
     for (const p of ['/api/auth/login', '/api/auth/whoami', '/health', '/assets/index.js']) {
       called = false;
       authMiddleware(mockReq(p), mockRes() as unknown as Response, () => {
