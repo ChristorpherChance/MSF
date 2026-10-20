@@ -93,11 +93,18 @@ export class DevAutopilotService {
 
     // A06-11 控制：先旋转 runToken，再仅取消本运行归属的 running 操作；stop 另撤销授权
     const control = async (client: import('pg').PoolClient, projectId: string, action: 'paused' | 'stopped' | 'taken-over') => {
+      // 2026-10-21：awaiting-transfer 纳入可控制态——该态 runner 已停（无并发 tick），
+      // 唯一出口本是「转测试」；但任务池重识别/自测死路场景旧 run 永远转不出去，
+      // 项目被「存在未终态运行」永锁。人工 stop（放弃本轮转测试）是正规逃生门。
       const run = await client.query<RunRow>(
-        "SELECT * FROM dev_runs WHERE project_id=$1 AND status IN ('running','blocked','paused','taken-over') ORDER BY created_at DESC LIMIT 1 FOR UPDATE",
+        "SELECT * FROM dev_runs WHERE project_id=$1 AND status IN ('running','blocked','paused','taken-over','awaiting-transfer') ORDER BY created_at DESC LIMIT 1 FOR UPDATE",
         [projectId]);
       const r = run.rows[0];
       if (!r) throw new DomainError('INVALID_STATE', '无可控制的运行', projectId);
+      // 等待转测试态仅可 stop（放弃本轮转测试）——pause/takeover 语义不成立（runner 本就已停）
+      if (r.status === 'awaiting-transfer' && action !== 'stopped') {
+        throw new DomainError('INVALID_STATE', '等待转测试态仅可停止（放弃本轮）或走转测试确认', r.run_id);
+      }
       const newToken = randomUUID();
       const cancelled = await client.query<{ n: string }>(
         `WITH upd AS (UPDATE dev_operations SET status='cancelled', updated_at=now()

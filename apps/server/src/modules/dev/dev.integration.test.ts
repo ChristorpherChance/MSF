@@ -852,4 +852,26 @@ describe('Dev 开发域（集成，需 DB+MinIO）', async () => {
     const r2 = (await tasks.identify(PID, baselineId, baselineFp, CTX)) as { identified: number };
     expect(r2.identified).toBe(0);
   });
+
+  it('T17 awaiting-transfer 逃生门：仅可 stop（放弃本轮转测试），pause/takeover 拒绝（2026-10-21 永锁根修）', async () => {
+    // 夹具：SQL 直造 awaiting-transfer 运行 + 授权（旧口径该态不可控制又占未终态位 → 项目永锁新启动）
+    const plan = (await query<{ id: string }>('SELECT id FROM dev_plans WHERE project_id=$1 ORDER BY revision DESC LIMIT 1', [PID])).rows[0]!;
+    await query(
+      `INSERT INTO dev_authorizations (project_id, authorization_id, plan_id, scope, task_ids, status, created_by)
+       VALUES ($1,'auth_t17',$2,'{}','[]','active','it')`, [PID, plan.id]);
+    await query(
+      `INSERT INTO dev_runs (project_id, run_id, run_token, plan_id, plan_fingerprint, authorization_id, status, phase, created_by)
+       VALUES ($1,'run_t17','tok-t17',$2,'${'e'.repeat(64)}','auth_t17','awaiting-transfer','awaiting-transfer','it')`, [PID, plan.id]);
+    // pause/takeover 语义不成立（runner 本就已停）→ 拒绝
+    await expect(autopilot.control(PID, 'pause', CTX)).rejects.toMatchObject({ code: 'INVALID_STATE' });
+    await expect(autopilot.control(PID, 'takeover', CTX)).rejects.toMatchObject({ code: 'INVALID_STATE' });
+    // stop=放弃本轮转测试：状态 stopped + 授权撤销 + 不再占未终态位
+    const sp = (await autopilot.control(PID, 'stop', CTX)) as { status: string };
+    expect(sp.status).toBe('stopped');
+    const auth = (await query<{ status: string }>("SELECT status FROM dev_authorizations WHERE authorization_id='auth_t17'")).rows[0]!;
+    expect(auth.status).toBe('revoked');
+    // 清理夹具
+    await query("DELETE FROM dev_runs WHERE run_id='run_t17'");
+    await query("DELETE FROM dev_authorizations WHERE authorization_id='auth_t17'");
+  });
 });
