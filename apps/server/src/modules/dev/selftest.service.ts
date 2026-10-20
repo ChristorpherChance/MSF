@@ -291,7 +291,7 @@ export class DevSelftestService {
           [lr.id]);
         const remediation = await this.remediationFingerprint(client, projectId);
         if (failedSt.rows[0] && remediation === failedSt.rows[0].remediation_fingerprint) {
-          issues.push({ code: 'RETEST_WITHOUT_CHANGE', message: '无实质返工的复测（构建/任务修订/提交集合均未变化）' });
+          issues.push({ code: 'RETEST_WITHOUT_CHANGE', message: '无实质返工的复测（构建/任务修订/提交集合均未变化）。请先产生实质变化：重跑集成构建 / 返工任务 / 计划页「重新识别任务池」升级任务口径' });
         }
       }
     }

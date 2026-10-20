@@ -118,6 +118,7 @@ export const COMMANDS = [
   // M4 开发域：任务识别/计划（LLD-3 DSG-C10-2(c) 点式映射；A06-1~7）
   'dev.identify.start',
   'dev.identify.complete',
+  'dev.tasks.reidentify',
   'dev.task.save',
   'dev.task.create', // 人工新建草稿任务（原型 newDevTask/devCreateTask），差异登记
   'dev.task.improve', // 批量补齐缺失/不可执行规格字段（原型 devImproveTasks），差异登记

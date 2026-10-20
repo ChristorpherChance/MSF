@@ -44,6 +44,11 @@ export class DevController {
     return this.tasks.identify(pid, body.baselineId, body.baselineFingerprint, this.actor(req, pid));
   }
 
+  @Post('tasks\\:reidentify')
+  reidentify(@Param('projectId') pid: string, @Body() body: { baselineId: string; baselineFingerprint: string; confirm?: boolean }, @Req() req: Request) {
+    return this.tasks.reidentify(pid, body.baselineId, body.baselineFingerprint, body.confirm === true, this.actor(req, pid));
+  }
+
   @Get('tasks')
   listTasks(@Param('projectId') pid: string, @Query('col') col?: string) {
     return this.tasks.list(pid, col);

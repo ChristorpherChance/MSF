@@ -15,6 +15,7 @@ export function PlanPanel() {
   const s = useDevStore();
   const [approveOpen, setApproveOpen] = useState(false);
   const [approveRunOpen, setApproveRunOpen] = useState(false);
+  const [reidentifyOpen, setReidentifyOpen] = useState(false);
   const model = useMemo(() => attentionModel(s), [s.tasks, s.coverage, s.baseline, s.impacts, s.autopilot]);
   if (s.selTaskId && s.taskDetail) return <TaskDetailForm />;
 
@@ -179,6 +180,26 @@ export function PlanPanel() {
             >
               ⚡ 识别任务
             </button>
+            <button
+              className="act"
+              disabled={!s.baseline?.valid || s.tasks.length === 0 || s.acting}
+              title="交付物口径升级后的正式升级通道：归档全部存量任务并失效在途计划，按当前口径全量重派生（重派生后须重新提交/批准计划）"
+              onClick={() => setReidentifyOpen(true)}
+            >
+              ♻ 重新识别任务池
+            </button>
+            {reidentifyOpen && (
+              <ConfirmModal
+                title="重新识别任务池"
+                body={`将把当前 ${s.tasks.length} 个存量任务全部归档（留痕可查）并失效在途计划，按最新交付物口径（页面=public/pages/<页码>.html 原型接线版）重新派生任务。重派生后须重新编排、提交并批准计划。确认继续？`}
+                confirmLabel="确认重识别"
+                onClose={() => setReidentifyOpen(false)}
+                onConfirm={() => s.act(async () => {
+                  const r = await devApi.reidentify(s.projectId!, s.baseline!.baselineId, s.baseline!.fingerprint);
+                  useDevStore.setState({ notice: `重识别完成：归档 ${r.archived} 个旧任务，新派生 ${r.identified} 个任务` });
+                })}
+              />
+            )}
             <button
               className={`act${gapCount === 0 && covPending > 0 ? ' primary' : ''}`}
               disabled={s.tasks.length === 0 || s.acting}

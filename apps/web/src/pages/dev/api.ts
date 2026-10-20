@@ -109,6 +109,10 @@ const base = (pid: string) => `/api/v1/projects/${pid}/dev`;
 export const devApi = {
   identify: (pid: string, baselineId: string, baselineFingerprint: string) =>
     api.post<{ identified: number; taskIds: string[] }>(`${base(pid)}/tasks:identify`, { baselineId, baselineFingerprint }),
+  /** 任务池重识别（口径升级正式通道：归档全部存量任务+失效在途计划后全量重派生，confirm=true 由确认弹窗保证） */
+  reidentify: (pid: string, baselineId: string, baselineFingerprint: string) =>
+    api.post<{ archived: number; identified: number; taskIds: string[] }>(
+      `${base(pid)}/tasks:reidentify`, { baselineId, baselineFingerprint, confirm: true }),
   listTasks: (pid: string) => api.get<{ items: DevTask[]; total: number }>(`${base(pid)}/tasks`),
   taskDetail: (pid: string, taskId: string) => api.get<DevTaskDetail>(`${base(pid)}/tasks/${taskId}`),
   saveTask: (pid: string, taskId: string, patch: Record<string, unknown>) =>

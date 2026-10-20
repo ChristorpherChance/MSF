@@ -272,6 +272,62 @@ export class DevTasksService {
       return { identified, taskIds, poolRevision: Number(seq) };
     });
 
+    // 任务池重识别（2026-10-21：交付物口径升级后存量项目的正式升级通道——identify 幂等键=标题，
+    // 新旧口径页面任务标题同为「页面实现：<title>」，直接重 identify 会全跳过（identified=0）；
+    // 本命令归档全部存量任务（审计留痕）+ 失效在途计划后按当前口径全量重派生，须 confirm=true。
+    // 识别/自测死路（RETEST_WITHOUT_CHANGE 且任务池口径陈旧）的正规出口）
+    registerCommand('dev.tasks.reidentify', async (client, payload, ctx) => {
+      const { projectId, baselineId, baselineFingerprint, confirm } = payload as {
+        projectId: string; baselineId: string; baselineFingerprint: string; confirm?: boolean;
+      };
+      if (confirm !== true) throw new DomainError('VALIDATION_FAILED', '重识别将归档全部存量任务并失效在途计划，需 confirm=true', 'confirm');
+      const issues = await developGateIssues(client, projectId);
+      if (issues.length > 0) throw new DomainError('GATE_BLOCKED', '任务识别门禁未通过', 'dev', { issues });
+      const bl = await latestBaseline(client, projectId);
+      if (!bl || bl.id !== baselineId || `sha256:${bl.baseline_fingerprint}` !== baselineFingerprint) {
+        throw new DomainError('STALE_EVIDENCE', '基线身份与当前有效基线不符', baselineId);
+      }
+      const active = await client.query<{ code: string }>(
+        "SELECT code FROM dev_tasks WHERE project_id=$1 AND archived=false AND col IN ('ing','review')", [projectId]);
+      if (active.rows.length > 0) {
+        throw new DomainError('INVALID_STATE', `存在进行中/评审中任务（${active.rows.map((r) => r.code).join('、')}），须先返工或合并`, active.rows[0]!.code);
+      }
+      const cat = await client.query<{ catalog_version: string }>(
+        'SELECT catalog_version FROM dsg_catalog_items WHERE project_id=$1 ORDER BY substring(catalog_version from 4)::int DESC LIMIT 1',
+        [projectId]);
+      const catVer = cat.rows[0]?.catalog_version;
+      if (!catVer) throw new DomainError('GATE_BLOCKED', '无设计目录', 'dev', { issues: [{ code: 'PLAN_REQUIRED', message: '无设计目录' }] });
+      const items = await client.query<{ item_type: string; code: string; payload: Record<string, unknown> }>(
+        'SELECT item_type, code, payload FROM dsg_catalog_items WHERE project_id=$1 AND catalog_version=$2 ORDER BY code',
+        [projectId, catVer]);
+      const inputArtifacts = bl.items.map((i) => ({ doc_kind: i.artifact, version_id: i.version_id, fingerprint: i.fingerprint }));
+      const arch = await client.query(
+        "UPDATE dev_tasks SET archived=true, updated_at=now(), updated_by='system' WHERE project_id=$1 AND archived=false", [projectId]);
+      // 任务池整体换代：在途计划快照指向旧任务码，全部失效（重识别后须重新提交/批准）
+      await client.query(
+        "UPDATE dev_plans SET state='invalidated', invalidated_reason='tasks-reidentify' WHERE project_id=$1 AND state IN ('approved','submitted','draft')", [projectId]);
+      const specs = buildTaskSpecs(items.rows);
+      const taskIds: string[] = [];
+      await lockCodeGen(client, `msf:code:task:${projectId}`);
+      let seq = (await client.query<{ n: string }>('SELECT count(*) AS n FROM dev_tasks WHERE project_id=$1', [projectId])).rows[0]?.n ?? '0';
+      for (const s of specs) {
+        seq = String(Number(seq) + 1);
+        const code = `T-${String(seq).padStart(3, '0')}`;
+        await client.query(
+          `INSERT INTO dev_tasks (project_id, code, title, kind, owner, asg_type, goal, scope, boundary,
+             source_ids, input_artifacts, work, inputs, deliverables, acceptance, quality, deps, write_scopes, batch_no, effort, created_by)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)`,
+          [projectId, code, s.title, s.kind, 'mock-agent', s.asgType, s.goal, s.scope, s.boundary,
+            JSON.stringify(s.sourceIds), JSON.stringify(inputArtifacts), JSON.stringify(s.work),
+            JSON.stringify(s.inputs), JSON.stringify(s.deliverables), JSON.stringify(s.acceptance),
+            JSON.stringify(s.quality), JSON.stringify(s.deps), JSON.stringify(s.writeScopes),
+            s.batchNo, s.effort, ctx.actorId],
+        );
+        taskIds.push(code);
+      }
+      return { archived: arch.rowCount ?? 0, identified: taskIds.length, taskIds, poolRevision: Number(seq) };
+    });
+
     // 任务规格编辑（排队中可编辑；运行/评审/合并须先返工，LLD-6 §3.5）
     // W6 全字段：title/kind/owner/effort/goal/scope/boundary/sourceIds/work/inputs/deliverables/
     // acceptance/deps/writeScopes/quality；保存 rev++ 且覆盖核对全部重置 pending（原型 devSaveTask 同口径）
@@ -408,6 +464,10 @@ export class DevTasksService {
 
   async identify(projectId: string, baselineId: string, baselineFingerprint: string, ctx: CommandContext) {
     return executeCommand('dev.identify.complete', { projectId, baselineId, baselineFingerprint }, { ...ctx, projectId });
+  }
+
+  async reidentify(projectId: string, baselineId: string, baselineFingerprint: string, confirm: boolean, ctx: CommandContext) {
+    return executeCommand('dev.tasks.reidentify', { projectId, baselineId, baselineFingerprint, confirm }, { ...ctx, projectId });
   }
 
   async saveTask(projectId: string, taskId: string, patch: Record<string, unknown>, ctx: CommandContext) {

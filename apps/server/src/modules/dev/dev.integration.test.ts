@@ -824,4 +824,32 @@ describe('Dev 开发域（集成，需 DB+MinIO）', async () => {
     const live2 = (await impact.baselineLive(PID)) as { stale: boolean };
     expect(live2.stale).toBe(false); // live 与最新真实基线一致
   });
+
+  it('T16 任务池重识别：confirm 闸 + 归档换代 + 新口径全量重派生 + 在途计划失效（2026-10-21 口径升级正式通道）', async () => {
+    const before = await listTasks();
+    expect(before.length).toBeGreaterThan(0);
+    const maxCode = Math.max(...before.map((t) => Number(t.code.slice(2))));
+    // confirm 必填
+    await expect(tasks.reidentify(PID, baselineId, baselineFp, false, CTX)).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+    // 基线身份不符
+    await expect(tasks.reidentify(PID, baselineId, 'sha256:bad', true, CTX)).rejects.toMatchObject({ code: 'STALE_EVIDENCE' });
+    const r = (await tasks.reidentify(PID, baselineId, baselineFp, true, CTX)) as { archived: number; identified: number; taskIds: string[] };
+    expect(r.archived).toBe(before.length);
+    expect(r.identified).toBeGreaterThanOrEqual(4); // 页面×N + 壳 + 后端 + 联调
+    // 新任务码续号（不归零）；列表只见新任务（旧的全归档）
+    const after = await listTasks();
+    expect(after).toHaveLength(r.identified);
+    expect(Math.min(...after.map((t) => Number(t.code.slice(2))))).toBe(maxCode + 1);
+    // 新口径交付物：页面=public/pages/<页码>.html 接线版、壳/后端骨架齐备
+    const pages = after.filter((t) => t.kind === 'frontend');
+    expect(pages.length).toBeGreaterThanOrEqual(2);
+    expect(after.some((t) => t.title === '应用壳与公共接线')).toBe(true);
+    expect(after.some((t) => t.title === '服务实现：后端 API 与数据')).toBe(true);
+    // 在途计划全部失效（快照指向旧任务码）
+    const plansLeft = (await query<{ state: string }>('SELECT DISTINCT state FROM dev_plans WHERE project_id=$1', [PID])).rows;
+    expect(plansLeft.every((p) => p.state === 'invalidated')).toBe(true);
+    // 重派生任务全 queue 可重识别幂等外再识别零新增（标题幂等仍生效）
+    const r2 = (await tasks.identify(PID, baselineId, baselineFp, CTX)) as { identified: number };
+    expect(r2.identified).toBe(0);
+  });
 });
