@@ -13,7 +13,9 @@ export const devAutopilotTiming = { tickDelayMs: 15 };
 
 // SELFTEST_FAILED（2026-10-19 起可恢复）：自测红须先人工处置（重跑自测出新报告），
 // resume 时核验最新报告非 fail 才放行——「人工处置链」=重跑自测而非绕过门禁
-const RECOVERABLE_BLOCKERS = new Set(['RUNNER_START_FAILED', 'HUMAN_TASK_REQUIRED', 'SELFTEST_START_FAILED', 'SELFTEST_FAILED', 'TASK_BLOCKED', 'AI_REVIEW_FAILED']);
+// 2026-10-21：DISPATCH_NO_PROGRESS 入白名单——派发失败的处置动作=解除门禁缺口（处置影响单/重识别/修复派发逻辑）
+// 或重批计划，之后 resume 重 tick 是正规恢复路径（仍不过会再阻断，无绕过风险）
+const RECOVERABLE_BLOCKERS = new Set(['RUNNER_START_FAILED', 'HUMAN_TASK_REQUIRED', 'SELFTEST_START_FAILED', 'SELFTEST_FAILED', 'TASK_BLOCKED', 'AI_REVIEW_FAILED', 'DISPATCH_NO_PROGRESS']);
 
 /** L6 运行阶段枚举（原型 v18AutoStatusHtml phases 映射：dispatch/development/quality/ai-review/merge/build/awaiting-transfer；selftest 为真实管线扩展档——原型模拟未建模项目自测阶段） */
 const RUN_PHASES = new Set(['dispatch', 'development', 'quality', 'ai-review', 'merge', 'build', 'selftest', 'awaiting-transfer']);
