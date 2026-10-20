@@ -12,13 +12,21 @@ import { devMode, DevWorkspaceService } from './workspace.service.js';
 
 /** 四门评估口径版本（入实质返工指纹；求值逻辑变化才递增——v2=2026-10-19 CI 历史连坐/人工合并依据认账双根修；
  *  v3=2026-10-20 四门诚实化：ui 门 real 工作区真实观察/functional 覆盖率如实/review 门 real 只认真评审证据）。
+ *  v4=2026-10-21 实机抓修：real ui 门补一般项 c-page-structure（generalItems 恒空撞 UI_GENERAL_EMPTY 分母闸）、
+ *  review 门滤 archived（重识别归档的旧 done 任务不再计入缺失）——SR-0008 双冤案根修。
  *  导出供测试夹具同源构造指纹，防生产/测试两套口径漂移。 */
-export const SELFTEST_GATE_RULES_VERSION = 3;
+export const SELFTEST_GATE_RULES_VERSION = 4;
 
 /** 页面接线观察判定（纯函数可单测）：文件缺失→fail；带 msf:prototype-copy 标记=原型静态副本未接线→fail */
 export function pageWiredOutcome(html: string | null): 'pass' | 'fail' {
   if (html === null) return 'fail';
   return html.includes('msf:prototype-copy') ? 'fail' : 'pass';
+}
+
+/** 页面结构完整观察判定（纯函数可单测，real ui 门一般项）：完整 HTML 文档（<html>…<body>）→pass */
+export function pageStructureOutcome(html: string | null): 'pass' | 'fail' {
+  if (html === null) return 'fail';
+  return /<html[\s>]/i.test(html) && /<body[\s>]/i.test(html) ? 'pass' : 'fail';
 }
 
 /**
@@ -378,7 +386,7 @@ export class DevSelftestService {
 
   private async gateReview(client: PoolClient, projectId: string) {
     const tasks = await client.query<{ id: string; code: string }>(
-      "SELECT id, code FROM dev_tasks WHERE project_id=$1 AND col='done'", [projectId]);
+      "SELECT id, code FROM dev_tasks WHERE project_id=$1 AND col='done' AND archived=false", [projectId]);
     // real 模式只认真实评审证据（mode='ai'，2026-10-20 诚实化——mock 评审证据在 real 下是假绿）；
     // mock 模式不设 mode 条件（历史/测试证据无 mode 字段兼容）
     const realOnly = devMode() === 'real';
@@ -414,10 +422,11 @@ export class DevSelftestService {
     const pages = items.rows.filter((i) => i.item_type === 'page').map((i) => i.code);
     const viewports = items.rows.filter((i) => i.item_type === 'viewport').map((i) => i.code);
     if (devMode() === 'real') {
+      // 关键项=接线版存在且非原型副本；一般项=HTML 结构完整（分母合法性：general 恒空撞 UI_GENERAL_EMPTY 闸——SR-0008 实锤）
       const matrix: UiMatrixCell[] = pages.map((p) => ({
         pageId: p, viewportId: 'default',
         criticalItems: [{ id: 'c-page-wired', kind: 'visual' }],
-        generalItems: [],
+        generalItems: [{ id: 'c-page-structure', kind: 'visual' }],
       }));
       const observed: UiObserved[] = [];
       for (const p of pages) {
@@ -425,6 +434,7 @@ export class DevSelftestService {
           ? await this.ws.readFile(projectId, `public/pages/${p}.html`).catch(() => null)
           : null;
         observed.push({ pageId: p, viewportId: 'default', checkId: 'c-page-wired', kind: 'visual', outcome: pageWiredOutcome(html) });
+        observed.push({ pageId: p, viewportId: 'default', checkId: 'c-page-structure', kind: 'visual', outcome: pageStructureOutcome(html) });
       }
       const r = evaluateUiEvidence(matrix, observed);
       // 失败语义人话化（report 卡直接可读的 message；UI_OBSERVATION_FAIL 等裸码补注）

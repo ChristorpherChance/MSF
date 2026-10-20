@@ -8,7 +8,7 @@ import { parseFileBlocks, scaffoldFiles, APP_CONVENTIONS } from './codegen.servi
 import { DevWorkspaceService, devMode } from './workspace.service.js';
 import { rewritePreviewHtml } from './preview.service.js';
 import { buildTaskSpecs, scheduleBatches } from './tasks.service.js';
-import { pageWiredOutcome } from './selftest.service.js';
+import { pageWiredOutcome, pageStructureOutcome } from './selftest.service.js';
 import { parseAiReview } from './board.service.js';
 
 describe('parseFileBlocks 输出契约', () => {
@@ -194,6 +194,15 @@ describe('pageWiredOutcome 页面接线观察判定', () => {
     expect(pageWiredOutcome(null)).toBe('fail');
     expect(pageWiredOutcome('<!-- msf:prototype-copy 原型静态副本 -->\n<html></html>')).toBe('fail');
     expect(pageWiredOutcome('<!doctype html><html><body>wired</body></html>')).toBe('pass');
+  });
+});
+
+describe('pageStructureOutcome 页面结构完整判定（real ui 门一般项，2026-10-21 SR-0008 分母闸根修）', () => {
+  it('缺失→fail；无 html/body→fail；完整文档→pass', () => {
+    expect(pageStructureOutcome(null)).toBe('fail');
+    expect(pageStructureOutcome('<div>碎片</div>')).toBe('fail');
+    expect(pageStructureOutcome('<body>仅身体</body>')).toBe('fail');
+    expect(pageStructureOutcome('<!doctype html><html lang="zh"><head></head><body>wired</body></html>')).toBe('pass');
   });
 });
 
