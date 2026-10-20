@@ -16,9 +16,10 @@ import { AI_PROVIDER, type AiProvider } from '../ai/ai-provider.interface.js';
 const execFileP = promisify(execFile);
 
 /** AI 评审系统 prompt（代码内置）：任务规格+提交 diff → 严格 JSON 结论（只评不判 merged，人工/授权链收口） */
-const AI_REVIEW_SYSTEM = `你是软件工厂的独立代码评审器（评审者≠作者）。输入=任务规格（目标/验收）与该任务最近一次代码提交的 diff。产出严格 JSON：
+const AI_REVIEW_SYSTEM = `你是软件工厂的独立代码评审器（评审者≠作者）。输入=任务规格（目标/验收）、该任务最近一次代码提交的 diff、以及任务 writeScopes 文件的工作区当前全文。产出严格 JSON：
 {"verdict":"pass|fail","comment":"一句话评审意见（fail=必须说清阻断点：…；pass=可合并理由：…）"}
-纪律：只评本提交相对任务规格的符合性、明显缺陷与约定违反（如根相对路径/外网依赖）；comment 一句话说清依据。`;
+纪律：只评本提交相对任务规格的符合性、明显缺陷与约定违反（如根相对路径/外网依赖）；comment 一句话说清依据。
+口径：以工作区当前全文为准——全文已展示的接口调用/数据绑定/挂载接缝不得再以「材料不全/补丁截断/未展示」判 fail（出现 …[truncated] 标记的截断段除外）；跨文件接缝（如壳挂载后端、页面引用公共资源）以全文状态为准，不苛求单 commit diff 自含全部上下文。`;
 
 /** 评审 LLM 看门狗（design review 同构）：上游静默挂起不吊死 autopilot tick */
 const AI_REVIEW_WATCHDOG_MS = 10 * 60_000;
@@ -388,8 +389,8 @@ export class DevBoardService {
 
   /** real 模式 AI 真评审：任务规格 + 最近 codegen 提交 diff → 严格 JSON 结论（10min 看门狗防静默挂起） */
   private async runRealReview(projectId: string, taskId: string): Promise<{ conclusion: 'pass' | 'fail'; note: string; diffStat: string | null }> {
-    const tr = await query<{ code: string; title: string; goal: string | null; acceptance: unknown[] }>(
-      'SELECT code, title, goal, acceptance FROM dev_tasks WHERE id=$1 AND project_id=$2', [taskId, projectId]);
+    const tr = await query<{ code: string; title: string; goal: string | null; acceptance: unknown[]; write_scopes: string[] }>(
+      'SELECT code, title, goal, acceptance, write_scopes FROM dev_tasks WHERE id=$1 AND project_id=$2', [taskId, projectId]);
     const t = tr.rows[0];
     const ev = await query<{ payload: { commit?: string | null } }>(
       `SELECT payload FROM evd_records WHERE project_id=$1 AND kind='codegen' AND payload->>'taskId'=$2
@@ -402,8 +403,22 @@ export class DevBoardService {
       diffStat = (await execFileP('git', ['-C', dir, 'show', '--stat', '--format=', commit]).catch(() => null))?.stdout?.trim() ?? null;
       patch = (await execFileP('git', ['-C', dir, 'show', '--format=', commit]).catch(() => null))?.stdout ?? '';
     }
+    // 工作区当前全文段（2026-10-21 评审视角根修）：单 commit diff 截断 12KB 看不到页面尾部数据绑定、
+    // 也看不到跨 commit 接缝（人工挂载/后续修复）——116 实机 T-021「补丁截断无法确认」与 T-032「未挂载」双冤案。
+    // 取 writeScopes 文件 @HEAD 全文（单文件截断 24KB、总量截断 48KB，截断处打标记，模型据标记免责）
+    let worktree = '';
+    if (this.ws && (t?.write_scopes ?? []).length > 0) {
+      const dir = this.ws.dir(projectId);
+      const parts: string[] = [];
+      for (const f of t!.write_scopes.slice(0, 6)) {
+        const content = (await execFileP('git', ['-C', dir, 'show', `HEAD:${f}`]).catch(() => null))?.stdout;
+        if (content != null) parts.push(`--- ${f} ---\n${content.length > 24_000 ? `${content.slice(0, 24_000)}\n…[truncated]` : content}`);
+      }
+      worktree = parts.join('\n');
+      if (worktree.length > 48_000) worktree = `${worktree.slice(0, 48_000)}\n…[truncated]`;
+    }
     const session = await this.ai!.createSession({ projectId, purpose: 'review' });
-    const prompt = `${AI_REVIEW_SYSTEM}\n\n【任务】${t?.code} ${t?.title}\n目标：${t?.goal ?? '—'}\n验收条件：${(t?.acceptance ?? []).map((a) => String(typeof a === 'object' && a !== null ? (a as Record<string, unknown>).item ?? JSON.stringify(a) : a)).join('；') || '—'}\n【提交 diff 统计】\n${diffStat ?? '（无提交记录）'}\n【补丁（截断 12KB）】\n${patch.slice(0, 12_000)}`;
+    const prompt = `${AI_REVIEW_SYSTEM}\n\n【任务】${t?.code} ${t?.title}\n目标：${t?.goal ?? '—'}\n验收条件：${(t?.acceptance ?? []).map((a) => String(typeof a === 'object' && a !== null ? (a as Record<string, unknown>).item ?? JSON.stringify(a) : a)).join('；') || '—'}\n【提交 diff 统计】\n${diffStat ?? '（无提交记录）'}\n【补丁（截断 12KB）】\n${patch.slice(0, 12_000)}\n【工作区当前全文（writeScopes 文件 @HEAD）】\n${worktree || '（无 writeScopes 文件）'}`;
     const { deltas, result } = session.stream(prompt);
     let timer: NodeJS.Timeout | undefined;
     const timeout = new Promise<never>((_, reject) => {
