@@ -301,12 +301,15 @@ export class DevAutopilotService {
       await query("UPDATE dev_authorizations SET status='revoked', updated_at=now() WHERE project_id=$1 AND authorization_id=$2", [projectId, r.authorization_id]);
       return true;
     }
-    // ④ 首个未完成任务（按批准计划顺序；一 tick 一动作）
+    // ④ 首个未完成任务（批次序派发：快照定成员资格、编排定执行次序——2026-10-21 根修：
+    // 旧口径按计划快照数组序，提交端乱序（如 SQL string_agg 无序）会把高批次页面排在基座前，
+    // 开始门禁 BATCH_NOT_DONE 反复拒绝 → DISPATCH_NO_PROGRESS 冤案）；一 tick 一动作
     const taskIds = p.snapshot.taskIds ?? [];
-    const tasks = await query<{ id: string; code: string; col: string; prog: number; asg_type: string; code_rev: number; blocked: boolean; run_status: string; blocked_reason: string | null }>(
-      'SELECT id, code, col, prog, asg_type, code_rev, blocked, run_status, blocked_reason FROM dev_tasks WHERE project_id=$1 AND code = ANY($2)', [projectId, taskIds]);
-    const byCode = new Map(tasks.rows.map((t) => [t.code, t]));
-    const next = taskIds.map((c) => byCode.get(c)).find((t) => t && t.col !== 'done');
+    const tasks = await query<{ id: string; code: string; col: string; prog: number; asg_type: string; code_rev: number; blocked: boolean; run_status: string; blocked_reason: string | null; batch_no: number | null }>(
+      'SELECT id, code, col, prog, asg_type, code_rev, blocked, run_status, blocked_reason, batch_no FROM dev_tasks WHERE project_id=$1 AND code = ANY($2)', [projectId, taskIds]);
+    const next = tasks.rows
+      .filter((t) => t.col !== 'done')
+      .sort((a, b) => (a.batch_no ?? 9999) - (b.batch_no ?? 9999) || a.code.localeCompare(b.code))[0];
     if (next) {
       if (next.asg_type === 'human') {
         await this.block(projectId, runId, { code: 'HUMAN_TASK_REQUIRED', message: `任务 ${next.code} 需人工承接`, taskId: next.id, category: 'control' }, ctx);

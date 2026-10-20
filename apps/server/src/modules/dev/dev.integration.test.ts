@@ -874,4 +874,26 @@ describe('Dev 开发域（集成，需 DB+MinIO）', async () => {
     await query("DELETE FROM dev_runs WHERE run_id='run_t17'");
     await query("DELETE FROM dev_authorizations WHERE authorization_id='auth_t17'");
   });
+
+  it('T18 批次序派发：快照乱序（页面排基座前）也先跑基座——DISPATCH_NO_PROGRESS 冤案根修（2026-10-21）', async () => {
+    // T16 重识别后的新任务池（全 queue）；快照故意乱序=页面码在前、基座殿后
+    const items = await listTasks();
+    const pages = items.filter((t) => t.kind === 'frontend').map((t) => t.code);
+    const base = items.filter((t) => t.kind !== 'frontend').map((t) => t.code);
+    const scrambled = [...pages, ...base];
+    const sub = (await plans.submit(PID, scrambled, '乱序快照轮', CTX)) as { revision: string; fingerprint: string };
+    await plans.approve(PID, sub.revision, sub.fingerprint, true, CTX);
+    const st = (await autopilot.approveStart(PID, sub.revision, sub.fingerprint, CTX)) as { runId: string; status: string };
+    expect(st.status === 'running' || st.status === 'awaiting-transfer').toBe(true);
+    // 批次序 invariant 采样：基座（壳/后端，batch 1）未全 done 时，页面不得离开 queue——
+    // 采样到基座全 done 即止（不跑全链，避开并发全量下的时长敏感；联调殿后不算基座）
+    await waitFor(async () => {
+      const ts = await listTasks();
+      const baseUndone = ts.some((t) => (t.kind === 'common' || t.kind === 'backend') && t.col !== 'done');
+      const pageStarted = ts.some((t) => t.kind === 'frontend' && t.col !== 'queue');
+      expect(baseUndone && pageStarted).toBe(false); // 乱序快照若按快照序派发，页面会先 ing（冤案现场）
+      return !baseUndone;
+    });
+    await autopilot.control(PID, 'stop', CTX);
+  }, 30000);
 });
