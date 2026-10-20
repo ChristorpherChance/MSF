@@ -167,9 +167,19 @@ export async function applySpecPatch(
       JSON.stringify(patch.acceptance), JSON.stringify(patch.quality), actorId]);
 }
 
-/** 依赖拓扑编排（原型 devDependencyPlan 同口径）：自依赖/缺失/循环 → 拒绝；写入范围重叠串行到后批次 */
-export function scheduleBatches(tasks: Array<{ id: string; code: string; deps: string[]; write_scopes: string[] }>) {
+/** 依赖拓扑编排（原型 devDependencyPlan 同口径）：自依赖/缺失/循环 → 拒绝；写入范围重叠串行到后批次。
+ *  2026-10-21 类型序约束（KIND_RANK 隐含边）：common/backend 基座 → frontend 页面 → integration 殿后——
+ *  旧口径纯 deps 拓扑把 identify 派生的批次设计碾平（全部任务 deps=[] → 全 batch 1，
+ *  页面先于壳/API 起跑、联调不殿后），实机编排结果与「基座先行」设计直接矛盾。 */
+const KIND_RANK: Record<string, number> = { common: 0, backend: 0, frontend: 1, integration: 2 };
+export function scheduleBatches(tasks: Array<{ id: string; code: string; deps: string[]; write_scopes: string[]; kind?: string }>) {
   const byCode = new Map(tasks.map((t) => [t.code, t]));
+  const rank = (code: string) => KIND_RANK[byCode.get(code)?.kind ?? ''] ?? 1;
+  /** 有效依赖=显式 deps ∪ 类型序隐含边（rank 严格递增，隐含边自身不成环） */
+  const effDeps = (code: string): string[] => {
+    const implied = tasks.filter((o) => o.code !== code && rank(o.code) < rank(code)).map((o) => o.code);
+    return [...new Set([...(byCode.get(code)?.deps ?? []), ...implied])];
+  };
   const issues: Array<{ code: string; message: string }> = [];
   for (const t of tasks) {
     for (const dep of t.deps) {
@@ -186,7 +196,7 @@ export function scheduleBatches(tasks: Array<{ id: string; code: string; deps: s
     }
     if (done.has(code)) return;
     visiting.add(code);
-    for (const dep of byCode.get(code)?.deps ?? []) if (byCode.has(dep) && dep !== code) visit(dep, [...stack, code]);
+    for (const dep of effDeps(code)) if (byCode.has(dep) && dep !== code) visit(dep, [...stack, code]);
     visiting.delete(code); done.add(code);
   };
   for (const t of tasks) visit(t.code, []);
@@ -199,7 +209,7 @@ export function scheduleBatches(tasks: Array<{ id: string; code: string; deps: s
   const conflicts: Array<{ scope: string; tasks: string[] }> = [];
   let batchNo = 0;
   while (remaining.size > 0) {
-    const ready = [...remaining].filter((c) => (byCode.get(c)!.deps).every((d) => completed.has(d))).sort();
+    const ready = [...remaining].filter((c) => effDeps(c).every((d) => completed.has(d))).sort();
     if (ready.length === 0) break;
     batchNo++;
     const used = new Map<string, string>(); // scope → taskCode
@@ -419,11 +429,11 @@ export class DevTasksService {
     // 编排计划：依赖拓扑批次 + 写入范围冲突串行（原型 devSchedule/devDependencyPlan）
     registerCommand('dev.plan.schedule', async (client, payload) => {
       const { projectId } = payload as { projectId: string };
-      const rows = await client.query<{ id: string; code: string; deps: string[]; write_scopes: string[]; batch_no: number | null }>(
-        'SELECT id, code, deps, write_scopes, batch_no FROM dev_tasks WHERE project_id=$1 AND archived=false AND excluded=false FOR UPDATE',
+      const rows = await client.query<{ id: string; code: string; kind: string; deps: string[]; write_scopes: string[]; batch_no: number | null }>(
+        'SELECT id, code, kind, deps, write_scopes, batch_no FROM dev_tasks WHERE project_id=$1 AND archived=false AND excluded=false FOR UPDATE',
         [projectId]);
       if (rows.rows.length === 0) throw new DomainError('VALIDATION_FAILED', '任务池为空，无可编排任务', 'tasks');
-      const plan = scheduleBatches(rows.rows.map((r) => ({ id: r.id, code: r.code, deps: r.deps, write_scopes: r.write_scopes })));
+      const plan = scheduleBatches(rows.rows.map((r) => ({ id: r.id, code: r.code, kind: r.kind, deps: r.deps, write_scopes: r.write_scopes })));
       if (!plan.ok) {
         throw new DomainError('GATE_BLOCKED', '依赖编排未通过', 'dev.plan', { issues: plan.issues });
       }
@@ -653,13 +663,13 @@ export function buildTaskSpecs(items: Array<{ item_type: string; code: string; p
     title: '应用壳与公共接线', kind: 'common', asgType: 'agent',
     goal: '单进程应用壳：server 静态托管 public/ + 首页页面索引 + app-api 路由挂载', scope: 'server', boundary: '不动页面内容',
     sourceIds: [], work: ['应用壳与公共模块'], inputs: [], deliverables: ['server/index.js', 'public/index.html'],
-    acceptance: [{ item: 'npm start 起服、首页列出全部页面可点开', pass: false }], quality, deps: [], writeScopes: ['server', 'public/index.html'], batchNo: 1, effort: 'S',
+    acceptance: [{ item: 'npm start 起服、首页列出全部页面可点开', pass: false }], quality, deps: [], writeScopes: ['server/index.js', 'public/index.html'], batchNo: 1, effort: 'S',
   });
   specs.push({
     title: '服务实现：后端 API 与数据', kind: 'backend', asgType: 'agent',
     goal: '按接口册实现 app-api 全部端点（页面接线的数据来源）', scope: 'server', boundary: '不动前端页面',
     sourceIds: [], work: ['端点实现与数据层'], inputs: [], deliverables: ['server/api.js'],
-    acceptance: [{ item: '接口册端点全部可用且单测覆盖', pass: false }], quality, deps: [], writeScopes: ['server'], batchNo: 1, effort: 'M',
+    acceptance: [{ item: '接口册端点全部可用且单测覆盖', pass: false }], quality, deps: [], writeScopes: ['server/api.js'], batchNo: 1, effort: 'M',
   });
   specs.push({
     title: '端到端联调', kind: 'integration', asgType: 'agent',

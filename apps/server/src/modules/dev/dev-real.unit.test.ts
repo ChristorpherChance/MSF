@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { parseFileBlocks, scaffoldFiles, APP_CONVENTIONS } from './codegen.service.js';
 import { DevWorkspaceService, devMode } from './workspace.service.js';
 import { rewritePreviewHtml } from './preview.service.js';
-import { buildTaskSpecs } from './tasks.service.js';
+import { buildTaskSpecs, scheduleBatches } from './tasks.service.js';
 import { pageWiredOutcome } from './selftest.service.js';
 import { parseAiReview } from './board.service.js';
 
@@ -149,6 +149,43 @@ describe('buildTaskSpecs 真化口径（2026-10-20 预览=原型根修）', () =
     expect(api.deliverables).toEqual(['server/api.js']);
     expect(e2e.batchNo).toBeGreaterThan(1); // 联调殿后
     expect(e2e.sourceIds).toEqual(['F-001']);
+    // 骨架 writeScopes 文件级（壳 server/index.js+public/index.html、后端 server/api.js 互不重叠，同批不假冲突）
+    expect(shell.writeScopes).toEqual(['server/index.js', 'public/index.html']);
+    expect(api.writeScopes).toEqual(['server/api.js']);
+  });
+});
+
+describe('scheduleBatches 类型序约束（2026-10-21：基座先行不被纯 deps 拓扑碾平）', () => {
+  it('全 deps=[] 时：壳/后端 batch 1、页面 batch 2、联调 batch 3（文件级写范围零冲突）', () => {
+    const specs = buildTaskSpecs([
+      { item_type: 'page', code: 'P-001', payload: { title: '首页' } },
+      { item_type: 'page', code: 'P-002', payload: { title: '设置页' } },
+    ]);
+    const tasks = specs.map((s, i) => ({
+      id: `id-${i}`, code: `T-0${String(i + 1).padStart(2, '0')}`, kind: s.kind, deps: s.deps, write_scopes: s.writeScopes,
+    }));
+    const plan = scheduleBatches(tasks);
+    expect(plan.ok).toBe(true);
+    const batchOf = (title: string) => plan.assignments.get(tasks[specs.findIndex((s) => s.title === title)]!.code)!;
+    expect(batchOf('应用壳与公共接线')).toBe(1);
+    expect(batchOf('服务实现：后端 API 与数据')).toBe(1); // 与壳同批（写范围不重叠）
+    expect(batchOf('页面实现：首页')).toBe(2);
+    expect(batchOf('页面实现：设置页')).toBe(2);
+    expect(batchOf('端到端联调')).toBe(3); // 殿后
+    expect(plan.conflicts).toHaveLength(0);
+  });
+  it('显式 deps 与类型序叠加：页面依赖指定后端仍成立；common 依赖 frontend 成环拒绝', () => {
+    const plan = scheduleBatches([
+      { id: '1', code: 'T-01', kind: 'backend', deps: [], write_scopes: ['server/api.js'] },
+      { id: '2', code: 'T-02', kind: 'frontend', deps: ['T-01'], write_scopes: ['public/pages/P-001.html'] },
+    ]);
+    expect(plan.ok).toBe(true);
+    expect(plan.assignments.get('T-02')!).toBeGreaterThan(plan.assignments.get('T-01')!);
+    const cyc = scheduleBatches([
+      { id: '1', code: 'T-01', kind: 'common', deps: ['T-02'], write_scopes: ['server/index.js'] },
+      { id: '2', code: 'T-02', kind: 'frontend', deps: [], write_scopes: ['public/pages/P-001.html'] },
+    ]);
+    expect(cyc.ok).toBe(false); // 类型序隐含边 T-02→T-01 与显式 T-01→T-02 成环
   });
 });
 
