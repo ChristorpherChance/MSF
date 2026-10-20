@@ -76,8 +76,9 @@ export function PreviewPanel() {
         )}
       </div>
       <p className="pop-tip" style={{ margin: '0 0 8px' }}>
-        预览跑的是工作区里 AI 写出的真实代码（沙箱容器，内网零出向）。先把任务跑到「编码完成」让工作区有代码，
-        再启动预览；代码更新后点 🔄 重启生效。预览里的数据是应用自身的模拟数据。
+        预览跑的是工作区里 AI 写出的真实代码（沙箱容器，内网零出向）：页面=定稿原型页的接线版
+        （外观与原型一致，数据来自真实后端接口；页内标 TODO 的部分是接口册未覆盖的模拟数据残留）。
+        先把页面任务跑到「编码完成」再启动预览；代码更新后点 🔄 重启生效。
       </p>
       {busy && <div className="req-banner ok" style={{ margin: '0 0 8px' }}>⏳ {busy}</div>}
       {err && <div className="req-banner dev-bad" style={{ margin: '0 0 8px' }}>⛔ {err}</div>}

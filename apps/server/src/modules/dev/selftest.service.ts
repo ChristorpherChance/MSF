@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import { DomainError, fingerprint } from '@msf/shared';
 import type { PoolClient } from 'pg';
 import { query } from '../../db/pool.js';
@@ -8,10 +8,18 @@ import { mdToHtml } from '../platform/md-html.js';
 import { StorageService } from '../platform/storage.service.js';
 import { evaluateUiEvidence, type UiMatrixCell, type UiObserved } from '../platform/ui-score.js';
 import { latestBaseline, qof, type GateIssue } from './gate-common.js';
+import { devMode, DevWorkspaceService } from './workspace.service.js';
 
-/** 四门评估口径版本（入实质返工指纹；求值逻辑变化才递增——v2=2026-10-19 CI 历史连坐/人工合并依据认账双根修）。
+/** 四门评估口径版本（入实质返工指纹；求值逻辑变化才递增——v2=2026-10-19 CI 历史连坐/人工合并依据认账双根修；
+ *  v3=2026-10-20 四门诚实化：ui 门 real 工作区真实观察/functional 覆盖率如实/review 门 real 只认真评审证据）。
  *  导出供测试夹具同源构造指纹，防生产/测试两套口径漂移。 */
-export const SELFTEST_GATE_RULES_VERSION = 2;
+export const SELFTEST_GATE_RULES_VERSION = 3;
+
+/** 页面接线观察判定（纯函数可单测）：文件缺失→fail；带 msf:prototype-copy 标记=原型静态副本未接线→fail */
+export function pageWiredOutcome(html: string | null): 'pass' | 'fail' {
+  if (html === null) return 'fail';
+  return html.includes('msf:prototype-copy') ? 'fail' : 'pass';
+}
 
 /**
  * 开发自测四门 + 报告（A06-14~17；F02-7/F05；REQ-413/414/415/416/417）。
@@ -22,7 +30,10 @@ export const SELFTEST_GATE_RULES_VERSION = 2;
  */
 @Injectable()
 export class DevSelftestService {
-  constructor(@Inject(StorageService) private readonly storage: StorageService) {}
+  constructor(
+    @Inject(StorageService) private readonly storage: StorageService,
+    @Optional() @Inject(DevWorkspaceService) private readonly ws?: DevWorkspaceService,
+  ) {}
 
   onModuleInit(): void {
     // A06-14 启动（含 retest 内部分支；门禁 F02-7 devStartSelfTest 前置）
@@ -346,7 +357,13 @@ export class DevSelftestService {
         [projectId, t.id]);
       if (!ev.rows[0]) missing.push(t.code);
     }
-    return { ok: missing.length === 0, missing, coverage: { line: 85, branch: 78 } };
+    // 覆盖率如实（2026-10-20 诚实化）：取最近一条单测证据的真实采集值；real 沙箱未采集=null（前端显示「未采集」），
+    // 旧口径硬编码 85/78 是 mock 残留假数字
+    const cov = await client.query<{ line: number | null; branch: number | null }>(
+      `SELECT (payload->>'line')::numeric AS line, (payload->>'branch')::numeric AS branch
+       FROM evd_records WHERE project_id=$1 AND kind='unit' ORDER BY created_at DESC LIMIT 1`, [projectId]);
+    const c = cov.rows[0];
+    return { ok: missing.length === 0, missing, coverage: c && c.line !== null ? { line: c.line, branch: c.branch } : null };
   }
 
   private async gateIntegration(client: PoolClient, projectId: string) {
@@ -362,11 +379,15 @@ export class DevSelftestService {
   private async gateReview(client: PoolClient, projectId: string) {
     const tasks = await client.query<{ id: string; code: string }>(
       "SELECT id, code FROM dev_tasks WHERE project_id=$1 AND col='done'", [projectId]);
+    // real 模式只认真实评审证据（mode='ai'，2026-10-20 诚实化——mock 评审证据在 real 下是假绿）；
+    // mock 模式不设 mode 条件（历史/测试证据无 mode 字段兼容）
+    const realOnly = devMode() === 'real';
     const missing: string[] = [];
     for (const t of tasks.rows) {
       const ev = await client.query<{ id: string }>(
-        `SELECT seq FROM evd_records WHERE project_id=$1 AND kind='ai-review' AND payload->>'taskId'=$2 AND payload->>'conclusion'='pass' LIMIT 1`,
-        [projectId, t.id]);
+        `SELECT seq FROM evd_records WHERE project_id=$1 AND kind='ai-review' AND payload->>'taskId'=$2
+         AND payload->>'conclusion'='pass' AND ($3::bool = false OR payload->>'mode'='ai') LIMIT 1`,
+        [projectId, t.id, realOnly]);
       if (ev.rows[0]) continue;
       // 人工依据合并（manual-checklist/manual-skip/legacy-manual）= 人工已承担评审（依据链深冻结在
       // dev_prs.merge_basis 可查，2026-10-19 根修 run_261：manual-checklist 合并的任务此前永挂缺失）
@@ -377,10 +398,12 @@ export class DevSelftestService {
       if (['manual-checklist', 'manual-skip', 'legacy-manual'].includes(bt)) continue;
       missing.push(t.code);
     }
-    return { ok: missing.length === 0, missing, reviewer: 'mock-reviewer' };
+    return { ok: missing.length === 0, missing, reviewer: realOnly ? 'ai-reviewer(real)' : 'mock-reviewer' };
   }
 
-  /** UI 门：矩阵从当前设计目录派生（页面×视口），mock 观察全 pass → evaluateUiEvidence */
+  /** UI 门：mock=目录矩阵×视口 evaluateUiEvidence 全 pass 观察（遗留口径）；
+   *  real（2026-10-20 诚实化）=工作区真实观察：每页 public/pages/<code>.html 存在且非原型静态副本
+   *  （msf:prototype-copy 标记=AI 未接线兜底）——单视口 'default' 页面级矩阵，不再伪造视口×检查项全绿 */
   private async gateUi(client: PoolClient, projectId: string) {
     const cat = await client.query<{ catalog_version: string }>(
       'SELECT catalog_version FROM dsg_catalog_items WHERE project_id=$1 ORDER BY substring(catalog_version from 4)::int DESC LIMIT 1', [projectId]);
@@ -390,6 +413,27 @@ export class DevSelftestService {
       'SELECT item_type, code FROM dsg_catalog_items WHERE project_id=$1 AND catalog_version=$2', [projectId, catVer]);
     const pages = items.rows.filter((i) => i.item_type === 'page').map((i) => i.code);
     const viewports = items.rows.filter((i) => i.item_type === 'viewport').map((i) => i.code);
+    if (devMode() === 'real') {
+      const matrix: UiMatrixCell[] = pages.map((p) => ({
+        pageId: p, viewportId: 'default',
+        criticalItems: [{ id: 'c-page-wired', kind: 'visual' }],
+        generalItems: [],
+      }));
+      const observed: UiObserved[] = [];
+      for (const p of pages) {
+        const html = this.ws
+          ? await this.ws.readFile(projectId, `public/pages/${p}.html`).catch(() => null)
+          : null;
+        observed.push({ pageId: p, viewportId: 'default', checkId: 'c-page-wired', kind: 'visual', outcome: pageWiredOutcome(html) });
+      }
+      const r = evaluateUiEvidence(matrix, observed);
+      // 失败语义人话化（report 卡直接可读的 message；UI_OBSERVATION_FAIL 等裸码补注）
+      r.issues = r.issues.map((i) => ({
+        ...i,
+        message: `${i.message}（real 观察口径：页面接线版 public/pages/<页码>.html 须存在且非原型静态副本）`,
+      }));
+      return r;
+    }
     const states = items.rows.filter((i) => i.item_type === 'state').map((i) => i.code);
     const matrix: UiMatrixCell[] = [];
     for (const p of pages) {

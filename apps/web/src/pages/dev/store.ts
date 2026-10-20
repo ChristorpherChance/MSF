@@ -141,7 +141,7 @@ export const useDevStore = create<DevViewState>((set, get) => ({
     if (!pid) return;
     set({ loading: true, error: null });
     try {
-      const [tasks, conflicts, coverage, plans, autopilot, build, reports, impacts, ciSecret, baselines, catalog] =
+      const [tasks, conflicts, coverage, plans, autopilot, build, reports, impacts, ciSecret, baselines, catalog, blLive] =
         await Promise.all([
           devApi.listTasks(pid),
           devApi.conflicts(pid),
@@ -154,12 +154,13 @@ export const useDevStore = create<DevViewState>((set, get) => ({
           devApi.secretStatus(pid),
           designApi.baselines(pid),
           designApi.catalog(pid).catch(() => null), // L4 REQ 过滤行：目录缺失不阻断开发页
+          devApi.baselineLive(pid).catch(() => null), // 基线 valid 读时派生（落库列永真不可信）
         ]);
       const bl = baselines.items.find((b) => b.current) ?? baselines.items[0] ?? null;
       set({
         tasks: tasks.items, conflicts: conflicts.conflicts, coverage, plans: plans.items, autopilot,
         build: build.build, reports: reports.items, impacts: impacts.items, ciSecret,
-        baseline: bl ? { baselineId: bl.baselineId, code: bl.code, fingerprint: bl.fingerprint, valid: bl.valid, items: bl.items } : null,
+        baseline: bl ? { baselineId: bl.baselineId, code: bl.code, fingerprint: bl.fingerprint, valid: blLive ? !blLive.stale : bl.valid, items: bl.items } : null,
         catalogPages: ((catalog?.groups.page ?? []) as Array<{ code: string; payload: Record<string, unknown> }>).map((p) => ({
           code: p.code,
           title: (p.payload.title as string) ?? p.code,

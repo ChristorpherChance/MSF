@@ -290,14 +290,25 @@ function SelftestPage() {
             </span>
             <button className="act" onClick={() => setDetail(null)}>关闭</button>
           </div>
-          {/* 四门卡 */}
+          {/* 四门卡（2026-10-20 可读化：渲染 message 人话+缺口清单，不再只有裸码） */}
           <div className="v19-selftest-grid">
             {Object.entries(detail.gates).map(([k, g]) => (
               <div key={k} className="v19-selftest-card">
                 <b>{GATE_NAMES[k] ?? k}</b>
                 <span className={`tag ${g.ok ? 'tag-ok' : 'tag-warn'}`}>{g.ok ? '通过' : '阻断'}</span>
+                {k === 'functional' && (
+                  <div className="dsg-prefix">
+                    覆盖率：{g.coverage ? `行 ${g.coverage.line}% / 分支 ${g.coverage.branch}%` : '未采集（沙箱执行口径）'}
+                  </div>
+                )}
+                {k === 'integration' && g.latestSha && (
+                  <div className="dsg-prefix">最新提交：{g.latestSha.slice(0, 8)}</div>
+                )}
+                {(g.missing ?? []).length > 0 && (
+                  <div className="dsg-prefix">缺证据：{(g.missing ?? []).join('、')}</div>
+                )}
                 {(g.issues ?? []).slice(0, 3).map((i) => (
-                  <div key={i.code} className="dsg-prefix">{i.code}</div>
+                  <div key={i.code} className="dsg-prefix">{i.code}：{i.message}</div>
                 ))}
               </div>
             ))}

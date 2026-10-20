@@ -50,6 +50,12 @@ export function BoardPanel() {
             {run.blocker.code === 'HUMAN_TASK_REQUIRED' && (
               <div className="issue-row">处置路径：该任务需人工完成——在下方任务卡上人工推进（开始/提交/合并）后点「继续」。</div>
             )}
+            {run.blocker.code === 'TASK_BLOCKED' && (
+              <div className="issue-row">处置路径：任务执行中断（如 AI 写码失败）——选中任务卡片查看阻塞原因，「停止」回排队后可重新执行编码，完成后点「继续」。</div>
+            )}
+            {run.blocker.code === 'AI_REVIEW_FAILED' && (
+              <div className="issue-row">处置路径：AI 评审不通过——选中任务查看评审意见（证据 ai-review），驳回返工重写码，或人工核对后在任务抽屉里用 checklist 合并兜底，然后点「继续」。</div>
+            )}
           </div>
         )}
         <div className="gen-ops">

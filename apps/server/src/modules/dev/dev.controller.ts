@@ -323,6 +323,12 @@ export class DevController {
     return this.impact.observe(pid, this.actor(req, pid));
   }
 
+  /** 基线实况（变更管理页 valid 派生源；dsg_baselines.valid 落库列永真不可信） */
+  @Get('baseline/live')
+  baselineLive(@Param('projectId') pid: string) {
+    return this.impact.baselineLive(pid);
+  }
+
   @Post('baseline\\:confirm')
   @HttpCode(200)
   baselineConfirm(@Param('projectId') pid: string, @Body() body: { impactIds?: string[]; resolution?: 'rework' | 'accept'; note?: string }, @Req() req: Request) {

@@ -84,7 +84,13 @@ export interface ReportItem {
 export interface ReportDetail {
   reportId: string; code: string; status: string; immutable: boolean; tampered: boolean;
   fingerprint: string; createdAt: string;
-  gates: Record<string, { ok: boolean; issues?: GateIssue[] }>;
+  gates: Record<string, {
+    ok: boolean; issues?: GateIssue[];
+    /** functional：缺单测证据的任务码 + 覆盖率（null=未采集，不渲染假数字） */
+    missing?: string[]; coverage?: { line: number; branch: number } | null;
+    /** review：缺评审证据的任务码 + 评审者口径 */
+    reviewer?: string; latestSha?: string | null;
+  }>;
   pages: Array<{
     page_code: string; viewport_code: string; critical_total: number; critical_pass: number;
     general_total: number; general_pass: number; severe_deviations: number;
@@ -193,6 +199,9 @@ export const devApi = {
   impacts: (pid: string, status?: string) =>
     api.get<{ items: ImpactItem[] }>(`${base(pid)}/impacts${status ? `?status=${status}` : ''}`),
   observe: (pid: string) => api.post<{ impacts: string[]; affectedTasks?: string[] }>(`${base(pid)}/impacts:observe`, {}),
+  /** 基线实况（valid 读时派生源；落库 valid 列永真不可信） */
+  baselineLive: (pid: string) =>
+    api.get<{ baseline: { baselineId: string; code: string; fingerprint: string } | null; liveFingerprint: string | null; stale: boolean }>(`${base(pid)}/baseline/live`),
   applyImpact: (pid: string, impactIds: string[], resolution: 'rework' | 'accept', note?: string) =>
     api.post(`${base(pid)}/baseline:confirm`, { impactIds, resolution, note }),
   confirmBaseline: (pid: string, note?: string) => api.post(`${base(pid)}/baseline:confirm`, { note }),

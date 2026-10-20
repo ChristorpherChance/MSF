@@ -34,8 +34,10 @@ export const APP_CONVENTIONS = `
   "test":  "node --test"（用 node 内置测试器自动发现 *.test.js，断言真实行为；禁写 "node --test tests/"——Node 22 把带斜杠目录参当模块解析直接炸）
   "build": "node scripts/build.js"（无构建步骤时写检查脚本：校验关键文件存在即退出 0）
 - 后端代码在 server/，前端静态资源在 public/ 并由 server 托管；
+  页面=public/pages/<页码>.html 单文件自包含 HTML（外观以定稿原型为基准 1:1），
+  首页 public/index.html=页面导航（链接各 pages/*.html）；
   前端一切引用（fetch、src、href、link、script、表单 action）一律用相对路径
-  （如 fetch('app-api/xxx')、href="style.css"），禁用根相对路径（"/..."）——
+  （如 fetch('app-api/xxx')、href="style.css"、pages/P-001.html 页内跳其他页写 "../pages/P-002.html" 或 "P-002.html"），禁用根相对路径（"/..."）——
   预览经 /dev-preview/:pid/ 前缀反代，根相对会解析到平台根 404；
   禁止引用任何外网 CDN/字体/图片（运行环境无出向网络）；
 - 数据可用内存态或写 data/ 目录 JSON 文件（data/ 已在 .gitignore）；
@@ -90,8 +92,8 @@ export function scaffoldFiles(task: { code: string; title: string; deliverables:
     scripts: { start: 'node server/index.js', test: 'node --test', build: 'node scripts/build.js' },
   }, null, 2) + '\n');
   add('scripts/build.js', `const { existsSync } = require('node:fs');\nfor (const f of ['server/index.js', 'public/index.html']) {\n  if (!existsSync(f)) { console.error('missing ' + f); process.exit(1); }\n}\nconsole.log('build ok');\n`);
-  add('server/index.js', `const http = require('node:http');\nconst { readFile } = require('node:fs/promises');\nconst { join, extname, normalize } = require('node:path');\nconst PORT = Number(process.env.PORT || 3000);\nconst MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json' };\nhttp.createServer(async (req, res) => {\n  const url = new URL(req.url, 'http://x');\n  if (url.pathname === '/app-api/info') {\n    res.writeHead(200, { 'content-type': 'application/json' });\n    res.end(JSON.stringify({ name: 'msf-generated-app', tasks: [] }));\n    return;\n  }\n  const rel = url.pathname === '/' ? 'index.html' : normalize(url.pathname).replace(/^[\\\\/]+/, '');\n  if (rel.includes('..')) { res.writeHead(403); res.end(); return; }\n  try {\n    const buf = await readFile(join(__dirname, '..', 'public', rel));\n    res.writeHead(200, { 'content-type': MIME[extname(rel)] ?? 'application/octet-stream' });\n    res.end(buf);\n  } catch { res.writeHead(404); res.end('not found'); }\n}).listen(PORT, '0.0.0.0', () => console.log('listening :' + PORT));\n`);
-  add('public/index.html', `<!doctype html><html><head><meta charset="utf-8"><title>应用</title></head><body><h1>应用骨架已就绪</h1><div id="app"></div><script>fetch('app-api/info').then(r=>r.json()).then(d=>{document.getElementById('app').textContent=JSON.stringify(d)});</script></body></html>\n`);
+  add('server/index.js', `const http = require('node:http');\nconst { readFile, readdir } = require('node:fs/promises');\nconst { join, extname, normalize } = require('node:path');\nconst PORT = Number(process.env.PORT || 3000);\nconst MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json' };\nconst pub = (...p) => join(__dirname, '..', 'public', ...p);\nhttp.createServer(async (req, res) => {\n  const url = new URL(req.url, 'http://x');\n  if (url.pathname === '/app-api/info') {\n    res.writeHead(200, { 'content-type': 'application/json' });\n    res.end(JSON.stringify({ name: 'msf-generated-app', tasks: [] }));\n    return;\n  }\n  if (url.pathname === '/app-api/pages') {\n    // 页面索引：public/pages/*.html 运行时发现（首页导航数据源）\n    let pages = [];\n    try { pages = (await readdir(pub('pages'))).filter((f) => f.endsWith('.html')).map((f) => ({ code: f.replace(/\\.html$/, ''), href: 'pages/' + f })); } catch {}\n    res.writeHead(200, { 'content-type': 'application/json' });\n    res.end(JSON.stringify({ pages }));\n    return;\n  }\n  const rel = url.pathname === '/' ? 'index.html' : normalize(url.pathname).replace(/^[\\\\/]+/, '');\n  if (rel.includes('..')) { res.writeHead(403); res.end(); return; }\n  try {\n    const buf = await readFile(pub(rel));\n    res.writeHead(200, { 'content-type': MIME[extname(rel)] ?? 'application/octet-stream' });\n    res.end(buf);\n  } catch { res.writeHead(404); res.end('not found'); }\n}).listen(PORT, '0.0.0.0', () => console.log('listening :' + PORT));\n`);
+  add('public/index.html', `<!doctype html><html><head><meta charset="utf-8"><title>应用</title></head><body><h1>应用页面</h1><ul id="pages"></ul><div id="app"></div><script>fetch('app-api/pages').then(r=>r.json()).then(d=>{document.getElementById('pages').innerHTML=(d.pages||[]).map(p=>'<li><a href="'+p.href+'">'+p.code+'</a></li>').join('')});fetch('app-api/info').then(r=>r.json()).then(d=>{document.getElementById('app').textContent=JSON.stringify(d)});</script></body></html>\n`);
   add('tests/smoke.test.js', `const { test } = require('node:test');\nconst assert = require('node:assert');\nconst { existsSync, readFileSync } = require('node:fs');\ntest('scaffold intact', () => {\n  assert.ok(existsSync('server/index.js'));\n  assert.ok(JSON.parse(readFileSync('package.json', 'utf8')).scripts.start);\n});\n`);
   for (const d of task.deliverables ?? []) {
     const p = String(d);
@@ -186,9 +188,12 @@ export class DevCodegenService {
       let mode: 'ai' | 'deterministic' = 'deterministic';
       let rounds = 0;
       let usage: { inputTokens: number; outputTokens: number } | undefined;
+      // 目录载荷/原型页/接口契约无论 AI 是否可用都先装配（deterministic 兜底也要原型静态副本）
+      const built = await this.buildPrompt(projectId, task, [...existing]);
+      const protoPages = built.protoPages;
 
       if (this.ai?.kind === 'pi') {
-        const prompt = (await this.buildPrompt(projectId, task, [...existing])) + lastFail;
+        const prompt = built.text + lastFail;
         let feedback = '';
         for (let round = 1; round <= 2; round++) {
           rounds = round;
@@ -209,6 +214,14 @@ export class DevCodegenService {
       }
       if (files.length === 0) {
         files = scaffoldFiles(task, existing);
+        // 页面任务兜底升级（2026-10-20 预览≠原型根修）：有定稿原型 HTML 时落原型静态副本
+        // （替换空头骨架页；HTML 注释如实标注未接线，mode 仍如实记 deterministic）
+        for (const pp of protoPages) {
+          const p = `public/pages/${pp.code}.html`;
+          if (existing.has(p)) continue;
+          files = files.filter((f) => f.path !== p);
+          files.push({ path: p, content: `<!-- msf:prototype-copy 原型静态副本（AI 未接线，数据为原型内置模拟） -->\n${pp.html}` });
+        }
       }
 
       // 落盘（AI 产物覆盖写——模型对公共文件负合并责任；脚手架只补缺）
@@ -225,8 +238,10 @@ export class DevCodegenService {
     }
   }
 
-  /** prompt 装配：任务规格 + 目录条目载荷 + 页级原型参考 HTML + 工作区现状 */
-  private async buildPrompt(projectId: string, task: TaskRowFull, existingFiles: string[]): Promise<string> {
+  /** prompt 装配：任务规格 + 目录条目载荷 + 页级原型参考 HTML + 接口册契约摘录 + 工作区现状。
+   *  同时回吐本任务关联的定稿原型页（protoPages）供 deterministic 兜底落静态副本。 */
+  private async buildPrompt(projectId: string, task: TaskRowFull, existingFiles: string[]): Promise<{ text: string; protoPages: Array<{ code: string; html: string }> }> {
+    const protoPages: Array<{ code: string; html: string }> = [];
     const parts: string[] = [
       `你在为产品工作台中的一个项目开发真实代码。工作区是一个持续演进的应用仓库（git），多个任务会先后向其中提交代码；你只负责本任务，与既有代码共存，不要删除无关文件。`,
       APP_CONVENTIONS,
@@ -249,7 +264,7 @@ export class DevCodegenService {
         for (const it of items.rows) {
           parts.push(`\n【目录条目 ${it.code}（${it.item_type}）】\n${JSON.stringify(it.payload).slice(0, 6000)}`);
         }
-        // 页级原型参考 HTML（frontend 任务：外观与交互以原型为准）
+        // 页级原型参考 HTML（frontend 任务：交付物即该原型页的接线版）
         if (task.kind === 'frontend' && this.storage) {
           const pages = await query<{ page_code: string; object_key: string }>(
             'SELECT page_code, object_key FROM dsg_prototype_pages WHERE project_id=$1 AND catalog_version=$2 AND page_code = ANY($3)',
@@ -257,14 +272,29 @@ export class DevCodegenService {
           for (const p of pages.rows) {
             const html = await this.storage.getObject(p.object_key).catch(() => null);
             if (html) {
-              parts.push(`\n【页面 ${p.page_code} 的已定稿原型 HTML（外观/结构/交互以此为实现基准；把原型内模拟数据改造为 /app-api 真实接口驱动）】\n${html.toString('utf8').slice(0, MAX_PROMPT_HTML)}`);
+              const text = html.toString('utf8');
+              protoPages.push({ code: p.page_code, html: text });
+              parts.push(`\n【页面 ${p.page_code} 的已定稿原型 HTML——本任务交付物 public/pages/${p.page_code}.html 就是它的接线版：外观/结构/主题 1:1 保留（含 <style> 与主题变量），只把内置模拟数据与假交互改造为 fetch('app-api/...') 真实驱动；契约无对应端点的部分保留模拟数据并以 HTML 注释标 TODO】\n${text.slice(0, MAX_PROMPT_HTML)}`);
             }
           }
         }
       }
     }
+    // 接口契约摘录（frontend 接线与 backend 实现的共享真源；api 册草稿优先同 doc.read 口径）
+    if (task.kind === 'frontend' || task.kind === 'backend') {
+      const apiDoc = await query<{ content: string | null }>(
+        `SELECT COALESCE(t.content, v.content) AS content
+         FROM dsg_documents d
+         LEFT JOIN dsg_drafts t ON t.document_id=d.id
+         LEFT JOIN dsg_versions v ON v.id=d.current_version_id
+         WHERE d.project_id=$1 AND d.doc_kind='api'`, [projectId]);
+      const apiText = apiDoc.rows[0]?.content?.trim();
+      if (apiText) {
+        parts.push(`\n【接口册契约摘录（app-api 端点以此为准；前端按此接线、后端按此实现，路径在应用内以相对路径 app-api/... 暴露）】\n${apiText.slice(0, 8000)}`);
+      }
+    }
     parts.push(`\n【工作区已有文件】\n${existingFiles.slice(0, 200).join('\n') || '（空仓库）'}`);
     parts.push(`\n请现在按输出契约给出本任务要新增/修改的文件。package.json 已存在时不要重复输出，除非必须修改（修改则输出完整内容）。`);
-    return parts.join('\n');
+    return { text: parts.join('\n'), protoPages };
   }
 }

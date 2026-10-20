@@ -1,6 +1,8 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
 import { DomainError } from '@msf/shared';
 import { randomUUID } from 'node:crypto';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import type { PoolClient } from 'pg';
 import { query } from '../../db/pool.js';
 import { executeCommand, registerCommand, type CommandContext } from '../evidence/command-bus.js';
@@ -9,6 +11,17 @@ import { SandboxService } from '../executor/sandbox.service.js';
 import { liveBaselineFingerprint, sha256, type GateIssue } from './gate-common.js';
 import { DevCodegenService } from './codegen.service.js';
 import { devMode, DevWorkspaceService } from './workspace.service.js';
+import { AI_PROVIDER, type AiProvider } from '../ai/ai-provider.interface.js';
+
+const execFileP = promisify(execFile);
+
+/** AI 评审系统 prompt（代码内置）：任务规格+提交 diff → 严格 JSON 结论（只评不判 merged，人工/授权链收口） */
+const AI_REVIEW_SYSTEM = `你是软件工厂的独立代码评审器（评审者≠作者）。输入=任务规格（目标/验收）与该任务最近一次代码提交的 diff。产出严格 JSON：
+{"verdict":"pass|fail","comment":"一句话评审意见（fail=必须说清阻断点：…；pass=可合并理由：…）"}
+纪律：只评本提交相对任务规格的符合性、明显缺陷与约定违反（如根相对路径/外网依赖）；comment 一句话说清依据。`;
+
+/** 评审 LLM 看门狗（design review 同构）：上游静默挂起不吊死 autopilot tick */
+const AI_REVIEW_WATCHDOG_MS = 10 * 60_000;
 
 /**
  * 看板流转与单任务开发循环（F02-5；A06-8；REQ-405/407/408/411）。
@@ -35,6 +48,7 @@ export class DevBoardService {
     @Optional() @Inject(DevCodegenService) private readonly codegen?: DevCodegenService,
     @Optional() @Inject(SandboxService) private readonly sandbox?: SandboxService,
     @Optional() @Inject(DevWorkspaceService) private readonly ws?: DevWorkspaceService,
+    @Optional() @Inject(AI_PROVIDER) private readonly ai?: AiProvider,
   ) {}
 
   onModuleInit(): void {
@@ -198,16 +212,30 @@ export class DevBoardService {
       return { id: taskId, codeRev: t.code_rev, unit: 'pass', ci: 'pass', commitId: commit };
     });
 
-    // ai-review.complete（独立 AI 评审：评审者 ≠ owner）
+    // ai-review.complete（独立 AI 评审：评审者 ≠ owner；real 模式 payload.real 带真实评审结论，
+    // 事务外 LLM 已在 service 层完成——嵌套 LLM 绝不进命令事务；mock 路径如实标 mode='mock'）
     registerCommand('dev.ai-review.complete', async (client, payload) => {
-      const { projectId, taskId } = payload as { projectId: string; taskId: string };
+      const { projectId, taskId, real } = payload as {
+        projectId: string; taskId: string;
+        real?: { conclusion: 'pass' | 'fail'; note: string; diffStat: string | null };
+      };
       const t = await this.lockTask(client, projectId, taskId);
       if (t.col !== 'review') throw new DomainError('INVALID_STATE', '任务不在待评审', taskId);
+      if (real) {
+        await appendEvidence(client, {
+          projectId, kind: 'ai-review',
+          payload: {
+            taskId, codeRev: t.code_rev, reviewer: 'ai-reviewer', owner: t.owner,
+            conclusion: real.conclusion, note: real.note, mode: 'ai', diffStat: real.diffStat,
+          },
+        });
+        return { id: taskId, review: real.conclusion, reviewer: 'ai-reviewer', mode: 'ai' };
+      }
       await appendEvidence(client, {
         projectId, kind: 'ai-review',
-        payload: { taskId, codeRev: t.code_rev, reviewer: 'mock-reviewer', owner: t.owner, conclusion: 'pass', note: 'mock 独立评审（M6 真接）' },
+        payload: { taskId, codeRev: t.code_rev, reviewer: 'mock-reviewer', owner: t.owner, conclusion: 'pass', note: 'mock 独立评审（非真实评审，real 模式不计入自测评审门）', mode: 'mock' },
       });
-      return { id: taskId, review: 'pass', reviewer: 'mock-reviewer' };
+      return { id: taskId, review: 'pass', reviewer: 'mock-reviewer', mode: 'mock' };
     });
 
     // pr.merge（自动门禁 + 人工 checklist 全勾或有理由豁免；合并依据四类之一深冻结，REQ-411）
@@ -327,7 +355,51 @@ export class DevBoardService {
   }
 
   async aiReview(projectId: string, taskId: string, ctx: CommandContext) {
+    if (devMode() === 'real' && this.ai?.kind === 'pi') {
+      // real 模式真评审（事务外 LLM）：结论随命令 payload 登记，不静默降级——
+      // AI 评审执行失败=结论 fail 如实落证据（评审门红，人工可改走 checklist 合并兜底）
+      const real = await this.runRealReview(projectId, taskId).catch((e) => ({
+        conclusion: 'fail' as const,
+        note: `AI 评审执行失败：${(e instanceof Error ? e.message : String(e)).slice(0, 180)}`,
+        diffStat: null,
+      }));
+      return executeCommand('dev.ai-review.complete', { projectId, taskId, real }, { ...ctx, projectId });
+    }
     return executeCommand('dev.ai-review.complete', { projectId, taskId }, { ...ctx, projectId });
+  }
+
+  /** real 模式 AI 真评审：任务规格 + 最近 codegen 提交 diff → 严格 JSON 结论（10min 看门狗防静默挂起） */
+  private async runRealReview(projectId: string, taskId: string): Promise<{ conclusion: 'pass' | 'fail'; note: string; diffStat: string | null }> {
+    const tr = await query<{ code: string; title: string; goal: string | null; acceptance: unknown[] }>(
+      'SELECT code, title, goal, acceptance FROM dev_tasks WHERE id=$1 AND project_id=$2', [taskId, projectId]);
+    const t = tr.rows[0];
+    const ev = await query<{ payload: { commit?: string | null } }>(
+      `SELECT payload FROM evd_records WHERE project_id=$1 AND kind='codegen' AND payload->>'taskId'=$2
+       AND payload->>'commit' IS NOT NULL ORDER BY created_at DESC LIMIT 1`, [projectId, taskId]);
+    const commit = ev.rows[0]?.payload?.commit ?? null;
+    let diffStat: string | null = null;
+    let patch = '';
+    if (commit && this.ws) {
+      const dir = this.ws.dir(projectId);
+      diffStat = (await execFileP('git', ['-C', dir, 'show', '--stat', '--format=', commit]).catch(() => null))?.stdout?.trim() ?? null;
+      patch = (await execFileP('git', ['-C', dir, 'show', '--format=', commit]).catch(() => null))?.stdout ?? '';
+    }
+    const session = await this.ai!.createSession({ projectId, purpose: 'review' });
+    const prompt = `${AI_REVIEW_SYSTEM}\n\n【任务】${t?.code} ${t?.title}\n目标：${t?.goal ?? '—'}\n验收条件：${(t?.acceptance ?? []).map((a) => String(typeof a === 'object' && a !== null ? (a as Record<string, unknown>).item ?? JSON.stringify(a) : a)).join('；') || '—'}\n【提交 diff 统计】\n${diffStat ?? '（无提交记录）'}\n【补丁（截断 12KB）】\n${patch.slice(0, 12_000)}`;
+    const { deltas, result } = session.stream(prompt);
+    let timer: NodeJS.Timeout | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        try { session.stop(); } catch { /* 不遮蔽主错 */ }
+        reject(new Error('AI 评审超时（10 分钟无终态）'));
+      }, AI_REVIEW_WATCHDOG_MS);
+      timer.unref?.();
+    });
+    const text = await Promise.race([
+      (async () => { let s = ''; for await (const d of deltas) s += d; await result.catch(() => null); return s; })(),
+      timeout,
+    ]).finally(() => { if (timer) clearTimeout(timer); });
+    return { ...parseAiReview(text), diffStat };
   }
 
   async merge(projectId: string, taskId: string, basisType: string, skipReason: string | undefined, authorizationId: string | undefined, ctx: CommandContext) {
@@ -431,4 +503,24 @@ export class DevBoardService {
     }
     return issues;
   }
+}
+
+/** AI 评审输出容错抽取（围栏优先 → 大括号兜底 → 原文截断；垃圾 verdict 落 fail 宁严不宽）。导出供单测钉口径 */
+export function parseAiReview(text: string): { conclusion: 'pass' | 'fail'; note: string } {
+  let raw = /```json\s*\n([\s\S]*?)```/.exec(text)?.[1]?.trim() ?? '';
+  if (!raw) raw = /```json\s*\n([\s\S]*)$/.exec(text)?.[1]?.trim() ?? '';
+  if (!raw) {
+    const i = text.indexOf('{');
+    const j = text.lastIndexOf('}');
+    if (i >= 0 && j > i) raw = text.slice(i, j + 1);
+  }
+  if (raw) {
+    try {
+      const j = JSON.parse(raw) as { verdict?: unknown; comment?: unknown };
+      if (typeof j.comment === 'string' && j.comment.trim()) {
+        return { conclusion: j.verdict === 'pass' ? 'pass' : 'fail', note: j.comment.trim().slice(0, 500) };
+      }
+    } catch { /* 落原文兜底 */ }
+  }
+  return { conclusion: 'fail', note: `评审输出无法解析（宁严不宽）：${text.trim().slice(0, 200) || '空输出'}` };
 }

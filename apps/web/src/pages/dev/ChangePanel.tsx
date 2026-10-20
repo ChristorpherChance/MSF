@@ -195,12 +195,18 @@ function BaselinePage() {
         <button
           className="act primary"
           disabled={!bl || bl.valid}
-          title={bl?.valid ? '基线有效，无需重确认' : ''}
+          title={bl?.valid ? '基线有效，无需重确认' : '基线已失效（上游定稿内容已变化）——核对下方工件表后确认'}
           onClick={() => { setConfirmReason(''); setConfirmOpen(true); }}
         >
           核对差异并确认新基线
         </button>
       </div>
+      {bl && !bl.valid && (
+        <div className="req-banner dev-bad" style={{ margin: '0 0 8px' }}>
+          ⚠ 基线已失效：上游（PRD/HLD/原型）定稿内容在基线确认后又发生了变化。请逐项核对下方工件表——
+          接受新实况点「核对差异并确认新基线」（计划将失效须重批）；需要任务跟着返工请先到「影响」页点「观察输入变化」开单处置。
+        </div>
+      )}
       {/* W2-043/044：理由必填；重登 dsg_baselines 新行（reconfirmed_of 链），计划失效须重批 */}
       {confirmOpen && (
         <Modal

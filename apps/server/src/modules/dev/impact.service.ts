@@ -29,11 +29,16 @@ export class DevImpactService {
           "UPDATE dev_selftests SET status='stale' WHERE project_id=$1 AND status='running'", [projectId]);
       }
       const tasks = await client.query<{ id: string; code: string; col: string; input_artifacts: Array<{ fingerprint: string | null }> }>(
-        "SELECT id, code, col, input_artifacts FROM dev_tasks WHERE project_id=$1 AND col <> 'done' AND archived=false", [projectId]);
+        // 2026-10-20：去掉 col<>'done' 过滤——已合并任务受上游变更影响同样要开单（rework 处置链
+        // rev++ 回 queue 已支持 done 任务；旧口径 done 任务受影响永远开不出单，变更静默漏网）
+        'SELECT id, code, col, input_artifacts FROM dev_tasks WHERE project_id=$1 AND archived=false', [projectId]);
       const currentFps = new Set(bl.items.map((i) => i.fingerprint));
       const affected = tasks.rows.filter((t) =>
         t.input_artifacts.length > 0 && t.input_artifacts.some((a) => a.fingerprint && !currentFps.has(a.fingerprint)));
-      if (affected.length === 0) return { impacts: [] };
+      const baselineStale = live !== bl.baseline_fingerprint;
+      // 基线已失效但无受影响任务（如全部 done 且输入仍对齐）也要开基线级影响单——
+      // 否则「基线重确认」入口永远摸不到（旧口径此处早退，confirmBaseline 死路）
+      if (affected.length === 0 && !baselineStale) return { impacts: [] };
       const trigger = `baseline:${bl.code}:${bl.baseline_fingerprint.slice(0, 12)}`;
       const exist = await client.query<{ code: string }>(
         "SELECT code FROM dev_impacts WHERE project_id=$1 AND trigger=$2 AND status='pending-assessment'", [projectId, trigger]);
@@ -156,6 +161,17 @@ export class DevImpactService {
       }
       return { resolved: pending.rows.length, baselineId, code, fingerprint: `sha256:${liveFp}`, reconfirmed };
     });
+  }
+
+  /** 基线实况（读时派生 valid：live 指纹比对当前基线行；dsg_baselines.valid 落库列永真不可信） */
+  async baselineLive(projectId: string) {
+    const bl = await latestBaseline(null, projectId);
+    const live = await liveBaselineFingerprint(null, projectId);
+    return {
+      baseline: bl ? { baselineId: bl.id, code: bl.code, fingerprint: bl.baseline_fingerprint, confirmedAt: bl.confirmed_at } : null,
+      liveFingerprint: live,
+      stale: Boolean(bl && live && live !== bl.baseline_fingerprint),
+    };
   }
 
   async observe(projectId: string, ctx: CommandContext) {

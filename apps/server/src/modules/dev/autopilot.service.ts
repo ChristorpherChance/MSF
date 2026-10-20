@@ -13,7 +13,7 @@ export const devAutopilotTiming = { tickDelayMs: 15 };
 
 // SELFTEST_FAILED（2026-10-19 起可恢复）：自测红须先人工处置（重跑自测出新报告），
 // resume 时核验最新报告非 fail 才放行——「人工处置链」=重跑自测而非绕过门禁
-const RECOVERABLE_BLOCKERS = new Set(['RUNNER_START_FAILED', 'HUMAN_TASK_REQUIRED', 'SELFTEST_START_FAILED', 'SELFTEST_FAILED']);
+const RECOVERABLE_BLOCKERS = new Set(['RUNNER_START_FAILED', 'HUMAN_TASK_REQUIRED', 'SELFTEST_START_FAILED', 'SELFTEST_FAILED', 'TASK_BLOCKED', 'AI_REVIEW_FAILED']);
 
 /** L6 运行阶段枚举（原型 v18AutoStatusHtml phases 映射：dispatch/development/quality/ai-review/merge/build/awaiting-transfer；selftest 为真实管线扩展档——原型模拟未建模项目自测阶段） */
 const RUN_PHASES = new Set(['dispatch', 'development', 'quality', 'ai-review', 'merge', 'build', 'selftest', 'awaiting-transfer']);
@@ -296,13 +296,23 @@ export class DevAutopilotService {
     }
     // ④ 首个未完成任务（按批准计划顺序；一 tick 一动作）
     const taskIds = p.snapshot.taskIds ?? [];
-    const tasks = await query<{ id: string; code: string; col: string; prog: number; asg_type: string; code_rev: number }>(
-      'SELECT id, code, col, prog, asg_type, code_rev FROM dev_tasks WHERE project_id=$1 AND code = ANY($2)', [projectId, taskIds]);
+    const tasks = await query<{ id: string; code: string; col: string; prog: number; asg_type: string; code_rev: number; blocked: boolean; run_status: string; blocked_reason: string | null }>(
+      'SELECT id, code, col, prog, asg_type, code_rev, blocked, run_status, blocked_reason FROM dev_tasks WHERE project_id=$1 AND code = ANY($2)', [projectId, taskIds]);
     const byCode = new Map(tasks.rows.map((t) => [t.code, t]));
     const next = taskIds.map((c) => byCode.get(c)).find((t) => t && t.col !== 'done');
     if (next) {
       if (next.asg_type === 'human') {
         await this.block(projectId, runId, { code: 'HUMAN_TASK_REQUIRED', message: `任务 ${next.code} 需人工承接`, taskId: next.id, category: 'control' }, ctx);
+        return true;
+      }
+      // 卡死断点根修（2026-10-20）：ing 列但执行器已败（blocked/stopped，如 AI 写码失败）——
+      // 旧口径 else 静默等待，runner 无限空转、界面永远「自动执行中」；落可恢复阻断，人工处置后 resume
+      if (next.col === 'ing' && (next.blocked || next.run_status === 'stopped')) {
+        await this.block(projectId, runId, {
+          code: 'TASK_BLOCKED',
+          message: `任务 ${next.code} 执行中断：${next.blocked_reason ?? '已停止'}——处置后点「继续」`,
+          taskId: next.id, category: 'control',
+        }, ctx);
         return true;
       }
       let phase: string; // L6：本次派发动作对应的真实阶段（随 advance 回执落库）
@@ -324,13 +334,21 @@ export class DevAutopilotService {
           await this.board.quality(projectId, next.id, autoCtx);
           phase = 'quality';
         } else {
-          const hasReview = await query(
-            `SELECT 1 FROM evd_records WHERE project_id=$1 AND kind='ai-review' AND payload->>'taskId'=$2
-             AND payload->>'codeRev'=$3 LIMIT 1`,
+          const hasReview = await query<{ conclusion: string | null }>(
+            `SELECT payload->>'conclusion' AS conclusion FROM evd_records WHERE project_id=$1 AND kind='ai-review' AND payload->>'taskId'=$2
+             AND payload->>'codeRev'=$3 ORDER BY created_at DESC LIMIT 1`,
             [projectId, next.id, String(next.code_rev)]);
           if (hasReview.rows.length === 0) {
             await this.board.aiReview(projectId, next.id, autoCtx);
             phase = 'ai-review';
+          } else if (hasReview.rows[0]!.conclusion === 'fail') {
+            // AI 真评审红（2026-10-20 real 真评审配套）：不带着红评审自动合并——阻断待人工
+            // （处置=返工重写码 或 人工核对后 checklist 合并兜底，评审意见在任务证据里）
+            await this.block(projectId, runId, {
+              code: 'AI_REVIEW_FAILED', message: `任务 ${next.code} AI 评审不通过——返工或人工合并处置后点「继续」`,
+              taskId: next.id, category: 'quality',
+            }, ctx);
+            return true;
           } else {
             await this.board.merge(projectId, next.id, 'autopilot-authorization', undefined, r.authorization_id, autoCtx);
             phase = 'merge';

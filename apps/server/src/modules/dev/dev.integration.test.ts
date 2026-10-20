@@ -93,6 +93,7 @@ describe('Dev 开发域（集成，需 DB+MinIO）', async () => {
   let baselineFp = '';
   let pageTasks: TaskView[] = [];
   let commonTask: TaskView;
+  let backendTask: TaskView;
   let integrationTask: TaskView;
 
   const listTasks = async () =>
@@ -182,7 +183,8 @@ describe('Dev 开发域（集成，需 DB+MinIO）', async () => {
 
     const items = await listTasks();
     pageTasks = items.filter((t) => t.kind === 'frontend');
-    commonTask = items.find((t) => t.title === '平台基线接线')!;
+    commonTask = items.find((t) => t.title === '应用壳与公共接线')!;
+    backendTask = items.find((t) => t.title === '服务实现：后端 API 与数据')!;
     integrationTask = items.find((t) => t.title === '端到端联调')!;
     expect(pageTasks.length).toBeGreaterThanOrEqual(2);
     // U-020/U-024：批次按类型分组编排（common/backend→frontend→integration 殿后，组内每 3 条一批），不再固定 99
@@ -227,6 +229,24 @@ describe('Dev 开发域（集成，需 DB+MinIO）', async () => {
 
   it('T4 看板人工全链 + 三类合并依据（T4-05；F02-5、REQ-406~411）', async () => {
     const [t1, t2] = pageTasks;
+    // 批次门禁：基座（壳/后端 batch 1）先 done，页面（batch 2+）才过开始门禁（2026-10-20 真化口径）
+    // common：legacy-manual
+    await board.transition(PID, commonTask.id, 'ing', undefined, CTX);
+    await board.run(PID, commonTask.id, CTX);
+    await board.transition(PID, commonTask.id, 'review', undefined, CTX);
+    await board.quality(PID, commonTask.id, CTX);
+    await board.aiReview(PID, commonTask.id, CTX);
+    const m3 = (await board.merge(PID, commonTask.id, 'legacy-manual', undefined, undefined, CTX)) as { basis: { type: string } };
+    expect(m3.basis.type).toBe('legacy-manual');
+    // backend：manual-checklist
+    await board.transition(PID, backendTask.id, 'ing', undefined, CTX);
+    await board.run(PID, backendTask.id, CTX);
+    await board.transition(PID, backendTask.id, 'review', undefined, CTX);
+    await board.quality(PID, backendTask.id, CTX);
+    await board.aiReview(PID, backendTask.id, CTX);
+    for (const k of ['acceptance', 'standards', 'design']) await board.toggleCheck(PID, backendTask.id, k, true, CTX);
+    await board.merge(PID, backendTask.id, 'manual-checklist', undefined, undefined, CTX);
+
     // t1：manual-checklist 全链
     await board.transition(PID, t1!.id, 'ing', undefined, CTX);
     await board.transition(PID, t1!.id, 'pause', undefined, CTX);
@@ -261,14 +281,7 @@ describe('Dev 开发域（集成，需 DB+MinIO）', async () => {
     const m2 = (await board.merge(PID, t2!.id, 'manual-skip', undefined, undefined, CTX)) as { basis: { type: string } };
     expect(m2.basis.type).toBe('manual-skip');
 
-    // common：legacy-manual
-    await board.transition(PID, commonTask.id, 'ing', undefined, CTX);
-    await board.run(PID, commonTask.id, CTX);
-    await board.transition(PID, commonTask.id, 'review', undefined, CTX);
-    await board.quality(PID, commonTask.id, CTX);
-    await board.aiReview(PID, commonTask.id, CTX);
-    const m3 = (await board.merge(PID, commonTask.id, 'legacy-manual', undefined, undefined, CTX)) as { basis: { type: string } };
-    expect(m3.basis.type).toBe('legacy-manual');
+    // common 的 legacy-manual 合并依据已在批次基座先行段验证（见上）
 
     // 详情视图：PR/证据/CI 齐
     const det = (await tasks.detail(PID, t1!.id)) as unknown as { prs: unknown[]; evidence: unknown[]; ciReports: unknown[] };
@@ -780,5 +793,35 @@ describe('Dev 开发域（集成，需 DB+MinIO）', async () => {
     };
     expect(d2.gates.integration.ok).toBe(false);
     expect(d2.status).toBe('fail');
+  });
+
+  it('T15 变更管理真化：done 任务受影响照样开单 + baselineLive 读时派生 stale（2026-10-20）', async () => {
+    // 夹具：一个已 done 任务挂陈旧输入指纹（col=done 旧口径被 col<>'done' 过滤静默漏网）
+    const staleTask = (await query<{ id: string; code: string; rev: number }>(
+      `INSERT INTO dev_tasks (project_id, code, title, kind, owner, asg_type, goal, deliverables, write_scopes, quality, col, run_status, input_artifacts, created_by)
+       VALUES ($1,'T-950','已合并任务','frontend','ai','agent','x','[]','[]','{}','done','manual','[{"artifact":"PRD","fingerprint":"deadbeef"}]','it') RETURNING id, code, rev`,
+      [PID])).rows[0]!;
+    // 基线行：指纹与 live 不符（未来化 confirmed_at 压过既有行）
+    await query(
+      `INSERT INTO dsg_baselines (project_id, code, finalization_id, items, baseline_fingerprint, confirmed_by, confirmed_at)
+       VALUES ($1,'BL-9500','sim','[{"artifact":"PRD","version_id":"vX","fingerprint":"cafe"}]','${'f'.repeat(64)}','test', now() + interval '30 minutes')`,
+      [PID]);
+    // baselineLive：live≠基线指纹 → stale 派生为真（dsg_baselines.valid 落库列不参与）
+    const live = (await impact.baselineLive(PID)) as { stale: boolean; baseline: { code: string } | null };
+    expect(live.stale).toBe(true);
+    expect(live.baseline?.code).toBe('BL-9500');
+    // observe：done 任务也进受影响清单（旧口径静默漏网）
+    const ob = (await impact.observe(PID, CTX)) as { impacts: string[]; affectedTasks?: string[] };
+    expect(ob.affectedTasks).toContain('T-950');
+    // rework 处置：done 任务回 queue 且 rev++
+    await impact.apply(PID, ob.impacts, 'rework', '上游 PRD 变更，页面须跟着改', CTX);
+    const after = (await query<{ col: string; rev: number }>('SELECT col, rev FROM dev_tasks WHERE id=$1', [staleTask.id])).rows[0]!;
+    expect(after.col).toBe('queue');
+    expect(after.rev).toBe(staleTask.rev + 1);
+    // 清理夹具（不影响后续套件共享态）
+    await query('DELETE FROM dev_tasks WHERE id=$1', [staleTask.id]);
+    await query("DELETE FROM dsg_baselines WHERE project_id=$1 AND code='BL-9500'", [PID]);
+    const live2 = (await impact.baselineLive(PID)) as { stale: boolean };
+    expect(live2.stale).toBe(false); // live 与最新真实基线一致
   });
 });

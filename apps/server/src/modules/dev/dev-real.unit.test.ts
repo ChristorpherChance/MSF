@@ -7,6 +7,9 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { parseFileBlocks, scaffoldFiles, APP_CONVENTIONS } from './codegen.service.js';
 import { DevWorkspaceService, devMode } from './workspace.service.js';
 import { rewritePreviewHtml } from './preview.service.js';
+import { buildTaskSpecs } from './tasks.service.js';
+import { pageWiredOutcome } from './selftest.service.js';
+import { parseAiReview } from './board.service.js';
 
 describe('parseFileBlocks 输出契约', () => {
   it('标准文件块解析', () => {
@@ -124,5 +127,44 @@ describe('rewritePreviewHtml 根相对引用重写', () => {
     expect(out).toContain('src="img/logo.png"');
     // 幂等：重写结果再过一遍不变
     expect(rewritePreviewHtml(out, PID)).toBe(out);
+  });
+});
+
+describe('buildTaskSpecs 真化口径（2026-10-20 预览=原型根修）', () => {
+  it('页面恒 frontend 交付 public/pages/<code>.html；壳/后端/联调三骨架齐备且批次有序', () => {
+    const specs = buildTaskSpecs([
+      { item_type: 'page', code: 'P-001', payload: { title: '首页' } },
+      { item_type: 'page', code: 'P-002', payload: { title: '接口清单页' } }, // 标题含「接口」也不可被关键词带偏成 backend
+      { item_type: 'flow', code: 'F-001', payload: { title: '主流程' } },
+    ]);
+    const pages = specs.filter((s) => s.kind === 'frontend');
+    expect(pages).toHaveLength(2);
+    expect(pages[0]!.deliverables).toEqual(['public/pages/P-001.html']);
+    expect(pages[0]!.writeScopes).toEqual(['public/pages/P-001.html']); // 页面级写入范围：同批页面不互报假冲突
+    const shell = specs.find((s) => s.title === '应用壳与公共接线')!;
+    const api = specs.find((s) => s.title === '服务实现：后端 API 与数据')!;
+    const e2e = specs.find((s) => s.title === '端到端联调')!;
+    expect(shell.batchNo).toBe(1);
+    expect(api.batchNo).toBe(1);
+    expect(api.deliverables).toEqual(['server/api.js']);
+    expect(e2e.batchNo).toBeGreaterThan(1); // 联调殿后
+    expect(e2e.sourceIds).toEqual(['F-001']);
+  });
+});
+
+describe('pageWiredOutcome 页面接线观察判定', () => {
+  it('缺失→fail；原型静态副本标记→fail；接线版→pass', () => {
+    expect(pageWiredOutcome(null)).toBe('fail');
+    expect(pageWiredOutcome('<!-- msf:prototype-copy 原型静态副本 -->\n<html></html>')).toBe('fail');
+    expect(pageWiredOutcome('<!doctype html><html><body>wired</body></html>')).toBe('pass');
+  });
+});
+
+describe('parseAiReview 评审输出抽取', () => {
+  it('围栏 JSON / 裸 JSON / 垃圾输出三径（垃圾落 fail 宁严不宽）', () => {
+    expect(parseAiReview('```json\n{"verdict":"pass","comment":"可合并"}\n```')).toMatchObject({ conclusion: 'pass', note: '可合并' });
+    expect(parseAiReview('前缀 {"verdict":"fail","comment":"缺测试"} 后缀')).toMatchObject({ conclusion: 'fail', note: '缺测试' });
+    expect(parseAiReview('完全不是 JSON')).toMatchObject({ conclusion: 'fail' });
+    expect(parseAiReview('{"verdict":"pass"}').conclusion).toBe('fail'); // 无 comment 不落 pass
   });
 });
