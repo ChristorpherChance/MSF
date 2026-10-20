@@ -934,7 +934,12 @@ describe('Dev 开发域（集成，需 DB+MinIO）', async () => {
     const run = (await query<{ status: string; blocker: { code: string } }>("SELECT status, blocker FROM dev_runs WHERE run_id='run_t19'")).rows[0]!;
     expect(run.status).toBe('blocked');
     expect(run.blocker.code).toBe('UNIT_FAILED');
-    // ③ resume 放行（人工处置通道），stop 收尾防 runner 残留
+    // ③ 未处置直接 resume 被拒（2026-10-21 恢复前置核验：当前 codeRev 最新证据仍 fail 不放行，防空转回归）
+    await expect(autopilot.control(PID, 'resume', CTX)).rejects.toThrow('单测仍未通过');
+    // ③b 人工处置=修好后重测翻绿（模拟：补当前 codeRev 的 pass 证据）→ resume 放行，stop 收尾防 runner 残留
+    const c2 = await pool.connect();
+    try { await appendEvidence(c2, { projectId: PID, kind: 'unit', payload: { taskId: ft.id, codeRev: '1', pass: true, mode: 'sandbox' } }); }
+    finally { c2.release(); }
     const rs = (await autopilot.control(PID, 'resume', CTX)) as { status: string };
     expect(rs.status).toBe('running');
     await autopilot.control(PID, 'stop', CTX);

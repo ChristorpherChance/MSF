@@ -181,7 +181,7 @@ export class DevCodegenService {
         `SELECT payload FROM evd_records WHERE project_id=$1 AND kind='unit'
          AND payload->>'taskId'=$2 ORDER BY created_at DESC LIMIT 1`, [projectId, taskId]);
       if (ue.rows[0] && ue.rows[0].payload.pass === false) {
-        lastFail = `\n【上轮沙箱测试失败（npm test 真实执行红）——必须先修复再交稿】\n${(ue.rows[0].payload.logsTail ?? '').slice(-1500)}`;
+        lastFail = `\n【上轮沙箱测试失败（npm test 真实执行红）——必须先修复再交稿】\n${(ue.rows[0].payload.logsTail ?? '').slice(-1500)}\n【纪律】既有测试文件即验收规格：代码服从测试，禁止改写/删除 tests/ 下既有测试来凑绿；导出形态与既有测试断言逐条对齐后再交稿。`;
       }
 
       let files: CodegenFile[] = [];

@@ -168,6 +168,19 @@ export class DevAutopilotService {
           throw new DomainError('INVALID_STATE', '自测报告仍未通过——请先在「开发自测」重跑自测（处置完成再恢复）', r.run_id);
         }
       }
+      // UNIT_FAILED 恢复前置（对齐 SELFTEST_FAILED 模式）：该任务当前 codeRev 最新单测证据不得仍 fail——
+      // 处置动作=修代码/修测试后重跑质量闸翻绿；未处置直接放行会下一 tick 立刻再阻断（空转回归）
+      if (r.blocker?.code === 'UNIT_FAILED' && r.blocker?.taskId) {
+        const cur = await client.query<{ code_rev: number }>(
+          'SELECT code_rev FROM dev_tasks WHERE id=$1 AND project_id=$2', [r.blocker.taskId, projectId]);
+        const unit = await client.query<{ pass: boolean | null }>(
+          `SELECT (payload->>'pass')::boolean AS pass FROM evd_records WHERE project_id=$1 AND kind='unit'
+           AND payload->>'taskId'=$2 AND payload->>'codeRev'=$3 ORDER BY created_at DESC LIMIT 1`,
+          [projectId, r.blocker.taskId, String(cur.rows[0]?.code_rev ?? 0)]);
+        if (unit.rows[0] && unit.rows[0].pass === false) {
+          throw new DomainError('INVALID_STATE', '单测仍未通过——请先修代码/修测试并重跑质量闸（tasks:quality）翻绿，处置完成再恢复', r.run_id);
+        }
+      }
       const auth = await client.query<{ status: string }>(
         'SELECT status FROM dev_authorizations WHERE project_id=$1 AND authorization_id=$2', [projectId, r.authorization_id]);
       if (auth.rows[0]?.status !== 'active') throw new DomainError('INVALID_STATE', '授权已失效', r.authorization_id);
@@ -372,7 +385,7 @@ export class DevAutopilotService {
             [projectId, next.id]);
           if (Number(fails.rows[0]!.n) >= 3) {
             await this.block(projectId, runId, {
-              code: 'UNIT_FAILED', message: `任务 ${next.code} 沙箱单测连续 ${fails.rows[0]!.n} 轮代码修订不通过——人工处置（返工/修测试/人工合并）后点「继续」`,
+              code: 'UNIT_FAILED', message: `任务 ${next.code} 沙箱单测连续 ${fails.rows[0]!.n} 轮代码修订不通过——人工处置链：修代码/修测试后对该任务重跑一次质量闸（任务卡「重测」或 POST tasks/:id:quality）翻绿，再点「继续」；规格变了则走「重新开发」`,
               taskId: next.id, category: 'quality',
             }, ctx);
             return true;
