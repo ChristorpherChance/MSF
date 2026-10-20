@@ -146,6 +146,19 @@ export class DevBoardService {
       return { id: taskId, col: 'review', codeRev: newRev, prRef: `PR-${t.code}-r${newRev}` };
     });
 
+    // 轻量重开发（2026-10-21 autopilot 单测红自动返工配套）：review→queue 重来一轮编码——
+    // 与 dev.task.rework 的差异：不 rev++（规格未变）、不使计划失效（run 不死）、codeRev 不动
+    // （pr.submit 重提时会 +1 并自动 stale 旧 PR）；codegen 反馈回路会注入最近失败日志
+    registerCommand('dev.task.redevelop', async (client, payload) => {
+      const { projectId, taskId } = payload as { projectId: string; taskId: string };
+      const t = await this.lockTask(client, projectId, taskId);
+      if (t.col !== 'review') throw new DomainError('INVALID_STATE', '仅评审中任务可重开发', taskId);
+      await client.query(
+        "UPDATE dev_tasks SET col='queue', prog=0, run_status='rework', blocked=false, blocked_reason=NULL, updated_at=now() WHERE id=$1 AND project_id=$2",
+        [taskId, projectId]);
+      return { id: taskId, col: 'queue', redevelop: true };
+    });
+
     // 人工 checklist 勾选（仅 review 态 PR；自动结果不可勾选由操作者身份保证——autopilot 合并不走本命令）
     registerCommand('dev.pr.toggle-check', async (client, payload) => {
       const { projectId, taskId, key, checked } = payload as { projectId: string; taskId: string; key: string; checked: boolean };
@@ -352,6 +365,11 @@ export class DevBoardService {
       }, { ...ctx, projectId });
     }
     return executeCommand('dev.quality.complete', { projectId, taskId }, { ...ctx, projectId });
+  }
+
+  /** 轻量重开发（autopilot 单测红自动返工）：review→queue，不 rev++/不使计划失效 */
+  async redevelop(projectId: string, taskId: string, ctx: CommandContext) {
+    return executeCommand('dev.task.redevelop', { projectId, taskId }, { ...ctx, projectId });
   }
 
   async aiReview(projectId: string, taskId: string, ctx: CommandContext) {

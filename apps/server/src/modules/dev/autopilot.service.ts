@@ -15,7 +15,7 @@ export const devAutopilotTiming = { tickDelayMs: 15 };
 // resume 时核验最新报告非 fail 才放行——「人工处置链」=重跑自测而非绕过门禁
 // 2026-10-21：DISPATCH_NO_PROGRESS 入白名单——派发失败的处置动作=解除门禁缺口（处置影响单/重识别/修复派发逻辑）
 // 或重批计划，之后 resume 重 tick 是正规恢复路径（仍不过会再阻断，无绕过风险）
-const RECOVERABLE_BLOCKERS = new Set(['RUNNER_START_FAILED', 'HUMAN_TASK_REQUIRED', 'SELFTEST_START_FAILED', 'SELFTEST_FAILED', 'TASK_BLOCKED', 'AI_REVIEW_FAILED', 'DISPATCH_NO_PROGRESS']);
+const RECOVERABLE_BLOCKERS = new Set(['RUNNER_START_FAILED', 'HUMAN_TASK_REQUIRED', 'SELFTEST_START_FAILED', 'SELFTEST_FAILED', 'TASK_BLOCKED', 'AI_REVIEW_FAILED', 'DISPATCH_NO_PROGRESS', 'UNIT_FAILED']);
 
 /** L6 运行阶段枚举（原型 v18AutoStatusHtml phases 映射：dispatch/development/quality/ai-review/merge/build/awaiting-transfer；selftest 为真实管线扩展档——原型模拟未建模项目自测阶段） */
 const RUN_PHASES = new Set(['dispatch', 'development', 'quality', 'ai-review', 'merge', 'build', 'selftest', 'awaiting-transfer']);
@@ -42,6 +42,22 @@ export class DevAutopilotService {
     @Inject(DevBuildService) private readonly build: DevBuildService,
     @Inject(DevSelftestService) private readonly selftest: DevSelftestService,
   ) {}
+
+  /** 进程重启 runner 恢复（2026-10-21：runner 是进程内替身，systemctl 重启/部署后
+   *  status='running' 的 run 静默死亡——界面永远「自动执行中」且占未终态位锁死新启动；
+   *  引导时扫描 running 运行逐个 kickRunner 续 tick；blocked/paused 等人工态不动） */
+  async onApplicationBootstrap(): Promise<void> {
+    try {
+      const rows = await query<{ project_id: string; run_id: string }>(
+        "SELECT project_id, run_id FROM dev_runs WHERE status='running'");
+      for (const r of rows.rows) {
+        this.kickRunner(r.project_id, r.run_id, { projectId: r.project_id, actorKind: 'autopilot', actorId: `autopilot:${r.run_id}` });
+      }
+      if (rows.rows.length > 0) console.warn(`[autopilot] 进程重启恢复 ${rows.rows.length} 个 running 运行的 runner`);
+    } catch (e) {
+      console.error('[autopilot] runner 恢复扫描失败（不阻断启动）', e);
+    }
+  }
 
   onModuleInit(): void {
     // A06-10 批准并启动（同事务：复核 → 授权 → run）
@@ -338,13 +354,31 @@ export class DevAutopilotService {
       } else if (next.col === 'review') {
         // 质量 → AI 评审 → 合并（证据缺失才补；防空转由证据已存在判定承载）
         // 证据须匹配当前代码修订（与合并自动门禁同口径；旧 codeRev 证据不算数）
-        const hasUnit = await query(
-          `SELECT 1 FROM evd_records WHERE project_id=$1 AND kind='unit' AND payload->>'taskId'=$2
-           AND payload->>'codeRev'=$3 AND (payload->>'pass')::boolean=true LIMIT 1`,
+        const unitLatest = await query<{ pass: boolean | null }>(
+          `SELECT (payload->>'pass')::boolean AS pass FROM evd_records WHERE project_id=$1 AND kind='unit' AND payload->>'taskId'=$2
+           AND payload->>'codeRev'=$3 ORDER BY created_at DESC LIMIT 1`,
           [projectId, next.id, String(next.code_rev)]);
-        if (hasUnit.rows.length === 0) {
+        if (unitLatest.rows.length === 0) {
           await this.board.quality(projectId, next.id, autoCtx);
           phase = 'quality';
+        } else if (unitLatest.rows[0]!.pass === false) {
+          // 单测红自动返工（2026-10-21 根修「评审态空转」：旧口径最新证据红也每 tick 重跑 quality，
+          // 同一份代码测一万次还是红——T-031 实锤 2 秒一条 fail 证据无限刷屏）：
+          // 轻量重开发 review→queue（codegen 反馈回路注入失败日志重写）；strike=失败的代码修订轮数
+          // （distinct codeRev——同一代码被空转 bug 重复测试的 fail 不重复计），满 3 轮阻断待人工
+          const fails = await query<{ n: string }>(
+            `SELECT count(DISTINCT payload->>'codeRev') AS n FROM evd_records WHERE project_id=$1 AND kind='unit' AND payload->>'taskId'=$2
+             AND (payload->>'pass')::boolean=false`,
+            [projectId, next.id]);
+          if (Number(fails.rows[0]!.n) >= 3) {
+            await this.block(projectId, runId, {
+              code: 'UNIT_FAILED', message: `任务 ${next.code} 沙箱单测连续 ${fails.rows[0]!.n} 轮代码修订不通过——人工处置（返工/修测试/人工合并）后点「继续」`,
+              taskId: next.id, category: 'quality',
+            }, ctx);
+            return true;
+          }
+          await this.board.redevelop(projectId, next.id, autoCtx);
+          phase = 'development';
         } else {
           const hasReview = await query<{ conclusion: string | null }>(
             `SELECT payload->>'conclusion' AS conclusion FROM evd_records WHERE project_id=$1 AND kind='ai-review' AND payload->>'taskId'=$2

@@ -896,4 +896,82 @@ describe('Dev 开发域（集成，需 DB+MinIO）', async () => {
     });
     await autopilot.control(PID, 'stop', CTX);
   }, 30000);
+
+  it('T19 单测红自动返工：轻量重开发（不 rev++/不使计划失效）+ 三轮 strike 阻断 UNIT_FAILED 可恢复（2026-10-21 评审态空转根修）', async () => {
+    const { appendEvidence } = await import('../evidence/audit.service.js');
+    const addUnitFail = async (taskId: string, codeRev: string) => {
+      const c = await pool.connect();
+      try { await appendEvidence(c, { projectId: PID, kind: 'unit', payload: { taskId, codeRev, pass: false, mode: 'sandbox' } }); }
+      finally { c.release(); }
+    };
+    // 夹具任务：review 态 codeRev=1（模拟刚被沙箱测红的页面任务）
+    const ft = (await tasks.createTask(PID, 'T19 夹具页面', 'frontend', CTX)) as { id: string; code: string };
+    await query(
+      "UPDATE dev_tasks SET col='review', prog=100, code_rev=1, batch_no=1, asg_type='agent', run_status='running', write_scopes='[]', deps='[]' WHERE id=$1",
+      [ft.id]);
+    const sub = (await plans.submit(PID, [ft.code], 'T19 轮', CTX)) as { revision: string; fingerprint: string };
+    await plans.approve(PID, sub.revision, sub.fingerprint, true, CTX);
+    const planRow = (await query<{ id: string; plan_fingerprint: string }>(
+      'SELECT id, plan_fingerprint FROM dev_plans WHERE project_id=$1 AND revision=$2', [PID, Number(sub.revision.replace('plan-r', ''))])).rows[0]!;
+    await query(
+      `INSERT INTO dev_authorizations (project_id, authorization_id, plan_id, scope, task_ids, status, created_by)
+       VALUES ($1,'auth_t19',$2,'{}','[]','active','it')`, [PID, planRow.id]);
+    await query(
+      `INSERT INTO dev_runs (project_id, run_id, run_token, plan_id, plan_fingerprint, authorization_id, status, phase, created_by)
+       VALUES ($1,'run_t19','tok-t19',$2,$3,'auth_t19','running','quality','it')`, [PID, planRow.id, planRow.plan_fingerprint]);
+    // ① 一轮 fail（codeRev 1）→ tick 轻量重开发：回 queue/redevelop，codeRev 不动、计划不失效
+    await addUnitFail(ft.id, '1');
+    await autopilot.tick(PID, 'run_t19', CTX);
+    const d1 = (await query<{ col: string; run_status: string; code_rev: number }>('SELECT col, run_status, code_rev FROM dev_tasks WHERE id=$1', [ft.id])).rows[0]!;
+    expect(d1).toMatchObject({ col: 'queue', run_status: 'rework', code_rev: 1 });
+    const planOk = (await query<{ state: string }>('SELECT state FROM dev_plans WHERE id=$1', [planRow.id])).rows[0]!;
+    expect(planOk.state).toBe('approved'); // 轻量重开发不使计划失效（与 task.rework 分野）
+    // ② 累计三轮 fail（distinct codeRev）→ tick 阻断 UNIT_FAILED（可恢复白名单）
+    await query("UPDATE dev_tasks SET col='review', prog=100, run_status='running' WHERE id=$1", [ft.id]);
+    await addUnitFail(ft.id, '2');
+    await addUnitFail(ft.id, '3');
+    await autopilot.tick(PID, 'run_t19', CTX);
+    const run = (await query<{ status: string; blocker: { code: string } }>("SELECT status, blocker FROM dev_runs WHERE run_id='run_t19'")).rows[0]!;
+    expect(run.status).toBe('blocked');
+    expect(run.blocker.code).toBe('UNIT_FAILED');
+    // ③ resume 放行（人工处置通道），stop 收尾防 runner 残留
+    const rs = (await autopilot.control(PID, 'resume', CTX)) as { status: string };
+    expect(rs.status).toBe('running');
+    await autopilot.control(PID, 'stop', CTX);
+    // 清理夹具（留 approved 计划会干扰后续套件共享态——本测试为末位，双保险）
+    await query("DELETE FROM dev_runs WHERE run_id='run_t19'");
+    await query("DELETE FROM dev_authorizations WHERE authorization_id='auth_t19'");
+    await query('DELETE FROM dev_tasks WHERE id=$1', [ft.id]);
+  });
+
+  it('T20 进程重启 runner 恢复：onApplicationBootstrap 扫描 running 运行续 tick（2026-10-21 部署后死 run 根修）', async () => {
+    // 夹具：queue 任务 + approved 计划 + running 运行（模拟 systemctl 重启后 DB 残留的「活」运行）
+    const ft = (await tasks.createTask(PID, 'T20 夹具页面', 'frontend', CTX)) as { id: string; code: string };
+    await query("UPDATE dev_tasks SET batch_no=1, asg_type='agent', write_scopes='[]', deps='[]' WHERE id=$1", [ft.id]);
+    const sub = (await plans.submit(PID, [ft.code], 'T20 轮', CTX)) as { revision: string; fingerprint: string };
+    await plans.approve(PID, sub.revision, sub.fingerprint, true, CTX);
+    const planRow = (await query<{ id: string; plan_fingerprint: string }>(
+      'SELECT id, plan_fingerprint FROM dev_plans WHERE project_id=$1 AND revision=$2', [PID, Number(sub.revision.replace('plan-r', ''))])).rows[0]!;
+    // 授权形态对齐 approveStart 真身（scope.merge=true + task_ids 覆盖 {code,rev}），否则合并自动门禁冤判「授权不覆盖」
+    await query(
+      `INSERT INTO dev_authorizations (project_id, authorization_id, plan_id, scope, task_ids, status, created_by)
+       VALUES ($1,'auth_t20',$2,'{"development":true,"unitCi":true,"aiReview":true,"merge":true,"integrationBuild":true,"transferToTest":false}',$3,'active','it')`,
+      [PID, planRow.id, JSON.stringify([{ code: ft.code, rev: 1 }])]);
+    await query(
+      `INSERT INTO dev_runs (project_id, run_id, run_token, plan_id, plan_fingerprint, authorization_id, status, phase, created_by)
+       VALUES ($1,'run_t20','tok-t20',$2,$3,'auth_t20','running','dispatch','it')`, [PID, planRow.id, planRow.plan_fingerprint]);
+    // 引导恢复 → runner 续 tick 推进任务到 done（不恢复则永远卡 queue——部署后死 run 现场；
+    // 只钉到任务完成：⑥ 自测闸对最新 fail 报告的设计行为是 SELFTEST_FAILED 阻断待人工，与套件共享态相关不做全链断言）
+    await autopilot.onApplicationBootstrap();
+    await waitFor(async () => {
+      const t = (await query<{ col: string }>('SELECT col FROM dev_tasks WHERE id=$1', [ft.id])).rows[0];
+      return t?.col === 'done';
+    });
+    // 清理夹具（先停 runner 再按 FK 序删：PR 引用任务）
+    await autopilot.control(PID, 'stop', CTX);
+    await query('DELETE FROM dev_prs WHERE task_id=$1', [ft.id]);
+    await query("DELETE FROM dev_runs WHERE run_id='run_t20'");
+    await query("DELETE FROM dev_authorizations WHERE authorization_id='auth_t20'");
+    await query('DELETE FROM dev_tasks WHERE id=$1', [ft.id]);
+  }, 30000);
 });

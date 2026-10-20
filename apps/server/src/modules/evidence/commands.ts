@@ -142,6 +142,7 @@ export const COMMANDS = [
   'dev.preview.fail',      // 预览启动失败登记（健康等待超时/进程退出）
   'dev.task.progress',
   'dev.task.rework', // 评审驳回/影响返工重入（devBeginRework+devConfirmRework）
+  'dev.task.redevelop', // autopilot 单测红轻量重开发（review→queue，不 rev++/不使计划失效）
   'dev.pr.submit',
   'dev.pr.toggle-check',
   'dev.pr.skip',     // 有理由的人工豁免（理由必填，REQ-411）
