@@ -74,6 +74,19 @@ describe('scaffoldFiles 确定性脚手架', () => {
     expect(APP_CONVENTIONS).toContain('无出向');
     expect(APP_CONVENTIONS).toContain('PORT');
   });
+
+  it('应用约定含 2026-10-22 原型保真经验固化（差异65 后续）', () => {
+    // 导航出口死循环教训
+    expect(APP_CONVENTIONS).toContain('禁「认证成功→首页→再点玩法→又回认证」死循环');
+    // 实时房间在线口径（断线座位不卡开局、房主代行）
+    expect(APP_CONVENTIONS).toContain('在线最早入座者代行');
+    // 对局数据链（回放录帧+记账）
+    expect(APP_CONVENTIONS).toContain('对局数据链');
+    // 跨页接缝归属（禁页面有按钮服务无路由）
+    expect(APP_CONVENTIONS).toContain('跨页接缝归属');
+    // 空态与权限引导
+    expect(APP_CONVENTIONS).toContain('空态与权限引导');
+  });
 });
 
 describe('devMode / 工作区路径收编', () => {
