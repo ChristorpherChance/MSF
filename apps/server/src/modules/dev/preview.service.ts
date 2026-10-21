@@ -1,6 +1,9 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
 import { DomainError } from '@msf/shared';
 import type { Request } from 'express';
+import type { IncomingMessage } from 'node:http';
+import { connect } from 'node:net';
+import type { Duplex } from 'node:stream';
 import { query } from '../../db/pool.js';
 import { executeCommand, registerCommand, type CommandContext } from '../evidence/command-bus.js';
 import { SandboxService } from '../executor/sandbox.service.js';
@@ -12,8 +15,10 @@ import { devRuntimeImage, DevWorkspaceService } from './workspace.service.js';
  *   CapDrop ALL/限额；端口不映射宿主——经本平台鉴权反代 /dev-preview/:pid/* 访问容器 IP）
  * - dev_previews 登记表：每项目至多一个 running（部分唯一索引）；启动=先停旧再起新；
  *   死容器自愈=status 读取时 inspect 对账（不在运行即经命令落 stopped，不留假活）
- * - 反代不转发 Cookie/Authorization（容器内应用永远看不到平台会话）；
- *   平台 API 侧另有 Referer 隔离带（main.ts）挡预览页内脚本直调
+ * - Cookie 口径（2026-10-21 游戏可玩根修）：请求剥平台凭据 msf_auth、其余放行（应用自有
+ *   会话依赖）；响应 Set-Cookie 回传且 Path 收窄到本预览前缀（多项目互不串会话）；
+ *   Authorization 仍不转发；平台 API 侧另有 Referer 隔离带（main.ts）挡预览页内脚本直调
+ * - WS 反代（proxyUpgrade）：HTTP fetch 管不了 upgrade，实时应用经 TCP 管道透传
  */
 
 const PREVIEW_PORT = 3000;
@@ -143,7 +148,7 @@ export class DevPreviewService {
    * 反代（鉴权由全局 authMiddleware 承载）：任意方法/路径/查询透传到容器；
    * 剥离 Cookie/Authorization/Host（应用看不到平台会话）；容器不可达 → 对账落停 + 明确错误
    */
-  async proxy(projectId: string, tail: string, req: Request): Promise<{ status: number; headers: Record<string, string>; body: Buffer }> {
+  async proxy(projectId: string, tail: string, req: Request): Promise<{ status: number; headers: Record<string, string | string[]>; body: Buffer }> {
     const row = await this.runningRow(projectId);
     if (!row) throw new DomainError('NOT_FOUND', '没有运行中的预览（先 ▶ 启动预览）', projectId);
     const live = this.sandbox ? await this.sandbox.inspectService(row.container_name).catch(() => null) : null;
@@ -155,7 +160,15 @@ export class DevPreviewService {
     const headers: Record<string, string> = {};
     for (const [k, v] of Object.entries(req.headers)) {
       const key = k.toLowerCase();
-      if (['host', 'cookie', 'authorization', 'referer', 'connection', 'content-length'].includes(key)) continue;
+      // cookie 选择性转发（2026-10-21 游戏可玩根修）：剥平台凭据 msf_auth（预览=AI 生成代码，
+      // 不得持平台会话调主应用 API），其余放行——应用自有会话 cookie（snake_session 等）依赖它
+      if (key === 'cookie') {
+        const filtered = String(v).split(';').map((c) => c.trim())
+          .filter((c) => c && !c.startsWith('msf_auth=')).join('; ');
+        if (filtered) headers.cookie = filtered;
+        continue;
+      }
+      if (['host', 'authorization', 'referer', 'connection', 'content-length'].includes(key)) continue;
       if (typeof v === 'string') headers[key] = v;
     }
     const method = req.method.toUpperCase();
@@ -172,9 +185,18 @@ export class DevPreviewService {
       throw new DomainError('SANDBOX_INFRA_FAILED', `预览实例不可达：${e instanceof Error ? e.message : String(e)}`, projectId);
     }
     const buf = Buffer.from(await up.arrayBuffer());
-    const outHeaders: Record<string, string> = {};
+    const outHeaders: Record<string, string | string[]> = {};
     const ct = up.headers.get('content-type');
     if (ct) outHeaders['content-type'] = ct;
+    // 应用 Set-Cookie 回传（2026-10-21：之前被吞，登录/会话类应用全断）；
+    // Path 收窄到本预览前缀——多项目预览并存时应用会话互不串
+    const setCookies = (up.headers as unknown as { getSetCookie?: () => string[] }).getSetCookie?.() ?? [];
+    if (setCookies.length > 0) {
+      outHeaders['set-cookie'] = setCookies.map((c) =>
+        /;\s*Path=/i.test(c)
+          ? c.replace(/;\s*Path=[^;]*/i, `; Path=/dev-preview/${projectId}/`)
+          : `${c}; Path=/dev-preview/${projectId}/`);
+    }
     // text/html 根相对资源引用重写到反代前缀下（不重写则 /style.css 解析到平台根 404）
     const outBody = ct?.includes('text/html')
       ? Buffer.from(rewritePreviewHtml(buf.toString('utf8'), projectId), 'utf8')
@@ -189,6 +211,40 @@ export class DevPreviewService {
     // 预览 CSP：禁外联（沙箱内网本无出向，双保险）+ 允许内联（生成应用约定内联样式/脚本）
     outHeaders['content-security-policy'] = "default-src 'self' 'unsafe-inline' data: blob:; connect-src 'self'";
     return { status: up.status, headers: outHeaders, body: outBody };
+  }
+
+  /**
+   * WS 反代（2026-10-21 游戏可玩根修）：HTTP fetch 反代管不了 upgrade，
+   * 实时应用（对战/协作）必须 TCP 管道透传。cookie 口径同 proxy（剥 msf_auth）。
+   * 返回 false=无运行中实例（调用方回 502）。
+   */
+  async proxyUpgrade(projectId: string, tail: string, req: IncomingMessage, socket: Duplex, head: Buffer): Promise<boolean> {
+    const row = await this.runningRow(projectId);
+    if (!row) return false;
+    const live = this.sandbox ? await this.sandbox.inspectService(row.container_name).catch(() => null) : null;
+    if (!live?.running || !live.ip) return false;
+    const upstream = connect(row.port, live.ip);
+    upstream.on('connect', () => {
+      const lines = [`${req.method ?? 'GET'} ${tail} HTTP/1.1`];
+      for (const [k, v] of Object.entries(req.headers)) {
+        const key = k.toLowerCase();
+        if (['host', 'connection', 'content-length', 'authorization', 'referer'].includes(key)) continue;
+        if (key === 'cookie') {
+          const filtered = String(v).split(';').map((c) => c.trim())
+            .filter((c) => c && !c.startsWith('msf_auth=')).join('; ');
+          if (filtered) lines.push(`cookie: ${filtered}`);
+          continue;
+        }
+        if (typeof v === 'string') lines.push(`${key}: ${v}`);
+      }
+      lines.push(`host: ${live.ip}:${row.port}`, 'connection: upgrade', '', '');
+      upstream.write(lines.join('\r\n'));
+      if (head?.length) upstream.write(head);
+      upstream.pipe(socket).pipe(upstream);
+    });
+    upstream.on('error', () => socket.destroy());
+    socket.on('error', () => upstream.destroy());
+    return true;
   }
 
   private async runningRow(projectId: string): Promise<PreviewRow | null> {

@@ -10,7 +10,8 @@ import { DomainErrorFilter } from './modules/api/domain-error.filter.js';
 import { identityMiddleware } from './modules/api/identity.middleware.js';
 import { idempotencyMiddleware } from './modules/api/idempotency.middleware.js';
 import { IdempotencyInterceptor } from './modules/api/idempotency.interceptor.js';
-import { authMiddleware } from './modules/platform/auth.js';
+import { authEnabled, authMiddleware, verifyToken } from './modules/platform/auth.js';
+import { DevPreviewService } from './modules/dev/preview.service.js';
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, { rawBody: true });
@@ -48,6 +49,30 @@ async function bootstrap(): Promise<void> {
       res.sendFile(join(root, 'index.html'));
     });
   }
+  // 预览 WS 反代（2026-10-21 游戏可玩根修）：/dev-preview/:pid/* 的 upgrade 管道透传到沙箱容器。
+  // 鉴权口径同 HTTP 罩（部署态须登录）；Nest/Express 不处理 upgrade，不挂这个实时应用（游戏/协作）全断。
+  const httpServer = app.getHttpServer() as import('node:http').Server;
+  httpServer.on('upgrade', (req, socket, head) => {
+    void (async () => {
+      const m = /^\/dev-preview\/([0-9a-f-]{36})(\/[^?\s]*)?(\?\S*)?$/.exec(req.url ?? '');
+      if (!m) { socket.destroy(); return; }
+      if (authEnabled()) {
+        const token = String(req.headers.cookie ?? '').match(/(?:^|;\s*)msf_auth=([^;]+)/)?.[1];
+        if (!verifyToken(token)) {
+          socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n');
+          socket.destroy();
+          return;
+        }
+      }
+      const preview = app.get(DevPreviewService, { strict: false }) as DevPreviewService;
+      const tail = `${m[2] ?? '/'}${m[3] ?? ''}`;
+      const ok = await preview.proxyUpgrade(m[1]!, tail, req, socket, head);
+      if (!ok) {
+        socket.write('HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n');
+        socket.destroy();
+      }
+    })().catch(() => socket.destroy());
+  });
   await app.listen(config.port);
   console.warn(`[msf] server listening on :${config.port}`);
 }
