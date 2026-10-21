@@ -53,7 +53,7 @@ export const NAV: NavStage[] = [
     ],
   },
   {
-    key: 'test', path: '/test', icon: '✅', name: '测试验收',
+    key: 'test', path: '/test', icon: '✅', name: '测试',
     subs: [
       { key: 'plan', label: '提测与计划' },
       { key: 'run', label: '用例与执行' },

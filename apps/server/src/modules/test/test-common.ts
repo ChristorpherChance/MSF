@@ -6,6 +6,19 @@ import { lockCodeGen } from '../../db/seq.js';
 
 /** 测试验收域共享件（DSG-D07；编号 TB/TP/AT/TR/AR/AD/DF 统稿 M5） */
 
+/** 批次通过标准维度（2026-10-21 用户拍板「测试阶段一上来就定好明确的通过标准」）：
+ *  分维度而非综合单一结论——缺陷可定位到维度；批次接收时随 acceptance_terms 冻结快照，
+ *  计划批准=通过标准定稿（人工确认点）；计划起草按「每原型页 × 全维度」派生页面一致性人工用例。 */
+export const PASS_CRITERIA_DIMENSIONS: Array<{ key: string; name: string; hint: string }> = [
+  { key: 'structure', name: '结构一致', hint: '页面区块与元素结构与定稿原型一致——不少区块、不多区块、层级不错乱' },
+  { key: 'visual', name: '视觉一致', hint: '配色、布局、字体、间距与定稿原型一致（逐页并排核对）' },
+  { key: 'function', name: '功能一致', hint: '原型上每个功能点真实可用，数据来自真实接口而非内置模拟' },
+  { key: 'interaction', name: '交互一致', hint: '按钮、表单、跳转、状态反馈等行为与定稿原型一致' },
+  { key: 'navigation', name: '导航通畅', hint: '页间链接与返回路径全部可达，无断链、无跳错页' },
+  { key: 'health', name: '运行健康', hint: '加载与操作全程控制台零错误、接口无 5xx' },
+];
+
+
 export const sha256hex = (s: string): string => createHash('sha256').update(s).digest('hex');
 
 export interface BatchRow {

@@ -291,7 +291,7 @@ function HistoryPage() {
               {{ draft: '准备中', submitted: '已提交', approved: '已批准', invalidated: '已失效' }[p.state] ?? p.state}
             </span>
             <div className="dsg-prefix">
-              任务 {p.snapshot.taskIds.length} · 基线 {p.baselineFingerprint.slice(0, 19)}…
+              任务 {(p.snapshot.taskIds ?? []).length} · 基线 {p.baselineFingerprint.slice(0, 19)}…
               {p.approvedBy ? ` · ${p.approvedBy} 批准${p.approvedAt ? ` ${new Date(p.approvedAt).toLocaleString()}` : ''}` : ''}
               {p.invalidatedReason ? ` · 失效：${p.invalidatedReason}` : ''}
             </div>

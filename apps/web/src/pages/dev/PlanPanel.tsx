@@ -308,7 +308,7 @@ export function PlanPanel() {
 function PreparationCard({ plan }: { plan: PlanItem }) {
   const s = useDevStore();
   const [editSg, setEditSg] = useState<PlanSuggestion | null>(null);
-  const taskIds = plan.snapshot.taskIds;
+  const taskIds = plan.snapshot.taskIds ?? [];
   const inPlan = s.tasks.filter((t) => taskIds.includes(t.code));
   const suggestions = plan.suggestions ?? [];
   const active = suggestions.filter((g) => g.state !== 'rejected');
@@ -510,7 +510,7 @@ function PrepSummary() {
   const s = useDevStore();
   const plan = s.plans.find((p) => p.state === 'approved') ?? s.plans.find((p) => p.state === 'submitted');
   if (!plan) return null;
-  const taskIds = plan.snapshot.taskIds;
+  const taskIds = plan.snapshot.taskIds ?? [];
   const inPlan = s.tasks.filter((t) => taskIds.includes(t.code));
   const front = inPlan.filter((t) => t.kind === 'frontend');
   const back = inPlan.filter((t) => t.kind === 'backend');
@@ -678,7 +678,7 @@ function PlanHistoryButton() {
                   {PLAN_STATE_LABEL[p.state] ?? p.state}
                 </span>
                 <div className="dsg-prefix">
-                  任务 {p.snapshot.taskIds.length} · 基线 {p.baselineFingerprint.slice(0, 19)}…
+                  任务 {(p.snapshot.taskIds ?? []).length} · 基线 {p.baselineFingerprint.slice(0, 19)}…
                   {p.approvedBy ? ` · ${p.approvedBy} 批准 ${new Date(p.approvedAt!).toLocaleString()}` : ''}
                   {p.invalidatedReason ? ` · 失效：${p.invalidatedReason}` : ''}
                 </div>

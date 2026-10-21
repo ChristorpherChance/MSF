@@ -58,6 +58,22 @@ export class TstPlansService {
           });
         }
       }
+      // 页面一致性用例（2026-10-21 通过标准机制）：批次快照 passCriteria「每原型页 × 六维」
+      // 逐维人工核对——原型一致是首要通过标准（P0 必测），缺陷可定位到维度
+      const passCriteria = (b.acceptance_terms as {
+        passCriteria?: { dimensions?: Array<{ key: string; name: string; hint: string }>; pages?: Array<{ code: string; title: string }> };
+      }).passCriteria;
+      for (const pg of passCriteria?.pages ?? []) {
+        n++;
+        specs.push({
+          code: `AT-${String(n).padStart(3, '0')}`,
+          title: `页面一致：${pg.title}（${pg.code}）`,
+          flowId: null, mode: 'manual', priority: 'P0',
+          steps: (passCriteria?.dimensions ?? []).map((d) => ({
+            action: `【${d.name}】${d.hint}`, expected: `${pg.code} 与定稿原型完全一致`,
+          })),
+        });
+      }
       // 强制至少一条人工走查（REQ-503 硬条件）
       specs.push({
         code: 'AT-MANUAL', title: '人工走查：关键路径端到端', flowId: null, mode: 'manual', priority: 'P1',

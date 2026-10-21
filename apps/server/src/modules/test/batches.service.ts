@@ -4,7 +4,7 @@ import { query } from '../../db/pool.js';
 import { executeCommand, registerCommand, type CommandContext } from '../evidence/command-bus.js';
 import { StorageService } from '../platform/storage.service.js';
 import { NotificationsService } from '../platform/notifications.service.js';
-import { assertNotBlocked, lockBatch, nextCode, sha256hex, type BatchRow } from './test-common.js';
+import { assertNotBlocked, lockBatch, nextCode, sha256hex, PASS_CRITERIA_DIMENSIONS, type BatchRow } from './test-common.js';
 
 /**
  * 批次接收/快照/阻断/恢复（A07-1/2/13/14；F02-8；REQ-501/502）。
@@ -81,6 +81,13 @@ export class TstBatchesService {
         catalogVersion: cat.rows[0]?.catalog_version ?? null,
         flows: items.rows.filter((i) => i.item_type === 'flow').map((i) => ({ code: i.code, payload: i.payload })),
         pages: items.rows.filter((i) => i.item_type === 'page').map((i) => i.code),
+        // 通过标准（2026-10-21）：进测试阶段即冻结「每原型页 × 六维」通过标准，
+        // 计划起草按此派生页面一致性人工用例；测试结论按维度可定位，不是一句综合「像不像」
+        passCriteria: {
+          dimensions: PASS_CRITERIA_DIMENSIONS,
+          pages: items.rows.filter((i) => i.item_type === 'page')
+            .map((i) => ({ code: i.code, title: (i.payload.title as string) ?? i.code })),
+        },
       };
       const envFp = sha256hex(fingerprint(JSON.parse(JSON.stringify(environment ?? {}))));
       const code = await nextCode(client, 'tst_batches', 'project_id=$1', [projectId], 'TB');

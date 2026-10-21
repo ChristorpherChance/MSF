@@ -67,7 +67,7 @@ export function TestPage() {
       {/* T1 工作台头部：阶段眉标 + 主标题 + 环境 tag 独立区 */}
       <header className="qa-header">
         <div>
-          <span className="qa-eyebrow">S4 / 独立测试验收</span>
+          <span className="qa-eyebrow">S4 / 独立测试</span>
           <h1>把交付结论建立在证据上</h1>
           <p>固定候选 → 确认范围 → 独立验证 → 人工交付</p>
         </div>
@@ -77,7 +77,7 @@ export function TestPage() {
       </header>
       {/* V2.0 页内工具条（页签已迁二级列；留 StatusChips） */}
       <div className="doc-toolbar">
-        <strong>测试验收</strong>
+        <strong>测试</strong>
         <StatusChips items={flashItems} />
         <span className="dsg-prefix">{s.loading ? '刷新中…' : ''}</span>
       </div>

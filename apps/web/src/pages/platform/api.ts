@@ -59,7 +59,7 @@ export const PURPOSE_NAMES: Record<string, string> = {
 };
 
 export const STAGE_NAMES: Record<string, string> = {
-  material: '资料', req: '需求', design: '设计', dev: '开发', test: '测试验收',
+  material: '资料', req: '需求', design: '设计', dev: '开发', test: '测试',
 };
 
 const pid = (p: string) => `/api/v1/projects/${p}`;

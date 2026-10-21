@@ -17,7 +17,16 @@ export interface TstBatchDetail {
     build: { build_id: string; build_fingerprint: string };
     devReport: { report_id: string; report_fingerprint: string; status: string };
     designBaseline: { baseline_id: string; baseline_fingerprint: string };
-    acceptanceTerms: Record<string, unknown>;
+    acceptanceTerms: {
+      catalogVersion?: string | null;
+      flows?: Array<{ code: string; payload: Record<string, unknown> }>;
+      pages?: string[];
+      /** 2026-10-21 通过标准快照（新批次必有；旧批次快照缺省=undefined 不渲染） */
+      passCriteria?: {
+        dimensions: Array<{ key: string; name: string; hint: string }>;
+        pages: Array<{ code: string; title: string }>;
+      };
+    };
     environment: Record<string, unknown>; environmentFingerprint: string;
   };
   receivedBy: string; receivedAt: string;

@@ -133,6 +133,30 @@ export function BatchPlanPanel() {
         </div>
       )}
 
+      {/* 通过标准（2026-10-21）：接收即冻结「每原型页 × 六维」，计划起草按此派生页面一致性用例，批准=定稿 */}
+      {det?.snapshot.acceptanceTerms.passCriteria && (
+        <div className="dsg-card">
+          <div className="gen-head">
+            <strong>通过标准（本批冻结）</strong>
+            <span className="dsg-prefix">
+              {det.snapshot.acceptanceTerms.passCriteria.pages.length} 个原型页 × {det.snapshot.acceptanceTerms.passCriteria.dimensions.length} 个维度，逐页逐项核对
+            </span>
+          </div>
+          <table className="dev-table">
+            <thead><tr><th>维度</th><th>核对要点</th></tr></thead>
+            <tbody>
+              {det.snapshot.acceptanceTerms.passCriteria.dimensions.map((d) => (
+                <tr key={d.key}><td>{d.name}</td><td>{d.hint}</td></tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="dsg-prefix">
+            覆盖页面：{det.snapshot.acceptanceTerms.passCriteria.pages.map((p) => `${p.code} ${p.title}`).join('、') || '—'}
+          </p>
+          <p className="dsg-prefix">计划批准即通过标准定稿；放行要求必测项全部执行且各维度核对通过。</p>
+        </div>
+      )}
+
       {/* 计划起草/批准（A07-3；策略点 test.plan.approve 人工确认；原型 planHtml 口径） */}
       {det && !s.plan && (
         <div className="dsg-card">
@@ -196,7 +220,7 @@ export function BatchPlanPanel() {
         <ConfirmModal
           title={`确认测试范围 ${s.plan.planId}`}
           confirmLabel="确认测试范围"
-          body={'策略确认点 test.plan.approve，人工确认；批准后追加新版本并用例冻结。'}
+          body={'策略确认点 test.plan.approve，人工确认；批准后追加新版本、用例与通过标准冻结。'}
           onClose={() => setApproveOpen(false)}
           onConfirm={() => s.act(() => tstApi.approvePlan(pid, det.batchId, s.plan!.planId), '计划已批准')}
         />

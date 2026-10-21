@@ -40,11 +40,20 @@ export const APP_CONVENTIONS = `
   开发用页面导航不占首页：由 server 的 GET /dev-pages 路由动态列出 pages/*.html（数据源 /app-api/pages）；
   页面间跳转一律相对链接且**目标页必须真实存在**（href="P-002.html" 形态，禁指向不存在的页码——
   自测 UI 门会逐页核验 .html 引用完整性，断链即红）；
+  链接语义按页面职能：首页=P-HOME（无则码序首）、登录=P-001 系、列表/大厅=对应功能页——
+  「返回首页」指向首页页码（或 ../index.html 跳板），「进入大厅」指向大厅页码，禁张冠李戴；
   前端一切引用（fetch、src、href、link、script、表单 action）一律用相对路径
   （如 fetch('app-api/xxx')、href="style.css"、pages/P-001.html 页内跳其他页写 "../pages/P-002.html" 或 "P-002.html"），禁用根相对路径（"/..."）——
   预览经 /dev-preview/:pid/ 前缀反代，根相对会解析到平台根 404；
   禁止引用任何外网 CDN/字体/图片（运行环境无出向网络）；
 - 数据可用内存态或写 data/ 目录 JSON 文件（data/ 已在 .gitignore）；
+- 【实时服务（若接口册含 ws/实时/SSE 端点，必须遵守）】server 必须在 http server 上接
+  'upgrade' 事件完成 WebSocket 握手与帧编解码（可用 server/websocket.js 骨架），
+  实时路由路径与接口册一致（如 /ws、/app-api/ws）；**禁只写前端 WebSocket 客户端而服务端无接线**——
+  测试阶段「功能一致」维度会真实连通核对，连不上即不通过；
+  页面发起的每个 WS 指令服务端必须有应答（ack/error），不得静默吞掉；
+- 【会话】登录态用 HttpOnly cookie（Path=/），服务端会话内存态即可；
+  预览反代会透传应用 cookie（平台凭据 msf_auth 被隔离剥除，应用不得读写它）；
 - 样式直接写内联 <style> 或 public/ 下 css 文件。
 【输出契约（严格执行）】
 - 只输出文件块，不要寒暄。每个文件一个代码块，格式：
@@ -280,7 +289,7 @@ export class DevCodegenService {
             if (html) {
               const text = html.toString('utf8');
               protoPages.push({ code: p.page_code, html: text });
-              parts.push(`\n【页面 ${p.page_code} 的已定稿原型 HTML——本任务交付物 public/pages/${p.page_code}.html 就是它的接线版：外观/结构/主题 1:1 保留（含 <style> 与主题变量），只把内置模拟数据与假交互改造为 fetch('app-api/...') 真实驱动；契约无对应端点的部分保留模拟数据并以 HTML 注释标 TODO】\n${text.slice(0, MAX_PROMPT_HTML)}`);
+              parts.push(`\n【页面 ${p.page_code} 的已定稿原型 HTML——本任务交付物 public/pages/${p.page_code}.html 就是它的接线版，必须严格按原型实现：配色、布局、区块结构、文案与原型 1:1 保留（含 <style> 与主题变量），原型上每个按钮/表单/列表/交互都必须可用且行为一致；只把内置模拟数据与假交互改造为 fetch('app-api/...') 真实驱动；契约无对应端点的部分保留模拟数据并以 HTML 注释标 TODO；不得自创版式、不得增减区块、不得省略交互】\n${text.slice(0, MAX_PROMPT_HTML)}`);
             }
           }
         }

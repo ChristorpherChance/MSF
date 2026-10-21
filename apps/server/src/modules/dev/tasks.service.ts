@@ -650,12 +650,12 @@ export function buildTaskSpecs(items: Array<{ item_type: string; code: string; p
     specs.push({
       title: `页面实现：${title}`,
       kind: 'frontend', asgType: 'agent',
-      goal: `把 ${p.code}（${title}）的定稿原型页接线为真实数据驱动页面`,
+      goal: `严格按 ${p.code}（${title}）定稿原型实现页面：配色、布局、功能、交互与原型完全一致`,
       scope: 'public/pages', boundary: '不改动应用壳与后端接口实现',
       sourceIds: [p.code],
-      work: [`以 ${p.code} 定稿原型 HTML 为基准 1:1 保外观/结构/交互，模拟数据改造为 fetch('app-api/...') 真实驱动`],
+      work: [`以 ${p.code} 定稿原型 HTML 为唯一基准 1:1 实现：配色/布局/区块结构与原型逐块一致，原型上每个按钮、表单、列表、交互都必须可用且行为一致；仅把内置模拟数据与假交互改造为 fetch('app-api/...') 真实驱动；不得自创版式、不得增减区块、不得省略交互`],
       inputs: [p.code], deliverables: [`public/pages/${p.code}.html`],
-      acceptance: [{ item: `${p.code} 外观与定稿原型一致且数据来自真实接口`, pass: false }],
+      acceptance: [{ item: `${p.code} 与定稿原型并排核对：配色与布局一致、全部功能与交互按原型可用、数据来自真实接口`, pass: false }],
       quality, deps: [], writeScopes: [`public/pages/${p.code}.html`], batchNo, effort: 'M',
     });
   });

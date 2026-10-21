@@ -175,7 +175,7 @@ function BuildPage() {
   const s = useDevStore();
   const pid = s.projectId!;
   const approved = s.plans.find((p) => p.state === 'approved');
-  const inPlan = s.tasks.filter((t) => approved?.snapshot.taskIds.includes(t.code));
+  const inPlan = s.tasks.filter((t) => (approved?.snapshot.taskIds ?? []).includes(t.code));
   const ready = !!approved && inPlan.length > 0 && inPlan.every((t) => t.col === 'done');
   return (
     <div>
@@ -202,7 +202,7 @@ function BuildPage() {
             计划 {approved?.revision ?? `r${s.build.planRevision}`} · {new Date(s.build.createdAt).toLocaleString()}
           </p>
           <p className="dsg-prefix">
-            指纹 {s.build.buildFingerprint.slice(0, 19)}…｜提交 {s.build.commits.length} 个（{s.build.commits.map((c) => c.slice(0, 8)).join('、')}）｜
+            指纹 {s.build.buildFingerprint.slice(0, 19)}…｜提交 {s.build.commits.length} 个（{s.build.commits.map((c) => (typeof c === 'string' ? c : c.commitId).slice(0, 8)).join('、')}）｜
             独立 UI 工件 {s.build.uiArtifact.htmlFingerprint.slice(0, 19)}…（{s.build.uiArtifact.independent ? '非原型复制' : '—'}）
           </p>
         </div>
@@ -433,7 +433,7 @@ function SelftestPage() {
       </div>
       {transferOpen && latest && (
         <ConfirmModal
-          title={`确认交接 ${latest.code} 至测试验收`}
+          title={`确认交接 ${latest.code} 至测试`}
           confirmLabel="确认转测试"
           body={`报告指纹：sha256:${latest.report_fingerprint}\n批次候选：构建+基线+报告三指纹；AI 不可代确认。`}
           onClose={() => setTransferOpen(false)}

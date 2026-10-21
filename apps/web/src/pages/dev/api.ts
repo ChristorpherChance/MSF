@@ -56,7 +56,7 @@ export interface PlanSuggestion {
 
 export interface PlanItem {
   planId: string; revision: string; state: 'draft' | 'submitted' | 'approved' | 'invalidated';
-  fingerprint: string; snapshot: { taskIds: string[]; note: string | null };
+  fingerprint: string; snapshot: { taskIds?: string[]; note: string | null };
   coverageReport: { ok: boolean; uncoveredDesignItems: string[] };
   suggestions: PlanSuggestion[];
   preparationFingerprint: string | null;
@@ -70,7 +70,9 @@ export interface AutopilotStatus {
 }
 
 export interface BuildInfo {
-  buildId: string; status: string; buildFingerprint: string; commits: string[];
+  buildId: string; status: string; buildFingerprint: string;
+  /** 服务端 commit_refs=jsonb 对象数组（{prRef,commitId}）；兼容早期字符串形态 */
+  commits: Array<string | { prRef: string; commitId: string }>;
   planRevision: number; uiArtifact: { htmlFingerprint: string; independent: boolean };
   createdAt: string;
 }
