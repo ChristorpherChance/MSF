@@ -244,6 +244,12 @@ describe('Tst 测试验收域（集成，需 DB+MinIO）', async () => {
     expect(det.snapshot.devReport.report_fingerprint).toBe(reportFp);
     expect(det.snapshot.designBaseline.baseline_fingerprint).toBe(baselineFp.replace(/^sha256:/, ''));
     expect(det.snapshot.environmentFingerprint).toMatch(/^sha256:/);
+    // 通过标准快照（2026-10-21）：接收即冻结六维+页面清单
+    const terms = det.snapshot.acceptanceTerms as {
+      passCriteria?: { dimensions: Array<{ key: string; name: string; hint: string }>; pages: Array<{ code: string; title: string }> };
+    };
+    expect(terms.passCriteria?.dimensions.length).toBe(6);
+    expect((terms.passCriteria?.pages.length ?? 0)).toBeGreaterThan(0);
     // 快照导出
     const exp = (await batches.export(PID, batchId, CTX)) as { downloadUrl: string };
     expect(exp.downloadUrl).toContain('http');
@@ -255,6 +261,15 @@ describe('Tst 测试验收域（集成，需 DB+MinIO）', async () => {
     planDraftId = d.planId;
     expect(d.cases.length).toBeGreaterThanOrEqual(1);
     expect(d.cases.some((c) => c.id === 'AT-MANUAL' && c.mode === 'manual')).toBe(true);
+    // 通过标准派生（2026-10-21）：每原型页一条「页面一致」人工 P0 用例
+    const cur0 = (await plans.current(PID, batchId)) as {
+      cases: Array<{ code: string; title: string; mode: string; priority: string; steps: Array<{ action: string; expected: string }> }>;
+    };
+    const pageCases = cur0.cases.filter((c) => c.title.startsWith('页面一致：'));
+    expect(pageCases.length).toBeGreaterThan(0);
+    expect(pageCases.every((c) => c.mode === 'manual' && c.priority === 'P0')).toBe(true);
+    expect(pageCases[0]!.steps.length).toBe(6); // 六维逐维核对步骤
+    expect(pageCases[0]!.steps[0]!.action).toContain('结构一致');
     // 批次 → planned
     const det = (await batches.detail(PID, batchId)) as { status: string };
     expect(det.status).toBe('planned');
@@ -355,6 +370,17 @@ describe('Tst 测试验收域（集成，需 DB+MinIO）', async () => {
     // 旧运行已变化 → STALE_EVIDENCE
     await expect(runs.manualRecord(PID, runId1, 'AT-MANUAL', { status: 'pass', evidence: '晚到录入' }, CTX))
       .rejects.toMatchObject({ code: 'STALE_EVIDENCE' });
+    // 页面一致性人工用例逐条录入（2026-10-21 通过标准机制随行：每原型页×六维 P0 必测人工用例，
+    // 不录=not-run→结论 blocked「未完成不美化」——这正是机制语义，测试须如实走人工核对动作）
+    for (;;) {
+      const cur = (await runs.runsOfBatch(PID, batchId)) as unknown as {
+        latestRunId: string; cases: Array<{ code: string; result: string; executor_kind: string }>;
+      };
+      const pending = cur.cases.find((c) => c.executor_kind === 'human' && c.result === 'not-run');
+      if (!pending) break;
+      await runs.manualRecord(PID, cur.latestRunId, pending.code,
+        { status: 'pass', evidence: `页面一致六维核对通过：${pending.code}` }, CTX);
+    }
     // 新版本：自动行原样拷贝，结论 pass
     const v = (await runs.runsOfBatch(PID, batchId)) as {
       items: Array<{ runId: string; conclusion: string; previousRunId: boolean }>;
