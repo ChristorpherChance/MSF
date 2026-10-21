@@ -14,8 +14,10 @@ import { devMode, DevWorkspaceService } from './workspace.service.js';
  *  v3=2026-10-20 四门诚实化：ui 门 real 工作区真实观察/functional 覆盖率如实/review 门 real 只认真评审证据）。
  *  v4=2026-10-21 实机抓修：real ui 门补一般项 c-page-structure（generalItems 恒空撞 UI_GENERAL_EMPTY 分母闸）、
  *  review 门滤 archived（重识别归档的旧 done 任务不再计入缺失）——SR-0008 双冤案根修。
+ *  v5=2026-10-21 real ui 门补关键项 c-page-links（页间 .html 相对引用目标必须存在，断链=孤岛页阻断——
+ *  116 实机 P-ROOM/P-010 断链实锤；「完整产品」形态修复配套门禁）。
  *  导出供测试夹具同源构造指纹，防生产/测试两套口径漂移。 */
-export const SELFTEST_GATE_RULES_VERSION = 4;
+export const SELFTEST_GATE_RULES_VERSION = 5;
 
 /** 页面接线观察判定（纯函数可单测）：文件缺失→fail；带 msf:prototype-copy 标记=原型静态副本未接线→fail */
 export function pageWiredOutcome(html: string | null): 'pass' | 'fail' {
@@ -27,6 +29,32 @@ export function pageWiredOutcome(html: string | null): 'pass' | 'fail' {
 export function pageStructureOutcome(html: string | null): 'pass' | 'fail' {
   if (html === null) return 'fail';
   return /<html[\s>]/i.test(html) && /<body[\s>]/i.test(html) ? 'pass' : 'fail';
+}
+
+/** 页间 .html 相对引用抽取（纯函数可单测）：href/src/location.href 里的相对 .html 目标（去 query/hash）；
+ *  外链/协议相对/根相对/mailto/锚点不算（根相对在预览反代下本就违规，由评审口径另行约束） */
+export function extractHtmlLinks(html: string): string[] {
+  const out = new Set<string>();
+  const re = /(?:href|src)\s*=\s*["']([^"'?#]+\.html)(?:[?#][^"']*)?["']|location\.href\s*=\s*["']([^"'?#]+\.html)(?:[?#][^"']*)?["']/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html))) {
+    const link = (m[1] ?? m[2])!;
+    if (/^(?:https?:)?\/\//i.test(link) || link.startsWith('/') || /^mailto:/i.test(link)) continue;
+    out.add(link);
+  }
+  return [...out];
+}
+
+/** 页间链接完整观察判定（纯函数可单测，real ui 门关键项 c-page-links）：
+ *  页面位于 public/pages/ 下，相对引用相对该目录解析（"P-002.html"→pages/ 内、"../x.html"→public/ 内），
+ *  目标文件须真实存在——116 实机 P-ROOM/P-010 断链实锤（点「进入房间」404，产品断成孤岛页） */
+export function pageLinksOutcome(html: string | null, exists: (relUnderPublic: string) => boolean): 'pass' | 'fail' {
+  if (html === null) return 'fail';
+  for (const link of extractHtmlLinks(html)) {
+    const rel = link.startsWith('../') ? link.slice(3) : `pages/${link}`;
+    if (rel.includes('..') || !exists(rel)) return 'fail';
+  }
+  return 'pass';
 }
 
 /**
@@ -422,18 +450,24 @@ export class DevSelftestService {
     const pages = items.rows.filter((i) => i.item_type === 'page').map((i) => i.code);
     const viewports = items.rows.filter((i) => i.item_type === 'viewport').map((i) => i.code);
     if (devMode() === 'real') {
-      // 关键项=接线版存在且非原型副本；一般项=HTML 结构完整（分母合法性：general 恒空撞 UI_GENERAL_EMPTY 闸——SR-0008 实锤）
+      // 关键项=接线版存在且非原型副本 + 页间链接完整（c-page-links：断链=产品断成孤岛页，阻断级）；
+      // 一般项=HTML 结构完整（分母合法性：general 恒空撞 UI_GENERAL_EMPTY 闸——SR-0008 实锤）
       const matrix: UiMatrixCell[] = pages.map((p) => ({
         pageId: p, viewportId: 'default',
-        criticalItems: [{ id: 'c-page-wired', kind: 'visual' }],
+        criticalItems: [{ id: 'c-page-wired', kind: 'visual' }, { id: 'c-page-links', kind: 'visual' }],
         generalItems: [{ id: 'c-page-structure', kind: 'visual' }],
       }));
       const observed: UiObserved[] = [];
+      const existing = new Set(this.ws ? await this.ws.listFiles(projectId) : []); // 链接检查的文件存在性全集（工作区相对路径）
       for (const p of pages) {
         const html = this.ws
           ? await this.ws.readFile(projectId, `public/pages/${p}.html`).catch(() => null)
           : null;
         observed.push({ pageId: p, viewportId: 'default', checkId: 'c-page-wired', kind: 'visual', outcome: pageWiredOutcome(html) });
+        observed.push({
+          pageId: p, viewportId: 'default', checkId: 'c-page-links', kind: 'visual',
+          outcome: pageLinksOutcome(html, (rel) => existing.has(`public/${rel}`)),
+        });
         observed.push({ pageId: p, viewportId: 'default', checkId: 'c-page-structure', kind: 'visual', outcome: pageStructureOutcome(html) });
       }
       const r = evaluateUiEvidence(matrix, observed);

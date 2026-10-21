@@ -8,7 +8,7 @@ import { parseFileBlocks, scaffoldFiles, APP_CONVENTIONS } from './codegen.servi
 import { DevWorkspaceService, devMode } from './workspace.service.js';
 import { rewritePreviewHtml } from './preview.service.js';
 import { buildTaskSpecs, scheduleBatches } from './tasks.service.js';
-import { pageWiredOutcome, pageStructureOutcome } from './selftest.service.js';
+import { pageWiredOutcome, pageStructureOutcome, extractHtmlLinks, pageLinksOutcome } from './selftest.service.js';
 import { parseAiReview } from './board.service.js';
 
 describe('parseFileBlocks 输出契约', () => {
@@ -203,6 +203,31 @@ describe('pageStructureOutcome 页面结构完整判定（real ui 门一般项�
     expect(pageStructureOutcome('<div>碎片</div>')).toBe('fail');
     expect(pageStructureOutcome('<body>仅身体</body>')).toBe('fail');
     expect(pageStructureOutcome('<!doctype html><html lang="zh"><head></head><body>wired</body></html>')).toBe('pass');
+  });
+});
+
+describe('页间链接完整性（real ui 门 c-page-links，2026-10-21「完整产品」断链门禁）', () => {
+  it('extractHtmlLinks：相对 .html 全抓（href/location.href、带 query），外链/根相对/mailto/非 html 不算', () => {
+    const html = [
+      '<a href="P-002.html">房间</a>',
+      '<a href="P-001.html?returnTo=P-009.html">登录</a>',
+      "location.href = 'P-003.html?x=1'",
+      '<a href="https://cdn.example.com/x.html">外链</a>',
+      '<a href="//cdn.example.com/y.html">协议相对</a>',
+      '<a href="/abs.html">根相对</a>',
+      '<a href="mailto:a@b.c">邮</a>',
+      '<img src="logo.png">',
+    ].join('');
+    expect(extractHtmlLinks(html).sort()).toEqual(['P-001.html', 'P-002.html', 'P-003.html']);
+  });
+  it('pageLinksOutcome：目标存在→pass；指向不存在页码/越界→fail（P-ROOM 冤案形态）', () => {
+    const files = new Set(['public/pages/P-001.html', 'public/pages/P-002.html']);
+    const exists = (rel: string) => files.has(`public/${rel}`);
+    expect(pageLinksOutcome('<a href="P-001.html">x</a><a href="../other.html">y</a>', exists)).toBe('fail'); // other.html 不在
+    expect(pageLinksOutcome('<a href="P-001.html">x</a>', exists)).toBe('pass');
+    expect(pageLinksOutcome('<a href="P-ROOM.html">断链</a>', exists)).toBe('fail');
+    expect(pageLinksOutcome(null, exists)).toBe('fail');
+    expect(pageLinksOutcome('<p>无链接</p>', exists)).toBe('pass');
   });
 });
 
