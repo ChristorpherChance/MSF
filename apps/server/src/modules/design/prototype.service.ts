@@ -551,6 +551,25 @@ export class PrototypeService {
         }
       }
       if (d?.modified) issues.push({ code: 'PROTOTYPE_DIRTY', message: '原型已修改未定稿', target: d.id });
+      // 页工件齐套闸（2026-10-22 全链实测实抓：「页原型 0 + 占位 6」也能定稿，开发链 codegen 拿不到
+      // 页级原型参考→保真闸空转）——目录每页必须有页级原型工件（跨版本宽松命中,与 codegen 同口径）
+      {
+        const catVer = await this.catalog.currentCatalogVersion(client, projectId);
+        if (catVer) {
+          const catPages = await q<{ code: string }>(
+            "SELECT code FROM dsg_catalog_items WHERE project_id=$1 AND catalog_version=$2 AND item_type='page'",
+            [projectId, catVer]);
+          if (catPages.rows.length > 0) {
+            const arts = await q<{ page_code: string }>(
+              'SELECT DISTINCT page_code FROM dsg_prototype_pages WHERE project_id=$1', [projectId]);
+            const have = new Set(arts.rows.map((r) => r.page_code));
+            const missingPages = catPages.rows.filter((p) => !have.has(p.code)).map((p) => p.code);
+            if (missingPages.length > 0) {
+              issues.push({ code: 'PROTOTYPE_REQUIRED', message: `缺页级原型工件：${missingPages.join('、')}（逐页生成后再定稿，否则开发链无原型参照）` });
+            }
+          }
+        }
+      }
       // 页滞后实时比对（定稿一个滞后汇总会冻结错误基线，必须拦）。
       // I-1：finalize 保留时间基滞后硬门禁（pageUiLagIssues 并列；check 动作已降级为报告内 issue）。
       if (latestPlan && d?.current_version_id) {
