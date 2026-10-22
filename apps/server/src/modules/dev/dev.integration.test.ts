@@ -1050,4 +1050,61 @@ describe('Dev 开发域（集成，需 DB+MinIO）', async () => {
     await query("DELETE FROM dev_authorizations WHERE authorization_id='auth_t22'");
     await query('DELETE FROM dev_tasks WHERE id=$1', [ft.id]);
   }, 30000);
+
+  it('T23 AI 评审红自动返工：评审意见随 redevelop 注回重写，满 3 轮才阻断（2026-10-22 原型保真重生成实跑节奏根修）', async () => {
+    const { appendEvidence } = await import('../evidence/audit.service.js');
+    const mkFixture = async (tag: string, failRevs: string[]) => {
+      const ft = (await tasks.createTask(PID, `T23 夹具页面${tag}`, 'frontend', CTX)) as { id: string; code: string };
+      await query(
+        "UPDATE dev_tasks SET col='review', prog=100, code_rev=1, batch_no=1, asg_type='agent', run_status='running', write_scopes='[]', deps='[]' WHERE id=$1",
+        [ft.id]);
+      const sub = (await plans.submit(PID, [ft.code], `T23${tag} 轮`, CTX)) as { revision: string; fingerprint: string };
+      await plans.approve(PID, sub.revision, sub.fingerprint, true, CTX);
+      const planRow = (await query<{ id: string; plan_fingerprint: string }>(
+        'SELECT id, plan_fingerprint FROM dev_plans WHERE project_id=$1 AND revision=$2', [PID, Number(sub.revision.replace('plan-r', ''))])).rows[0]!;
+      await query(
+        `INSERT INTO dev_authorizations (project_id, authorization_id, plan_id, scope, task_ids, status, created_by)
+         VALUES ($1,$4,$2,'{"development":true,"unitCi":true,"aiReview":true,"merge":true,"integrationBuild":true,"transferToTest":false}',$3,'active','it')`,
+        [PID, planRow.id, JSON.stringify([{ code: ft.code, rev: 1 }]), `auth_t23${tag}`]);
+      await query(
+        `INSERT INTO dev_runs (project_id, run_id, run_token, plan_id, plan_fingerprint, authorization_id, status, phase, created_by)
+         VALUES ($1,$4,'tok-t23${tag}',$2,$3,$4,'running','ai-review','it')`, [PID, planRow.id, planRow.plan_fingerprint, `run_t23${tag}`]);
+      const c = await pool.connect();
+      try {
+        // 单测绿（过质量闸到评审分支）
+        await appendEvidence(c, { projectId: PID, kind: 'unit', payload: { taskId: ft.id, codeRev: '1', pass: true, mode: 'sandbox' } });
+        // 评审红 N 轮（distinct codeRev）
+        for (const rev of failRevs) {
+          await appendEvidence(c, { projectId: PID, kind: 'ai-review', payload: { taskId: ft.id, codeRev: rev, conclusion: 'fail', note: '样式漂移' } });
+        }
+      } finally { c.release(); }
+      return ft;
+    };
+    // ① 一轮评审红（strike=1<3）→ 自动 redevelop 回 queue，不阻断；mock 链续跑到 done（mock 评审恒 pass）
+    const a = await mkFixture('a', ['1']);
+    await autopilot.onApplicationBootstrap();
+    await waitFor(async () => {
+      const t = (await query<{ col: string }>('SELECT col FROM dev_tasks WHERE id=$1', [a.id])).rows[0];
+      return t?.col === 'done';
+    });
+    // 停掉 a 运行再开 b（runner 按项目防重入，两个 running 运行同项目只活一个）
+    await autopilot.control(PID, 'stop', CTX).catch(() => undefined);
+    // ② 三轮评审红（strike=3）→ 阻断 AI_REVIEW_FAILED 待人工
+    const b = await mkFixture('b', ['1', '2', '3']);
+    await autopilot.onApplicationBootstrap();
+    await waitFor(async () => {
+      const s = (await autopilot.status(PID)) as { run: { status: string; blocker: { code: string } | null } | null };
+      return s.run?.status === 'blocked';
+    });
+    const sb = (await autopilot.status(PID)) as { run: { blocker: { code: string } | null } | null };
+    expect(sb.run?.blocker?.code).toBe('AI_REVIEW_FAILED');
+    // 清理夹具（a 所在 run 已到 awaiting-transfer/stopped 不定——逐个 stop 兜底再删）
+    await autopilot.control(PID, 'stop', CTX).catch(() => undefined);
+    for (const [fx, tag] of [[a, 'a'], [b, 'b']] as const) {
+      await query('DELETE FROM dev_prs WHERE task_id=$1', [fx.id]);
+      await query(`DELETE FROM dev_runs WHERE run_id=$1`, [`run_t23${tag}`]);
+      await query(`DELETE FROM dev_authorizations WHERE authorization_id=$1`, [`auth_t23${tag}`]);
+      await query('DELETE FROM dev_tasks WHERE id=$1', [fx.id]);
+    }
+  }, 60000);
 });

@@ -472,13 +472,23 @@ export class DevAutopilotService {
             await this.board.aiReview(projectId, next.id, autoCtx);
             phase = 'ai-review';
           } else if (hasReview.rows[0]!.conclusion === 'fail') {
-            // AI 真评审红（2026-10-20 real 真评审配套）：不带着红评审自动合并——阻断待人工
-            // （处置=返工重写码 或 人工核对后 checklist 合并兜底，评审意见在任务证据里）
-            await this.block(projectId, runId, {
-              code: 'AI_REVIEW_FAILED', message: `任务 ${next.code} AI 评审不通过——返工或人工合并处置后点「继续」`,
-              taskId: next.id, category: 'quality',
-            }, ctx);
-            return true;
+            // AI 评审红自动返工（2026-10-22 原型保真重生成实跑：与单测红同构——评审意见已注入
+            // redevelop prompt，盲写已消除，人无需逐页接棒；strike=评审红的代码修订轮数，
+            // 以最近一次整批重生成（dev.run.regenerate）为界不连坐旧轮），满 3 轮才阻断待人工
+            const rfails = await query<{ n: string }>(
+              `SELECT count(DISTINCT payload->>'codeRev') AS n FROM evd_records WHERE project_id=$1 AND kind='ai-review' AND payload->>'taskId'=$2
+               AND payload->>'conclusion'='fail'
+               AND created_at > COALESCE((SELECT max(created_at) FROM audit_log WHERE project_id=$1 AND command='dev.run.regenerate'), '-infinity'::timestamptz)`,
+              [projectId, next.id]);
+            if (Number(rfails.rows[0]!.n) >= 3) {
+              await this.block(projectId, runId, {
+                code: 'AI_REVIEW_FAILED', message: `任务 ${next.code} AI 评审连续 ${rfails.rows[0]!.n} 轮代码修订不通过——人工处置链：读评审意见后对该任务「重开发」（tasks:redevelop）带意见重写，或核对后 checklist 合并兜底`,
+                taskId: next.id, category: 'quality',
+              }, ctx);
+              return true;
+            }
+            await this.board.redevelop(projectId, next.id, autoCtx);
+            phase = 'development';
           } else {
             await this.board.merge(projectId, next.id, 'autopilot-authorization', undefined, r.authorization_id, autoCtx);
             phase = 'merge';
