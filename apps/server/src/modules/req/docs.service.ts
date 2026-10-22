@@ -314,6 +314,10 @@ export class ReqDocsService {
         throw new DomainError('INVALID_STATE', '当前版本已定稿', doc.id);
       }
       if (doc.modified) throw new DomainError('INVALID_STATE', '有未提交修改，不可定稿', doc.id);
+      // 空模板闸（2026-10-22 全链实测实抓，与设计域同口径）：初始模板未覆盖不可定稿
+      if ((cur.content ?? '').includes('（待生成')) {
+        throw new DomainError('INVALID_STATE', '内容仍是初始模板（未生成/未编辑），不可定稿', doc.id);
+      }
       await this.assertNoPendings(client, doc.id);
       if (kind === 'prd') {
         // 领域附加门禁：RTM 健康度实时重算（F06-7 不用缓存值放行）+ 度量留痕

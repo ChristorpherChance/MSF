@@ -195,6 +195,11 @@ export class DesignDocsService {
       }
       if (doc.final_version_id === cur.id) throw new DomainError('INVALID_STATE', '当前版本已定稿', doc.id);
       if (doc.modified) throw new DomainError('INVALID_STATE', '有未提交修改，不可定稿', doc.id);
+      // 空模板闸（2026-10-22 全链实测实抓）：provisioning 骨架（「（待生成…」标记）未被生成覆盖
+      // 时定稿=把空册钉成基线，下游目录/原型/开发链全线空转——定稿前置拒绝，引导先生成或编辑
+      if ((cur.content ?? '').includes('（待生成')) {
+        throw new DomainError('INVALID_STATE', '内容仍是初始模板（未生成/未编辑），不可定稿', doc.id);
+      }
       await this.assertNoPendings(client, doc.id);
       const open = await client.query<{ n: string }>(
         "SELECT count(*) AS n FROM dsg_reviews WHERE project_id=$1 AND status='open'", [projectId]);
