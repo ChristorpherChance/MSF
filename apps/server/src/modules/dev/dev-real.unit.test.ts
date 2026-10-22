@@ -86,6 +86,8 @@ describe('scaffoldFiles 确定性脚手架', () => {
     expect(APP_CONVENTIONS).toContain('跨页接缝归属');
     // 空态与权限引导
     expect(APP_CONVENTIONS).toContain('空态与权限引导');
+    // 2026-10-22 run_262 重生成实锤：壳焊缝丢失四轮连红——重写先读契约
+    expect(APP_CONVENTIONS).toContain('重写先读契约');
   });
 });
 
