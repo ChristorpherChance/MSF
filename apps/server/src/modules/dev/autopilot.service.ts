@@ -45,9 +45,21 @@ export class DevAutopilotService {
 
   /** 进程重启 runner 恢复（2026-10-21：runner 是进程内替身，systemctl 重启/部署后
    *  status='running' 的 run 静默死亡——界面永远「自动执行中」且占未终态位锁死新启动；
-   *  引导时扫描 running 运行逐个 kickRunner 续 tick；blocked/paused 等人工态不动） */
+   *  引导时扫描 running 运行逐个 kickRunner 续 tick；blocked/paused 等人工态不动）
+   *  2026-10-22 增补孤儿任务清扫：重启会杀死在跑的 codegen，任务滞留 ing/running/prog<100
+   *  且无任何标记——tick 视其为「中间态」无限等待（run_262 T-032 实锤，部署即死锁）。
+   *  codegen 末尾才原子落 commit，回炉 queue 重跑无副作用 */
   async onApplicationBootstrap(): Promise<void> {
     try {
+      const orphans = await query<{ id: string }>(
+        `UPDATE dev_tasks t SET col='queue', prog=0, run_status='rework', updated_at=now()
+         FROM dev_runs r
+         WHERE t.project_id=r.project_id AND r.status='running'
+           AND t.col='ing' AND t.run_status='running' AND t.prog<100 AND t.asg_type='agent'
+         RETURNING t.id`);
+      if (orphans.rows.length > 0) {
+        console.warn(`[autopilot] 进程重启清扫 ${orphans.rows.length} 个孤儿 ing 任务回 queue（codegen 被杀无残留 commit）`);
+      }
       const rows = await query<{ project_id: string; run_id: string }>(
         "SELECT project_id, run_id FROM dev_runs WHERE status='running'");
       for (const r of rows.rows) {

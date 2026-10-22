@@ -1016,4 +1016,38 @@ describe('Dev 开发域（集成，需 DB+MinIO）', async () => {
     await query("DELETE FROM dev_authorizations WHERE authorization_id='auth_t21'");
     await query('DELETE FROM dev_tasks WHERE id=$1', [ft.id]);
   }, 30000);
+
+  it('T22 孤儿 ing 清扫：重启杀死在跑 codegen 滞留 ing/running/prog<100 → 回炉 queue 续跑（2026-10-22 run_262 T-032 死锁根修）', async () => {
+    // 夹具：ing/prog=10/running 任务 + approved 计划 + running 运行（模拟部署重启瞬间的孤儿态）
+    const ft = (await tasks.createTask(PID, 'T22 夹具页面', 'frontend', CTX)) as { id: string; code: string };
+    await query(
+      "UPDATE dev_tasks SET col='ing', prog=10, batch_no=1, asg_type='agent', run_status='running', write_scopes='[]', deps='[]' WHERE id=$1",
+      [ft.id]);
+    const sub = (await plans.submit(PID, [ft.code], 'T22 轮', CTX)) as { revision: string; fingerprint: string };
+    await plans.approve(PID, sub.revision, sub.fingerprint, true, CTX);
+    const planRow = (await query<{ id: string; plan_fingerprint: string }>(
+      'SELECT id, plan_fingerprint FROM dev_plans WHERE project_id=$1 AND revision=$2', [PID, Number(sub.revision.replace('plan-r', ''))])).rows[0]!;
+    await query(
+      `INSERT INTO dev_authorizations (project_id, authorization_id, plan_id, scope, task_ids, status, created_by)
+       VALUES ($1,'auth_t22',$2,'{"development":true,"unitCi":true,"aiReview":true,"merge":true,"integrationBuild":true,"transferToTest":false}',$3,'active','it')`,
+      [PID, planRow.id, JSON.stringify([{ code: ft.code, rev: 1 }])]);
+    await query(
+      `INSERT INTO dev_runs (project_id, run_id, run_token, plan_id, plan_fingerprint, authorization_id, status, phase, created_by)
+       VALUES ($1,'run_t22','tok-t22',$2,$3,'auth_t22','running','dispatch','it')`, [PID, planRow.id, planRow.plan_fingerprint]);
+    // 引导恢复：孤儿扫回 queue + runner 续 tick 推进到 done
+    await autopilot.onApplicationBootstrap();
+    const swept = (await query<{ col: string; run_status: string }>('SELECT col, run_status FROM dev_tasks WHERE id=$1', [ft.id])).rows[0];
+    expect(swept?.col === 'queue' || swept?.col === 'ing' || swept?.col === 'done').toBe(true); // 已被清扫（可能已被 tick 秒接走）
+    expect(swept?.col).not.toBe('review'); // 不得带着 prog=10 直进评审
+    await waitFor(async () => {
+      const t = (await query<{ col: string }>('SELECT col FROM dev_tasks WHERE id=$1', [ft.id])).rows[0];
+      return t?.col === 'done';
+    });
+    // 清理夹具
+    await autopilot.control(PID, 'stop', CTX);
+    await query('DELETE FROM dev_prs WHERE task_id=$1', [ft.id]);
+    await query("DELETE FROM dev_runs WHERE run_id='run_t22'");
+    await query("DELETE FROM dev_authorizations WHERE authorization_id='auth_t22'");
+    await query('DELETE FROM dev_tasks WHERE id=$1', [ft.id]);
+  }, 30000);
 });
