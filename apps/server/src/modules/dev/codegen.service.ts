@@ -23,7 +23,8 @@ import { DevWorkspaceService } from './workspace.service.js';
 export interface CodegenFile { path: string; content: string }
 
 const MAX_FILES = 60;
-const MAX_PROMPT_HTML = 40_000;
+// 原型注入上限：须容下最大原型页全文（41KB+），截断=模型看不到的部分必然自创——保真闸必红死循环
+const MAX_PROMPT_HTML = 100_000;
 
 /** 生成应用约定（注入 prompt；预览形态=单进程自包含，沙箱内网零出向可跑） */
 export const APP_CONVENTIONS = `
@@ -71,6 +72,9 @@ export const APP_CONVENTIONS = `
   既有测试：路由前缀收编、WS attach、钩子注入等挂载次序与模块导出形状都是契约，
   重生成丢焊缝=功能整层消失；新增/改写测试不得与既有测试的权威口径冲突（冲突以既有为准）；
 - 【空态与权限引导】数据为空或当前身份无权限时，渲染设计好的空态/登录引导，禁报错挂死或留白；
+- 【保真闸（机器强制，2026-10-22 文案漂移根修）】页面交付由服务端机器核验：原型交互元素
+  （按钮/链接/label/option 文本与 placeholder 文案）须在交付页中逐字出现（图标/箭头不计），
+  命中率不足即整批打回返工——同义改写（"我准备好了"→"准备"）、合并省略、自创入口一律不许；
 - 样式直接写内联 <style> 或 public/ 下 css 文件。
 【输出契约（严格执行）】
 - 只输出文件块，不要寒暄。每个文件一个代码块，格式：
@@ -111,6 +115,36 @@ export function parseFileBlocks(text: string): CodegenFile[] {
     byPath.set(p, f.content);
   }
   return [...byPath.entries()].slice(0, MAX_FILES).map(([path, content]) => ({ path, content }));
+}
+
+/** 保真闸：交互元素文案规范化（去符号/箭头/空白，仅留文字数字——箭头位置与图标字体差异不计） */
+const normInteractive = (s: string) => s.replace(/[^\p{L}\p{N}]/gu, '').toLowerCase();
+/** 原型演示噪音（状态面板标签/演示标记不是产品功能，不计入保真分母） */
+const PROTO_DEMO_NOISE = ['默认态', '空态', '原型导航', '演示'];
+
+/** 提取页面交互元素文案（button/a/label/option 内联文本 + placeholder；嵌套标签剥平） */
+export function extractInteractiveTexts(html: string): string[] {
+  const out = new Set<string>();
+  for (const m of html.matchAll(/<(button|a|label|option)\b[^>]*>([\s\S]*?)<\/\1>/gi)) {
+    const t = m[2]!.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    if (t) out.add(t);
+  }
+  for (const m of html.matchAll(/placeholder="([^"]+)"/gi)) out.add(m[1]!.trim());
+  return [...out];
+}
+
+/** 页面保真核验（纯函数）：原型交互元素文案在交付页中的规范化命中率。
+ *  剔除：演示噪音、规范化后 <2 字（图标钮）与 >24 字（多元素拼接文本，非单一控件文案）。
+ *  通过线：缺失数 ≤ max(3, 总数 15%)——允许个别控件合理合并，禁止同义改写/自创版式成规模。 */
+export function pageFidelityCheck(protoHtml: string, pageHtml: string): { ok: boolean; total: number; missing: string[] } {
+  const pool = normInteractive(pageHtml);
+  const items = extractInteractiveTexts(protoHtml)
+    .map((raw) => ({ raw, norm: normInteractive(raw) }))
+    .filter((x) => x.norm.length >= 2 && x.norm.length <= 24)
+    .filter((x) => !PROTO_DEMO_NOISE.some((d) => x.raw.includes(d)));
+  const missing = items.filter((x) => !pool.includes(x.norm)).map((x) => x.raw);
+  const total = items.length;
+  return { ok: missing.length <= Math.max(3, Math.floor(total * 0.15)), total, missing };
 }
 
 /** 确定性脚手架（mock provider/解析为空兜底；只补缺不覆盖已有文件） */
@@ -157,6 +191,7 @@ export class DevCodegenService {
         projectId: string; taskId: string; ok: boolean; files?: string[]; commit?: string | null;
         mode?: 'ai' | 'deterministic'; rounds?: number; error?: string;
         usage?: { inputTokens: number; outputTokens: number };
+        fidelity?: Array<{ page: string; total: number; missing: string[] }>;
       };
       const t = await client.query<{ run_status: string; code: string; code_rev: number; rev: number }>(
         'SELECT run_status, code, code_rev, rev FROM dev_tasks WHERE id=$1 AND project_id=$2 FOR UPDATE',
@@ -174,6 +209,7 @@ export class DevCodegenService {
           ok: p.ok, mode: p.mode ?? 'ai', rounds: p.rounds ?? 1,
           files: p.files ?? [], commit: p.commit ?? null,
           ...(p.error ? { error: p.error } : {}), ...(p.usage ? { usage: p.usage } : {}),
+          ...(p.fidelity ? { fidelity: p.fidelity } : {}),
           at: new Date().toISOString(),
         },
       });
@@ -228,6 +264,8 @@ export class DevCodegenService {
       let mode: 'ai' | 'deterministic' = 'deterministic';
       let rounds = 0;
       let usage: { inputTokens: number; outputTokens: number } | undefined;
+      // 保真闸核验结果（页面任务；含末轮仍未过的残缺口径，如实落证据供评审/测试阶段核对）
+      let fidelity: Array<{ page: string; total: number; missing: string[] }> | undefined;
       // 目录载荷/原型页/接口契约无论 AI 是否可用都先装配（deterministic 兜底也要原型静态副本）
       const built = await this.buildPrompt(projectId, task, [...existing]);
       const protoPages = built.protoPages;
@@ -235,7 +273,9 @@ export class DevCodegenService {
       if (this.ai?.kind === 'pi') {
         const prompt = built.text + lastFail;
         let feedback = '';
-        for (let round = 1; round <= 2; round++) {
+        // 页面任务多给一轮：保真闸打回带缺项清单后模型需完整复述原型再手术，单轮纠偏不够
+        const maxRounds = task.kind === 'frontend' && protoPages.length > 0 ? 3 : 2;
+        for (let round = 1; round <= maxRounds; round++) {
           rounds = round;
           // 用途走闭集内 'generation'（routes 枚举 planning|generation|review|translation|chat|parsing|reflection，
           // 'codegen' 不在闭集内配不了路由——116 实机首跑抓到）；代码生成=文档生成的同池大模型
@@ -248,8 +288,31 @@ export class DevCodegenService {
             usage = { inputTokens: (usage?.inputTokens ?? 0) + r.usage.inputTokens, outputTokens: (usage?.outputTokens ?? 0) + r.usage.outputTokens };
           }
           const parsed = parseFileBlocks(text);
-          if (parsed.length > 0) { files = parsed; mode = 'ai'; break; }
-          feedback = '未解析到任何 ```file path="..." 文件块（0 个文件）。';
+          if (parsed.length === 0) {
+            feedback = '未解析到任何 ```file path="..." 文件块（0 个文件）。';
+            continue;
+          }
+          files = parsed;
+          mode = 'ai';
+          // 保真闸（机器强制）：页面任务交付页与定稿原型逐条核对交互元素文案——
+          // prompt 条款压不住模型自创版式（run_262 重生成后保真复核仍 153 缺），改由机器把关
+          if (task.kind === 'frontend' && protoPages.length > 0) {
+            const gaps: string[] = [];
+            fidelity = [];
+            for (const pp of protoPages) {
+              const target = `public/pages/${pp.code}.html`;
+              const f = parsed.find((x) => x.path === target);
+              if (!f) { gaps.push(`${pp.code}：未交付 ${target}`); fidelity.push({ page: pp.code, total: -1, missing: ['<未交付>'] }); continue; }
+              const chk = pageFidelityCheck(pp.html, f.content);
+              fidelity.push({ page: pp.code, total: chk.total, missing: chk.missing });
+              if (!chk.ok) gaps.push(`${pp.code} 缺失/被改写 ${chk.missing.length}/${chk.total} 项：${chk.missing.slice(0, 15).join('、')}${chk.missing.length > 15 ? ' …' : ''}`);
+            }
+            if (gaps.length > 0 && round < maxRounds) {
+              feedback = `【保真闸未过——原型交互元素文案/控件在交付页中缺失或被同义改写，机器核验打回】\n${gaps.join('\n')}\n【纪律】以原型 HTML 为基底只做接线手术：上述条目必须在交付页中逐字出现（仅可包裹等价控件，禁同义改写/合并省略/自创入口）。对照原型补齐后按输出契约重新输出全部文件。`;
+              continue;
+            }
+          }
+          break;
         }
       }
       if (files.length === 0) {
@@ -271,7 +334,7 @@ export class DevCodegenService {
         written.push(f.path);
       }
       const commit = await this.ws.commitAll(dir, `feat(${task.code}): ${task.title}`);
-      await done({ ok: true, files: written, commit, mode, rounds, ...(usage ? { usage } : {}) });
+      await done({ ok: true, files: written, commit, mode, rounds, ...(usage ? { usage } : {}), ...(fidelity ? { fidelity } : {}) });
     } catch (e) {
       const msg = sanitizeAiError(e instanceof Error ? e.message : String(e));
       await done({ ok: false, error: msg }).catch(() => undefined);

@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { parseFileBlocks, scaffoldFiles, APP_CONVENTIONS } from './codegen.service.js';
+import { parseFileBlocks, scaffoldFiles, APP_CONVENTIONS, pageFidelityCheck, extractInteractiveTexts } from './codegen.service.js';
 import { DevWorkspaceService, devMode } from './workspace.service.js';
 import { rewritePreviewHtml } from './preview.service.js';
 import { buildTaskSpecs, scheduleBatches } from './tasks.service.js';
@@ -88,6 +88,8 @@ describe('scaffoldFiles 确定性脚手架', () => {
     expect(APP_CONVENTIONS).toContain('空态与权限引导');
     // 2026-10-22 run_262 重生成实锤：壳焊缝丢失四轮连红——重写先读契约
     expect(APP_CONVENTIONS).toContain('重写先读契约');
+    // 2026-10-22 文案漂移根修：保真闸机器强制（prompt 条款压不住自创版式）
+    expect(APP_CONVENTIONS).toContain('保真闸');
   });
 });
 
@@ -243,6 +245,35 @@ describe('页间链接完整性（real ui 门 c-page-links，2026-10-21「完整
     expect(pageLinksOutcome('<a href="P-ROOM.html">断链</a>', exists)).toBe('fail');
     expect(pageLinksOutcome(null, exists)).toBe('fail');
     expect(pageLinksOutcome('<p>无链接</p>', exists)).toBe('pass');
+  });
+});
+
+describe('pageFidelityCheck 页面保真闸（2026-10-22 文案漂移根修）', () => {
+  const btn = (t: string) => `<button>${t}</button>`;
+  it('原样保留→pass；嵌套标签剥平后命中；箭头/图标差异不计', () => {
+    const proto = btn('账号登录') + btn('游客进入 ↗') + '<a href="x">返回游戏大厅 →</a>' + '<input placeholder="请输入登录账号">';
+    const page = '<button class="primary">账号登录</button><button>游客进入</button><a href="P-HOME.html">返回游戏大厅</a><input placeholder="请输入登录账号">';
+    const r = pageFidelityCheck(proto, page);
+    expect(r.ok).toBe(true);
+    expect(r.missing).toEqual([]);
+  });
+  it('同义改写/缺控件超阈值→fail 且列出原文案', () => {
+    const proto = Array.from({ length: 10 }, (_, i) => btn(`功能入口${i + 1}号`)).join('');
+    const page = Array.from({ length: 6 }, (_, i) => btn(`功能入口${i + 1}号`)).join('') + btn('自创甲') + btn('自创乙') + btn('自创丙') + btn('自创丁');
+    const r = pageFidelityCheck(proto, page);
+    expect(r.ok).toBe(false); // 缺 4 > max(3, 10*15%=1)
+    expect(r.missing).toEqual(['功能入口7号', '功能入口8号', '功能入口9号', '功能入口10号']);
+    expect(r.total).toBe(10);
+  });
+  it('演示噪音（默认态/空态/原型导航）不计分母；拼接长串（>24 规范化字）剔除', () => {
+    const proto = '<div>默认态</div><div>空态</div>' + btn('原型导航：预览对战页 →') + btn('游戏模式房间混战双人同屏单人练习玩家容量四人二人六人八人') + btn('确定');
+    const r = pageFidelityCheck(proto, btn('确定'));
+    expect(r.total).toBe(1);
+    expect(r.ok).toBe(true);
+  });
+  it('extractInteractiveTexts：placeholder 与去重', () => {
+    const ts = extractInteractiveTexts('<button>登录</button><button>登录</button><input placeholder="账号"><option>公开</option>');
+    expect(ts).toEqual(['登录', '公开', '账号']); // 控件文本按文档序先行，placeholder 批次在后
   });
 });
 
