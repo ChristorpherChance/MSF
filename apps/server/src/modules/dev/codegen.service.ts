@@ -397,6 +397,32 @@ export class DevCodegenService {
       }
     }
     parts.push(`\n【工作区已有文件】\n${existingFiles.slice(0, 200).join('\n') || '（空仓库）'}`);
+    // 重写先读契约的物质基础（2026-10-22 run_262 壳六轮连红根修）：模型看不到现文件内容时
+    // 「重写先读契约」是空话——写范围内既有文件全文 + 既有测试（验收规格）注入 prompt，
+    // 让模型在现状上做增量修改而非盲写。预算：写范围文件单份 30KB；测试清单 12 份单份 20KB/共 80KB
+    const readable = (task.write_scopes ?? []).filter((p) => existingFiles.includes(p));
+    if (readable.length > 0) {
+      const chunks: string[] = [];
+      for (const p of readable.slice(0, 8)) {
+        const c = await this.ws.readFile(projectId, p).catch(() => null);
+        if (c) chunks.push(`--- ${p} ---\n${c.slice(0, 30_000)}`);
+      }
+      if (chunks.length > 0) parts.push(`\n【写范围内既有实现全文（重写必须以其为基底增量修改，挂载次序/导出形状/路由前缀收编都是契约）】\n${chunks.join('\n\n')}`);
+    }
+    const testFiles = existingFiles.filter((p) => /(^|\/)tests?\/[^/]+\.test\.js$/.test(p) || /(^|\/)[^/]+\.test\.js$/.test(p)).slice(0, 12);
+    if (testFiles.length > 0) {
+      const chunks: string[] = [];
+      let budget = 80_000;
+      for (const p of testFiles) {
+        if (budget <= 0) break;
+        const c = await this.ws.readFile(projectId, p).catch(() => null);
+        if (!c) continue;
+        const slice = c.slice(0, Math.min(20_000, budget));
+        budget -= slice.length;
+        chunks.push(`--- ${p} ---\n${slice}`);
+      }
+      if (chunks.length > 0) parts.push(`\n【既有测试全文=验收规格（代码服从测试，禁止改写/删除既有测试凑绿；断言的路由/导出/行为逐条满足）】\n${chunks.join('\n\n')}`);
+    }
     parts.push(`\n请现在按输出契约给出本任务要新增/修改的文件。package.json 已存在时不要重复输出，除非必须修改（修改则输出完整内容）。`);
     return { text: parts.join('\n'), protoPages };
   }
