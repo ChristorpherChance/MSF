@@ -359,11 +359,23 @@ export class DevBoardService {
       // 事务外真跑：宿主持依赖安装 + 沙箱 npm test；结果随命令 payload 登记（不静默降级）
       await this.ws.ensure(projectId, ctx);
       await this.ws.npmInstall(projectId);
-      const r = await this.ws.runInWorkspace(this.sandbox, projectId, ['npm', 'test'], { timeoutMs: 300_000 });
-      return executeCommand('dev.quality.complete', {
-        projectId, taskId,
-        real: { exitCode: r.exitCode, logsTail: r.logs.slice(-3000), envFingerprint: r.envFingerprint, durationMs: r.durationMs, gitSha: r.gitSha },
-      }, { ...ctx, projectId });
+      // 2026-10-22：EXECUTION_TIMEOUT 落 fail 证据而非抛穿 tick——挂死测试（常驻句柄未释放/死等）
+      // 是代码缺陷，应由「单测红→redevelop 反馈回路」消化；抛穿的旧口径下单次 300s 超时即两次
+      // tick 失败越过 DISPATCH_NO_PROGRESS 的 10s 门槛，反馈回路永远接不到棒（run_262 重生成实锤）。
+      let real: { exitCode: number; logsTail: string; envFingerprint: string; durationMs: number; gitSha: string | null };
+      try {
+        const r = await this.ws.runInWorkspace(this.sandbox, projectId, ['npm', 'test'], { timeoutMs: 300_000 });
+        real = { exitCode: r.exitCode, logsTail: r.logs.slice(-3000), envFingerprint: r.envFingerprint, durationMs: r.durationMs, gitSha: r.gitSha };
+      } catch (e) {
+        if (!(e instanceof DomainError) || e.code !== 'EXECUTION_TIMEOUT') throw e;
+        const det = (e.details ?? {}) as { partialLogs?: string; envFingerprint?: string };
+        real = {
+          exitCode: 124,
+          logsTail: `EXECUTION_TIMEOUT: ${e.message}\n${(det.partialLogs ?? '').slice(-2800)}`,
+          envFingerprint: det.envFingerprint ?? 'timeout', durationMs: 300_000, gitSha: null,
+        };
+      }
+      return executeCommand('dev.quality.complete', { projectId, taskId, real }, { ...ctx, projectId });
     }
     return executeCommand('dev.quality.complete', { projectId, taskId }, { ...ctx, projectId });
   }
