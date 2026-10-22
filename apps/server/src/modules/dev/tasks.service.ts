@@ -663,7 +663,8 @@ export function buildTaskSpecs(items: Array<{ item_type: string; code: string; p
     title: '应用壳与公共接线', kind: 'common', asgType: 'agent',
     goal: '单进程应用壳：server 静态托管 public/ + 首页页面索引 + app-api 路由挂载', scope: 'server', boundary: '不动页面内容',
     sourceIds: [], work: ['应用壳与公共模块'], inputs: [], deliverables: ['server/index.js', 'public/index.html'],
-    acceptance: [{ item: 'npm start 起服、首页列出全部页面可点开', pass: false }], quality, deps: [], writeScopes: ['server/index.js', 'public/index.html'], batchNo: 1, effort: 'S',
+    // 差异62 现行口径（2026-10-22 全链实测：旧文案「首页列出全部页面」诱致 AI 评审冤案循环）
+    acceptance: [{ item: 'npm start 起服；首页=产品入口（/ →302 产品首页页或承载首页内容）；全部页面经 /dev-pages 导航可达；app-api 路由前缀收编挂载不破', pass: false }], quality, deps: [], writeScopes: ['server/index.js', 'public/index.html'], batchNo: 1, effort: 'S',
   });
   specs.push({
     title: '服务实现：后端 API 与数据', kind: 'backend', asgType: 'agent',
