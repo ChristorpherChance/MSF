@@ -140,7 +140,9 @@ export function pageFidelityCheck(protoHtml: string, pageHtml: string): { ok: bo
   const pool = normInteractive(pageHtml);
   const items = extractInteractiveTexts(protoHtml)
     .map((raw) => ({ raw, norm: normInteractive(raw) }))
-    .filter((x) => x.norm.length >= 2 && x.norm.length <= 24)
+    // >12 规范化字=label 包裹 select/选项组的拼接文本（非单一控件文案，原子词各自另有 option 计入）
+    // ——run_263 T-025 实抓：24 上限放进 5 条拼接串致空打回 3 轮；原型单控件文案实测量 ≤10 字
+    .filter((x) => x.norm.length >= 2 && x.norm.length <= 12)
     // 噪音比对同样走规范化（原型「星野 我」带空格，raw includes 漏判——run_263 T-024 实抓）
     .filter((x) => !PROTO_DEMO_NOISE.some((d) => x.norm.includes(normInteractive(d))));
   const missing = items.filter((x) => !pool.includes(x.norm)).map((x) => x.raw);
