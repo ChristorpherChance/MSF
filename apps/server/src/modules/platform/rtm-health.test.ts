@@ -13,6 +13,15 @@ const PRD = [
 ].join('\n');
 
 describe('deriveLinks（#15 设计册反向派生）', () => {
+  it('编号约定叙事提及不产幻影节点（2026-10-22 REQ-022 冤案：「后续新增从 REQ-022 顺延」被 L0C 判无承接）', () => {
+    const prd = PRD + '\n当前最大需求编号为 **REQ-022**，后续新增从 REQ-022 顺延，不复用既有编号。\n';
+    const { nodes } = deriveLinks(CRD, prd);
+    expect(nodes.req).toEqual(['REQ-001', 'REQ-002']);
+    // 表格/列表/加粗定义位仍正常识别
+    const prd2 = PRD + '\n| REQ-010 | 统计 | 口径 |\n- REQ-011 回收站\n**REQ-012** 备份\n';
+    expect(deriveLinks(CRD, prd2).nodes.req).toEqual(['REQ-001', 'REQ-002', 'REQ-010', 'REQ-011', 'REQ-012']);
+  });
+
   it('基线口径：仅 PRD 正文 DSG 锚点建 implements', () => {
     const { links, nodes } = deriveLinks(CRD, PRD);
     expect(nodes.req).toEqual(['REQ-001', 'REQ-002']);

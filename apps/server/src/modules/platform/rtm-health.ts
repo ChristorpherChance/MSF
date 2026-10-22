@@ -48,6 +48,20 @@ const scanCodes = (text: string, re: RegExp): string[] => {
   return [...out].sort();
 };
 
+/** 定义性出现扫描（2026-10-22 REQ-022 冤案根修）：节点集只认「定义位」——行内编码之前只允许
+ *  markdown 结构符（#、-、*、|、>、列表序号、空白），句中叙事提及（如「后续新增从 REQ-022 顺延」）
+ *  不产节点；否则编号约定说明文字会凭空制造无承接需求的幻影节点，L0C 门禁必冤断。 */
+const scanDefining = (text: string, re: RegExp): string[] => {
+  const out = new Set<string>();
+  for (const line of text.split('\n')) {
+    for (const m of line.matchAll(re)) {
+      const prefix = line.slice(0, m.index);
+      if (/^[\s#*\-|>`~:\d.、()（）【】\[\]]*$/.test(prefix)) out.add(m[0]);
+    }
+  }
+  return [...out].sort();
+};
+
 /** 从 CRD/PRD 当前版本全文（可选加设计各册正文，#15 反向派生）派生追踪链与节点集（无文档侧按空集计） */
 export function deriveLinks(
   crdContent: string,
@@ -57,8 +71,8 @@ export function deriveLinks(
   const links: DerivedLink[] = [];
   const dsgSet = new Set<string>();
 
-  const rSet = new Set(scanCodes(crdContent, RE_R));
-  const crSet = new Set(scanCodes(crdContent, RE_CR));
+  const rSet = new Set(scanDefining(crdContent, RE_R));
+  const crSet = new Set(scanDefining(crdContent, RE_CR));
   for (const sec of splitSections(crdContent)) {
     const crs = scanCodes(sec.title, RE_CR);
     for (const cr of crs) {
@@ -70,7 +84,7 @@ export function deriveLinks(
     }
   }
 
-  const reqSet = new Set(scanCodes(prdContent, RE_REQ));
+  const reqSet = new Set(scanDefining(prdContent, RE_REQ));
   for (const sec of splitSections(prdContent)) {
     const reqs = scanCodes(sec.title, RE_REQ);
     for (const req of reqs) {
