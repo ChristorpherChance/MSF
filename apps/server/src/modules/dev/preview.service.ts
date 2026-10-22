@@ -274,7 +274,9 @@ export class DevPreviewService {
       const docker = (this.sandbox as unknown as { client(): Promise<{ getContainer(id: string): { logs(o: Record<string, unknown>): Promise<Buffer> } }> });
       const c = (await docker.client()).getContainer(containerId);
       const raw = await c.logs({ stdout: true, stderr: true });
-      return raw.toString('utf8').slice(-2000);
+      // docker logs 非 TTY 输出带 8 字节多路复用帧头（含 NUL）——NUL 落 pg text 列整笔 500 吞掉真因
+      // （2026-10-23 全链实测实抓：预览启动失败只见「内部错误」），入库前剥控制字符
+      return raw.toString('utf8').replace(/[\x00-\x1f\x7f]/g, '').slice(-2000);
     } catch {
       return '';
     }
