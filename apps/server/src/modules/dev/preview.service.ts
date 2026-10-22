@@ -85,6 +85,12 @@ export class DevPreviewService {
     if (!this.ws.exists(projectId)) {
       throw new DomainError('VALIDATION_FAILED', '工作区还没有应用代码——先在开发页跑任务让 AI 写码', projectId);
     }
+    // data/ 预置可写（2026-10-23 全链实测实抓）：rootless 容器内 uid 映射不到宿主属主，
+    // 应用写 data/api.json 落 EACCES 起不来——宿主侧先建 0777 让容器内任意 uid 可写
+    const { mkdir, chmod } = await import('node:fs/promises');
+    const dataDir = `${dir}/data`;
+    await mkdir(dataDir, { recursive: true });
+    await chmod(dataDir, 0o777).catch(() => undefined);
     await this.ws.npmInstall(projectId);
     await this.stop(projectId, ctx, '重起替换').catch(() => undefined);
     const name = `msf-preview-${projectId.slice(0, 8)}`;
