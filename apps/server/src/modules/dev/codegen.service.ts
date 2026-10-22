@@ -314,7 +314,7 @@ export class DevCodegenService {
             if (html) {
               const text = html.toString('utf8');
               protoPages.push({ code: p.page_code, html: text });
-              parts.push(`\n【页面 ${p.page_code} 的已定稿原型 HTML——本任务交付物 public/pages/${p.page_code}.html 就是它的接线版，必须严格按原型实现：配色、布局、区块结构、文案与原型 1:1 保留（含 <style> 与主题变量），原型上每个按钮/表单/列表/筛选器/页签/交互都必须可用且行为一致；只把内置模拟数据与假交互改造为 fetch('app-api/...') 真实驱动；契约确无对应端点的部分保留模拟数据并以 HTML 注释标 TODO，且必须在任务说明输出中逐条列出缺口清单（页面审查与测试阶段按此清单核对）；不得自创版式、不得增减区块、不得省略交互】\n${text.slice(0, MAX_PROMPT_HTML)}`);
+              parts.push(`\n【页面 ${p.page_code} 的已定稿原型 HTML——本任务交付物 public/pages/${p.page_code}.html 就是它的接线版，必须严格按原型实现：配色、布局、区块结构、文案与原型 1:1 保留（含 <style> 与主题变量），原型上每个按钮/表单/列表/筛选器/页签/交互都必须可用且行为一致；只把内置模拟数据与假交互改造为 fetch('app-api/...') 真实驱动；契约确无对应端点的部分保留模拟数据并以 HTML 注释标 TODO，且必须在任务说明输出中逐条列出缺口清单（页面审查与测试阶段按此清单核对）；不得自创版式、不得增减区块、不得省略交互】\n【接线手法（2026-10-22 run_262 T-021 三轮保真红根修）】以原型 HTML 为基底原样保留、逐字节不动外观：配色 hex/尺寸 px/布局结构/区块顺序一处不改，只做最小手术式接线（数据绑定换 fetch、按钮接真实事件）。禁止全文重写、禁止重新设计样式——评审逐块 diff 原型，任何样式漂移（背景色/宽度/排布）直接判红。输出时先完整复述原型，再在其上做手术修改。\n${text.slice(0, MAX_PROMPT_HTML)}`);
             }
           }
         }
