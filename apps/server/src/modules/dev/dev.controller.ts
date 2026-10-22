@@ -136,6 +136,13 @@ export class DevController {
     return this.board.aiReview(pid, taskId, this.actor(req, pid));
   }
 
+  // 轻量重开发人工触发口（2026-10-22：AI 评审保真红处置=带评审意见返工重写，原仅 autopilot 内部可调）
+  @Post('tasks/:taskId\\:redevelop')
+  @HttpCode(200)
+  redevelop(@Param('projectId') pid: string, @Param('taskId') taskId: string, @Req() req: Request) {
+    return this.board.redevelop(pid, taskId, this.actor(req, pid));
+  }
+
   @Post('tasks/:taskId/pr\\:merge')
   @HttpCode(200)
   merge(@Param('projectId') pid: string, @Param('taskId') taskId: string, @Body() body: { basisType: string; skipReason?: string }, @Req() req: Request) {

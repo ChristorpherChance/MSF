@@ -215,6 +215,14 @@ export class DevCodegenService {
       if (ue.rows[0] && ue.rows[0].payload.pass === false) {
         lastFail = `\n【上轮沙箱测试失败（npm test 真实执行红）——必须先修复再交稿】\n${(ue.rows[0].payload.logsTail ?? '').slice(-1500)}\n【纪律】既有测试文件即验收规格：代码服从测试，禁止改写/删除 tests/ 下既有测试来凑绿；导出形态与既有测试断言逐条对齐后再交稿。`;
       }
+      // 评审意见反馈回路（2026-10-22 run_262 T-021：原型保真评审红后 redevelop 盲写——
+      // 差异61 观察项落地）：最近一次 AI 评审 fail 的结论注记注入 prompt，逐条改到位再交稿
+      const rv = await query<{ payload: { conclusion?: string; note?: string } }>(
+        `SELECT payload FROM evd_records WHERE project_id=$1 AND kind='ai-review'
+         AND payload->>'taskId'=$2 ORDER BY created_at DESC LIMIT 1`, [projectId, taskId]);
+      if (rv.rows[0] && rv.rows[0].payload.conclusion === 'fail' && rv.rows[0].payload.note) {
+        lastFail += `\n【上轮 AI 评审不通过——逐条改到位再交稿】\n${rv.rows[0].payload.note.slice(0, 1200)}\n【纪律】评审意见即返工规格：保真偏差（配色/尺寸/布局/交互与定稿原型不一致）逐项对照原型修正，不得只改其一或自创替代方案。`;
+      }
 
       let files: CodegenFile[] = [];
       let mode: 'ai' | 'deterministic' = 'deterministic';
