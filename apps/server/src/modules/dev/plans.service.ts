@@ -208,6 +208,10 @@ export class DevPlansService {
         throw new DomainError('VALIDATION_FAILED', 'decision 枚举 accepted|rejected|pending', 'decision');
       }
       const revNo = Number(revision.replace(/^plan-r/, ''));
+      // 畸形修订号(如 plan-rplan-r1→NaN)须 400 而非落 SQL 500(2026-10-22 全链实测实抓)
+      if (!Number.isInteger(revNo) || revNo < 1) {
+        throw new DomainError('VALIDATION_FAILED', '计划修订号形态非法(应为 plan-r<N>)', 'revision');
+      }
       const plan = await client.query<Record<string, unknown>>(
         'SELECT * FROM dev_plans WHERE project_id=$1 AND revision=$2 FOR UPDATE', [projectId, revNo]);
       const p = plan.rows[0];
@@ -281,6 +285,10 @@ export class DevPlansService {
         throw new DomainError('VALIDATION_FAILED', '计划指纹缺失（fingerprint）', 'fingerprint');
       }
       const revNo = Number(revision.replace(/^plan-r/, ''));
+      // 畸形修订号(如 plan-rplan-r1→NaN)须 400 而非落 SQL 500(2026-10-22 全链实测实抓)
+      if (!Number.isInteger(revNo) || revNo < 1) {
+        throw new DomainError('VALIDATION_FAILED', '计划修订号形态非法(应为 plan-r<N>)', 'revision');
+      }
       const plan = await client.query<{
         id: string; state: string; plan_fingerprint: string; baseline_fingerprint: string;
         snapshot: { taskIds?: string[]; basedOn?: unknown }; suggestions: PlanSuggestion[] | null;
