@@ -90,6 +90,8 @@ describe('scaffoldFiles 确定性脚手架', () => {
     expect(APP_CONVENTIONS).toContain('重写先读契约');
     // 2026-10-22 文案漂移根修：保真闸机器强制（prompt 条款压不住自创版式）
     expect(APP_CONVENTIONS).toContain('保真闸');
+    // 2026-10-23 全链实测双项目实抓：壳-后端挂载契约（无参启动必须挂载业务 API+冒烟走真启动路径）
+    expect(APP_CONVENTIONS).toContain('壳-后端挂载契约');
   });
 });
 
