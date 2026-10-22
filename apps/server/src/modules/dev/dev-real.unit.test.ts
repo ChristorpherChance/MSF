@@ -258,11 +258,12 @@ describe('pageFidelityCheck 页面保真闸（2026-10-22 文案漂移根修）',
     expect(r.missing).toEqual([]);
   });
   it('同义改写/缺控件超阈值→fail 且列出原文案', () => {
-    const proto = Array.from({ length: 10 }, (_, i) => btn(`功能入口${i + 1}号`)).join('');
-    const page = Array.from({ length: 6 }, (_, i) => btn(`功能入口${i + 1}号`)).join('') + btn('自创甲') + btn('自创乙') + btn('自创丙') + btn('自创丁');
+    const names = ['甲乙丙丁戊己庚辛壬癸'];
+    const proto = Array.from({ length: 10 }, (_, i) => btn(`功能入口${names[0]![i]}口`)).join('');
+    const page = Array.from({ length: 6 }, (_, i) => btn(`功能入口${names[0]![i]}口`)).join('') + btn('自创甲') + btn('自创乙') + btn('自创丙') + btn('自创丁');
     const r = pageFidelityCheck(proto, page);
     expect(r.ok).toBe(false); // 缺 4 > max(3, 10*15%=1)
-    expect(r.missing).toEqual(['功能入口7号', '功能入口8号', '功能入口9号', '功能入口10号']);
+    expect(r.missing).toEqual(['功能入口庚口', '功能入口辛口', '功能入口壬口', '功能入口癸口']);
     expect(r.total).toBe(10);
   });
   it('演示噪音（默认态/空态/原型导航）不计分母；拼接长串（>12 规范化字）剔除；原型硬编码演示数据（人名）计缺失但被阈值吸收', () => {
@@ -275,6 +276,13 @@ describe('pageFidelityCheck 页面保真闸（2026-10-22 文案漂移根修）',
   it('extractInteractiveTexts：placeholder 与去重', () => {
     const ts = extractInteractiveTexts('<button>登录</button><button>登录</button><input placeholder="账号"><option>公开</option>');
     expect(ts).toEqual(['登录', '公开', '账号']); // 控件文本按文档序先行，placeholder 批次在后
+  });
+  it('计数数字不属保真分母（demo 计数标签 vs 产品真实计数）', () => {
+    const proto = btn('全部好友 6') + btn('在线 4') + btn('邀请入房') + btn('确定') + btn('取消') + btn('查找');
+    const page = btn('全部好友 0') + btn('在线 0') + btn('邀请入房') + btn('确定') + btn('取消') + btn('查找');
+    const r = pageFidelityCheck(proto, page);
+    expect(r.missing).toEqual([]);
+    expect(r.ok).toBe(true);
   });
 });
 

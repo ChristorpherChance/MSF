@@ -117,8 +117,10 @@ export function parseFileBlocks(text: string): CodegenFile[] {
   return [...byPath.entries()].slice(0, MAX_FILES).map(([path, content]) => ({ path, content }));
 }
 
-/** 保真闸：交互元素文案规范化（去符号/箭头/空白，仅留文字数字——箭头位置与图标字体差异不计） */
-const normInteractive = (s: string) => s.replace(/[^\p{L}\p{N}]/gu, '').toLowerCase();
+/** 保真闸：交互元素文案规范化（去符号/箭头/空白，仅留文字——箭头位置与图标字体差异不计；
+ *  数字一并剥除：控件文案里的计数是数据（原型「全部好友 6」vs 产品真实「全部好友 0」），
+ *  不属版式保真——run_263 T-028 实抓 demo 计数标签空打回 3 轮） */
+const normInteractive = (s: string) => s.replace(/[^\p{L}\p{N}]/gu, '').replace(/\d+/g, '').toLowerCase();
 /** 原型演示噪音（状态面板标签/演示标记不是产品功能，不计入保真分母） */
 const PROTO_DEMO_NOISE = ['默认态', '空态', '原型导航', '演示'];
 
