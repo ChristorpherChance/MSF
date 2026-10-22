@@ -175,6 +175,9 @@ export class DevPreviewService {
         continue;
       }
       if (['host', 'authorization', 'referer', 'connection', 'content-length'].includes(key)) continue;
+      // Origin 重写为容器源（2026-10-23 全链实测实抓：应用侧同源校验拿浏览器 Origin
+      // （平台域名）比对容器 Host 恒不等——经预览的一切写操作 403 untrusted_origin）
+      if (key === 'origin') { headers.origin = `http://${live.ip}:${row.port ?? 3000}`; continue; }
       if (typeof v === 'string') headers[key] = v;
     }
     const method = req.method.toUpperCase();
