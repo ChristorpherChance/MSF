@@ -247,6 +247,13 @@ export class DevController {
     return this.autopilot.control(pid, 'resume', this.actor(req, pid));
   }
 
+  // 整批重生成（2026-10-22）：awaiting-transfer 人工回炉——全快照任务重跑全链
+  @Post('autopilot\\:regenerate')
+  @HttpCode(200)
+  autopilotRegenerate(@Param('projectId') pid: string, @Req() req: Request) {
+    return this.autopilot.regenerate(pid, this.actor(req, pid));
+  }
+
   @Get('autopilot')
   autopilotStatus(@Param('projectId') pid: string) {
     return this.autopilot.status(pid);

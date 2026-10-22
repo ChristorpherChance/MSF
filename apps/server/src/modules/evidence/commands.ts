@@ -158,6 +158,7 @@ export const COMMANDS = [
   'dev.autopilot.takeover',
   'dev.autopilot.block',
   'dev.autopilot.awaiting-transfer',
+  'dev.run.regenerate', // 整批重生成（2026-10-22 原型保真路线A：awaiting-transfer 人工回炉全快照任务重跑全链）
   // M4 开发域：集成构建/自测/交接（A06-13/14/19）
   'dev.build.start',
   'dev.build.complete',

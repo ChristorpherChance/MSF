@@ -172,6 +172,9 @@ export const devApi = {
       `${base(pid)}/autopilot:start`, { displayedRevisionId, displayedFingerprint }),
   autopilotControl: (pid: string, action: 'pause' | 'stop' | 'takeover' | 'resume') =>
     api.post(`${base(pid)}/autopilot:${action}`, {}),
+  // 整批重生成（2026-10-22 原型保真路线A）：awaiting-transfer 人工回炉全快照任务
+  autopilotRegenerate: (pid: string) =>
+    api.post<{ runId: string; status: string; resetTasks: number }>(`${base(pid)}/autopilot:regenerate`, {}),
   autopilotStatus: (pid: string) => api.get<AutopilotStatus>(`${base(pid)}/autopilot`),
 
   buildRun: (pid: string) => api.post<{ buildId: string; status: string }>(`${base(pid)}/build:run`, {}),

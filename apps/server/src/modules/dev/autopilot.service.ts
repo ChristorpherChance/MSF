@@ -220,6 +220,45 @@ export class DevAutopilotService {
       return { runId, status: 'awaiting-transfer' };
     });
 
+    // 整批重生成（2026-10-22 原型保真路线A配套）：awaiting-transfer 态人工一键回炉——
+    // 计划快照内全部任务回 queue（不 rev++/不使计划失效/不动已合并 PR 历史，
+    // codeRev 由 pr.submit 重提时 +1 使旧证据自然失效），run 回 running 续 autopilot 全链。
+    // 与逐任务 task.rework 的差异：不重识别、不失效计划、不新开 run——同一计划指纹下整批重来，
+    // 适用于生成口径升级（如 APP_CONVENTIONS 原型保真约定固化）后的整批翻新。
+    registerCommand('dev.run.regenerate', async (client, payload, ctx) => {
+      const { projectId } = payload as { projectId: string };
+      if (ctx.actorKind !== 'human') {
+        throw new DomainError('POLICY_MANUAL_REQUIRED', '整批重生成须人工操作', 'dev.run.regenerate');
+      }
+      const run = await client.query<RunRow>(
+        "SELECT * FROM dev_runs WHERE project_id=$1 AND status='awaiting-transfer' ORDER BY created_at DESC LIMIT 1 FOR UPDATE",
+        [projectId]);
+      const r = run.rows[0];
+      if (!r) throw new DomainError('INVALID_STATE', '仅「等待转测试」态可整批重生成（在跑/阻断请先处置或停止）', projectId);
+      const auth = await client.query<{ status: string }>(
+        'SELECT status FROM dev_authorizations WHERE project_id=$1 AND authorization_id=$2', [projectId, r.authorization_id]);
+      if (auth.rows[0]?.status !== 'active') throw new DomainError('INVALID_STATE', '授权已失效，须重新批准启动', r.authorization_id);
+      const plan = await client.query<{ state: string; plan_fingerprint: string; baseline_fingerprint: string; snapshot: { taskIds?: string[] } }>(
+        'SELECT * FROM dev_plans WHERE id=$1', [r.plan_id]);
+      const p = plan.rows[0];
+      if (!p || p.state !== 'approved' || p.plan_fingerprint !== r.plan_fingerprint) {
+        throw new DomainError('STALE_EVIDENCE', '计划已变化，须重新准备', r.run_id);
+      }
+      const live = await liveBaselineFingerprint(client, projectId);
+      if (live !== p.baseline_fingerprint) {
+        throw new DomainError('STALE_EVIDENCE', '基线已变化——请先走任务池重识别/重新批准计划', r.run_id);
+      }
+      const taskIds = p.snapshot.taskIds ?? [];
+      const reset = await client.query<{ n: string }>(
+        `WITH upd AS (UPDATE dev_tasks SET col='queue', prog=0, run_status='rework', blocked=false, blocked_reason=NULL, updated_by=$3, updated_at=now()
+           WHERE project_id=$1 AND code = ANY($2) AND col <> 'queue' RETURNING 1)
+         SELECT count(*) AS n FROM upd`, [projectId, taskIds, ctx.actorId]);
+      await client.query(
+        "UPDATE dev_runs SET run_token=$3, status='running', phase='dispatch', blocker=NULL, updated_at=now() WHERE id=$1 AND project_id=$2",
+        [r.id, projectId, randomUUID()]);
+      return { runId: r.run_id, status: 'running', resetTasks: Number(reset.rows[0]?.n ?? 0) };
+    });
+
     // 派发回执登记（审计链：每派发 tick 一条）+ L6 阶段推进随回执落库（phase 闭集校验）
     registerCommand('dev.autopilot.advance', async (client, payload) => {
       const { projectId, runId, phase } = payload as { projectId?: string; runId?: string; phase?: string };
@@ -250,6 +289,13 @@ export class DevAutopilotService {
       const st = (await this.status(projectId)) as { run: { runId: string } | null };
       if (st.run) this.kickRunner(projectId, st.run.runId, ctx);
     }
+    return r;
+  }
+
+  /** 整批重生成（2026-10-22 原型保真路线A）：awaiting-transfer 人工回炉全快照任务，kick 续 autopilot 全链 */
+  async regenerate(projectId: string, ctx: CommandContext) {
+    const r = (await executeCommand('dev.run.regenerate', { projectId }, { ...ctx, projectId })) as { runId: string };
+    this.kickRunner(projectId, r.runId, ctx);
     return r;
   }
 

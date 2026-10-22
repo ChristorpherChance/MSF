@@ -979,4 +979,41 @@ describe('Dev 开发域（集成，需 DB+MinIO）', async () => {
     await query("DELETE FROM dev_authorizations WHERE authorization_id='auth_t20'");
     await query('DELETE FROM dev_tasks WHERE id=$1', [ft.id]);
   }, 30000);
+
+  it('T21 整批重生成：awaiting-transfer 人工回炉全快照任务重跑全链（2026-10-22 原型保真路线A）', async () => {
+    // 夹具：done 任务 + approved 单任务计划 + awaiting-transfer 运行（模拟一轮已全链跑完待转测试）
+    const ft = (await tasks.createTask(PID, 'T21 夹具页面', 'frontend', CTX)) as { id: string; code: string };
+    await query(
+      "UPDATE dev_tasks SET col='done', prog=100, code_rev=1, batch_no=1, asg_type='agent', run_status='merged', write_scopes='[]', deps='[]' WHERE id=$1",
+      [ft.id]);
+    const sub = (await plans.submit(PID, [ft.code], 'T21 轮', CTX)) as { revision: string; fingerprint: string };
+    await plans.approve(PID, sub.revision, sub.fingerprint, true, CTX);
+    const planRow = (await query<{ id: string; plan_fingerprint: string }>(
+      'SELECT id, plan_fingerprint FROM dev_plans WHERE project_id=$1 AND revision=$2', [PID, Number(sub.revision.replace('plan-r', ''))])).rows[0]!;
+    await query(
+      `INSERT INTO dev_authorizations (project_id, authorization_id, plan_id, scope, task_ids, status, created_by)
+       VALUES ($1,'auth_t21',$2,'{"development":true,"unitCi":true,"aiReview":true,"merge":true,"integrationBuild":true,"transferToTest":false}',$3,'active','it')`,
+      [PID, planRow.id, JSON.stringify([{ code: ft.code, rev: 1 }])]);
+    await query(
+      `INSERT INTO dev_runs (project_id, run_id, run_token, plan_id, plan_fingerprint, authorization_id, status, phase, created_by)
+       VALUES ($1,'run_t21','tok-t21',$2,$3,'auth_t21','awaiting-transfer','awaiting-transfer','it')`, [PID, planRow.id, planRow.plan_fingerprint]);
+    // 人工闸：AI 通道永不可整批回炉（与 approveStart 同口径）
+    await expect(autopilot.regenerate(PID, AI_CTX)).rejects.toMatchObject({ code: 'POLICY_MANUAL_REQUIRED' });
+    // 人工触发：快照任务回 queue、run 回 running、runner 续 tick 重跑
+    const rg = (await autopilot.regenerate(PID, CTX)) as { runId: string; status: string; resetTasks: number };
+    expect(rg.runId).toBe('run_t21');
+    expect(rg.status).toBe('running');
+    expect(rg.resetTasks).toBe(1);
+    // mock 全链重跑到 done（证明回炉后 tick 链路可用；自测闸共享态不做全链断言，同 T20 口径）
+    await waitFor(async () => {
+      const t = (await query<{ col: string }>('SELECT col FROM dev_tasks WHERE id=$1', [ft.id])).rows[0];
+      return t?.col === 'done';
+    });
+    // 清理夹具（先停 runner——running/blocked 均可 stop）
+    await autopilot.control(PID, 'stop', CTX);
+    await query('DELETE FROM dev_prs WHERE task_id=$1', [ft.id]);
+    await query("DELETE FROM dev_runs WHERE run_id='run_t21'");
+    await query("DELETE FROM dev_authorizations WHERE authorization_id='auth_t21'");
+    await query('DELETE FROM dev_tasks WHERE id=$1', [ft.id]);
+  }, 30000);
 });

@@ -14,7 +14,7 @@ const COLS: Array<{ key: DevTask['col']; name: string }> = [
 export function BoardPanel() {
   const s = useDevStore();
   const pid = s.projectId!;
-  const [confirm, setConfirm] = useState<null | 'start' | 'stop' | 'takeover'>(null);
+  const [confirm, setConfirm] = useState<null | 'start' | 'stop' | 'takeover' | 'regen'>(null);
   const run = s.autopilot?.run ?? null;
   const approved = s.plans.find((p) => p.state === 'approved');
   const latest = s.plans[0];
@@ -76,6 +76,10 @@ export function BoardPanel() {
           {running && (
             <button className="act" onClick={() => setConfirm('stop')}>停止</button>
           )}
+          {/* 整批重生成（2026-10-22 原型保真路线A）：计划不变全任务回炉，按最新生成约定重写 */}
+          {run?.status === 'awaiting-transfer' && (
+            <button className="act" title="计划与任务不变，全部任务回排队，autopilot 按最新生成约定整批重写代码" onClick={() => setConfirm('regen')}>整批重生成</button>
+          )}
           <button className="act" onClick={() => s.refresh()}>刷新状态</button>
         </div>
       </div>
@@ -104,6 +108,18 @@ export function BoardPanel() {
           body="停止将撤销本次授权，确认？"
           onClose={() => setConfirm(null)}
           onConfirm={() => s.act(() => devApi.autopilotControl(pid, 'stop'), '已停止并撤销授权')}
+        />
+      )}
+      {confirm === 'regen' && (
+        <ConfirmModal
+          title="整批重生成"
+          confirmLabel="回炉重跑"
+          body={'计划与任务池不变：快照内全部任务回到排队，autopilot 按最新生成约定（含原型保真口径）整批重写代码，并重跑质量闸/AI 评审/集成构建/自测。\n已合并记录保留为历史。适用于生成约定升级后的整批翻新。'}
+          onClose={() => setConfirm(null)}
+          onConfirm={() => s.act(async () => {
+            const r = await devApi.autopilotRegenerate(pid);
+            useDevStore.setState({ notice: `已回炉 ${r.resetTasks} 个任务，autopilot 重新开跑` });
+          })}
         />
       )}
 
