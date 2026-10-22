@@ -141,7 +141,8 @@ export function pageFidelityCheck(protoHtml: string, pageHtml: string): { ok: bo
   const items = extractInteractiveTexts(protoHtml)
     .map((raw) => ({ raw, norm: normInteractive(raw) }))
     .filter((x) => x.norm.length >= 2 && x.norm.length <= 24)
-    .filter((x) => !PROTO_DEMO_NOISE.some((d) => x.raw.includes(d)));
+    // 噪音比对同样走规范化（原型「星野 我」带空格，raw includes 漏判——run_263 T-024 实抓）
+    .filter((x) => !PROTO_DEMO_NOISE.some((d) => x.norm.includes(normInteractive(d))));
   const missing = items.filter((x) => !pool.includes(x.norm)).map((x) => x.raw);
   const total = items.length;
   return { ok: missing.length <= Math.max(3, Math.floor(total * 0.15)), total, missing };

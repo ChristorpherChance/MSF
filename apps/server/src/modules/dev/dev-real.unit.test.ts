@@ -265,11 +265,12 @@ describe('pageFidelityCheck 页面保真闸（2026-10-22 文案漂移根修）',
     expect(r.missing).toEqual(['功能入口7号', '功能入口8号', '功能入口9号', '功能入口10号']);
     expect(r.total).toBe(10);
   });
-  it('演示噪音（默认态/空态/原型导航）不计分母；拼接长串（>24 规范化字）剔除', () => {
-    const proto = '<div>默认态</div><div>空态</div>' + btn('原型导航：预览对战页 →') + btn('游戏模式房间混战双人同屏单人练习玩家容量四人二人六人八人') + btn('确定');
+  it('演示噪音（默认态/空态/原型导航）不计分母；拼接长串（>24 规范化字）剔除；原型硬编码演示数据（人名）计缺失但被阈值吸收', () => {
+    const proto = '<div>默认态</div><div>空态</div>' + btn('原型导航：预览对战页 →') + btn('游戏模式房间混战双人同屏单人练习玩家容量四人二人六人八人') + btn('星野 我') + btn('确定');
     const r = pageFidelityCheck(proto, btn('确定'));
-    expect(r.total).toBe(1);
-    expect(r.ok).toBe(true);
+    expect(r.total).toBe(2); // 星野 我 + 确定
+    expect(r.missing).toEqual(['星野 我']); // 演示数据缺失如实记录
+    expect(r.ok).toBe(true); // 阈值吸收（产品渲染真实数据，演示人名本就不该出现）
   });
   it('extractInteractiveTexts：placeholder 与去重', () => {
     const ts = extractInteractiveTexts('<button>登录</button><button>登录</button><input placeholder="账号"><option>公开</option>');
