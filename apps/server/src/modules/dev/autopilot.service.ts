@@ -171,14 +171,24 @@ export class DevAutopilotService {
       // UNIT_FAILED 恢复前置（对齐 SELFTEST_FAILED 模式）：该任务当前 codeRev 最新单测证据不得仍 fail——
       // 处置动作=修代码/修测试后重跑质量闸翻绿；未处置直接放行会下一 tick 立刻再阻断（空转回归）
       if (r.blocker?.code === 'UNIT_FAILED' && r.blocker?.taskId) {
-        const cur = await client.query<{ code_rev: number }>(
-          'SELECT code_rev FROM dev_tasks WHERE id=$1 AND project_id=$2', [r.blocker.taskId, projectId]);
-        const unit = await client.query<{ pass: boolean | null }>(
-          `SELECT (payload->>'pass')::boolean AS pass FROM evd_records WHERE project_id=$1 AND kind='unit'
-           AND payload->>'taskId'=$2 AND payload->>'codeRev'=$3 ORDER BY created_at DESC LIMIT 1`,
-          [projectId, r.blocker.taskId, String(cur.rows[0]?.code_rev ?? 0)]);
-        if (unit.rows[0] && unit.rows[0].pass === false) {
-          throw new DomainError('INVALID_STATE', '单测仍未通过——请先修代码/修测试并重跑质量闸（tasks:quality）翻绿，处置完成再恢复', r.run_id);
+        // 2026-10-22：strike 预算以最近一次整批重生成为界——dev.run.regenerate 即人工「重来」处置，
+        // 旧轮失败历史不连坐；预算未尽（<3）放行 resume 让 redevelop 反馈回路接棒，
+        // 预算尽（≥3）才要求「先修码重测翻绿」人工处置链
+        const strikes = await client.query<{ n: string }>(
+          `SELECT count(DISTINCT payload->>'codeRev') AS n FROM evd_records WHERE project_id=$1 AND kind='unit' AND payload->>'taskId'=$2
+           AND (payload->>'pass')::boolean=false
+           AND created_at > COALESCE((SELECT max(created_at) FROM audit_log WHERE project_id=$1 AND command='dev.run.regenerate'), '-infinity'::timestamptz)`,
+          [projectId, r.blocker.taskId]);
+        if (Number(strikes.rows[0]?.n ?? 0) >= 3) {
+          const cur = await client.query<{ code_rev: number }>(
+            'SELECT code_rev FROM dev_tasks WHERE id=$1 AND project_id=$2', [r.blocker.taskId, projectId]);
+          const unit = await client.query<{ pass: boolean | null }>(
+            `SELECT (payload->>'pass')::boolean AS pass FROM evd_records WHERE project_id=$1 AND kind='unit'
+             AND payload->>'taskId'=$2 AND payload->>'codeRev'=$3 ORDER BY created_at DESC LIMIT 1`,
+            [projectId, r.blocker.taskId, String(cur.rows[0]?.code_rev ?? 0)]);
+          if (unit.rows[0] && unit.rows[0].pass === false) {
+            throw new DomainError('INVALID_STATE', '单测仍未通过——请先修代码/修测试并重跑质量闸（tasks:quality）翻绿，处置完成再恢复', r.run_id);
+          }
         }
       }
       const auth = await client.query<{ status: string }>(
@@ -424,10 +434,13 @@ export class DevAutopilotService {
           // 单测红自动返工（2026-10-21 根修「评审态空转」：旧口径最新证据红也每 tick 重跑 quality，
           // 同一份代码测一万次还是红——T-031 实锤 2 秒一条 fail 证据无限刷屏）：
           // 轻量重开发 review→queue（codegen 反馈回路注入失败日志重写）；strike=失败的代码修订轮数
-          // （distinct codeRev——同一代码被空转 bug 重复测试的 fail 不重复计），满 3 轮阻断待人工
+          // （distinct codeRev——同一代码被空转 bug 重复测试的 fail 不重复计），满 3 轮阻断待人工；
+          // 2026-10-22：strike 以最近一次整批重生成（dev.run.regenerate）为界——回炉即人工「重来」
+          // 处置，旧轮失败历史不连坐，否则新代码一次 quality 未跑就被旧 strike 冤断（run_262 实锤）
           const fails = await query<{ n: string }>(
             `SELECT count(DISTINCT payload->>'codeRev') AS n FROM evd_records WHERE project_id=$1 AND kind='unit' AND payload->>'taskId'=$2
-             AND (payload->>'pass')::boolean=false`,
+             AND (payload->>'pass')::boolean=false
+             AND created_at > COALESCE((SELECT max(created_at) FROM audit_log WHERE project_id=$1 AND command='dev.run.regenerate'), '-infinity'::timestamptz)`,
             [projectId, next.id]);
           if (Number(fails.rows[0]!.n) >= 3) {
             await this.block(projectId, runId, {
