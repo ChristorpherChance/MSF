@@ -192,6 +192,7 @@ export class DevCodegenService {
         mode?: 'ai' | 'deterministic'; rounds?: number; error?: string;
         usage?: { inputTokens: number; outputTokens: number };
         fidelity?: Array<{ page: string; total: number; missing: string[] }>;
+        protoPages?: string[];
       };
       const t = await client.query<{ run_status: string; code: string; code_rev: number; rev: number }>(
         'SELECT run_status, code, code_rev, rev FROM dev_tasks WHERE id=$1 AND project_id=$2 FOR UPDATE',
@@ -210,6 +211,7 @@ export class DevCodegenService {
           files: p.files ?? [], commit: p.commit ?? null,
           ...(p.error ? { error: p.error } : {}), ...(p.usage ? { usage: p.usage } : {}),
           ...(p.fidelity ? { fidelity: p.fidelity } : {}),
+          ...(p.protoPages ? { protoPages: p.protoPages } : {}),
           at: new Date().toISOString(),
         },
       });
@@ -334,7 +336,7 @@ export class DevCodegenService {
         written.push(f.path);
       }
       const commit = await this.ws.commitAll(dir, `feat(${task.code}): ${task.title}`);
-      await done({ ok: true, files: written, commit, mode, rounds, ...(usage ? { usage } : {}), ...(fidelity ? { fidelity } : {}) });
+      await done({ ok: true, files: written, commit, mode, rounds, protoPages: protoPages.map((p) => p.code), ...(usage ? { usage } : {}), ...(fidelity ? { fidelity } : {}) });
     } catch (e) {
       const msg = sanitizeAiError(e instanceof Error ? e.message : String(e));
       await done({ ok: false, error: msg }).catch(() => undefined);
@@ -368,10 +370,15 @@ export class DevCodegenService {
           parts.push(`\n【目录条目 ${it.code}（${it.item_type}）】\n${JSON.stringify(it.payload).slice(0, 6000)}`);
         }
         // 页级原型参考 HTML（frontend 任务：交付物即该原型页的接线版）
+        // 跨版本取每页最新工件（2026-10-22 run_263 根修）：目录升版时 reconcile 只随行
+        // payload 未变的页，变页工件滞留旧版——按「最新目录版」查必然漏页，原型根本没进
+        // prompt（保真漂移到自创版式的最大根因）；页工件身份锚定页码，与目录版本解耦
         if (task.kind === 'frontend' && this.storage) {
           const pages = await query<{ page_code: string; object_key: string }>(
-            'SELECT page_code, object_key FROM dsg_prototype_pages WHERE project_id=$1 AND catalog_version=$2 AND page_code = ANY($3)',
-            [projectId, cv, task.source_ids]);
+            `SELECT DISTINCT ON (page_code) page_code, object_key FROM dsg_prototype_pages
+             WHERE project_id=$1 AND page_code = ANY($2)
+             ORDER BY page_code, substring(catalog_version from 4)::int DESC`,
+            [projectId, task.source_ids]);
           for (const p of pages.rows) {
             const html = await this.storage.getObject(p.object_key).catch(() => null);
             if (html) {
