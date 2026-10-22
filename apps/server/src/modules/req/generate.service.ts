@@ -6,6 +6,17 @@ import { executeCommand, registerCommand, type CommandContext } from '../evidenc
 import { mdToPatches, normalizePatches, sha256Text, splitSections, buildNumberGuide, type EditPatch } from '../platform/doc-sections.js';
 import { AI_PROVIDER, type AiProvider, type AiUsage } from '../ai/ai-provider.interface.js';
 import { classifyAiError, isRetryableStreamCut, sanitizeAiError, withStreamCutRetry } from '../ai/stream-pipeline.js';
+
+/** 初始模板占位抹除（2026-10-22 全链实测实抓）：provisioning 模板「（待生成…」段落栖身 s0 前言，
+ *  AI 初稿以增量节补丁落稿后占位永存（定稿闸会拦「含占位」内容）——生成完成时在补丁链首部
+ *  补一条 s0 抹除补丁（同走人工确认流，留痕可撤销），使初稿落定时占位随之退场 */
+function withTemplateStrip(currentContent: string, patches: EditPatch[]): EditPatch[] {
+  if (!currentContent.includes('（待生成') || patches.length === 0) return patches;
+  const s0 = splitSections(currentContent)[0];
+  if (!s0 || !s0.md.includes('（待生成')) return patches;
+  const title = (s0.md.split('\n')[0] ?? '').trim();
+  return [{ type: 'modify', secId: s0.id, title: '抹除初始模板占位', old: s0.md, new: title }, ...patches];
+}
 import { registerExternalTool } from '../platform/external-tools.js';
 import { registerRefreshHandler } from '../platform/template-refresh.service.js';
 import { REFRESH_INSTRUCTION } from '../platform/template-refresh.js';
@@ -193,7 +204,7 @@ export class GenerateService {
       const { chunks, patches } = buildMock(kind, input.instruction ?? '', refs);
       ops.set(operationId, {
         id: operationId, projectId, kind, status: 'running',
-        chunks, patches, targetFingerprint: sha256Text(effective), refs, refSet,
+        chunks, patches: withTemplateStrip(effective, patches), targetFingerprint: sha256Text(effective), refs, refSet,
       });
     }
     await executeCommand('req.doc.generate', { projectId, kind, operationId }, { ...ctx, projectId });
@@ -243,7 +254,7 @@ export class GenerateService {
         await executeCommand('req.doc.gen_control', { projectId: op.projectId, kind: op.kind, genState: 'failed' }, { ...ctx, projectId: op.projectId });
         return { status: 'failed', error: real.error ?? 'INTERNAL', ...(real.errorMessage ? { errorMessage: real.errorMessage } : {}) };
       }
-      op.patches = real.patches ?? [];
+      op.patches = withTemplateStrip(op.real?.currentContent ?? '', real.patches ?? []);
     } else {
       for (const chunk of op.chunks) {
         while (op.status === 'paused') await sleep(30);

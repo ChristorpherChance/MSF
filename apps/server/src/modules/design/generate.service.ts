@@ -7,7 +7,17 @@ import { mdToPatches, normalizePatches, renumberAnchoredSections, sha256Text, sp
 import { deriveLinks, computeHealth } from '../platform/rtm-health.js';
 import { designContents } from '../platform/doc-contents.js';
 import { registerExternalTool } from '../platform/external-tools.js';
-import { registerRefreshHandler } from '../platform/template-refresh.service.js';
+import { registerRefreshHandler } from '../platform/template-refresh.service.js'
+
+/** 初始模板占位抹除(2026-10-22 全链实测实抓,与 req 域同构):模板「（待生成…」段落栖身 s0 前言,
+ *  AI 初稿增量节补丁落稿后占位永存——生成完成时补丁链首部补一条 s0 抹除补丁(同走人工确认流) */
+function withTemplateStrip(currentContent: string, patches: EditPatch[]): EditPatch[] {
+  if (!currentContent.includes('（待生成') || patches.length === 0) return patches;
+  const s0 = splitSections(currentContent)[0];
+  if (!s0 || !s0.md.includes('（待生成')) return patches;
+  const title = (s0.md.split('\n')[0] ?? '').trim();
+  return [{ type: 'modify', secId: s0.id, title: '抹除初始模板占位', old: s0.md, new: title }, ...patches];
+};
 import { REFRESH_INSTRUCTION } from '../platform/template-refresh.js';
 import { CHAPTER_RULE, designSectionRule } from '../platform/doc-conventions.js';
 import { buildTemplateGuide, refreshTemplateOverrides } from '../platform/doc-templates.js';
@@ -349,7 +359,7 @@ export class DesignGenerateService {
       const { chunks, patches } = buildMock(kind, input.instruction ?? '');
       ops.set(operationId, {
         id: operationId, projectId, kind, status: 'running',
-        chunks, patches, targetFingerprint: sha256Text(cur.rows[0]?.content ?? ''), refs,
+        chunks, patches: withTemplateStrip(cur.rows[0]?.content ?? '', patches), targetFingerprint: sha256Text(cur.rows[0]?.content ?? ''), refs,
       });
     }
     await executeCommand('design.doc.generate', { projectId, kind, operationId }, { ...ctx, projectId });
@@ -396,7 +406,7 @@ export class DesignGenerateService {
         }
         return real;
       }
-      op.patches = real.patches!;
+      op.patches = withTemplateStrip(op.real.currentContent, real.patches!);
     } else {
       for (const chunk of op.chunks) {
         while (op.status === 'paused') await sleep(30);
