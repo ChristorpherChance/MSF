@@ -570,6 +570,8 @@ describe('产品形态根修（2026-10-23 三层一致：cleanPageTitle / findDr
     expect(NAV_SCRIPT).toContain('__MSF_STATE_TITLES');
     expect(NAV_SCRIPT).toContain('[data-shell-states]');
     expect(NAV_SCRIPT).toContain("'index'");
+    // pills 显隐：样式表默认 display:none，inline 必须显式 'flex' 盖过（空串回落=恒隐藏，2026-10-23 实机截图实抓）
+    expect(NAV_SCRIPT).toContain("sc.style.display=pills?'flex':'none'");
   });
   it('placeholderBlock：data-msf-placeholder 标记在（草稿语闸剔除段）；标题剥锚码；占位提示语保留', () => {
     const p: CatalogItemLike = { item_type: 'page', code: 'P-X', payload: { title: 'u-9 某页' } };

@@ -139,7 +139,7 @@ export const NAV_SCRIPT = `<script>
         var st=s.getAttribute('data-state');if(!st)return;
         pills+='<a href="#'+pageId+'/'+st+'"'+(st===stateId?' class="on"':'')+'>'+(titles[st]||st)+'</a>';
       });
-      sc.innerHTML=pills;sc.style.display=pills?'':'none';
+      sc.innerHTML=pills;sc.style.display=pills?'flex':'none'; // 样式表默认 display:none，inline 须显式 flex 才能盖过（空串回落样式表=恒隐藏，2026-10-23 实机截图实抓）
     }
   }
   window.prototypeNavigate=show;
