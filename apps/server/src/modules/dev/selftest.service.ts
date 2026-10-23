@@ -9,6 +9,7 @@ import { StorageService } from '../platform/storage.service.js';
 import { evaluateUiEvidence, type UiMatrixCell, type UiObserved } from '../platform/ui-score.js';
 import { latestBaseline, qof, type GateIssue } from './gate-common.js';
 import { devMode, DevWorkspaceService } from './workspace.service.js';
+import { pageFidelityCheck } from './codegen.service.js';
 
 /** 四门评估口径版本（入实质返工指纹；求值逻辑变化才递增——v2=2026-10-19 CI 历史连坐/人工合并依据认账双根修；
  *  v3=2026-10-20 四门诚实化：ui 门 real 工作区真实观察/functional 覆盖率如实/review 门 real 只认真评审证据）。
@@ -16,8 +17,12 @@ import { devMode, DevWorkspaceService } from './workspace.service.js';
  *  review 门滤 archived（重识别归档的旧 done 任务不再计入缺失）——SR-0008 双冤案根修。
  *  v5=2026-10-21 real ui 门补关键项 c-page-links（页间 .html 相对引用目标必须存在，断链=孤岛页阻断——
  *  116 实机 P-ROOM/P-010 断链实锤；「完整产品」形态修复配套门禁）。
+ *  v6=2026-10-24 原型↔预览一致性专项（差异70）：real ui 门补两关键项——c-proto-fidelity
+ *  （交付页交互文案对定稿原型命中率复用 codegen 保真闸 pageFidelityCheck 同口径，用户实机
+ *  「原型与运行预览不一致」实抓）+ c-api-routes（页面静态调用的每个 app-api 端点必须在服务端
+ *  路由表有落点——贪吃蛇 W-07/W-09/W-11「页面按契约写、服务端另一套」整层断裂的机器闸门）。
  *  导出供测试夹具同源构造指纹，防生产/测试两套口径漂移。 */
-export const SELFTEST_GATE_RULES_VERSION = 5;
+export const SELFTEST_GATE_RULES_VERSION = 6;
 
 /** 页面接线观察判定（纯函数可单测）：文件缺失→fail；带 msf:prototype-copy 标记=原型静态副本未接线→fail */
 export function pageWiredOutcome(html: string | null): 'pass' | 'fail' {
@@ -43,6 +48,73 @@ export function extractHtmlLinks(html: string): string[] {
     out.add(link);
   }
   return [...out];
+}
+
+/** 端点路径归一（纯函数）：剥 ../app-api/、app-api/、api/v1/、v1/ 前缀与 query/hash，
+ *  动态段（${}模板/uuid-hex/前缀-散列 如 res-e0c2cae3）归一 ':'；非路径形/拼接残段（尾斜杠）→ null。
+ *  宁漏勿冤：只放行完整的静态路径字面量。 */
+function normalizeEndpoint(raw: string): string | null {
+  let s = raw.trim().split(/[?#]/)[0]!;
+  if (/^(?:https?:)?\/\//i.test(s)) return null; // 外链不算
+  for (const p of ['../app-api/', '/app-api/', 'app-api/']) {
+    if (s.startsWith(p)) { s = s.slice(p.length); break; }
+  }
+  for (const p of ['api/v1/', 'v1/']) {
+    if (s.startsWith(p)) { s = s.slice(p.length); break; }
+  }
+  s = s.replace(/^\/+/, '');
+  if (!s || s.length > 100 || !/^[a-z0-9][a-z0-9\-/:.%${}]*$/i.test(s)) return null;
+  if (s.endsWith('/') || s.endsWith('.') || s.includes('..')) return null;
+  const isDynamic = (seg: string): boolean =>
+    seg.includes('${') || /^[0-9a-f-]{8,}$/i.test(seg) || /^[a-z]{1,4}-[0-9a-z]{4,}$/i.test(seg);
+  return s.split('/').map((seg) => (isDynamic(seg) ? ':' : seg.toLowerCase())).join('/');
+}
+
+/** 页面静态端点抽取（纯函数可单测，差异70 c-api-routes）：get/post/put/patch/del/pages/fetch 等
+ *  调用的纯字面量首参（拼接/模板不抽——抽不全的宁可漏报不可冤报）。 */
+export function extractApiEndpoints(html: string): string[] {
+  const out = new Set<string>();
+  const push = (raw: string | undefined): void => {
+    if (!raw) return;
+    const norm = normalizeEndpoint(raw);
+    if (norm) out.add(norm);
+  };
+  for (const m of html.matchAll(/(?:get|post|put|patch|del|pages|fetchJson|apiFetch|callApi)\(\s*['"]([^'"]+)['"]/g)) push(m[1]);
+  for (const m of html.matchAll(/fetch\(\s*['"]([^'"]+)['"]/g)) push(m[1]);
+  return [...out].sort();
+}
+
+/** 服务端路由表抽取（纯函数可单测，差异70 c-api-routes）：pathname === '/x' 字面量 +
+ *  startsWith('/x') 前缀 + resource === 'x' 资源段 + 绝对路径字面量（含 ${} 模板，动态段归一）——
+ *  覆盖 codegen 产物的壳转发与 resource 分发两种路由风格。 */
+export function extractServerRoutes(source: string): { routes: string[]; resources: string[] } {
+  const routes = new Set<string>();
+  const resources = new Set<string>();
+  const pushPath = (raw: string): void => {
+    const norm = normalizeEndpoint(raw);
+    if (!norm) return;
+    routes.add(norm);
+    resources.add(norm.split('/')[0]!);
+  };
+  for (const m of source.matchAll(/pathname\s*===?\s*['"]([^'"]+)['"]/g)) pushPath(m[1]!);
+  for (const m of source.matchAll(/startsWith\(\s*['"](\/[^'"]+)['"]/g)) pushPath(m[1]!);
+  for (const m of source.matchAll(/resource\s*===?\s*['"]([a-z0-9-]+)['"]/gi)) resources.add(m[1]!.toLowerCase());
+  for (const m of source.matchAll(/['"`](\/[a-z0-9][a-z0-9\-/]*(?:\$\{[^}]*\}[a-z0-9\-/]*)*)['"`]/gi)) pushPath(m[1]!);
+  return { routes: [...routes].sort(), resources: [...resources].sort() };
+}
+
+/** 端点路由存在性观察判定（纯函数可单测，real ui 门关键项 c-api-routes）：
+ *  页面调用的每个静态端点须在服务端路由表有落点（全径匹配或首段资源匹配）——
+ *  「页面有调用、服务无路由」= 贪吃蛇 W-07/W-09/W-11 型整层断裂；无端点调用（纯静态页）→ pass。 */
+export function apiRoutesOutcome(endpoints: string[], server: { routes: string[]; resources: string[] }): 'pass' | 'fail' {
+  const routes = new Set(server.routes);
+  const resources = new Set(server.resources);
+  for (const ep of endpoints) {
+    if (routes.has(ep)) continue;
+    if (resources.has(ep.split('/')[0]!)) continue;
+    return 'fail';
+  }
+  return 'pass';
 }
 
 /** 页间链接完整观察判定（纯函数可单测，real ui 门关键项 c-page-links）：
@@ -450,15 +522,38 @@ export class DevSelftestService {
     const pages = items.rows.filter((i) => i.item_type === 'page').map((i) => i.code);
     const viewports = items.rows.filter((i) => i.item_type === 'viewport').map((i) => i.code);
     if (devMode() === 'real') {
-      // 关键项=接线版存在且非原型副本 + 页间链接完整（c-page-links：断链=产品断成孤岛页，阻断级）；
+      // 关键项=接线版存在且非原型副本 + 页间链接完整（c-page-links：断链=产品断成孤岛页，阻断级）
+      //  + 原型保真（c-proto-fidelity：交付页交互文案对定稿原型命中率，复用 codegen 保真闸
+      //    pageFidelityCheck 同口径——差异70「原型与运行预览不一致」用户实机实抓）
+      //  + 端点路由存在（c-api-routes：页面静态调用的每个 app-api 端点在服务端路由表须有落点——
+      //    贪吃蛇 W-07/W-09/W-11「页面按契约写、服务端另一套」整层断裂的机器闸门）；
       // 一般项=HTML 结构完整（分母合法性：general 恒空撞 UI_GENERAL_EMPTY 闸——SR-0008 实锤）
       const matrix: UiMatrixCell[] = pages.map((p) => ({
         pageId: p, viewportId: 'default',
-        criticalItems: [{ id: 'c-page-wired', kind: 'visual' }, { id: 'c-page-links', kind: 'visual' }],
+        criticalItems: [
+          { id: 'c-page-wired', kind: 'visual' },
+          { id: 'c-page-links', kind: 'visual' },
+          { id: 'c-proto-fidelity', kind: 'visual' },
+          { id: 'c-api-routes', kind: 'visual' },
+        ],
         generalItems: [{ id: 'c-page-structure', kind: 'visual' }],
       }));
       const observed: UiObserved[] = [];
       const existing = new Set(this.ws ? await this.ws.listFiles(projectId) : []); // 链接检查的文件存在性全集（工作区相对路径）
+      // 差异70：原型页 HTML（每页最新行；读不到=null=该页无原型契约不阻断）+ 服务端路由表（server/*.js 全集）
+      const protoHtml = new Map<string, string | null>();
+      const protoRows = await client.query<{ page_code: string; object_key: string }>(
+        `SELECT DISTINCT ON (page_code) page_code, object_key FROM dsg_prototype_pages
+         WHERE project_id=$1 ORDER BY page_code, updated_at DESC`, [projectId]);
+      for (const row of protoRows.rows) {
+        const buf = await this.storage.getObject(row.object_key).catch(() => null);
+        protoHtml.set(row.page_code, buf ? buf.toString('utf8') : null);
+      }
+      const serverSource = this.ws
+        ? (await Promise.all([...existing].filter((f) => /^server\/[^/]+\.js$/.test(f)).slice(0, 40)
+            .map((f) => this.ws!.readFile(projectId, f).catch(() => '')))).join('\n')
+        : '';
+      const serverRoutes = extractServerRoutes(serverSource);
       for (const p of pages) {
         const html = this.ws
           ? await this.ws.readFile(projectId, `public/pages/${p}.html`).catch(() => null)
@@ -468,13 +563,23 @@ export class DevSelftestService {
           pageId: p, viewportId: 'default', checkId: 'c-page-links', kind: 'visual',
           outcome: pageLinksOutcome(html, (rel) => existing.has(`public/${rel}`)),
         });
+        // 保真：原型缺失→pass 不阻断；交付缺失→fail（c-page-wired 同步红，双重指认同一断点）
+        const proto = protoHtml.get(p) ?? null;
+        observed.push({
+          pageId: p, viewportId: 'default', checkId: 'c-proto-fidelity', kind: 'visual',
+          outcome: html === null ? 'fail' : proto === null ? 'pass' : pageFidelityCheck(proto, html).ok ? 'pass' : 'fail',
+        });
+        observed.push({
+          pageId: p, viewportId: 'default', checkId: 'c-api-routes', kind: 'visual',
+          outcome: apiRoutesOutcome(html ? extractApiEndpoints(html) : [], serverRoutes),
+        });
         observed.push({ pageId: p, viewportId: 'default', checkId: 'c-page-structure', kind: 'visual', outcome: pageStructureOutcome(html) });
       }
       const r = evaluateUiEvidence(matrix, observed);
       // 失败语义人话化（report 卡直接可读的 message；UI_OBSERVATION_FAIL 等裸码补注）
       r.issues = r.issues.map((i) => ({
         ...i,
-        message: `${i.message}（real 观察口径：页面接线版 public/pages/<页码>.html 须存在且非原型静态副本）`,
+        message: `${i.message}（real 观察口径：页面接线版 public/pages/<页码>.html 须存在且非原型静态副本；交互文案须命中定稿原型；静态调用的 app-api 端点须与服务端路由表对得上）`,
       }));
       return r;
     }

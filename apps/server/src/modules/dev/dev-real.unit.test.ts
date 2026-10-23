@@ -8,7 +8,7 @@ import { parseFileBlocks, scaffoldFiles, APP_CONVENTIONS, pageFidelityCheck, ext
 import { DevWorkspaceService, devMode } from './workspace.service.js';
 import { rewritePreviewHtml } from './preview.service.js';
 import { buildTaskSpecs, scheduleBatches } from './tasks.service.js';
-import { pageWiredOutcome, pageStructureOutcome, extractHtmlLinks, pageLinksOutcome } from './selftest.service.js';
+import { pageWiredOutcome, pageStructureOutcome, extractHtmlLinks, pageLinksOutcome, extractApiEndpoints, extractServerRoutes, apiRoutesOutcome } from './selftest.service.js';
 import { parseAiReview, truncateMiddle } from './board.service.js';
 
 describe('parseFileBlocks 输出契约', () => {
@@ -247,6 +247,44 @@ describe('页间链接完整性（real ui 门 c-page-links，2026-10-21「完整
     expect(pageLinksOutcome('<a href="P-ROOM.html">断链</a>', exists)).toBe('fail');
     expect(pageLinksOutcome(null, exists)).toBe('fail');
     expect(pageLinksOutcome('<p>无链接</p>', exists)).toBe('pass');
+  });
+});
+
+describe('端点路由存在性（real ui 门 c-api-routes，差异70 原型↔预览一致性专项——W-07/W-09/W-11 整层断裂闸门）', () => {
+  it('extractApiEndpoints：静态字面量全抓并归一（前缀/query/动态段），拼接与外链不抓', () => {
+    const html = [
+      "get('auth/session')",
+      'post("../app-api/friend-requests")',
+      "fetch('../app-api/replays?limit=100')",
+      "put('api/v1/rooms')",
+      "get('matches/' + matchId + '/results')", // 拼接不抓
+      "get('replays/')", // 尾斜杠残段不抓
+      "fetch('https://cdn.example.com/x')", // 外链不抓
+      "pages('me/matches')",
+      "del('/app-api/rooms/res-e0c2cae3/seats')", // 动态段归一
+    ].join(';');
+    expect(extractApiEndpoints(html)).toEqual([
+      'auth/session', 'friend-requests', 'me/matches', 'replays', 'rooms', 'rooms/:/seats',
+    ]);
+  });
+  it('extractServerRoutes：pathname 字面量 + startsWith 前缀 + resource 分发 + 模板路径全覆盖', () => {
+    const src = [
+      "if (pathname === '/auth/login') {}",
+      "if (pathname === '/rooms' || pathname === '/rooms/') {}",
+      "roomsPath.startsWith('/matchmaking')",
+      "if (resource === 'friend-requests') {}",
+      "const u = `/rooms/${id}/join`",
+    ].join('\n');
+    const r = extractServerRoutes(src);
+    expect(r.routes).toEqual(expect.arrayContaining(['auth/login', 'rooms', 'rooms/:/join']));
+    expect(r.resources).toEqual(expect.arrayContaining(['auth', 'rooms', 'matchmaking', 'friend-requests']));
+  });
+  it('apiRoutesOutcome：全径/首段资源命中→pass；页面有调用服务无路由→fail；纯静态页→pass', () => {
+    const server = extractServerRoutes("pathname === '/auth/session'; resource === 'replays';");
+    expect(apiRoutesOutcome(['auth/session', 'replays'], server)).toBe('pass');
+    expect(apiRoutesOutcome(['replays/:/frames'], server)).toBe('pass'); // 首段资源命中
+    expect(apiRoutesOutcome(['matchmaking/tasks'], server)).toBe('fail'); // 服务无路由
+    expect(apiRoutesOutcome([], server)).toBe('pass');
   });
 });
 
