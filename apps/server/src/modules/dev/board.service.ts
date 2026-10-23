@@ -24,6 +24,23 @@ const AI_REVIEW_SYSTEM = `你是软件工厂的独立代码评审器（评审者
 /** 评审 LLM 看门狗（design review 同构）：上游静默挂起不吊死 autopilot tick */
 const AI_REVIEW_WATCHDOG_MS = 10 * 60_000;
 
+/** 评审材料帽（2026-10-23 截断冤案根修，见 truncateMiddle）：评审模型上下文为宽档（256k+），
+ *  旧 24/48/12KB 帽对整页 HTML 产物必截掉尾部脚本段=评审关键证据；扩帽后常态产物全文可评 */
+const REVIEW_FILE_CAP = 96_000;
+const REVIEW_WORKTREE_CAP = 256_000;
+const REVIEW_PATCH_CAP = 32_000;
+
+/** 评审材料截断策略（2026-10-23 根修「截断冤案」）：超帽文件保留头 60%+尾 40% 中段截断——
+ *  页面类产物的接口接线/数据绑定脚本集中在文件尾部，旧纯头部截断必切掉评审关键证据段，
+ *  116 实机 T-022 r10/T-023 r11/T-024 r6~r7 三连「…[truncated] 无法核验」假 fail（差异66 观察项复现转正）。导出供单测钉口径 */
+export function truncateMiddle(content: string, cap: number): string {
+  if (content.length <= cap) return content;
+  const head = Math.floor(cap * 0.6);
+  const tail = cap - head;
+  const omitted = content.length - head - tail;
+  return `${content.slice(0, head)}\n…[truncated 中段 ${omitted} 字符]…\n${content.slice(content.length - tail)}`;
+}
+
 /**
  * 看板流转与单任务开发循环（F02-5；A06-8；REQ-405/407/408/411）。
  * 看板列 queue/ing/review/done；阻塞是标记不是列。
@@ -415,22 +432,23 @@ export class DevBoardService {
       diffStat = (await execFileP('git', ['-C', dir, 'show', '--stat', '--format=', commit]).catch(() => null))?.stdout?.trim() ?? null;
       patch = (await execFileP('git', ['-C', dir, 'show', '--format=', commit]).catch(() => null))?.stdout ?? '';
     }
-    // 工作区当前全文段（2026-10-21 评审视角根修）：单 commit diff 截断 12KB 看不到页面尾部数据绑定、
+    // 工作区当前全文段（2026-10-21 评审视角根修）：单 commit diff 截断看不到页面尾部数据绑定、
     // 也看不到跨 commit 接缝（人工挂载/后续修复）——116 实机 T-021「补丁截断无法确认」与 T-032「未挂载」双冤案。
-    // 取 writeScopes 文件 @HEAD 全文（单文件截断 24KB、总量截断 48KB，截断处打标记，模型据标记免责）
+    // 取 writeScopes 文件 @HEAD 全文（单文件帽 REVIEW_FILE_CAP、总量帽 REVIEW_WORKTREE_CAP；
+    // 2026-10-23：超帽走 truncateMiddle 头尾保留中段截断，截断处打标记，模型据标记免责）
     let worktree = '';
     if (this.ws && (t?.write_scopes ?? []).length > 0) {
       const dir = this.ws.dir(projectId);
       const parts: string[] = [];
       for (const f of t!.write_scopes.slice(0, 6)) {
         const content = (await execFileP('git', ['-C', dir, 'show', `HEAD:${f}`]).catch(() => null))?.stdout;
-        if (content != null) parts.push(`--- ${f} ---\n${content.length > 24_000 ? `${content.slice(0, 24_000)}\n…[truncated]` : content}`);
+        if (content != null) parts.push(`--- ${f} ---\n${truncateMiddle(content, REVIEW_FILE_CAP)}`);
       }
       worktree = parts.join('\n');
-      if (worktree.length > 48_000) worktree = `${worktree.slice(0, 48_000)}\n…[truncated]`;
+      if (worktree.length > REVIEW_WORKTREE_CAP) worktree = truncateMiddle(worktree, REVIEW_WORKTREE_CAP);
     }
     const session = await this.ai!.createSession({ projectId, purpose: 'review' });
-    const prompt = `${AI_REVIEW_SYSTEM}\n\n【任务】${t?.code} ${t?.title}\n目标：${t?.goal ?? '—'}\n验收条件：${(t?.acceptance ?? []).map((a) => String(typeof a === 'object' && a !== null ? (a as Record<string, unknown>).item ?? JSON.stringify(a) : a)).join('；') || '—'}\n【提交 diff 统计】\n${diffStat ?? '（无提交记录）'}\n【补丁（截断 12KB）】\n${patch.slice(0, 12_000)}\n【工作区当前全文（writeScopes 文件 @HEAD）】\n${worktree || '（无 writeScopes 文件）'}`;
+    const prompt = `${AI_REVIEW_SYSTEM}\n\n【任务】${t?.code} ${t?.title}\n目标：${t?.goal ?? '—'}\n验收条件：${(t?.acceptance ?? []).map((a) => String(typeof a === 'object' && a !== null ? (a as Record<string, unknown>).item ?? JSON.stringify(a) : a)).join('；') || '—'}\n【提交 diff 统计】\n${diffStat ?? '（无提交记录）'}\n【补丁（截断 ${REVIEW_PATCH_CAP / 1000}KB）】\n${patch.slice(0, REVIEW_PATCH_CAP)}\n【工作区当前全文（writeScopes 文件 @HEAD）】\n${worktree || '（无 writeScopes 文件）'}`;
     const { deltas, result } = session.stream(prompt);
     let timer: NodeJS.Timeout | undefined;
     const timeout = new Promise<never>((_, reject) => {

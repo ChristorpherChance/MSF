@@ -9,7 +9,7 @@ import { DevWorkspaceService, devMode } from './workspace.service.js';
 import { rewritePreviewHtml } from './preview.service.js';
 import { buildTaskSpecs, scheduleBatches } from './tasks.service.js';
 import { pageWiredOutcome, pageStructureOutcome, extractHtmlLinks, pageLinksOutcome } from './selftest.service.js';
-import { parseAiReview } from './board.service.js';
+import { parseAiReview, truncateMiddle } from './board.service.js';
 
 describe('parseFileBlocks 输出契约', () => {
   it('标准文件块解析', () => {
@@ -294,5 +294,27 @@ describe('parseAiReview 评审输出抽取', () => {
     expect(parseAiReview('前缀 {"verdict":"fail","comment":"缺测试"} 后缀')).toMatchObject({ conclusion: 'fail', note: '缺测试' });
     expect(parseAiReview('完全不是 JSON')).toMatchObject({ conclusion: 'fail' });
     expect(parseAiReview('{"verdict":"pass"}').conclusion).toBe('fail'); // 无 comment 不落 pass
+  });
+});
+
+describe('truncateMiddle 评审材料中段截断（2026-10-23 截断冤案根修）', () => {
+  it('未超帽原样返回', () => {
+    expect(truncateMiddle('abc', 96_000)).toBe('abc');
+    expect(truncateMiddle('a'.repeat(100), 100)).toBe('a'.repeat(100));
+  });
+  it('超帽保留头 60%+尾 40%，尾部脚本证据段不丢（页面产物接线逻辑在尾部）', () => {
+    const head = 'H'.repeat(5000);
+    const mid = 'M'.repeat(5000);
+    const tail = 'T'.repeat(5000); // 尾部=接口接线脚本段
+    const out = truncateMiddle(head + mid + tail, 10_000);
+    expect(out).toContain('[truncated 中段 5000 字符]');
+    expect(out.startsWith('H'.repeat(100))).toBe(true);
+    expect(out.endsWith('T'.repeat(4000))).toBe(true); // 尾 40% 全保留
+    expect(out).not.toContain('M'.repeat(1001)); // 中段 5000 字符只残存头段末尾 1000 个
+    expect(out.length).toBeLessThanOrEqual(10_000 + 60); // 帽+标记开销
+  });
+  it('截断标记含省略量，模型可据标记免责', () => {
+    const out = truncateMiddle('x'.repeat(1000), 100);
+    expect(out).toContain('…[truncated 中段 900 字符]…');
   });
 });
