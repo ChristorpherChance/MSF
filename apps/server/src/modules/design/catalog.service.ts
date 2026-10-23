@@ -277,10 +277,19 @@ export class CatalogService {
       const catFp = fingerprint({ catalogVersion, items: itemIds });
       const snapshot = { catalogVersion, itemCount: items.length, items: items.map((i) => ({ type: i.type, code: i.code })) };
       const planFp = fingerprint({ catalogVersion, governing, snapshot });
+      // 主题随行迁移：re-plan 新建 plan 须继承上一 plan 的 theme/theme_id（同 refs 随行口径）——
+      // 2026-10-23 实机实抓根修：旧口径 INSERT 不带这两列，re-plan 后新 plan 主题丢 null，
+      // 整本/页级重生成回落默认主题，而开发预览里既有页面仍是旧主题令牌=预览与原型配色撕裂。
+      const prevTheme = await client.query<{ theme: unknown; theme_id: string | null }>(
+        `SELECT theme, theme_id FROM dsg_plans WHERE project_id=$1 ORDER BY plan_no DESC LIMIT 1`,
+        [projectId],
+      );
+      const themeRow = prevTheme.rows[0];
       const plan = await client.query<{ id: string; plan_no: number }>(
-        `INSERT INTO dsg_plans (project_id, plan_no, catalog_version, catalog_fingerprint, governing_fingerprint, snapshot, complete, plan_fingerprint, created_by)
-         VALUES ($1,$2,$3,$4,$5,$6,true,$7,$8) RETURNING id, plan_no`,
-        [projectId, Number(planNo.rows[0]?.n ?? 0) + 1, catalogVersion, catFp, governing, JSON.stringify(snapshot), planFp, ctx.actorId],
+        `INSERT INTO dsg_plans (project_id, plan_no, catalog_version, catalog_fingerprint, governing_fingerprint, snapshot, complete, plan_fingerprint, created_by, theme, theme_id)
+         VALUES ($1,$2,$3,$4,$5,$6,true,$7,$8,$9,$10) RETURNING id, plan_no`,
+        [projectId, Number(planNo.rows[0]?.n ?? 0) + 1, catalogVersion, catFp, governing, JSON.stringify(snapshot), planFp, ctx.actorId,
+          themeRow?.theme == null ? null : JSON.stringify(themeRow.theme), themeRow?.theme_id ?? null],
       );
       return {
         planId: plan.rows[0]!.id,

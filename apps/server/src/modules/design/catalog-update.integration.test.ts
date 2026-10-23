@@ -11,6 +11,8 @@
  * ⑦ currentCatalogVersion 版本序数值降序（字典序 V3-10<V3-9 坑+同刻随机双杀，差异55b 根修）；
  * ⑧ re-plan 派生页按 ui 锚点身份派码（差异55a 根修）：ui 册章节重排+中段插入后页码不漂、
  *    人工修订的 title/note 贴回同一来源章节的页、新锚点取最小空闲码、ui 追溯引用挂对章节。
+ * ⑨ re-plan 主题随行（2026-10-23 根修）：新 plan 继承上一 plan 的 theme/theme_id，
+ *    无主题不虚空造——破「预览继承旧主题而重生成整本回落默认」三层配色撕裂。
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { pool, query } from '../../db/pool.js';
@@ -371,5 +373,29 @@ describe('catalog.update-item（集成，需 DB+MinIO）', async () => {
     const refByCode = new Map(uiRefs.rows.map((r) => [r.code, r.anchor]));
     expect(refByCode.get('P-002')).toBe('u-2 对局页');
     expect(refByCode.get('P-004')).toBe('u-9 战报页');
+  });
+
+  it('⑨ re-plan 主题随行（2026-10-23 根修「预览继承旧主题而整本回落默认」）：新 plan 继承上一 plan 的 theme/theme_id', async () => {
+    // 上一 plan 钉一套 AI 派生主题，re-plan 后新 plan 须随行
+    const theme = { primary: '#0F766E', 'primary-soft': '#E6F4F1', accent: '#B7791F' };
+    await query(
+      `UPDATE dsg_plans SET theme=$2, theme_id='ai'
+       WHERE id=(SELECT id FROM dsg_plans WHERE project_id=$1 ORDER BY plan_no DESC LIMIT 1)`,
+      [PID, JSON.stringify(theme)]);
+    await catalog.plan(PID, CTX); // 内容零变化 → 目录版本复用，但新 plan 行必落
+    const rows = await query<{ plan_no: number; theme: Record<string, string> | null; theme_id: string | null }>(
+      'SELECT plan_no, theme, theme_id FROM dsg_plans WHERE project_id=$1 ORDER BY plan_no DESC LIMIT 2', [PID]);
+    expect(rows.rows[0]!.plan_no).toBe(rows.rows[1]!.plan_no + 1);
+    expect(rows.rows[0]!.theme).toEqual(theme);
+    expect(rows.rows[0]!.theme_id).toBe('ai');
+    // 上一 plan 无主题时新 plan 保持 null（不虚空造主题）
+    await query(
+      `UPDATE dsg_plans SET theme=NULL, theme_id=NULL
+       WHERE id=(SELECT id FROM dsg_plans WHERE project_id=$1 ORDER BY plan_no DESC LIMIT 1)`, [PID]);
+    await catalog.plan(PID, CTX);
+    const latest = await query<{ theme: unknown; theme_id: string | null }>(
+      'SELECT theme, theme_id FROM dsg_plans WHERE project_id=$1 ORDER BY plan_no DESC LIMIT 1', [PID]);
+    expect(latest.rows[0]!.theme).toBeNull();
+    expect(latest.rows[0]!.theme_id).toBeNull();
   });
 });
