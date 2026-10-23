@@ -197,6 +197,13 @@ export class DevPreviewService {
     const outHeaders: Record<string, string | string[]> = {};
     const ct = up.headers.get('content-type');
     if (ct) outHeaders['content-type'] = ct;
+    // 应用 ETag/Cache-Control 透传（2026-10-23 全链实测实抓：应用 If-Match 乐观锁强 ETag
+    // 被反代吞掉，Express 反按响应体重算弱 ETag——笔记类应用「需要单个强 ETag」400 全断）；
+    // 控制器侧必须 res.end 而非 res.send（send 会对 Buffer 体重算弱 ETag 覆盖透传值）
+    const et = up.headers.get('etag');
+    if (et) outHeaders['etag'] = et;
+    const cc = up.headers.get('cache-control');
+    if (cc) outHeaders['cache-control'] = cc;
     // 应用 Set-Cookie 回传（2026-10-21：之前被吞，登录/会话类应用全断）；
     // Path 收窄到本预览前缀——多项目预览并存时应用会话互不串
     const setCookies = (up.headers as unknown as { getSetCookie?: () => string[] }).getSetCookie?.() ?? [];

@@ -33,6 +33,7 @@ export class DevPreviewProxyController {
     const r = await this.preview.proxy(projectId, tail, req);
     res.status(r.status);
     for (const [k, v] of Object.entries(r.headers)) res.setHeader(k, v);
-    res.send(r.body);
+    // res.end 而非 res.send（2026-10-23）：send 会对 Buffer 体重算弱 ETag 覆盖应用透传的强 ETag
+    res.end(r.body);
   }
 }
