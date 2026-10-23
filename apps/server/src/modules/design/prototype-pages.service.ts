@@ -18,9 +18,11 @@ import {
   buildThemePrompt,
   ensureDocumentOnly,
   ensureNavScript,
+  ensureStateBar,
   ensureThemeStyle,
   extractPageParts,
   findDataNavProblem,
+  findDraftCopy,
   findHiddenSectionRule,
   parseThemeOverrides,
   pickUiSections,
@@ -510,10 +512,12 @@ export class PrototypePagesService {
     throw new DomainError('VALIDATION_FAILED', `生成产物不符合页面契约（${lastProblem}），请重试`, op.pageCode);
   }
 
-  /** 入库：内容寻址写对象 → 命令 upsert 索引行（先对象后命令，索引行永不指向缺失对象） */
+  /** 入库：内容寻址写对象 → 命令 upsert 索引行（先对象后命令，索引行永不指向缺失对象）。
+   *  入库前注入系统状态条（标记段外，幂等——单页预览切态入口；汇总抽取不携带） */
   private async persist(op: PageGenOp, html: string, source: 'model' | 'mock', ctx: CommandContext): Promise<string> {
-    const fp = sha256(html);
-    const up = await this.storage.putContentAddressed(Buffer.from(html, 'utf8'));
+    const finalHtml = ensureStateBar(html, op.pageCode, op.states);
+    const fp = sha256(finalHtml);
+    const up = await this.storage.putContentAddressed(Buffer.from(finalHtml, 'utf8'));
     await executeCommand('design.prototype.page_generate', {
       projectId: op.projectId, pageCode: op.pageCode, catalogVersion: op.catalogVersion,
       objectKey: up.objectKey, fingerprint: fp, source,
@@ -648,6 +652,10 @@ function validatePageHtml(html: string, op: PageGenOp): string | null {
     new Set(op.states.map((s) => s.code)),
   );
   if (navProblem) return navProblem;
+  // 产品形态草稿语闸（2026-10-23「整本像草稿」根修）：可见文案命中禁词即拒收——
+  // 「规则待确认/仅演示/演示数据」这类草稿注释会经保真链 1:1 流进开发预览产品页
+  const draftHits = findDraftCopy(parts.body);
+  if (draftHits.length > 0) return `可见文案含设计草稿语（${draftHits.join('、')}）——页面必须是产品形态：规则用确定口吻写真实规则，数据逼真但不得自我声明为演示/示例`;
   return null;
 }
 

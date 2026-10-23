@@ -51,6 +51,45 @@ const MARK = {
 const esc = (s: string) =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
+/**
+ * 页面标题显示口径（2026-10-23 三层一致根修）：目录条目标题可能带章节锚码前缀
+ * （「u-35 身份入口页」——UI 册命名约定产物），技术标识不得进可见标题
+ * （整本导航/面包屑/场景索引/页内标题栏/生成 prompt 同用此单点）。
+ */
+export function cleanPageTitle(title: string): string {
+  return title.replace(/^[a-z]{1,4}-\d+\s+/, '').trim() || title;
+}
+
+/**
+ * 草稿语禁词闸（2026-10-23「整本像草稿」根修）：原型页可见文案必须是真实产品语言，
+ * 「规则待确认」「仅演示」「演示数据已载入」这类设计草稿注释一旦进原型，会被保真闸 1:1
+ * 放大到整本与开发预览产品页。生成回路（validatePageHtml）拒收 + 汇总检查（checkPrototype）
+ * 出 PROTO_DRAFT_COPY 阻断定稿。宁可窄不可滥：只收高置信草稿语，「待定/占位」这类
+ * 产品合法用词不收。
+ */
+export const DRAFT_COPY_RULES: RegExp[] = [
+  /待确认/, /待生成/, /待补充/, /待实现/,
+  /仅(?:供|用于)?演示/, /演示(?:数据|账号|用)/, /示例数据/, /模拟数据/, /假数据/,
+  /不代表服务端/, /不会真实保存/, /不实际保存/, /不会真正/,
+  /原型(?:预览|演示|环境)/, /占位(?:数据|内容|文本)/,
+  /lorem\s*ipsum/i, /TODO/, /FIXME/,
+];
+
+/** 扫可见文本（剥 script/style/标签）中的草稿语，返回去重命中词清单（空=干净） */
+export function findDraftCopy(html: string): string[] {
+  const visible = html
+    .replace(/<script[\s\S]*?<\/script>/g, ' ')
+    .replace(/<style[\s\S]*?<\/style>/g, ' ')
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+    .replace(/<[^>]+>/g, ' ');
+  const hits = new Set<string>();
+  for (const re of DRAFT_COPY_RULES) {
+    const m = re.exec(visible);
+    if (m) hits.add(m[0]);
+  }
+  return [...hits];
+}
+
 /** S3（DSG-U04-2）选页选态协议——单页文档与汇总文档共用；无 hash 时默认显示首页首态。
  *  状态 section 可见性由本脚本独占（inline display）：事件委托接管 [data-show-state] 点击并同步激活态，
  *  页 CSS 一律不得隐藏 section（生成契约，validatePageHtml 拒收 display:none/visibility:hidden）。
@@ -90,13 +129,25 @@ export const NAV_SCRIPT = `<script>
     });
     var cr=document.querySelector('[data-shell-crumb]');
     if(cr){var na=document.querySelector('[data-shell-nav="'+pageId+'"]');cr.textContent=(na&&na.getAttribute('data-title'))||pageId||'';}
+    // 壳层状态切换（2026-10-23 产品形态根修）：状态 pills 由壳顶栏渲染（页内容零切换控件），
+    // 点击走 hash（fromHash 回流本函数重渲染）；状态标题取自壳注入的 __MSF_STATE_TITLES
+    var sc=document.querySelector('[data-shell-states]');
+    if(sc){
+      var titles=window.__MSF_STATE_TITLES||{};
+      var pills='';
+      document.querySelectorAll('section[data-page="'+pageId+'"]').forEach(function(s){
+        var st=s.getAttribute('data-state');if(!st)return;
+        pills+='<a href="#'+pageId+'/'+st+'"'+(st===stateId?' class="on"':'')+'>'+(titles[st]||st)+'</a>';
+      });
+      sc.innerHTML=pills;sc.style.display=pills?'':'none';
+    }
   }
   window.prototypeNavigate=show;
   window.addEventListener('message',function(e){var d=e.data||{};if(d.type==='v19-prototype-select')show(d.pageId,d.stateId);});
   document.addEventListener('click',function(e){
     // 壳层控件先行（0034）：🏠 回场景首页 / ☰ 左导航收展——单页预览无此元素自动 no-op
     var hm=e.target&&e.target.closest?e.target.closest('[data-shell-home]'):null;
-    if(hm){e.preventDefault();if(location.hash){location.hash='';}else{showHome();}return;}
+    if(hm){e.preventDefault();if(location.hash!=='#index'){location.hash='#index';}else{showHome();}return;}
     var tg=e.target&&e.target.closest?e.target.closest('[data-shell-toggle]'):null;
     if(tg){e.preventDefault();document.body.classList.toggle('nav-on');return;}
     var n=e.target&&e.target.closest?e.target.closest('[data-nav]'):null;
@@ -120,11 +171,14 @@ export const NAV_SCRIPT = `<script>
   });
   function fromHash(){
     var h=(location.hash||'').replace(/^#/,'').split('/');
+    if(h[0]==='index'){showHome();return;}
     if(h[0]){show(decodeURIComponent(h[0]),h[1]?decodeURIComponent(h[1]):null);}
+    else if(window.__MSF_HOME__){show(window.__MSF_HOME__,null);}
     else{showHome();}
   }
   window.addEventListener('hashchange',fromHash);
   if(location.hash){fromHash();}
+  else if(window.__MSF_HOME__){show(window.__MSF_HOME__,null);}
   else if(document.querySelector('[data-shell-index]')){showHome();}
   else{
     var b=document.querySelector('[data-page-block]');
@@ -139,6 +193,26 @@ export function ensureNavScript(html: string): string {
   if (html.includes('v19-prototype-select')) return html;
   const i = html.lastIndexOf('</body>');
   return i >= 0 ? `${html.slice(0, i)}${NAV_SCRIPT}\n${html.slice(i)}` : `${html}\n${NAV_SCRIPT}`;
+}
+
+/**
+ * 系统状态切换条（2026-10-23 产品形态根修）：页内容契约改为「零状态切换控件」，
+ * 单页预览的切态入口由本系统条提供——注入在标记段之外（extractPageParts 不携带进整本，
+ * 整本切态由汇总壳顶栏 pills 接管；codegen 注入原型时按标记剥除）。幂等：先剥旧条再注入。
+ * 仅当目录为多状态（>1）时注入；单状态页无切换需求不注。
+ */
+const STATEBAR_MARK = { begin: '<!--msf:statebar-begin-->', end: '<!--msf:statebar-end-->' } as const;
+export function ensureStateBar(html: string, code: string, states: CatalogItemLike[]): string {
+  // 剥除时连同前置换行一起拿走——注入是「bar\n」追加形态，留换行会导致二次注入位置漂移（幂等破坏）
+  const stripped = html.replace(/\n?<!--msf:statebar-begin-->[\s\S]*?<!--msf:statebar-end-->/g, '');
+  if (states.length <= 1) return stripped;
+  const links = states.map((s, i) => {
+    const t = cleanPageTitle((s.payload.title as string) ?? s.code);
+    return `<a href="#${esc(code)}/${esc(s.code)}"${i === 0 ? ' class="on"' : ''}>${esc(t)}</a>`;
+  }).join('');
+  const bar = `${STATEBAR_MARK.begin}<div data-msf-statebar style="position:fixed;right:14px;bottom:14px;z-index:9999;display:flex;gap:4px;padding:5px 6px;background:var(--p-surface,#fff);border:1px solid var(--p-line,#e2e5ec);border-radius:999px;box-shadow:0 6px 20px rgba(23,43,77,.10);font-size:12px;font-family:var(--p-font,system-ui,sans-serif)"><span style="padding:3px 6px;color:var(--p-ink2,#6b7280)">状态</span>${links}</div><style>[data-msf-statebar] a{padding:3px 10px;border-radius:999px;color:var(--p-ink,#1f2937);text-decoration:none}[data-msf-statebar] a.on,[data-msf-statebar] a:hover{background:var(--p-primary-soft,#eef2ff);color:var(--p-primary,#315cce)}</style>${STATEBAR_MARK.end}`;
+  const i = stripped.lastIndexOf('</body>');
+  return i >= 0 ? `${stripped.slice(0, i)}${bar}\n${stripped.slice(i)}` : `${stripped}\n${bar}`;
 }
 
 /** 风格基线补齐（幂等）：模型产物缺主题令牌时注入主题 CSS——单页预览（无汇总壳）也有统一视觉。
@@ -454,12 +528,12 @@ export function findDataNavProblem(html: string, pageCodes: ReadonlySet<string>,
 }
 
 /** 占位块（未生成页汇总回落；保留 data-page-block/data-page/data-state 标记，对应性检查不受影响；
- *  视觉走风格基线共享类 page-card/tagline） */
+ *  视觉走风格基线共享类 page-card/tagline；data-msf-placeholder 标记=草稿语扫描剔除段） */
 export function placeholderBlock(page: CatalogItemLike, states: CatalogItemLike[]): string {
-  const title = (page.payload.title as string) ?? page.code;
+  const title = cleanPageTitle((page.payload.title as string) ?? page.code);
   const hint = '本页 UI 原型尚未生成——在左侧页面清单点 🎨 生成，或「✨ 全部生成」后重新汇总。';
   const inner = (suffix: string) =>
-    `<div class="page-card"><h2>${esc(title)}${suffix}</h2><p><span class="tagline warn">待生成</span> ${hint}</p></div>`;
+    `<div class="page-card" data-msf-placeholder><h2>${esc(title)}${suffix}</h2><p><span class="tagline warn">待生成</span> ${hint}</p></div>`;
   const statesHtml = states.length > 0
     ? states.map((s) =>
       `    <section data-page="${page.code}" data-state="${s.code}">${inner(` · ${esc((s.payload.title as string) ?? s.code)}`)}</section>`,
@@ -566,10 +640,11 @@ export function buildPagePrompt(
   theme?: Record<string, string> | null,
 ): string {
   const code = page.code;
-  const title = (page.payload.title as string) ?? code;
+  const rawTitle = (page.payload.title as string) ?? code;
+  const title = cleanPageTitle(rawTitle); // 技术锚码（u-n）不进可见标题（2026-10-23 产品形态根修）
   const route = (page.payload.route as string) ?? '';
   const reqIds = (page.payload.reqIds as string[] | undefined) ?? [];
-  const stateList = states.map((s) => `${s.code}（${(s.payload.title as string) ?? s.code}）`).join('、');
+  const stateList = states.map((s) => `${s.code}（${cleanPageTitle((s.payload.title as string) ?? s.code)}）`).join('、');
   const anchorLines = anchors
     .map((a) => `- [${(a.docKind ?? 'prd').toUpperCase()}] ${a.sectionId ?? ''} ${a.anchor ?? ''}`.trim())
     .join('\n');
@@ -587,9 +662,15 @@ export function buildPagePrompt(
     `5. 所有 CSS 选择器必须以 #pg-${code} 开头（逗号拆分后的每个选择器都算；@keyframes 除外）——本页将与其他页汇总进同一文档，样式必须完全隔离。`,
     `6. 脚本一律 IIFE，DOM 查询限定在 document.getElementById('pg-${code}') 子树内；不得改写 document 全局状态；无脚本则输出空 IIFE (function(){})();。`,
     '7. 不使用任何外部资源（无 CDN、无外链图片/字体/脚本）；图标用 emoji 或内联 SVG。',
-    `8. 状态 section 的显示/隐藏一律不得用 CSS 或脚本控制（禁止对 section[data-page] 写 display:none 或 visibility:hidden，禁止自写 class 切换显隐）——可见性由系统共享脚本接管。页内状态切换按钮统一写 <button type="button" data-show-state="状态编号">，系统脚本会自动接管点击切换与激活态；默认展示第一个状态，不要给任何 section 预设隐藏。`,
+    `8. 状态 section 的显示/隐藏一律不得用 CSS 或脚本控制（禁止对 section[data-page] 写 display:none 或 visibility:hidden，禁止自写 class 切换显隐）——可见性由系统共享脚本接管。**不要渲染任何状态切换控件**（「状态预览」「默认态|空态」切换条、状态页签等一律不画）——状态切换由系统壳层统一提供，页内出现切换控件即拒收。默认展示第一个状态，不要给任何 section 预设隐藏。`,
     `9. 跨页穿流：跳转类按钮/链接（点击后应进入其它页面的）必须挂 data-nav 属性——格式 data-nav="#P-002"，可带状态 data-nav="#P-002/状态编号"；点击跳转由系统共享脚本接管，脚本不得自行实现跨页跳转。纯展示或仅页内交互的按钮一律不挂 data-nav。${navPages && navPages.length > 0 ? `本原型可跳转目标仅限目录页面：${navPages.map((p) => `${p.code}（${p.title}）`).join('、')}；不得指向目录外页码。` : ''}`,
     '10. 本页是完整应用的一个内容区：不要画产品级全局顶栏/全局左侧导航/产品 logo 区（汇总时由统一应用壳提供），从页面标题栏与内容区开始画。',
+    '',
+    '## 产品形态纪律（本页将原样进入开发实现与产品预览——草稿痕迹=致命缺陷，逐条核验）',
+    '- 可见文案一律使用真实产品语言。禁止出现任何设计草稿语：「待确认/待生成/待补充/待实现」「仅演示/仅供演示/演示数据/演示账号」「示例数据/模拟数据/假数据」「不代表服务端/不会真实保存」「原型预览/原型环境」「占位数据/占位内容」「TODO/FIXME/lorem」。规则与说明用确定口吻写真实规则（如「密码至少 8 位，含字母与数字」），绝不写「规则待确认」「以最终确认结果为准」。',
+    '- 演示数据即产品数据：列表/表格/统计/用户名填逼真业务数据（真实感的姓名、数字、日期），但绝不可自我声明为「演示/示例/模拟」——页面读起来就是上线产品。',
+    '- 禁止在内容中渲染任何技术标识：页面编号（P-xxx）、需求编号（REQ-nnn）、章节锚码（u-n 等）一律不得出现在可见文案/徽标/chip 里——编号体系由系统壳层呈现，与页面内容无关。',
+    '- 不写设计注释式横幅（如「本页仅用于预览」「当前为原型版本」）。',
     '',
     '## 风格基线（全原型统一，必须遵守）',
     ...PROTO_THEME_TOKENS.map(([k, def]) => {
@@ -604,7 +685,7 @@ export function buildPagePrompt(
     '## 质量要求',
     '- 中文界面、逼真占位数据（真实感的姓名/数字/日期，不要 lorem ipsum）。',
     '- 高保真：完整内容区布局（页头/工具栏/表格/表单/卡片/弹层之一以上），hover 与选中态；视觉风格完全取自风格基线，不要自行发明配色与字体。',
-    `- 页面顶部渲染页面标题栏：页面名「${title}」+ 编号 ${code}${reqIds.length > 0 ? ` + 需求点标记（${reqIds.join('、')}）以 chip 样式展示` : ''}。`,
+    `- 页面顶部渲染页面标题栏：仅页面名「${title}」+ 一句产品化副标题（点出本页价值，如「把待办逐一完成，让每一天更有条理」）；标题栏不得携带编号或需求点标记。`,
     '- 交互尽量用纯 HTML/CSS（:hover、:checked、details/summary），需要状态切换的交互用限定作用域的脚本实现。',
     instruction ? `\n## 用户补充指示\n${instruction}` : '',
     anchorLines ? `\n## 设计锚点（上游章节）\n${anchorLines}` : '',
@@ -641,9 +722,10 @@ function renderFlowCard(f: CatalogItemLike, pageByCode: ReadonlyMap<string, Cata
     const ref = parseFlowStepRef(s);
     const target = ref ? pageByCode.get(ref.page) : undefined;
     const stateOk = !ref?.state || stateByCode.has(ref.state);
-    if (!ref || !target || !stateOk) return `<li class="msf-flow-step">${esc(s)}</li>`;
-    const stTitle = ref.state ? ((stateByCode.get(ref.state)?.payload.title as string | undefined) ?? ref.state) : '';
-    const label = `${esc((target.payload.title as string) ?? ref.page)}${stTitle ? ` · ${esc(stTitle)}` : ''}`;
+    // 旧格式纯文本步骤剥 REQ/CR 编号前缀显示（2026-10-23 产品形态：技术编号不进可见文案）
+    if (!ref || !target || !stateOk) return `<li class="msf-flow-step">${esc(s.replace(/^(?:REQ|CR)-\d+\s*/, ''))}</li>`;
+    const stTitle = ref.state ? cleanPageTitle((stateByCode.get(ref.state)?.payload.title as string | undefined) ?? ref.state) : '';
+    const label = `${esc(cleanPageTitle((target.payload.title as string) ?? ref.page))}${stTitle ? ` · ${esc(stTitle)}` : ''}`;
     const hash = `#${ref.page}${ref.state ? `/${ref.state}` : ''}`;
     return `<li class="msf-flow-step"><a href="${hash}" data-nav="${hash}">${label}</a></li>`;
   }).join('');
@@ -651,20 +733,21 @@ function renderFlowCard(f: CatalogItemLike, pageByCode: ReadonlyMap<string, Cata
 }
 
 /**
- * 场景索引页（0034 汇总壳重构，用户拍板「汇总=①场景流程清单可跳单页 + ②像真实产品的可交互原型」）：
- * 整本默认落页——列出全部使用场景（flow）卡片，步骤可点跳对应单页；尾部附全部页面直达网格。
- * data-shell-index 由 NAV_SCRIPT 接管显隐（hash 空=显示索引；跳页=隐藏）。仅目录含 flow 条目时产出。
+ * 场景索引页（0034 汇总壳重构；2026-10-23 产品形态根修：默认落页改产品首页，索引经🏠进入——
+ * 整本打开即产品形态而非设计工具清单）：列出全部使用场景（flow）卡片，步骤可点跳对应单页；
+ * 尾部附全部页面直达网格。步骤/页面标题一律剥技术编号（REQ-nnn/u-n）。
+ * data-shell-index 由 NAV_SCRIPT 接管显隐（hash='#index'=显示索引；跳页=隐藏）。仅目录含 flow 条目时产出。
  */
 function renderScenarioIndex(flows: CatalogItemLike[], pageItems: CatalogItemLike[], stateItems: CatalogItemLike[], product: string): string {
   const pageByCode = new Map(pageItems.map((p) => [p.code, p]));
   const stateByCode = new Map(stateItems.map((s) => [s.code, s]));
   const cards = flows.map((f) => renderFlowCard(f, pageByCode, stateByCode)).join('\n');
   const pageLinks = pageItems.map((p) =>
-    `<a class="msf-pglink" href="#${esc(p.code)}" data-nav="#${esc(p.code)}"><span class="c">${esc(p.code)}</span>${esc((p.payload.title as string) ?? p.code)}</a>`,
+    `<a class="msf-pglink" href="#${esc(p.code)}" data-nav="#${esc(p.code)}"><span class="c">${esc(p.code)}</span>${esc(cleanPageTitle((p.payload.title as string) ?? p.code))}</a>`,
   ).join('\n');
   return `<div class="msf-index" data-shell-index style="display:none">
   <h1>${esc(product)} · 使用场景</h1>
-  <p class="msf-index-tip">选择一个场景进入：步骤可点击跳到对应页面，页内按钮可像真实产品一样继续操作（数据全部为模拟）。</p>
+  <p class="msf-index-tip">选择一个场景进入：步骤可点击跳到对应页面，页内按钮可像真实产品一样继续操作。</p>
   <section id="msf-flows" class="msf-scenarios">
 ${cards}
   </section>
@@ -688,6 +771,9 @@ const SHELL_CSS = '.msf-shell{display:flex;flex-direction:column;height:100vh}'
   + '.msf-navtoggle:hover{border-color:var(--p-primary);color:var(--p-primary)}'
   + '.msf-brand{font-weight:700;font-size:15px;color:var(--p-ink)}'
   + '.msf-crumb{color:var(--p-ink2);font-size:12.5px}'
+  + '.msf-states{display:none;align-items:center;gap:4px;margin-left:auto;padding:3px 4px;background:var(--p-bg);border-radius:999px}'
+  + '.msf-states a{padding:2px 10px;border-radius:999px;font-size:12px;color:var(--p-ink2);text-decoration:none}'
+  + '.msf-states a.on{background:var(--p-primary-soft);color:var(--p-primary);font-weight:600}'
   + '.msf-body{flex:1;display:flex;min-height:0}'
   + '.msf-sidenav{display:none;width:208px;flex:none;background:var(--p-surface);border-right:1px solid var(--p-line);padding:10px 8px;overflow-y:auto}'
   + 'body.nav-on .msf-sidenav{display:block}'
@@ -702,6 +788,7 @@ const COMPOSED_FLOW_STYLE = '.msf-index h1{font-size:20px;margin:4px 0 6px;color
   + '.msf-index-tip{color:var(--p-ink2);font-size:13px;margin:0 0 16px}'
   + '.msf-index-h2{font-size:14px;margin:20px 0 8px;color:var(--p-ink)}'
   + '.msf-scenarios{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px}'
+  + '.msf-flow:only-child{grid-column:1/-1}'
   + '.msf-flow{border:1px solid var(--p-line);border-radius:var(--p-radius);background:var(--p-surface);padding:12px 16px}'
   + '.msf-flow h3{font-size:14px;margin:0 0 8px;color:var(--p-ink)}.msf-flow-code{color:var(--p-ink2);font-size:11px;margin-left:6px}'
   + '.msf-flow ol{display:flex;flex-wrap:wrap;gap:6px;list-style:none;margin:0;padding:0}'
@@ -714,9 +801,10 @@ const COMPOSED_FLOW_STYLE = '.msf-index h1{font-size:20px;margin:4px 0 6px;color
 
 /**
  * 汇总拼装：目录 page×state 全集 → 已生成页内嵌 envelope 段、未生成页回落占位块；
- * 统一应用壳（顶栏 ☰导航收展+品牌+面包屑 / 左侧导航默认收拢 / 内容区）+ 风格基线头。
- * 0034 重构（用户拍板汇总双定位）：目录含 flow 时产「场景索引页」为整本默认落页
- * （场景清单点步骤跳单页 → 页内按钮像真实产品一样继续操作）；无 flow 时保持首页面直落。
+ * 统一应用壳（顶栏 ☰导航收展+品牌+面包屑+状态 pills / 左侧导航默认收拢 / 内容区）+ 风格基线头。
+ * 0034 重构：目录含 flow 时产「场景索引页」；**2026-10-23 产品形态根修：默认落页=产品首页
+ * （P-HOME 优先，否则首页面）——打开整本即产品形态；场景索引经左导航 🏠（#index）进入**。
+ * 页面/流程/状态可见标题一律 cleanPageTitle 剥技术锚码（u-n 不进可见文案）。
  * 产物保留全部 data-page-block/data-page/data-state 静态标记 → checkPrototype/定稿/基线零改动。
  */
 export function composePrototype(
@@ -738,8 +826,11 @@ export function composePrototype(
     .map((p) => p.parts.scriptBlock)
     .filter((s) => s.replace(/<\/?script>/g, '').trim().length > 4)
     .join('\n');
-  const titleOf = (p: CatalogItemLike) => (p.payload.title as string) ?? p.code;
+  const titleOf = (p: CatalogItemLike) => cleanPageTitle((p.payload.title as string) ?? p.code);
   const hasFlows = flowItems.length > 0;
+  // 产品首页落点：P-HOME 优先，无则首页面；无任何页面时不注入（回退场景索引/占位行为）
+  const homeCode = (pageItems.find((p) => p.code === 'P-HOME') ?? pageItems[0])?.code ?? '';
+  const stateTitles = Object.fromEntries(stateItems.map((s) => [s.code, cleanPageTitle((s.payload.title as string) ?? s.code)]));
   const navLinks = pageItems.map((p) =>
     `<a href="#${esc(p.code)}" data-shell-nav="${esc(p.code)}" data-title="${esc(titleOf(p))}"><span class="c">${esc(p.code)}</span>${esc(titleOf(p))}</a>`,
   ).join('\n      ');
@@ -748,18 +839,19 @@ export function composePrototype(
     const steps = (f.payload.steps as string[] | undefined) ?? [];
     const firstRef = steps.map(parseFlowStepRef).find((r) => r !== null);
     const target = firstRef?.page ?? pageItems[0]?.code ?? '';
-    return `<a href="#${esc(target)}"><span class="c">${esc(f.code)}</span>${esc((f.payload.title as string) ?? f.code)}</a>`;
+    return `<a href="#${esc(target)}"><span class="c">${esc(f.code)}</span>${esc(cleanPageTitle((f.payload.title as string) ?? f.code))}</a>`;
   }).join('\n      ');
   const product = opts.productName?.trim() || '项目';
   const indexView = hasFlows ? renderScenarioIndex(flowItems, pageItems, stateItems, product) : '';
+  const homeTitle = homeCode ? titleOf(pageItems.find((p) => p.code === homeCode)!) : (hasFlows ? '场景首页' : '');
   const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(product)} · 可交互原型</title>
 <style>${buildThemeCss(opts.theme)}\n${SHELL_CSS}${indexView ? `\n${COMPOSED_FLOW_STYLE}` : ''}</style></head>
 <body data-prototype="msf">
 <div class="msf-shell">
-  <header class="msf-top"><button class="msf-navtoggle" type="button" data-shell-toggle title="展开/收拢页面导航">☰</button><span class="msf-brand">${esc(product)}</span><span class="msf-crumb" data-shell-crumb>${esc(hasFlows ? '场景首页' : (pageItems[0] ? titleOf(pageItems[0]) : ''))}</span></header>
+  <header class="msf-top"><button class="msf-navtoggle" type="button" data-shell-toggle title="展开/收拢页面导航">☰</button><span class="msf-brand">${esc(product)}</span><span class="msf-crumb" data-shell-crumb>${esc(homeTitle)}</span><span class="msf-states" data-shell-states></span></header>
   <div class="msf-body">
     <nav class="msf-sidenav">
-      ${hasFlows ? '<a href="#" data-shell-home><span class="c">🏠</span>场景首页</a>\n      ' : ''}<div class="msf-grp">页面</div>
+      ${hasFlows ? '<a href="#index" data-shell-home><span class="c">🏠</span>场景首页</a>\n      ' : ''}<div class="msf-grp">页面</div>
       ${navLinks}
       ${hasFlows ? `<div class="msf-grp">流程</div>\n      ${flowLinks}` : ''}
     </nav>
@@ -770,6 +862,7 @@ ${blocks}
   </div>
 </div>
 ${scripts}
+<script>window.__MSF_HOME__=${JSON.stringify(homeCode)};window.__MSF_STATE_TITLES=${JSON.stringify(stateTitles)};</script>
 ${NAV_SCRIPT}
 </body></html>`;
   const navTargets = [...new Set(extractDataNavTargets(html))].sort();

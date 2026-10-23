@@ -12,13 +12,16 @@ import {
   buildMockPage,
   buildPagePrompt,
   buildThemeCss,
+  cleanPageTitle,
   composePrototype,
   ensureDocumentOnly,
   ensureNavScript,
+  ensureStateBar,
   ensureThemeStyle,
   extractDataNavTargets,
   extractPageParts,
   findDataNavProblem,
+  findDraftCopy,
   findHiddenSectionRule,
   parseFlowStepRef,
   parseNavRef,
@@ -287,7 +290,7 @@ describe('整本壳 0034 重构（场景索引默认落页 + 左导航收展）'
     expect(html).not.toContain('<div class="msf-index"'); // 索引块本身不产（NAV_SCRIPT 协议字符串恒在属正常）
     expect(html).not.toContain('<a href="#" data-shell-home>');
     expect(html).toContain('data-shell-toggle'); // ☰ 收展钮与流程无关恒在
-    expect(html).toContain('>首页</span></header>');
+    expect(html).toContain('<span class="msf-crumb" data-shell-crumb>首页</span>'); // 面包屑=产品首页标题（2026-10-23：顶栏右侧新增状态 pills 容器， crumb 后不再直接收尾）
     expect(checkPrototype(html, items).issues).toEqual([]);
   });
   it('NAV_SCRIPT：壳层新协议齐备（场景首页显隐/☰ 收展/hash 空→索引）', () => {
@@ -465,8 +468,9 @@ describe('composePrototype 流程视图（覆盖检测 §3）', () => {
     expect(html).toContain('data-flow="F-001"');
     expect(html).toContain('data-nav="#P-HOME"');
     // 新格式步骤标签=页面标题（可读）；旧格式 REQ 标题纯文本不可点
+    // （2026-10-23 产品形态：REQ/CR 编号前缀剥除显示，技术编号不进可见文案；manifest 快照仍留原始 steps）
     expect(html).toContain('>首页</a>');
-    expect(html).toContain('<li class="msf-flow-step">REQ-001 门户首页</li>');
+    expect(html).toContain('<li class="msf-flow-step">门户首页</li>');
     expect(manifest.flows?.[0]).toMatchObject({ code: 'F-001', title: '主流程', steps: ['P-HOME', 'REQ-001 门户首页'] });
     expect(manifest.dataNavTargets).toContain('#P-HOME');
   });
@@ -504,5 +508,89 @@ describe('checkPrototype 流程/穿流校验（覆盖检测 §3；issue 只进 i
     const badHtml = `${htmlBase}<a data-nav="#P-404">x</a><a data-nav="#P-HOME/ST-nope">y</a><a data-nav="P-HOME">z</a>`;
     const bad = checkPrototype(badHtml, items).issues.filter((i) => i.code === 'DATA_NAV_TARGET_MISSING');
     expect(bad).toHaveLength(3);
+  });
+});
+
+describe('产品形态根修（2026-10-23 三层一致：cleanPageTitle / findDraftCopy / ensureStateBar / 壳层切态）', () => {
+  it('cleanPageTitle：章节锚码前缀剥除；无码原样；剥空回落原标题', () => {
+    expect(cleanPageTitle('u-35 身份入口页')).toBe('身份入口页');
+    expect(cleanPageTitle('p-001 登录注册页')).toBe('登录注册页');
+    expect(cleanPageTitle('首页')).toBe('首页');
+    expect(cleanPageTitle('P-HOME')).toBe('P-HOME'); // 大写页码非锚码，不动
+    expect(cleanPageTitle('u-35')).toBe('u-35'); // 剥空回落原标题（标题不能变空串）
+  });
+  it('findDraftCopy：可见文本命中禁词去重返回；script/style/注释/标签属性内不误伤', () => {
+    expect(findDraftCopy('<p>规则待确认，演示数据已载入</p>')).toEqual(['待确认', '演示数据']);
+    expect(findDraftCopy('<script>var s="待确认";</script><style>/* 仅演示 */</style><!-- TODO --><p data-x="待实现">正常产品文案</p>')).toEqual([]);
+    expect(findDraftCopy('<p>待定席位</p><p>占位</p>')).toEqual([]); // 有意不收裸词防误伤（产品合法用词）
+    expect(findDraftCopy('<p>仅演示 仅演示</p>')).toEqual(['仅演示']); // 去重
+  });
+  it('ensureStateBar：多状态注入系统切态条（hash 链接+首态激活+标题剥码）；单状态不注；幂等；汇总抽取不携带', () => {
+    const states2: CatalogItemLike[] = [
+      { item_type: 'state', code: 'ST-default', payload: { title: '默认' } },
+      { item_type: 'state', code: 'ST-empty', payload: { title: 'u-2 空态' } },
+    ];
+    const once = ensureStateBar(doc, 'P-HOME', states2);
+    expect(once).toContain('data-msf-statebar');
+    expect(once).toContain('href="#P-HOME/ST-default"');
+    expect(once).toContain('>空态</a>'); // 状态标题剥锚码
+    expect(once.indexOf('data-msf-statebar')).toBeLessThan(once.lastIndexOf('</body>'));
+    expect(ensureStateBar(once, 'P-HOME', states2)).toBe(once); // 幂等（先剥旧条再注入）
+    expect(ensureStateBar(doc, 'P-HOME', [st])).toBe(doc); // 单状态无切换需求不注
+    // 条在标记段外——extractPageParts 不携带进整本（整本切态由壳顶栏 pills 接管）
+    expect(extractPageParts(once)!.body).not.toContain('data-msf-statebar');
+  });
+  it('buildPagePrompt：产品形态纪律块 + 零状态切换控件契约 + 标题剥锚码进 prompt', () => {
+    const p: CatalogItemLike = { item_type: 'page', code: 'P-009', payload: { title: 'u-35 身份入口页', reqIds: [] } };
+    const prompt = buildPagePrompt(p, [st], [], '', '', '');
+    expect(prompt).toContain('## 产品形态纪律');
+    expect(prompt).toContain('不要渲染任何状态切换控件');
+    expect(prompt).toContain('不得携带编号或需求点标记');
+    expect(prompt).toContain('「身份入口页」'); // 锚码剥后进 prompt
+    expect(prompt).not.toContain('「u-35 身份入口页」');
+  });
+  it('composePrototype：导航/面包屑标题剥锚码；__MSF_HOME__ 落点 P-HOME 优先；壳顶栏状态 pills 容器在', () => {
+    const pLogin: CatalogItemLike = { item_type: 'page', code: 'P-LOGIN', payload: { title: 'u-1 登录注册页', route: '/login', reqIds: [] } };
+    const { html } = composePrototype([page, pLogin, st], [
+      { code: 'P-HOME', parts: extractPageParts(doc)!, objectKey: 'sha256/abc', fingerprint: 'fp1', source: 'model' },
+    ], [], { productName: '测试产品' });
+    expect(html).toContain('data-shell-nav="P-LOGIN" data-title="登录注册页"');
+    expect(html).not.toContain('data-title="u-1 登录注册页"');
+    expect(html).toContain('window.__MSF_HOME__="P-HOME"');
+    expect(html).toContain('"ST-empty":"空态"'); // __MSF_STATE_TITLES 状态标题映射
+    expect(html).toContain('data-shell-states'); // 壳顶栏 pills 容器
+    expect(html).toContain('>首页</span>'); // 面包屑初始=产品首页标题（非场景索引）
+  });
+  it('composePrototype：无 P-HOME 时 __MSF_HOME__ 落首页面（打开整本=产品形态而非草稿索引）', () => {
+    const { html } = composePrototype([page2, st], []);
+    expect(html).toContain('window.__MSF_HOME__="P-LIST"');
+  });
+  it('NAV_SCRIPT：产品首页落点/壳层 pills/#index 场景首页协议齐备', () => {
+    expect(NAV_SCRIPT).toContain('__MSF_HOME__');
+    expect(NAV_SCRIPT).toContain('__MSF_STATE_TITLES');
+    expect(NAV_SCRIPT).toContain('[data-shell-states]');
+    expect(NAV_SCRIPT).toContain("'index'");
+  });
+  it('placeholderBlock：data-msf-placeholder 标记在（草稿语闸剔除段）；标题剥锚码；占位提示语保留', () => {
+    const p: CatalogItemLike = { item_type: 'page', code: 'P-X', payload: { title: 'u-9 某页' } };
+    const b = placeholderBlock(p, []);
+    expect(b).toContain('data-msf-placeholder');
+    expect(b).toContain('待生成'); // 占位块自身提示语保留（闸扫描时按标记剔除）
+    expect(b).toContain('某页');
+    expect(b).not.toContain('u-9 某页');
+  });
+  it('checkPrototype 草稿语闸：页体可见文案含禁词 → PROTO_DRAFT_COPY；占位块「待生成」按标记剔除不误伤', () => {
+    const base = '<div data-page-block="P-HOME"><section data-page="P-HOME" data-state="ST-empty"></section></div>'
+      + '<div data-page-block="P-LIST"><section data-page="P-LIST" data-state="ST-empty"></section></div>';
+    const clean = checkPrototype(base, items).issues.filter((i) => i.code === 'PROTO_DRAFT_COPY');
+    expect(clean).toEqual([]);
+    const dirty = checkPrototype(`${base}<p>以下规则待确认，以最终确认结果为准</p>`, items).issues.filter((i) => i.code === 'PROTO_DRAFT_COPY');
+    expect(dirty).toHaveLength(1);
+    expect(dirty[0]!.message).toContain('待确认');
+    expect(dirty[0]!.target).toBe('prototype');
+    // 占位块整体带 data-msf-placeholder → 闸先剔除该段，「待生成」不命中
+    const withPlaceholder = checkPrototype(base.replace(/data-page-block="P-LIST"[\s\S]*?<\/div>/, placeholderBlock(page2, [st])), items)
+      .issues.filter((i) => i.code === 'PROTO_DRAFT_COPY');
+    expect(withPlaceholder).toEqual([]);
   });
 });

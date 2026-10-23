@@ -75,6 +75,11 @@ export const APP_CONVENTIONS = `
 - 【保真闸（机器强制，2026-10-22 文案漂移根修）】页面交付由服务端机器核验：原型交互元素
   （按钮/链接/label/option 文本与 placeholder 文案）须在交付页中逐字出现（图标/箭头不计），
   命中率不足即整批打回返工——同义改写（"我准备好了"→"准备"）、合并省略、自创入口一律不许；
+- 【产品形态纪律（2026-10-23「预览像草稿」根修）】交付页=上线产品形态：
+  原型中若残留设计标注层（页面编号/REQ 需求徽标/章节锚码 chip、「状态预览」切换条、
+  「演示数据/仅演示/待确认/不代表服务端」类草稿声明）一律剥除，不得带进产品页；
+  可见文案用确定口吻的真实产品语言（规则写真实规则，不写「规则待确认」）；
+  页面标题栏只写产品页名，不带任何编号；数据一律来自真实 API 或真实空态，演示数据不进产品；
 - 【壳-后端挂载契约（2026-10-23 全链实测双项目实抓）】server/index.js 必须在无参启动路径
   （npm start）即挂载业务后端：壳要么 require('./api') 业务处理器挂 /app-api 前缀，
   要么约定自动装载文件名并在壳内 require 之——壳与后端对挂载点/文件名/导出形状的约定必须一致；
@@ -127,8 +132,8 @@ export function parseFileBlocks(text: string): CodegenFile[] {
  *  数字一并剥除：控件文案里的计数是数据（原型「全部好友 6」vs 产品真实「全部好友 0」），
  *  不属版式保真——run_263 T-028 实抓 demo 计数标签空打回 3 轮） */
 const normInteractive = (s: string) => s.replace(/[^\p{L}\p{N}]/gu, '').replace(/\d+/g, '').toLowerCase();
-/** 原型演示噪音（状态面板标签/演示标记不是产品功能，不计入保真分母） */
-const PROTO_DEMO_NOISE = ['默认态', '空态', '原型导航', '演示'];
+/** 原型演示噪音（状态面板标签/演示标记/设计标注层不是产品功能，不计入保真分母） */
+const PROTO_DEMO_NOISE = ['默认态', '空态', '原型导航', '演示', '状态预览', '仅演示', '演示数据', '示例数据', '模拟数据', '不代表服务端'];
 
 /** 提取页面交互元素文案（button/a/label/option 内联文本 + placeholder；嵌套标签剥平） */
 export function extractInteractiveTexts(html: string): string[] {
@@ -393,9 +398,10 @@ export class DevCodegenService {
           for (const p of pages.rows) {
             const html = await this.storage.getObject(p.object_key).catch(() => null);
             if (html) {
-              const text = html.toString('utf8');
+              // 系统状态条（单页预览切态用）不属页面内容——注入前剥除，防 AI 当产品组件照抄
+              const text = html.toString('utf8').replace(/<!--msf:statebar-begin-->[\s\S]*?<!--msf:statebar-end-->/g, '');
               protoPages.push({ code: p.page_code, html: text });
-              parts.push(`\n【页面 ${p.page_code} 的已定稿原型 HTML——本任务交付物 public/pages/${p.page_code}.html 就是它的接线版，必须严格按原型实现：配色、布局、区块结构、文案与原型 1:1 保留（含 <style> 与主题变量），原型上每个按钮/表单/列表/筛选器/页签/交互都必须可用且行为一致；只把内置模拟数据与假交互改造为 fetch('app-api/...') 真实驱动；契约确无对应端点的部分保留模拟数据并以 HTML 注释标 TODO，且必须在任务说明输出中逐条列出缺口清单（页面审查与测试阶段按此清单核对）；不得自创版式、不得增减区块、不得省略交互】\n【接线手法（2026-10-22 run_262 T-021 三轮保真红根修）】以原型 HTML 为基底原样保留、逐字节不动外观：配色 hex/尺寸 px/布局结构/区块顺序一处不改，只做最小手术式接线（数据绑定换 fetch、按钮接真实事件）。禁止全文重写、禁止重新设计样式——评审逐块 diff 原型，任何样式漂移（背景色/宽度/排布）直接判红。输出时先完整复述原型，再在其上做手术修改。\n${text.slice(0, MAX_PROMPT_HTML)}`);
+              parts.push(`\n【页面 ${p.page_code} 的已定稿原型 HTML——本任务交付物 public/pages/${p.page_code}.html 就是它的接线版，必须严格按原型实现：配色、布局、区块结构、文案与原型 1:1 保留（含 <style> 与主题变量），原型上每个按钮/表单/列表/筛选器/页签/交互都必须可用且行为一致；只把内置模拟数据与假交互改造为 fetch('app-api/...') 真实驱动；契约确无对应端点的部分保留模拟数据并以 HTML 注释标 TODO，且必须在任务说明输出中逐条列出缺口清单（页面审查与测试阶段按此清单核对）；不得自创版式、不得增减区块、不得省略交互。若原型中残留设计标注层（页面编号/REQ 徽标/章节锚码 chip、状态预览切换条、「演示/待确认」类草稿声明），一律视为原型杂质剥除——产品页只保留真实业务内容与真实产品文案】\n【接线手法（2026-10-22 run_262 T-021 三轮保真红根修）】以原型 HTML 为基底原样保留、逐字节不动外观：配色 hex/尺寸 px/布局结构/区块顺序一处不改，只做最小手术式接线（数据绑定换 fetch、按钮接真实事件）。禁止全文重写、禁止重新设计样式——评审逐块 diff 原型，任何样式漂移（背景色/宽度/排布）直接判红。输出时先完整复述原型，再在其上做手术修改。\n${text.slice(0, MAX_PROMPT_HTML)}`);
             }
           }
         }

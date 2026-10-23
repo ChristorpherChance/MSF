@@ -18,6 +18,7 @@ import {
   composePrototype,
   extractDataNavTargets,
   extractPageParts,
+  findDraftCopy,
   parseFlowStepRef,
   UI_PAGE_SECTION_RE,
   type AssemblePageInput,
@@ -826,6 +827,14 @@ export function checkPrototype(
         issues.push({ code: 'FLOW_REF_MISSING', message: `流程 ${f.code} 步骤「${s}」引用的状态 ${ref.state} 不存在（编辑流程步骤或重新规划）`, target: f.code });
       }
     }
+  }
+  // 草稿语闸（2026-10-23「整本像草稿」根修）：整本可见文案扫草稿语禁词——页内容里的
+  // 「待确认/仅演示/演示数据/不代表服务端」会被保真链 1:1 放大到开发预览产品页，阻断定稿
+  // 强制重生成。占位块（页未生成的回落提示）属系统提示非页内容，剔除后扫描。
+  const withoutPlaceholders = html.replace(/<div class="page-card" data-msf-placeholder>[\s\S]*?<\/div>/g, ' ');
+  const draftHits = findDraftCopy(withoutPlaceholders);
+  if (draftHits.length > 0) {
+    issues.push({ code: 'PROTO_DRAFT_COPY', message: `原型含设计草稿语（${draftHits.join('、')}）——页面内容必须是真实产品语言，重生成对应页工件后重新汇总`, target: 'prototype' });
   }
   return { issues, unverified };
 }
